@@ -319,16 +319,37 @@ function federationLive() {
   const s = read();
   return s.ok === true && s.fedLive === true;
 }
-function write(patch) {
-  const next = { ...read(), ...patch };
+/* #4308 (Liu Kang's ruling): an unreadable settings file must stay visible to the person until THEY repair it.
+   write() rebuilds the file from read(), and read() of a damaged file is the defaults with on:false, so any
+   background write (the standing cache, the device id, the denied list) would silently rewrite it as "off" and
+   the page would never say anything went wrong. So only a person's own action repairs: the switch, the relay,
+   sign-in and Forget pass { repair: true }. Everything else leaves a damaged file exactly as it is. */
+const UNREADABLE = 'remote access settings could not be read';
+function write(patch, opts) {
+  const current = read();
+  if (current.ok === false && !(opts && opts.repair === true)) return { ok: false, because: UNREADABLE, unreadable: true };
+  const next = { ...current, ...patch };
   delete next.ok;
+  /* Atomic and durable (#4308): the new content goes to a temporary file of its own in the same folder, is flushed
+     to disk, and only then renamed over the old one. An interrupted write leaves the previous file whole; a power
+     cut after the rename cannot leave it empty, because the bytes were flushed first. The name is unique per write,
+     so two processes saving at once cannot interleave into one temporary file. */
+  const tmp = FILE + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+  let fd = null;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(next) + '\n');
+    fd = fs.openSync(tmp, 'w');
+    fs.writeSync(fd, JSON.stringify(next) + '\n');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
     fs.renameSync(tmp, FILE);
+    try { const dir = fs.openSync(path.dirname(FILE), 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } }
+    catch { /* the rename is done; a folder flush is best-effort (some filesystems refuse it) */ }
     return { ok: true };
   } catch {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* already failing */ } }
+    try { fs.unlinkSync(tmp); } catch { /* nothing was left, or it cannot be removed */ }
     return { ok: false, because: 'we could not save that setting' };
   }
 }
@@ -374,7 +395,7 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
-  const wrote = write({ on });
+  const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
@@ -391,7 +412,7 @@ function setRelay(relay) {
   if (v !== '' && !/^[^\s:]+:\d{1,5}$/.test(v)) {
     return { ok: false, because: 'the relay has to be host:port' };
   }
-  const wrote = write({ relay: v });
+  const wrote = write({ relay: v }, { repair: true });
   if (!wrote.ok) return wrote;
   ensure(localPort);
   return { ok: true };
@@ -812,7 +833,7 @@ async function forgetNow() {
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false });
+  write({ on: false }, { repair: true });
   let retired = false;
   let because = null;
   if (canRetire) {
@@ -828,7 +849,7 @@ async function forgetNow() {
      federation UI) true for the NEXT account that has not signed in yet -- a leak
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
-  write({ ...r, on: false, standing: '' });
+  write({ ...r, on: false, standing: '' }, { repair: true });
   // Anything started during the retire wait (it can be minutes) goes too.
   stopChild();
   return {
@@ -864,7 +885,7 @@ async function setupStart(email) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   const result = await setupRun(['setup', 'start', '--coordinator', COORDINATOR(), '--email', email]);
-  if (result.ok) write({ email });
+  if (result.ok) write({ email }, { repair: true });
   return result;
 }
 
@@ -1297,7 +1318,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // only a NEW identity: a register that failed and changed nothing leaves a Mac
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
-    try { write({ on: false }); } catch { /* status says what happened */ }
+    try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
@@ -1588,7 +1609,7 @@ function busy() {
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
 function turnOnAfterSignin() {
-  const wrote = write({ on: true });
+  const wrote = write({ on: true }, { repair: true });
   if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
 }
 

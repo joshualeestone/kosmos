@@ -1,0 +1,117 @@
+'use strict';
+/**
+ * #4308 (Liu Kang's ruling on the card): an unreadable remote-access settings file must
+ *   1. not be produced by an interrupted write (the old file stays whole),
+ *   2. stay visible until the PERSON repairs it (a background write must not quietly rewrite it as "off"),
+ *   3. be repaired by the person turning remote access on,
+ *   4. never be taken as permission for a signed call.
+ * Sandboxed data root and a FAKE tunnel program before the require; nothing reaches a network.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-remote-4308-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const EMPTY_STATE = nodePath.join(SANDBOX, 'not-enrolled');
+const ENROLLED_STATE = nodePath.join(SANDBOX, 'enrolled');
+fs.mkdirSync(EMPTY_STATE, { recursive: true });
+fs.mkdirSync(ENROLLED_STATE, { recursive: true });
+for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(ENROLLED_STATE, f), 'x\n');
+process.env.AGENT_WORKFORCE_TUNNEL_STATE = EMPTY_STATE;   // not enrolled, so the switch starts no tunnel
+
+const RECORD = nodePath.join(SANDBOX, 'tunnel-calls.jsonl');
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
+require('node:fs').appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+process.stdout.write('{}\\n');
+`, { mode: 0o755 });
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
+
+const remote = require('./remote');
+const standing = require('./mac-standing');
+const FILE = remote.FILE;
+const DIR = nodePath.dirname(FILE);
+const DAMAGED = '{"on": true, "relay": "rel';   // cut short, as an interrupted write would leave it
+
+function saveGood(obj) { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(FILE, JSON.stringify(obj) + '\n'); }
+function leftovers() { return fs.readdirSync(DIR).filter((n) => n.startsWith('remote.json.') && n.endsWith('.tmp')); }
+function calls() { try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean); } catch { return []; } }
+
+test('1a. a write interrupted before the rename leaves the previous file whole and readable', () => {
+  saveGood({ on: false, relay: 'old.example:443' });
+  const before = fs.readFileSync(FILE, 'utf8');
+  const rename = fs.renameSync;
+  fs.renameSync = () => { throw new Error('simulated crash before the rename'); };
+  let r;
+  try { r = remote.setRelay('new.example:443'); } finally { fs.renameSync = rename; }
+  assert.equal(r.ok, false, 'the interrupted save claimed success');
+  assert.equal(fs.readFileSync(FILE, 'utf8'), before, 'the previous file changed');
+  assert.equal(remote.read().ok, true);
+  assert.equal(remote.read().relay, 'old.example:443');
+  assert.deepEqual(leftovers(), [], 'a temporary file was left behind');
+});
+
+test('1b. a write cut off half-way through its bytes leaves the previous file whole and readable', () => {
+  saveGood({ on: false, relay: 'old.example:443' });
+  const before = fs.readFileSync(FILE, 'utf8');
+  const writeSync = fs.writeSync;
+  fs.writeSync = (fd, data) => { writeSync(fd, String(data).slice(0, 7)); throw new Error('simulated crash mid-write'); };
+  let r;
+  try { r = remote.setRelay('new.example:443'); } finally { fs.writeSync = writeSync; }
+  assert.equal(r.ok, false);
+  assert.equal(fs.readFileSync(FILE, 'utf8'), before, 'half a write reached the real file');
+  assert.equal(remote.read().ok, true);
+  assert.deepEqual(leftovers(), []);
+});
+
+test('1c. a completed write is flushed before the rename, and leaves no temporary file', () => {
+  saveGood({ on: false });
+  const order = [];
+  const fsync = fs.fsyncSync; const rename = fs.renameSync;
+  fs.fsyncSync = (fd) => { order.push('fsync'); return fsync(fd); };
+  fs.renameSync = (a, b) => { order.push('rename'); return rename(a, b); };
+  try { assert.equal(remote.setRelay('new.example:443').ok, true); } finally { fs.fsyncSync = fsync; fs.renameSync = rename; }
+  assert.equal(order[0], 'fsync', 'the bytes were not flushed before the rename: ' + order.join(','));
+  assert.ok(order.includes('rename'));
+  assert.equal(remote.read().relay, 'new.example:443');
+  assert.deepEqual(leftovers(), []);
+});
+
+test('2. a background write leaves a damaged file exactly as it is, so the person can still be told', () => {
+  saveGood({});
+  fs.writeFileSync(FILE, DAMAGED);
+  assert.equal(remote.read().ok, false, 'the fixture is not unreadable');
+  remote.fedSetStanding('member');   // the standing cache: a background write
+  assert.equal(fs.readFileSync(FILE, 'utf8'), DAMAGED, 'a background write rewrote the damaged file');
+  assert.equal(remote.read().ok, false, 'the unreadable state was erased before the person saw it');
+});
+
+test('3. the person turning remote access on repairs the file', () => {
+  fs.writeFileSync(FILE, DAMAGED);
+  assert.equal(remote.setOn(true).ok, true);
+  const now = remote.read();
+  assert.equal(now.ok, true, 'the switch did not repair the file');
+  assert.equal(now.on, true);
+  remote.setOn(false);
+});
+
+test('4. no signed call while the file is unreadable; the same enrolled Mac with a readable ON file does call', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = ENROLLED_STATE;
+  try {
+    // Control first: the test can see a call when one is allowed.
+    saveGood({ on: true });
+    fs.rmSync(RECORD, { force: true });
+    await standing.fetchStanding();
+    assert.ok(calls().length > 0, 'control: an enrolled, switched-on Mac made no call, so this test cannot see one');
+
+    fs.writeFileSync(FILE, DAMAGED);
+    fs.rmSync(RECORD, { force: true });
+    assert.equal(await standing.fetchStanding(), null);
+    assert.deepEqual(calls(), [], 'a signed call went out on an unreadable settings file');
+  } finally {
+    process.env.AGENT_WORKFORCE_TUNNEL_STATE = EMPTY_STATE;
+  }
+});

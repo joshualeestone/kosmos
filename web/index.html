@@ -39324,6 +39324,10 @@ async function paintPlus() {
     ? ''
     : (stat.state === 'up' ? 'Connected. Your address is on its way.'
       : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  /* #4308: a damaged settings file reads as off, and off alone looked like a choice the person made. Say what
+     happened and what repairs it: turning remote access on rewrites the file (the engine repairs only on a person's
+     own action, so this line stays until they do). */
+  if (r.ok === false) st.textContent = 'Remote access settings could not be read. Turn remote access on again to repair them.';
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
