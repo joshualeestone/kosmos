@@ -65,7 +65,7 @@ const ACTION = new Set([
  *  times in the live store). An action word within NEGATION_REACH words after one of these does not count. */
 const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
   'werent', 'nor', 'neither', 'free', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
-const NEGATION_REACH = 3;
+const NEGATION_REACH = 4;   // 4, not 3: "rather than stuck or blocked" puts `blocked` four words after `rather`
 
 /** kosmos#4415: an item made only of this kind of statement reports that nothing was wrong. */
 const CLEAN = /\b(?:worked|works|working) (?:as expected|fine|correctly|well)\b|\bno (?:issues?|problems?|errors?|bugs?|crashes?)\b|\bnothing (?:appears |seemed |seems |was |is )?(?:broken|wrong|failed|off)\b|\bwithout (?:any )?(?:issues?|errors?|problems?)\b/;
@@ -181,15 +181,16 @@ function classify(item) {
   }
 
   /* kosmos#4415: a negated action word is not an action ("no errors", "nothing broken"). */
-  const actionHits = words.filter((w, i) => ACTION.has(w)
-    && !words.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x)));
+  const negated = (i) => words.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x));
+  const actionHits = words.filter((w, i) => ACTION.has(w) && !negated(i));
+  const negatedHits = words.filter((w, i) => ACTION.has(w) && negated(i));
   /* kosmos#4415: the report form's own questions ("Is anything broken?", "What would make it better:") come back as
      items of their own; a short line ending in ? or : is a heading, not a report. */
   if (words.length <= 8 && /[?:]\s*$/.test(String(item).trim())) {
     reasons.push('a question from the report form, not an answer');
     return { score: 0, reasons };
   }
-  if (!actionHits.length && CLEAN.test(norm)) {
+  if (!actionHits.length && (negatedHits.length || CLEAN.test(norm))) {   // its only problem words are negated
     reasons.push('reports that nothing was wrong');
     return { score: 0, reasons };
   }
