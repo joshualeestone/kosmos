@@ -20,14 +20,80 @@
       "reason": "home_path"
     },
     {
+      "id": "macos-home-path-before-space",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"My home is /Users/alice today."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "macos-home-path-before-newline",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"See /Users/alice\nfor the local checkout."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "macos-home-path-before-comma",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"See /Users/alice, then open the checkout."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "macos-home-path-before-period",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"See /Users/alice. Then open the checkout."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "macos-home-path-before-quote",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The path is \"/Users/alice\", according to the note."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
       "id": "linux-home-path",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read /home/alice/private/notes.txt before launch."},
       "expected_output": null,
       "reason": "home_path"
     },
     {
+      "id": "linux-home-path-before-space",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"My home is /home/alice today."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "linux-home-path-before-closing-bracket",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Path list: [/home/alice], then the shared path."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "linux-home-path-before-colon",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Owner /home/alice: use the local checkout."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
       "id": "windows-home-path-backslashes",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Read C:\\Users\\Alice\\private\\notes.txt before launch."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "windows-home-path-before-space",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"My home is C:\\Users\\Alice today."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "windows-home-path-before-closing-paren",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Use (C:\\Users\\Bob), then open the checkout."},
+      "expected_output": null,
+      "reason": "home_path"
+    },
+    {
+      "id": "windows-home-path-before-semicolon",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Use C:\\Users\\Bob; then open the checkout."},
       "expected_output": null,
       "reason": "home_path"
     },
