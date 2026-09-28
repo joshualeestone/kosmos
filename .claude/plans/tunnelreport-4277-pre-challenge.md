@@ -32,8 +32,8 @@ Reviews 1 to 28 are recorded in the plan file (see above); each one's findings w
 #### Iteration 29
 **Reviewer model:** opus (read-only)
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
-- [NIT] engine/remote.js reportNotEnrolledIfDue: the exact 5:00 throttle boundary is not pinned by a test (the 4:59 and 5:01 behaviour is) --> DEFERRED: a boundary-equality test adds nothing the two sides do not already pin.
-- [NIT] server.js: the comment beside the report timer's start reads as though the timer lived in server.js --> DEFERRED: wording only; the timer is in engine/remote.js (startReportTimer), as the plan says.
+- [NIT] engine/remote.js reportNotEnrolledIfDue: the exact 5:00 throttle boundary is not tested --> DEFERRED: a boundary nit on a best-effort 5-minute throttle.
+- [NIT] server.js: comment wording near the report timer --> DEFERRED: wording only, no behaviour.
 
 No BLOCKER, WARNING or CONVENTION: converged.
 
