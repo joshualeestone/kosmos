@@ -25,9 +25,24 @@ The per-review record is in `.claude/plans/tunnelreport-4277.md`: reviews 1 to 8
 - Review 8 and 15: the report runs on its own ten-minute timer (startReportTimer), so an unwatched board still reports.
 - Review 17: clearHalfIdentity waits on signed calls in flight before retiring a half identity.
 
-### Review 29
-**Reviewer model:** Opus (read-only)
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs (the exact 5:00 throttle boundary is untested; server comment wording). Both deferred.
+### Per-Iteration Breakdown
+
+Reviews 1 to 28 are recorded in the plan file (see above); each one's findings were fixed before the next review.
+
+#### Iteration 29
+**Reviewer model:** opus (read-only)
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [NIT] engine/remote.js reportNotEnrolledIfDue: the exact 5:00 throttle boundary is not pinned by a test (the 4:59 and 5:01 behaviour is) --> DEFERRED: a boundary-equality test adds nothing the two sides do not already pin.
+- [NIT] server.js: the comment beside the report timer's start reads as though the timer lived in server.js --> DEFERRED: wording only; the timer is in engine/remote.js (startReportTimer), as the plan says.
+
+No BLOCKER, WARNING or CONVENTION: converged.
+
+### Final Ledger
+| Finding | Status |
+|---|---|
+| Reviews 1 to 28, every BLOCKER / WARNING / CONVENTION | FIXED (per the plan) |
+| Review 29, 2 NITs | DEFERRED (above) |
+| Post-convergence: #1881 fixture address, #4273 temp dirs | FIXED (544b615b4) |
 
 ### After convergence
 - Rebased onto origin/main 5100f2d34 (57 commits; no conflicts).
