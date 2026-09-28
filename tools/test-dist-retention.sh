@@ -615,8 +615,9 @@ ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(sys.argv[1], 
 s.socket = ctx.wrap_socket(s.socket, server_side=True)
 print(s.server_address[1], flush=True); s.serve_forever()
 PYEOF
-  python3 "$TLS/srv.py" "$TLS/c.pem" "$TLS/k.pem" "$MIRROR" > "$TLS/port" 2>/dev/null & SRV=$!
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TLS/port" ] && break; sleep 0.5; done
+  python3 "$TLS/srv.py" "$TLS/c.pem" "$TLS/k.pem" "$MIRROR" > "$TLS/port" 2> "$TLS/srv.err" & SRV=$!
+  # Up to 30s: a cold python on a loaded CI runner took longer than the first 5s allowed.
+  for _ in $(seq 1 60); do [ -s "$TLS/port" ] && break; kill -0 "$SRV" 2>/dev/null || break; sleep 0.5; done
   PORT="$(cat "$TLS/port" 2>/dev/null)"
   if [ -n "$PORT" ]; then
     D="$TMP/g10"; make_fixture "$D" 0.6.17 $(ten); before="$(count_files "$D")"
@@ -627,7 +628,7 @@ PYEOF
     { absent "$D" kosmos-0.6.08-arm64.tar.gz && absent "$D" kosmos-0.6.09-arm64.manifest.json; } \
       && ok "gate redirect (control): the same copy served directly over https is proven and pruned" || no "gate redirect control: https harness cannot prove a copy -- $out"
   else
-    no "gate redirect: the local https server did not start"
+    no "gate redirect: the local https server did not start -- $( [ -s "$TLS/c.pem" ] && echo 'cert made' || echo 'NO cert (openssl failed)' ); server stderr: $(tr '\n' ' ' < "$TLS/srv.err" 2>/dev/null | cut -c1-400)"
   fi
   kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 else
