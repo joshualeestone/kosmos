@@ -304,7 +304,7 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 /// #4356: `bin/kosmos stop`, when a computer switches to connect. It writes board.stopped, which
 /// launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, so the board stays down
 /// across logins until something runs `kosmos start`. Returns whether it exited 0.
-func stopBoard(kosmosHome: String) -> Bool {
+func stopBoard(kosmosHome: String, port: Int?) -> Bool {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         logLine("#4356: cannot stop the board: \(kosmosBin) is missing")
@@ -315,6 +315,9 @@ func stopBoard(kosmosHome: String) -> Bool {
     process.arguments = ["stop"]
     var env = ProcessInfo.processInfo.environment
     env["KOSMOS_HOME"] = kosmosHome
+    // The same port startBoard hands the CLI: the app's port comes from kosmos-install.json, not the
+    // environment, and `kosmos stop` judges "running" on the port it is given (review round 9).
+    if let port { env["KOSMOS_PORT"] = String(port) }
     process.environment = env
     // The null device for both, as startBoard explains: an undrained Pipe can deadlock the wait.
     process.standardOutput = FileHandle.nullDevice
@@ -1242,6 +1245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
     private var modeHome: String?
+    private var modePort: Int?   // the resolved install's port, for `kosmos stop` (stopBoard)
     // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
     // stopping a board left running, a start that landed after Connect. "Run agents on this computer"
     // refuses, saying so, until all of them finish, or its `kosmos start` would race a stop (and the stop can win, leaving a
@@ -1773,7 +1777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.boardStartGeneration += 1
                     self.stopsInFlight += 1
                     DispatchQueue.global(qos: .utility).async { [weak self] in
-                        _ = stopBoard(kosmosHome: resolved.kosmosHome)
+                        _ = stopBoard(kosmosHome: resolved.kosmosHome, port: resolved.port)
                         DispatchQueue.main.async { self?.stopsInFlight -= 1 }
                     }
                     return
@@ -1826,9 +1830,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// and an install that cannot be resolved is loadBoard's to explain: both behave as today.
     private func readLaunchComputerMode() {
         guard ProcessInfo.processInfo.environment["KOSMOS_URL"] == nil,
-              let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome
+              let install = try? resolveInstall(config: KosmosInstallConfig.load())
         else { computerMode = .run; return }
+        let home = install.kosmosHome
         modeHome = home
+        modePort = install.port
         computerMode = readComputerMode(kosmosHome: home)
         logLine("#4356: this computer's mode is \(computerMode.rawValue)")
     }
@@ -1851,24 +1857,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
-    /// port). Said when the person chose Connect; a later launch's retry (stopBoardIfRunning) only logs.
+    /// port). Said when it happens: at the switch to connect, or at a launch's retry (stopBoardIfRunning).
     private func showBoardStillRunning() {
         logLine("#4356: kosmos stop failed; the board may still be running on this computer")
         showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens, and it will not start again when you restart this computer.", title: "Kosmos is still running here")
     }
 
-    /// At every launch of a connect computer: a board left running (a stop that failed, or one started
-    /// by hand) is stopped again. board.stopped is what launchd and the watchdog obey, so its absence
-    /// is the sign; a present marker means there is nothing to do.
+    /// At every launch of a connect computer: `kosmos stop`, whatever the marker says. A board left
+    /// running (a stop that failed, one started by hand) is stopped again; the marker cannot be the
+    /// sign, since a failed stop leaves it written too (holdBoardStopped). With nothing running, the
+    /// CLI says so and writes the marker, which costs a moment and nothing else.
     private func stopBoardIfRunning() {
-        guard let home = modeHome, !FileManager.default.fileExists(atPath: home + "/board.stopped") else { return }
-        logLine("#4356: connect computer without board.stopped; stopping the board")
+        guard let home = modeHome else { return }
+        logLine("#4356: connect computer launching; making sure its board is stopped")
         stopsInFlight += 1
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let stopped = stopBoard(kosmosHome: home)
+            let stopped = stopBoard(kosmosHome: home, port: self?.modePort)
             DispatchQueue.main.async {
                 self?.stopsInFlight -= 1
-                if !stopped { logLine("#4356: the launch-time stop failed too") }
+                if !stopped { self?.showBoardStillRunning() }
             }
         }
     }
@@ -1925,7 +1932,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         NSApp.dockTile.badgeLabel = nil
         updateRunAgentsItem()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let stopped = stopBoard(kosmosHome: home)
+            let stopped = stopBoard(kosmosHome: home, port: self?.modePort)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.stopsInFlight -= 1
@@ -4368,7 +4375,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     // The file itself: a write the reader reads back, a missing file, and one that cannot be read.
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-mode-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: dir) }
+    // Removed before each exit below: exit() does not unwind, so a defer here would never run.
     func disk(_ got: Bool, _ why: String) {
         ran += 1
         if !got { bad += 1 }
@@ -4382,6 +4389,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
+    try? FileManager.default.removeItem(at: dir)
     let expected = 40
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")

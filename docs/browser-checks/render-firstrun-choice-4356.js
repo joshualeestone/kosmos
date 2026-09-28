@@ -214,6 +214,20 @@ const look = (page) => page.evaluate(() => {
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356-plus-step.png') });
     await page.context().close();
 
+    // C10: end to end, not a direct call: a both computer whose first run is not done yet; leaving first
+    // run (Escape, which completes it through frFinish, as every ending does) lands on the Kosmos Plus sign-in.
+    fs.rmSync(path.join(store.ROOT, 'first-run.json'), { force: true });
+    page = await open(base + '?mode=both');
+    chk(await page.evaluate(() => { const w = document.getElementById('firstrun'); return !!w && !w.hidden && document.getElementById('fr-choice').hidden; }),
+      'C10 precondition: a both computer opens straight into first run, with no first screen');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1200);
+    chk(await page.evaluate(() => {
+      const email = document.getElementById('plus-signin-email'), b = email && email.getBoundingClientRect();
+      return document.getElementById('firstrun').hidden && SETTINGS_SEC === 'plus' && !!b && b.height > 0;
+    }), 'C10 first run ends at the Kosmos Plus sign-in on a both computer');
+    await page.context().close();
+
     chk(errs.length === 0, 'C7 no page errors', errs.join(' | '));
   } finally {
     await browser.close();

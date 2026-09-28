@@ -2658,8 +2658,24 @@ mkdir -p "$KOSMOS_HOME" "$BIN_DIR" || die "Could not create $KOSMOS_HOME. Check 
 # board polls does not exist (every agent reads as unknown), and a version
 # change would strand the running tmux server on a protocol the new client
 # cannot speak.
+# #4356: this computer's choice ($KOSMOS_HOME/mode), read here, before the pause, so the pause's own
+# line and every later line about the board come from the one reading.
+# Read ONCE: the app can rewrite the file during this run (its menu's "Run agents on this computer"),
+# and every line below about the board must agree with the one decision (review round 5).
+_kosmos_mode_file=no; _kosmos_mode_word=""
+if [ -e "$KOSMOS_HOME/mode" ]; then
+  _kosmos_mode_file=yes
+  _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
+fi
+_kosmos_mode_keeps_board_off() {
+  [ "$_kosmos_mode_file" = yes ] || return 1
+  case "$_kosmos_mode_word" in
+    run|both) return 1 ;;
+  esac
+  return 0
+}
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
-  info "pausing Kosmos for the update"
+  if _kosmos_mode_keeps_board_off; then info "making sure Kosmos stays paused for the update"; else info "pausing Kosmos for the update"; fi
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
@@ -3713,20 +3729,6 @@ fi
 # including a file that cannot be read, is not started: the installer cannot ask, and the app
 # starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
 # app's reader does.
-# Read ONCE: the app can rewrite the file during this run (its menu's "Run agents on this computer"),
-# and every line below about the board must agree with the one decision (review round 5).
-_kosmos_mode_file=no; _kosmos_mode_word=""
-if [ -e "$KOSMOS_HOME/mode" ]; then
-  _kosmos_mode_file=yes
-  _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
-fi
-_kosmos_mode_keeps_board_off() {
-  [ "$_kosmos_mode_file" = yes ] || return 1
-  case "$_kosmos_mode_word" in
-    run|both) return 1 ;;
-  esac
-  return 0
-}
 # Decided once, here, and read again by the summary at the end, so every line this run prints
 # about the board agrees with what it did.
 _kosmos_board_off=no
