@@ -255,8 +255,12 @@ const FX = {
          close branch must fire at one of them at least: 120 is short enough for both the
          pre-#2624 header and the flush one (#2624 made the bar 26px shorter, which gave
          the panel room at 160). */
+      /* #4343: 90 added. This harness answers /api/status with a board its painters cannot draw, which
+         used to count as "nothing answered" and put the offline note in the header; that made the
+         header taller, and 120 then had no room. A 200 is now an answer, so the note stays away, the
+         header is shorter, and at 120 the panel fits whole (which the invariant above accepts). */
       const closedAt = [];
-      for (const h of [260, 200, 160, 120]) {
+      for (const h of [260, 200, 160, 120, 90]) {
         await page.setViewportSize({ width: 1200, height: h });
         await page.waitForTimeout(100);
         await page.evaluate(() => { document.getElementById('d-say').scrollIntoView({ block: 'end' }); pjEmojiOpen('agent'); });
