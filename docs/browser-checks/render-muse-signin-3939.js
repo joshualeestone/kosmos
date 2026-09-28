@@ -592,6 +592,33 @@ const chk = (ok, label, extra) => {
   const dMeta = await q(() => { const s = document.getElementById('d-provider'); paintMuseOption(s, 'anthropic'); const a = s.querySelector('option[value="meta"]').disabled; paintMuseOption(s, 'meta'); const b = s.querySelector('option[value="meta"]').disabled; return [a, b]; });
   chk(dMeta[0] === true && dMeta[1] === false, 'agent page: Meta is selectable only as an agent\'s current provider', JSON.stringify(dMeta));
   chk(await q(() => providerOf({ runner: 'muse' }) === 'meta' && providerOf({ runner: 'claude' }) === 'anthropic'), 'an agent on the muse runner reads as Meta (CONTROL: a Claude agent as Anthropic)');
+  // An agent on Muse gets no Claude model list and no Claude account to move to.
+  const musePage = await q(async ([c]) => {
+    ACCOUNTS = [c, { ...c, dir: '/h/.claude-b', email: 'd@example.com', isDefault: false }];
+    CREATE_MODELS = [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }];
+    const muse = { sessionName: 'm1', runner: 'muse', provider: 'meta', account: null };
+    CURRENT = muse;
+    await paintModelPicker(muse);
+    await paintAccountPicker(muse);
+    const out = {
+      models: [...document.getElementById('d-model').options].map((o) => o.textContent),
+      modelOff: document.getElementById('d-model').disabled,
+      accts: [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean),
+      acctMsg: document.getElementById('d-account-msg').textContent,
+    };
+    // CONTROL: a Claude agent on the same page is offered the Claude accounts.
+    const claude = { sessionName: 'c1', runner: 'claude', provider: 'anthropic', account: { dir: c.dir } };
+    CURRENT = claude;
+    await paintAccountPicker(claude);
+    out.claudeAccts = [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean);
+    CURRENT = null; ACCOUNTS = [];
+    return out;
+  }, [CLAUDE_ROW]);
+  chk(musePage.models.length === 1 && musePage.models[0] === 'Meta Muse picks its own model' && musePage.modelOff === true,
+    'agent page, Muse agent: the model menu says Meta Muse picks its own model, and nothing else', JSON.stringify(musePage));
+  chk(musePage.accts.length === 0 && /Meta sign-in through Muse Code, so there is no account to move it to/.test(musePage.acctMsg),
+    'agent page, Muse agent: no account to move it to, said', JSON.stringify(musePage));
+  chk(musePage.claudeAccts.length >= 1, 'CONTROL: a Claude agent on the same page is offered Claude accounts', JSON.stringify(musePage));
   // Chosen through the real logo combobox: no account row, no model row, one line on who picks the model.
   const picked = await q(([m, c]) => {
     CREATE_ACCOUNTS = [m, c];
