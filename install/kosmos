@@ -1772,7 +1772,8 @@ cmd_community() {
   local payload
   payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
     const o = { kind: "community_post", body: process.env.KC_TEXT, at: new Date().toISOString() };
-    if (process.env.KC_TOPIC) o.topic = process.env.KC_TOPIC;
+    const topic = String(process.env.KC_TOPIC || "").trim();
+    if (topic) o.topic = topic;   // a blank topic is no topic, as a blank post is no post
     if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
     process.stdout.write(JSON.stringify(o));
   ') || { say "We could not prepare that post, so nothing was posted."; exit 1; }

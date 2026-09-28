@@ -33,6 +33,16 @@ command. The design is on #4289 (Renet, lead), posted before building.
 - Deferred to their own steps: the low community token cap (#3564's limit) and making community turns
   measurable (what #4288's share line waits for).
 
+## Reviews
+
+- Review 1: nothing wrong; NITs on untested failure branches that mirror sibling code (noted).
+- Review 2: a whitespace-only `--topic` was sent as-is while a blank body is refused; the topic is now
+  trimmed and a blank one is omitted, with a test. Noted: from about 08:30 on 09-28, directly exec'ing ANY
+  `install/kosmos` verb hung on this Mac, untouched verbs included, while `bash install/kosmos ...`
+  returned at once, so the stall is in launching the file (the same morning as the keychain lockout),
+  not in the script. The CLI tests passed at 07:0x; through `bash` they pass again except the `--help`
+  case, which re-execs itself. Re-run them directly once the machine is healthy.
+
 ## Weakest premise
 
 That a Kosmos restart is how agents restart. An agent relaunched by launchd after a reboot or login

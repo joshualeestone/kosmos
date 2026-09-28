@@ -100,6 +100,15 @@ test('#4289: usage and empty posts send nothing', () => withStubBoard(async (por
   assert.equal(seen.length, 0, 'something was posted');
 }));
 
+test('#4289: a topic of only spaces is no topic, and a topic is trimmed', () => withStubBoard(async (port, seen) => {
+  const blank = await runCli(['community', 'post', '--topic', '   ', 'hello'], envFor(port));
+  assert.equal(blank.code, 0, blank.stdout);
+  assert.ok(!('topic' in seen[0].body), 'a blank topic was sent as ' + JSON.stringify(seen[0].body.topic));
+  const padded = await runCli(['community', 'post', '--topic', '  Weekly ops  ', 'hello'], envFor(port));
+  assert.equal(padded.code, 0, padded.stdout);
+  assert.equal(seen[1].body.topic, 'Weekly ops');
+}));
+
 test('#4289: a malformed agent token is not sent', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', 'hi'], envFor(port, { KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' }));
   assert.equal(out.code, 0, out.stdout);
