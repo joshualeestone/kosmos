@@ -16,9 +16,14 @@ the network, and the code was fine.
 - The network half is replaced by an in-process case. A socket whose name lookup never answers stays
   connecting, and a timer refuses it with ECONNREFUSED at REFUSED_AT_MS (3.5 s).
   - Hand-off look (probeBoard with no options: one PROBE_TIMEOUT_MS for the connect and the answer),
-    through http.globalAgent.createConnection: must be timed-out, in 1.9 s to 3.5 s.
-  - Every-address look (5 s connect limit), through its createConnection option: must be refused.
-  - The OUTCOMES are the contract. The time bounds are a sanity check, and the lower one is the limit.
+    through http.globalAgent.createConnection: must be timed-out, no sooner than 1.9 s. The upper
+    bound (8 s) is only a hang-guard, as in the arm's first half. A look settles once, so timed-out
+    already means the limit fired first. A tighter upper bound (a test-only one this PR first wrote,
+    not a product timeout) would bring back a load-dependent flake.
+  - Every-address look (5 s connect limit), through its createConnection option: must be refused, no
+    sooner than the refusal, and must have used the simulated socket. Otherwise a real instant
+    refusal on port 9 could pass.
+  - The OUTCOMES are the contract. The lower bounds say each look waited.
 - The arm runs on every platform now (it used to be Windows-only, since it needed that network).
 - FLAKY emptied (its one entry was this arm); the mechanism stays.
 - No product code changed. The timeout was not widened, and "refused" is not accepted.
@@ -28,6 +33,8 @@ the network, and the code was fine.
   - request.timeout removed from probeBoard: RED, "the hand-off look waited for the refusal ...
     refused in 3502 ms".
   - CONNECT_TIMEOUT_MS set to 2000: RED, "the every-address look did not wait ... connect-timed-out".
+  - probeBoard ignoring createConnection (a real connection to port 9, refused at once): RED, "the
+    every-address look did not use the stalled socket".
 - windows-latest, probe-4278 run 36374029933: 3 shards x 10 runs of the arm, 30 passed, 0 failed.
 - windows job on the branch, run 36374029737: win32handoff 69/69; 99 passed, 1 known red (#4266).
 

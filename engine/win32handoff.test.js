@@ -723,23 +723,28 @@ test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off pr
   };
   const agent = http.globalAgent;
   const realCreateConnection = agent.createConnection;
-  agent.createConnection = stalledThenRefused;
   try {
+    agent.createConnection = stalledThenRefused;
     const startedAt = Date.now();
     const handoffLook = await probeBoard(9);
     const tookMs = Date.now() - startedAt;
+    agent.createConnection = realCreateConnection;
+    assert.equal(pending.size, 1, 'the hand-off look did not use the stalled socket, so this proves nothing');
     assert.equal(handoffLook.outcome, PROBE_OUTCOMES.TIMED_OUT, 'the hand-off look waited for the refusal instead of its one 2 s limit: ' + JSON.stringify(handoffLook) + ' in ' + tookMs + ' ms');
-    /* Lower bound: it waited its limit rather than failing at once. Upper bound: under REFUSED_AT_MS, so the
-       timed-out outcome was the limit, not something after the refusal. */
-    assert.ok(tookMs >= 1900 && tookMs < REFUSED_AT_MS, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
+    /* The outcome is the contract: a look settles once, so timed-out means the limit fired before the refusal.
+       The LOWER bound says it waited its ~2 s limit rather than failing at once. The upper bound is only a
+       hang-guard, as above, well clear of a loaded runner. */
+    assert.ok(tookMs >= 1900 && tookMs < 8000, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
+
+    const withTheStalledSocket = (port, host, options) => probeBoard(port, host, { ...options, createConnection: stalledThenRefused });
+    const limitedStartedAt = Date.now();
+    const limited = await probeBoardOnEveryAddress(9, {}, withTheStalledSocket);
+    const limitedMs = Date.now() - limitedStartedAt;
+    assert.ok(pending.size > 1, 'the every-address look did not use the stalled socket, so a real, instant refusal could pass here');
+    assert.equal(limited.outcome, PROBE_OUTCOMES.REFUSED, 'the every-address look did not wait for the late refusal: ' + JSON.stringify(limited));
+    assert.ok(limitedMs >= REFUSED_AT_MS - 100, 'the every-address look answered in ' + limitedMs + ' ms, before the refusal it should wait for');
   } finally {
     agent.createConnection = realCreateConnection;
-  }
-  try {
-    const withTheStalledSocket = (port, host, options) => probeBoard(port, host, { ...options, createConnection: stalledThenRefused });
-    const limited = await probeBoardOnEveryAddress(9, {}, withTheStalledSocket);
-    assert.equal(limited.outcome, PROBE_OUTCOMES.REFUSED, 'the every-address look did not wait for the late refusal: ' + JSON.stringify(limited));
-  } finally {
     for (const { socket, timer } of pending) { clearTimeout(timer); socket.destroy(); }
   }
 });
