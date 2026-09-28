@@ -274,10 +274,29 @@ fi
 # #3605: --require preloads a guard into EVERY file's process (node forwards it) that
 # makes any fs write into the real ~/Library/LaunchAgents throw, so an unsandboxed test
 # fails on its own line instead of leaking a job file launchd loads at the next login.
-node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
-NODE_STATUS=$?
-if [ "$NODE_STATUS" -eq 0 ]; then
-  yarn -s test:shell
+#
+# #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
+#   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
+#   node  the node suite only;
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+# Every part keeps the guards above and below (coverage, launchd, temp root, leaks). A value it
+# does not know refuses rather than running a subset silently.
+KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
+case "$KOSMOS_TEST_PART" in
+  all|node|shell) ;;
+  *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
+esac
+NODE_STATUS=0
+if [ "$KOSMOS_TEST_PART" != shell ]; then
+  node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
+  NODE_STATUS=$?
+fi
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+  if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
+  else
+    yarn -s test:shell
+  fi
   NODE_STATUS=$?
 fi
 # --- #3011: refuse if the suite created or modified a real com.kosmos.agent.* plist -

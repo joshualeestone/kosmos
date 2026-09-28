@@ -78,7 +78,24 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  test:
+  # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
+  # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
+  # probe run 36412608975). Now: the node suite in one job, and test:shell split by
+  # tools/shell-shard.js into SHELL_SHARDS jobs (every command in exactly one shard;
+  # engine/shell-shard-4317.test.js proves the union is the full list and pins this matrix to it).
+  # The `test` job below needs them all and is the one check named `test`, as before.
+  suite:
+    name: suite (${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: node
+            shard: ''
+          - part: shell
+            shard: '1/2'
+          - part: shell
+            shard: '2/2'
     # 🛑 macOS, NOT ubuntu. This is a macOS app's suite and it is not portable to
     # Linux: measured on ubuntu-latest, ~40 tests fail on platform assumptions the
     # product legitimately makes -- `/tmp` is a symlink on macOS but not on Linux,
@@ -96,8 +113,16 @@ jobs:
     # #4317 (2026-09-28): the job now runs 20-23.5 min on main (the last five green runs), so 30
     # left ~6 min for everyone and #4307 was CANCELLED at the limit. 45 is ~2x the runtime again.
     # Sharding the job (with a warning at 70% of this) is the follow-up on #4317.
+    # #4317: each shard job now runs about 10 min; 45 keeps it well under 60% and still catches a
+    # hang. SUITE_TIMEOUT_MIN is the same number, for the 70% warning at the end of the job;
+    # engine/shell-shard-4317.test.js pins the two equal.
     timeout-minutes: 45
+    env:
+      SUITE_TIMEOUT_MIN: 45
     steps:
+      # #4317: the clock for the 70% warning starts before anything else in the job.
+      - name: start the clock
+        run: echo "SUITE_T0=$(date +%s)" >> "$GITHUB_ENV"
       # #1794: fetch-depth 0 (full history). checkout@v4 shallow-clones by
       # default; #1025's "a range is reduced to its base" resolves a git range,
       # which needs the history a depth-1 clone truncates. The other #1025 arms
@@ -148,5 +173,37 @@ jobs:
       # ubuntu-latest. Verified green on this recipe on node 22 AND node 26 (both
       # arms of run-tests.sh, exit 0). If GitHub ever drops yarn from the image the
       # suite would exit 127 and red here honestly, which is the correct direction.
+      # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard).
       - name: the suite (node --test + yarn test:shell, gated on the exit code)
+        env:
+          KOSMOS_TEST_PART: ${{ matrix.part }}
+          KOSMOS_SHELL_SHARD: ${{ matrix.shard }}
         run: bash tools/run-tests.sh
+      # #4317: say how close this job came to its limit, and WARN past 70%, so a job that is growing
+      # toward a cancel is seen on a green run, not discovered as a cancel that reads like a flake.
+      - name: how close to the limit
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - ${SUITE_T0:-$(date +%s)} ))
+          limit=$(( SUITE_TIMEOUT_MIN * 60 ))
+          pct=$(( elapsed * 100 / limit ))
+          line="suite (${{ matrix.part }} ${{ matrix.shard }}): $((elapsed / 60))m $((elapsed % 60))s of ${SUITE_TIMEOUT_MIN} min (${pct}%)"
+          echo "$line"
+          if [ "$pct" -ge 70 ]; then
+            echo "::warning title=suite near its limit (#4317)::$line. Past 70% of timeout-minutes: shard it further (tools/shell-shard.js SHELL_SHARDS) before it is cancelled."
+            echo "⚠️ $line: past 70% of the limit; shard further (#4317)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # #4317: the one check named `test`, as it always was: green only when every suite job is green.
+  test:
+    needs: suite
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every suite job passed
+        run: |
+          echo "suite: ${{ needs.suite.result }}"
+          [ "${{ needs.suite.result }}" = success ]
