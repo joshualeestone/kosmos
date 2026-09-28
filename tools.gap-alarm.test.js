@@ -14,24 +14,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync, spawnSync, spawn } = require('node:child_process');
 const alarm = require('./tools/gap-alarm');
 
 const SCRIPT = path.join(__dirname, 'tools', 'gap-alarm.js');
 const H = 3600;
 const NOW = 1_800_000_000;
+const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 
-test('verdict: each limit on its own side, and nothing waiting is never an alarm', () => {
+test('verdict: each limit on its own side, at the limit is not past it, and nothing waiting is never an alarm', () => {
   const v = (main, staging) => alarm.verdict({ main, staging, now: NOW });
-  assert.deepEqual(v({ ahead: 50, oldestAt: NOW - 23 * H }, { ahead: 3, oldestAt: NOW - 47 * H }).reasons, [], 'at the limits is not past them');
-  assert.deepEqual(v({ ahead: 51, oldestAt: NOW - H }, { ahead: 0, oldestAt: null }).reasons, ['main-commits']);
-  assert.deepEqual(v({ ahead: 2, oldestAt: NOW - 25 * H }, { ahead: 0, oldestAt: null }).reasons, ['main-hours']);
-  assert.deepEqual(v({ ahead: 0, oldestAt: null }, { ahead: 1, oldestAt: NOW - 49 * H }).reasons, ['staging-hours']);
-  assert.deepEqual(v({ ahead: 0, oldestAt: NOW - 999 * H }, { ahead: 0, oldestAt: NOW - 999 * H }).reasons, [], 'an old stamp with nothing waiting is not a gap');
-  const all = v({ ahead: 60, oldestAt: NOW - 30 * H }, { ahead: 9, oldestAt: NOW - 50 * H });
+  assert.deepEqual(v({ ahead: 50, oldestAt: NOW - 24 * H }, { ahead: 3, builtAt: NOW - 48 * H }).reasons, [], 'exactly at the limits is not past them');
+  assert.deepEqual(v({ ahead: 51, oldestAt: NOW - H }, { ahead: 0, builtAt: null }).reasons, ['main-commits']);
+  assert.deepEqual(v({ ahead: 2, oldestAt: NOW - 24 * H - 1 }, { ahead: 0, builtAt: null }).reasons, ['main-hours']);
+  assert.deepEqual(v({ ahead: 0, oldestAt: null }, { ahead: 1, builtAt: NOW - 48 * H - 1 }).reasons, ['staging-hours']);
+  assert.deepEqual(v({ ahead: 0, oldestAt: NOW - 999 * H }, { ahead: 0, builtAt: NOW - 999 * H }).reasons, [], 'an old stamp with nothing waiting is not a gap');
+  const all = v({ ahead: 60, oldestAt: NOW - 30 * H }, { ahead: 9, builtAt: NOW - 50 * H });
   assert.deepEqual(all.reasons, ['main-commits', 'main-hours', 'staging-hours']);
   assert.equal(all.alarm, true);
   assert.deepEqual(all.main, { ahead: 60, hours: 30 });
+  assert.deepEqual(all.staging, { ahead: 9, hours: 50 });
 });
 
 test('decidePost: an alarm posts once, again when its reasons change or a day passes, and once more when it clears', () => {
@@ -49,9 +51,16 @@ test('decidePost: an alarm posts once, again when its reasons change or a day pa
   assert.equal(alarm.decidePost(clear, null, NOW).post, null, 'a first run with no gap posted');
   assert.equal(alarm.decidePost(unknown, null, NOW).post, 'unknown', 'could-not-tell was silent');
   assert.equal(alarm.decidePost(unknown, { key: 'unknown', at: NOW }, NOW + H).post, null, 'could-not-tell repeated inside a day');
+  assert.equal(alarm.decidePost(unknown, { key: 'unknown', at: NOW }, NOW + 24 * H).post, 'unknown', 'a standing could-not-tell was not repeated after a day');
 });
 
-/* A throwaway repo: prod, then staging, then main, each commit at a chosen committer time. */
+test('the all-clear says "measurable again" after a could-not-tell spell, not "back under"', () => {
+  const v = { alarm: false, reasons: [], main: { ahead: 1, hours: 1 }, staging: { ahead: 0, hours: 0 }, stagingVersion: 'b', prodVersion: 'a' };
+  assert.match(alarm.message('cleared', Object.assign({ after: 'unknown' }, v)), /measurable again, and under the limits/);
+  assert.match(alarm.message('cleared', Object.assign({ after: 'alarm:main-hours' }, v)), /back under the limits/);
+});
+
+/* A throwaway repo: commits at chosen committer times, with origin/main at the last one. */
 function repoWith(commits) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-'));
   const g = (args, extra = {}) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: Object.assign({}, process.env, extra) }).trim();
@@ -66,46 +75,53 @@ function repoWith(commits) {
     shas[name] = g(['rev-parse', 'HEAD']);
   }
   g(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
-  return { dir, shas };
+  return { dir, shas, g };
 }
 
 function run(args, extra) {
   const r = spawnSync(process.execPath, [SCRIPT, ...args], {
-    encoding: 'utf8', timeout: 30000,
+    encoding: 'utf8', timeout: 60000,
     env: Object.assign({}, process.env, { GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW) }, extra),
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
+/* Stubs that log their arguments, $TMUX and stdin; `fail` makes one exit 3 with a message. */
 function stubs() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-stub-'));
-  const mk = (name) => {
+  const mk = (name, fail) => {
     const log = path.join(dir, name + '.log');
     const bin = path.join(dir, name);
-    fs.writeFileSync(bin, '#!/bin/sh\n{ printf "%s\\n" "$*"; cat 2>/dev/null; printf "\\n--\\n"; } >> "' + log + '"\n', { mode: 0o755 });
+    fs.writeFileSync(bin, '#!/bin/sh\n{ printf "%s\\n" "$*"; printf "TMUX=%s\\n" "$TMUX"; cat 2>/dev/null; printf "\\n--\\n"; } >> "' + log + '"\n'
+      + (fail ? 'echo "claude-msg: no tmux here" >&2\nexit 3\n' : ''), { mode: 0o755 });
     return { bin, read: () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } } };
   };
-  return { msg: mk('msg'), gh: mk('gh'), state: path.join(dir, 'state.json') };
+  return { msg: mk('msg'), failMsg: mk('failmsg', true), gh: mk('gh'), state: path.join(dir, 'state.json') };
 }
+
+const ptrs = (prodSha, stagingSha, builtAt, pv = '0.6.99', sv = '0.7.05') => JSON.stringify({
+  prod: { version: pv, sha: prodSha, builtAt: NOW - 200 * H }, staging: { version: sv, sha: stagingSha, builtAt },
+});
 
 test('end to end: an alarm reaches both channels once, repeats after a day, and clears once', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 60 * H], ['m1', NOW - 30 * H], ['m2', NOW - H]]);
   const s = stubs();
   const base = {
     KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin, GAP_ALARM_TO: 'test-pane:0.0',
-    GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.6.99', sha: shas.prod }, staging: { version: '0.7.05', sha: shas.staging } }),
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 50 * H), TMUX: '',
   };
   const check = run(['--check'], base);
   assert.equal(check.code, 1, check.err);
   const v = JSON.parse(check.out);
   assert.deepEqual(v.reasons, ['main-hours', 'staging-hours']);
-  assert.deepEqual(v.main, { ahead: 2, hours: 30 }, 'the oldest waiting commit sets the hours');
-  assert.deepEqual(v.staging, { ahead: 1, hours: 60 });
+  assert.deepEqual(v.main, { ahead: 2, hours: 30 }, 'the oldest commit waiting for a cut sets main\'s hours');
+  assert.deepEqual(v.staging, { ahead: 1, hours: 50 }, 'the staging build\'s cut time sets staging\'s hours, not its oldest commit');
   assert.equal(s.msg.read(), '', '--check posted');
 
   assert.equal(run([], base).code, 1);
   assert.match(s.msg.read(), /^test-pane:0\.0 -/m, 'the release owner pane was not the target');
-  assert.match(s.msg.read(), /main is 2 commits past staging 0\.7\.05 \(oldest waiting 30 h\); staging 0\.7\.05 is 1 commits past prod 0\.6\.99 \(oldest waiting 60 h\)/);
+  assert.match(s.msg.read(), /^TMUX=\/.+\/tmux-\d+\/default,0,0$/m, 'claude-msg was given no $TMUX, which it refuses without (launchd has none)');
+  assert.match(s.msg.read(), /main is 2 commits past staging 0\.7\.05 \(oldest waiting 30 h\); staging 0\.7\.05 is 1 commits past prod 0\.6\.99 \(cut 50 h ago\)/);
   assert.match(s.gh.read(), /issue comment 1050 --repo joshualeestone\/kosmos --body gap alarm \(kosmos#1050\): main-hours, staging-hours/);
 
   const once = s.msg.read();
@@ -115,7 +131,7 @@ test('end to end: an alarm reaches both channels once, repeats after a day, and 
   assert.ok(s.msg.read().length > once.length, 'a standing alarm was not repeated after a day');
 
   // Staging catches up with main and prod with staging: the all-clear, once.
-  const caught = Object.assign({}, base, { GAP_ALARM_NOW: String(NOW + 26 * H), GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.7.07', sha: shas.m2 }, staging: { version: '0.7.07', sha: shas.m2 } }) });
+  const caught = Object.assign({}, base, { GAP_ALARM_NOW: String(NOW + 26 * H), GAP_ALARM_POINTERS: ptrs(shas.m2, shas.m2, NOW, '0.7.07', '0.7.07') });
   const before = s.gh.read();
   assert.equal(run([], caught).code, 0);
   assert.match(s.gh.read().slice(before.length), /back under the limits/);
@@ -124,17 +140,20 @@ test('end to end: an alarm reaches both channels once, repeats after a day, and 
   assert.equal(s.gh.read(), after, 'the all-clear was repeated');
 });
 
-test('a post that goes nowhere does not count as told: the next run tries again', () => {
+test('a pane message that does not go is said on the card; a post that goes nowhere does not count as told', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
-  const base = {
-    KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: '/nonexistent/claude-msg', GAP_ALARM_GH_CMD: '/nonexistent/gh',
-    GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.6.99', sha: shas.prod }, staging: { version: '0.7.05', sha: shas.staging } }),
-  };
-  assert.equal(run([], base).code, 1);
-  assert.equal(fs.existsSync(s.state), false, 'a failed post advanced the clock');
-  assert.equal(run([], Object.assign({}, base, { GAP_ALARM_MSG_CMD: s.msg.bin })).code, 1);
-  assert.match(s.msg.read(), /staging-hours/, 'the retry after a failed post did not go');
+  const base = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H), GAP_ALARM_TO: 'test-pane:0.0' };
+  // The pane fails, the card does not: the card says the pane did not get it.
+  assert.equal(run([], Object.assign({}, base, { GAP_ALARM_MSG_CMD: s.failMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin })).code, 1);
+  assert.match(s.gh.read(), /\(The pane message to test-pane:0\.0 did not go: claude-msg: no tmux here\)/, 'a failed pane message was not said on the card');
+  // Both fail: nothing went, so the clock does not advance and the next run tries again.
+  const s2 = stubs();
+  const base2 = Object.assign({}, base, { GAP_ALARM_STATE: s2.state });
+  assert.equal(run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: '/nonexistent/claude-msg', GAP_ALARM_GH_CMD: '/nonexistent/gh' })).code, 1);
+  assert.equal(fs.existsSync(s2.state), false, 'a failed post advanced the clock');
+  assert.equal(run([], Object.assign({}, base2, { GAP_ALARM_MSG_CMD: s2.msg.bin, GAP_ALARM_GH_CMD: '/nonexistent/gh' })).code, 1);
+  assert.match(s2.msg.read(), /staging-hours/, 'the retry after a failed post did not go');
 });
 
 test('could not tell: a build not in the checkout exits 2 and says so, and is not a pass', () => {
@@ -142,19 +161,39 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   const s = stubs();
   const r = run([], {
     KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
-    GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.6.99', sha: 'deadbeefdeadbeef' }, staging: { version: '0.7.05', sha: 'deadbeefdeadbeef' } }),
+    GAP_ALARM_POINTERS: ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW),
   });
   assert.equal(r.code, 2);
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
-test('the pointers are read from the served files and their manifests app.commit', async () => {
+test('each run fetches origin main, so a moved origin is counted, not a stale local ref', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
+  // A bare "origin" that has one more commit on main than the checkout has seen.
+  const origin = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-origin-')), 'o.git');
+  execFileSync('git', ['clone', '-q', '--bare', dir, origin]);
+  const other = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-other-')), 'c');
+  execFileSync('git', ['clone', '-q', origin, other]);
+  fs.writeFileSync(path.join(other, 'g'), 'new');
+  execFileSync('git', ['-C', other, 'add', 'g']);
+  execFileSync('git', ['-C', other, '-c', 'user.email=t@e', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'moved']);
+  execFileSync('git', ['-C', other, 'push', '-q', 'origin', 'HEAD:main']);
+  execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', origin]);
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - H) };
+  const stale = JSON.parse(run(['--check'], env).out);
+  assert.equal(stale.main.ahead, 0, 'fixture: without a fetch the checkout sees nothing past staging');
+  const fresh = JSON.parse(run(['--check'], Object.assign({}, env, { GAP_ALARM_NO_FETCH: '' })).out);
+  assert.equal(fresh.main.ahead, 1, 'the run did not fetch: the moved origin was not counted');
+});
+
+test('the pointers are read from the served files: app.commit and built.at, and a missing field is could-not-tell for that reason', async () => {
   const { dir, shas } = repoWith([['prod', NOW - 10 * H], ['staging', NOW - 5 * H]]);
+  const built = (at) => ({ at: new Date(at * 1000).toISOString() });
   const files = {
     '/latest.json': { version: '0.6.99', manifest: 'kosmos-0.6.99-arm64.manifest.json' },
     '/latest-staging.json': { version: '0.7.05', manifest: 'kosmos-0.7.05-arm64.manifest.json' },
-    '/kosmos-0.6.99-arm64.manifest.json': { app: { commit: shas.prod } },
-    '/kosmos-0.7.05-arm64.manifest.json': { app: { commit: shas.staging } },
+    '/kosmos-0.6.99-arm64.manifest.json': { app: { commit: shas.prod }, built: built(NOW - 10 * H) },
+    '/kosmos-0.7.05-arm64.manifest.json': { app: { commit: shas.staging }, built: built(NOW - 3 * H) },
   };
   const server = http.createServer((req, res) => {
     const body = files[req.url];
@@ -162,28 +201,29 @@ test('the pointers are read from the served files and their manifests app.commit
     res.end(body ? JSON.stringify(body) : '{}');
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  // Asynchronously: this process serves the files, so a spawnSync would block the server and the
+  // child would time out, which reads as could-not-tell for the wrong reason.
+  const check = () => new Promise((resolve) => {
+    const c = spawn(process.execPath, [SCRIPT, '--check'], { env: Object.assign({}, process.env, {
+      GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW), KOSMOS_REPO_DIR: dir,
+      KOSMOS_DIST_BASE: 'http://127.0.0.1:' + server.address().port,
+    }) });
+    let out = ''; c.stdout.on('data', (d) => { out += d; });
+    c.on('close', () => resolve(JSON.parse(out)));
+  });
   try {
-    // Asynchronously: this process serves the files, so a spawnSync would block the server and the
-    // child would time out, which reads as could-not-tell for the wrong reason.
-    const check = () => new Promise((resolve) => {
-      const c = require('node:child_process').spawn(process.execPath, [SCRIPT, '--check'], { env: Object.assign({}, process.env, {
-        GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW), KOSMOS_REPO_DIR: dir,
-        KOSMOS_DIST_BASE: 'http://127.0.0.1:' + server.address().port,
-      }) });
-      let out = ''; c.stdout.on('data', (d) => { out += d; });
-      c.on('close', (code) => resolve({ code, out }));
-    });
-    const r = await check();
-    const v = JSON.parse(r.out);
-    assert.equal(v.unknown, undefined, 'the served pointers could not be read: ' + r.out);
+    const v = await check();
+    assert.equal(v.unknown, undefined, 'the served pointers could not be read: ' + JSON.stringify(v));
     assert.equal(v.prodVersion, '0.6.99');
     assert.equal(v.stagingVersion, '0.7.05');
-    assert.deepEqual(v.staging, { ahead: 1, hours: 5 });
-    // Control: a manifest without app.commit is could-not-tell, not a guess.
-    files['/kosmos-0.7.05-arm64.manifest.json'] = { app: {} };
-    const bad = JSON.parse((await check()).out);
-    assert.equal(bad.unknown, true);
-    assert.match(bad.why, /the 0\.7\.05 manifest has no app\.commit/, 'could-not-tell for another reason than the missing commit');
+    assert.deepEqual(v.staging, { ahead: 1, hours: 3 }, 'staging\'s hours are not from its manifest\'s built.at');
+    files['/kosmos-0.7.05-arm64.manifest.json'] = { app: {}, built: built(NOW) };
+    const noCommit = await check();
+    assert.equal(noCommit.unknown, true);
+    assert.match(noCommit.why, /the 0\.7\.05 manifest has no app\.commit/, 'could-not-tell for another reason than the missing commit');
+    files['/kosmos-0.7.05-arm64.manifest.json'] = { app: { commit: shas.staging } };
+    const noBuilt = await check();
+    assert.match(noBuilt.why, /the 0\.7\.05 manifest has no built\.at/);
   } finally { server.close(); }
 });
 
@@ -201,37 +241,52 @@ test('under the test runner with no seams, the real claude-msg and gh are never 
   fs.writeFileSync(path.join(home, 'bin', 'gh'), stub, { mode: 0o755 });
   // Only the real git joins it: the macOS /usr/bin/git shim is ~30 s with a fresh HOME, and adding
   // git's own directory to PATH would put the real gh (Homebrew keeps both) in reach.
-  fs.symlinkSync(execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(), path.join(home, 'bin', 'git'));
+  fs.symlinkSync(REAL_GIT, path.join(home, 'bin', 'git'));
   const state = path.join(home, 'state.json');
-  const r = run([], {
-    HOME: home, PATH: path.join(home, 'bin') + ':/usr/bin:/bin',
-    KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: state, NODE_TEST_CONTEXT: 'child-v8', GAP_ALARM_MSG_CMD: '', GAP_ALARM_GH_CMD: '',
-    GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.6.99', sha: shas.prod }, staging: { version: '0.7.05', sha: shas.staging } }),
-  });
+  const envFor = (extra) => Object.assign({ HOME: home, PATH: path.join(home, 'bin') + ':/usr/bin:/bin', KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: state,
+    GAP_ALARM_MSG_CMD: '', GAP_ALARM_GH_CMD: '', GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H) }, extra);
+  const r = run([], envFor({ NODE_TEST_CONTEXT: 'child-v8' }));
   assert.equal(r.code, 1);
   assert.equal(fs.existsSync(called), false, 'the real channels were called under the test runner: ' + (fs.existsSync(called) ? fs.readFileSync(called, 'utf8') : ''));
   assert.equal(fs.existsSync(state), false, 'the clock advanced with nothing posted');
   // Control: the same run OUTSIDE the test runner does reach the default channels.
-  const env2 = { HOME: home, PATH: path.join(home, 'bin') + ':/usr/bin:/bin', KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: state,
-    GAP_ALARM_MSG_CMD: '', GAP_ALARM_GH_CMD: '', GAP_ALARM_POINTERS: JSON.stringify({ prod: { version: '0.6.99', sha: shas.prod }, staging: { version: '0.7.05', sha: shas.staging } }) };
-  const r2 = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', env: Object.assign({}, Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT')), { GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW) }, env2) });
+  const outside = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT'));
+  const r2 = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', env: Object.assign(outside, { GAP_ALARM_NO_FETCH: '1', GAP_ALARM_NOW: String(NOW) }, envFor({})) });
   assert.equal(r2.status, 1, r2.stderr);
   assert.match(fs.readFileSync(called, 'utf8'), /claude-msg/, 'control: the default pane channel was not reached outside the test runner');
 });
 
-test('the LaunchAgent: hourly, an explicit node path, escaped, and it installs into a sandbox without loading', () => {
+/* A copy of the script in a throwaway repo, as a main checkout and as a linked worktree of it. */
+function installCopies() {
+  const { dir, g } = repoWith([['a', NOW]]);
+  fs.mkdirSync(path.join(dir, 'tools'));
+  fs.copyFileSync(SCRIPT, path.join(dir, 'tools', 'gap-alarm.js'));
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-wt-')), 'wt');
+  g(['add', 'tools']); g(['commit', '-q', '-m', 'tools']);
+  g(['worktree', 'add', '-q', wt]);
+  return { main: path.join(dir, 'tools', 'gap-alarm.js'), worktree: path.join(wt, 'tools', 'gap-alarm.js') };
+}
+
+test('the LaunchAgent: hourly, a stable node path, escaped; installs from the main checkout into a sandbox, and refuses a linked worktree', () => {
   const p = alarm.plist({ node: '/opt/node & co/bin/node', script: '/x/tools/gap-alarm.js', home: '/Users/somebody' });
   assert.match(p, /<key>Label<\/key><string>com\.kosmos\.gap-alarm<\/string>/);
   assert.match(p, /<string>\/opt\/node &amp; co\/bin\/node<\/string><string>\/x\/tools\/gap-alarm\.js<\/string>/, 'the node path was not escaped');
   assert.match(p, /<key>StartInterval<\/key><integer>3600<\/integer>/);
   assert.match(p, /\/Users\/somebody\/Library\/Logs\/kosmos\/gap-alarm\.log/);
+  assert.doesNotMatch(alarm.plist(), /\/Cellar\//, 'the default node path is a Cellar path, which an upgrade deletes');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-plist-'));
   if (process.platform === 'darwin') {
     fs.writeFileSync(path.join(tmp, 'p.plist'), p);
     execFileSync('plutil', ['-lint', path.join(tmp, 'p.plist')], { stdio: 'ignore' });   // throws if not a valid plist
   }
+  const copies = installCopies();
   const launch = path.join(tmp, 'LaunchAgents');
-  const r = run(['--install'], { AGENT_WORKFORCE_LAUNCH: launch });
-  assert.equal(r.code, 0, r.err);
+  const ok = spawnSync(process.execPath, [copies.main, '--install'], { encoding: 'utf8', env: Object.assign({}, process.env, { AGENT_WORKFORCE_LAUNCH: launch }) });
+  assert.equal(ok.status, 0, ok.stderr);
   assert.ok(fs.existsSync(path.join(launch, 'com.kosmos.gap-alarm.plist')), 'the sandbox install wrote nothing');
+  const launch2 = path.join(tmp, 'LaunchAgents2');
+  const refused = spawnSync(process.execPath, [copies.worktree, '--install'], { encoding: 'utf8', env: Object.assign({}, process.env, { AGENT_WORKFORCE_LAUNCH: launch2 }) });
+  assert.notEqual(refused.status, 0, 'an install from a linked worktree was not refused');
+  assert.match(refused.stderr, /refusing to install from a linked worktree/);
+  assert.equal(fs.existsSync(launch2), false, 'the refused install wrote a plist');
 });

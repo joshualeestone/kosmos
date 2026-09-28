@@ -9,10 +9,12 @@
  *   staging is more than 48 h past the PROD build.
  *
  * Cuts and promotes stay manual. This never cuts, promotes, or touches a pointer: it reads the two
- * served pointers (latest-staging.json, latest.json) and their manifests' app.commit, counts with
- * git, and posts. "Past" is measured from the OLDEST commit still waiting (its committer time, which
- * under squash merges is when it merged), so the hours say how long work has sat, not when a build
- * happened.
+ * served pointers (latest-staging.json, latest.json) and their manifests' app.commit and built.at,
+ * counts with git, and posts. Main's hours run from the OLDEST commit not yet in staging (its
+ * committer time, which under squash merges is when it merged): how long merged work has waited for
+ * a cut. Staging's hours run from when the staging build was CUT (its manifest's built.at), while it
+ * holds anything prod does not: how long a build has waited for a promote, which is gated on walks
+ * and so is the step a person must take.
  *
  * Where it posts, both best effort:
  *   - the release owner's pane, by claude-msg (GAP_ALARM_TO, the person who can cut), and
@@ -21,10 +23,13 @@
  * clears, and once a day while it cannot tell (a silent monitor and a healthy gap look alike).
  *
  *   node tools/gap-alarm.js           gather, decide, post as above
- *   node tools/gap-alarm.js --check   print the verdict as JSON and post nothing
+ *   node tools/gap-alarm.js --check   print the verdict as JSON and post nothing (it still fetches
+ *                                     origin main into the checkout, as every run does)
  *   node tools/gap-alarm.js --plist   print the LaunchAgent plist (hourly) for this checkout
  *   node tools/gap-alarm.js --install write that plist to AGENT_WORKFORCE_LAUNCH (default
- *                                     ~/Library/LaunchAgents) and load it
+ *                                     ~/Library/LaunchAgents) and load it. Run it from the MAIN
+ *                                     checkout: a linked worktree is refused, since it is removed
+ *                                     after merge and the job would point at nothing.
  *
  * Exit: 0 no alarm, 1 alarm, 2 could not tell. EXIT 2 IS NOT A PASS.
  *
@@ -44,19 +49,20 @@ const THRESHOLDS = Object.freeze({ mainCommits: 50, mainHours: 24, stagingHours:
 const REPOST_S = 24 * 3600;
 const env = process.env;
 
-/* The verdict, pure. `main` is main against staging, `staging` is staging against prod:
-   { ahead: commits waiting, oldestAt: committer time (s) of the oldest one waiting, or null }. */
+/* The verdict, pure. `main` is main against staging: { ahead, oldestAt: committer time (s) of the
+   oldest commit waiting }. `staging` is staging against prod: { ahead, builtAt: when the staging
+   build was cut (s) }. */
 function verdict({ main, staging, now, t = THRESHOLDS }) {
   const hours = (at) => (typeof at === 'number' ? (now - at) / 3600 : 0);
   const reasons = [];
   if (main.ahead > t.mainCommits) reasons.push('main-commits');
   if (main.ahead > 0 && hours(main.oldestAt) > t.mainHours) reasons.push('main-hours');
-  if (staging.ahead > 0 && hours(staging.oldestAt) > t.stagingHours) reasons.push('staging-hours');
+  if (staging.ahead > 0 && hours(staging.builtAt) > t.stagingHours) reasons.push('staging-hours');
   return {
     alarm: reasons.length > 0,
     reasons,
     main: { ahead: main.ahead, hours: Math.floor(hours(main.oldestAt)) },
-    staging: { ahead: staging.ahead, hours: Math.floor(hours(staging.oldestAt)) },
+    staging: { ahead: staging.ahead, hours: staging.ahead > 0 ? Math.floor(hours(staging.builtAt)) : 0 },
   };
 }
 
@@ -72,8 +78,8 @@ function decidePost(v, last, now) {
 function message(kind, v) {
   if (kind === 'unknown') return 'gap alarm (kosmos#1050): could not tell (' + v.why + '). This is not a pass: the gap is unmeasured.';
   const line = 'main is ' + v.main.ahead + ' commits past staging ' + v.stagingVersion + ' (oldest waiting ' + v.main.hours + ' h); '
-    + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion + ' (oldest waiting ' + v.staging.hours + ' h).';
-  if (kind === 'cleared') return 'gap alarm (kosmos#1050): back under the limits. ' + line;
+    + 'staging ' + v.stagingVersion + ' is ' + v.staging.ahead + ' commits past prod ' + v.prodVersion + ' (cut ' + v.staging.hours + ' h ago).';
+  if (kind === 'cleared') return 'gap alarm (kosmos#1050): ' + (v.after === 'unknown' ? 'measurable again, and under the limits. ' : 'back under the limits. ') + line;
   return 'gap alarm (kosmos#1050): ' + v.reasons.join(', ') + '. ' + line
     + ' Limits: main ' + THRESHOLDS.mainCommits + ' commits or ' + THRESHOLDS.mainHours + ' h past staging; staging '
     + THRESHOLDS.stagingHours + ' h past prod. Cuts are manual: cut or promote, or say on #1050 why not.';
@@ -90,7 +96,9 @@ async function readPointer(base, arch, file) {
   const m = await get(base + '/' + (p.manifest || 'kosmos-' + p.version + '-' + arch + '.manifest.json'));
   const sha = m && m.app && typeof m.app.commit === 'string' ? m.app.commit : null;
   if (!sha || !/^[0-9a-f]{7,40}$/.test(sha)) throw new Error('the ' + p.version + ' manifest has no app.commit');
-  return { version: p.version, sha };
+  const builtAt = m && m.built && typeof m.built.at === 'string' ? Math.floor(Date.parse(m.built.at) / 1000) : NaN;
+  if (!Number.isFinite(builtAt)) throw new Error('the ' + p.version + ' manifest has no built.at');
+  return { version: p.version, sha, builtAt };
 }
 
 function git(repo, args) {
@@ -121,7 +129,8 @@ async function gather() {
     for (const k of ['prod', 'staging']) {
       try { git(repo, ['cat-file', '-e', ptrs[k].sha + '^{commit}']); } catch { throw new Error('the ' + k + ' build ' + ptrs[k].sha.slice(0, 8) + ' is not in ' + repo); }
     }
-    const v = verdict({ main: waiting(repo, ptrs.staging.sha, 'origin/main'), staging: waiting(repo, ptrs.prod.sha, ptrs.staging.sha), now });
+    const st = waiting(repo, ptrs.prod.sha, ptrs.staging.sha);
+    const v = verdict({ main: waiting(repo, ptrs.staging.sha, 'origin/main'), staging: { ahead: st.ahead, builtAt: ptrs.staging.builtAt }, now });
     return Object.assign(v, { now, prodVersion: ptrs.prod.version, stagingVersion: ptrs.staging.version });
   } catch (err) {
     return { now, unknown: true, alarm: false, reasons: [], why: String((err && err.message) || err) };
@@ -143,20 +152,31 @@ function writeState(s) {
 function post(text) {
   const underTest = !!env.NODE_TEST_CONTEXT;
   let sent = false;
+  const to = env.GAP_ALARM_TO || 'barondraxum-discord:0.0';
+  let paneFailed = null;
   const msgCmd = env.GAP_ALARM_MSG_CMD || (underTest ? null : path.join(os.homedir(), '.claude', 'scripts', 'claude-msg'));
   if (msgCmd) {
     try {
-      execFileSync(msgCmd, [env.GAP_ALARM_TO || 'barondraxum-discord:0.0', '-'], {
+      // claude-msg refuses without $TMUX, which a launchd job never has: point it at the default
+      // tmux server socket, as the fleet's slack relay does (the other fields are unused by -t).
+      const tmux = env.TMUX || (env.TMUX_TMPDIR || '/tmp') + '/tmux-' + process.getuid() + '/default,0,0';
+      execFileSync(msgCmd, [to, '-'], {
         input: '=== HEADS-UP ===\nfrom: gap-alarm (launchd)\nto:   release owner\n\n' + text + '\n=== END HEADS-UP ===\n',
-        stdio: ['pipe', 'ignore', 'ignore'], timeout: 30000,
+        stdio: ['pipe', 'ignore', 'pipe'], timeout: 30000,
+        env: Object.assign({}, env, { TMUX: tmux }),
       });
       sent = true;
-    } catch (err) { process.stderr.write('gap-alarm: the pane message did not go: ' + (err && err.message) + '\n'); }
+    } catch (err) {
+      paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
+      process.stderr.write('gap-alarm: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
+    }
   }
   const ghCmd = env.GAP_ALARM_GH_CMD || (underTest ? null : 'gh');
   if (ghCmd) {
     try {
-      execFileSync(ghCmd, ['issue', 'comment', env.GAP_ALARM_ISSUE || '1050', '--repo', 'joshualeestone/kosmos', '--body', text], {
+      // A pane message that did not go is said on the card, so the one channel is never silently lost.
+      const body = paneFailed ? text + '\n\n(The pane message to ' + to + ' did not go: ' + paneFailed + ')' : text;
+      execFileSync(ghCmd, ['issue', 'comment', env.GAP_ALARM_ISSUE || '1050', '--repo', 'joshualeestone/kosmos', '--body', body], {
         stdio: ['ignore', 'ignore', 'ignore'], timeout: 30000,
       });
       sent = true;
@@ -168,9 +188,17 @@ function post(text) {
 function xml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-/* The LaunchAgent, hourly. An explicit node path, not /usr/bin/env: launchd's PATH is minimal and a
-   bare interpreter is a different subject for macOS privacy grants. */
-function plist({ node = process.execPath, script = path.resolve(__filename), home = os.homedir() } = {}) {
+/* The node the job runs: an explicit path (launchd's PATH is minimal, and a bare interpreter is a
+   different subject for macOS privacy grants), preferring the stable Homebrew link over the running
+   binary's Cellar path, which an upgrade deletes. */
+function stableNode() {
+  for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
+  }
+  return process.execPath;
+}
+/* The LaunchAgent, hourly. */
+function plist({ node = stableNode(), script = path.resolve(__filename), home = os.homedir() } = {}) {
   const log = path.join(home, 'Library', 'Logs', 'kosmos', 'gap-alarm.log');
   const s = (v) => '<string>' + xml(v) + '</string>';
   return ['<?xml version="1.0" encoding="UTF-8"?>',
@@ -189,6 +217,11 @@ function plist({ node = process.execPath, script = path.resolve(__filename), hom
 function install() {
   const dir = env.AGENT_WORKFORCE_LAUNCH || path.join(os.homedir(), 'Library', 'LaunchAgents');
   if (env.NODE_TEST_CONTEXT && !env.AGENT_WORKFORCE_LAUNCH) throw new Error('refusing to install into the real LaunchAgents under test');
+  // A linked worktree is removed after merge, and the job would then point at nothing.
+  const here = path.join(__dirname, '..');
+  const gitDir = git(here, ['rev-parse', '--absolute-git-dir']);
+  const common = path.resolve(here, git(here, ['rev-parse', '--git-common-dir']));
+  if (gitDir !== common) throw new Error('refusing to install from a linked worktree (' + here + '); run it from the main checkout');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, LABEL + '.plist');
   fs.writeFileSync(file, plist());
@@ -209,12 +242,12 @@ async function main(argv) {
   const last = readState();
   const d = decidePost(v, last, v.now);
   if (d.post) {
-    const text = message(d.post, v);
+    const text = message(d.post, Object.assign({}, v, { after: last && last.key }));
     process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + text + '\n');
     // The clock advances only on a post that went, or a dead channel would count as told.
     if (post(text)) writeState({ key: d.key, at: v.now });
   } else if (!last || last.key !== d.key) {
-    writeState({ key: d.key, at: last && last.key === d.key ? last.at : v.now });
+    writeState({ key: d.key, at: v.now });
   }
   return code;
 }
