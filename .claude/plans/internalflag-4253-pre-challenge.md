@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: internalflag-4253
-diff_hash: 8344f7fe3d73f477a883ae239fdb59116967d4e186ef5bda0429a1a1b211dc5c
-validation: passed
+diff_hash: 83c7c2da5abddcb01fbca61c0f65861516e29b9117b459bac61b040df039bd7c
+validation: red-outside-this-branch
 subdir_audit: passed
-timestamp: 2026-09-28T15:03:08Z
+timestamp: 2026-09-28T15:32:13Z
 iterations: 2
 converged: true
 ---
@@ -17,7 +17,10 @@ converged: true
 **Total findings:** 5 (1 BLOCKER, 3 WARNINGs, 0 CONVENTIONs, 1 NIT)
 **Fixed:** 3 | **Deferred:** 1 | **Asked (awaiting user):** 0 | **NIT noted, not acted on:** 1
 
-**Final gate:** kosmos createdbeacon-3038 12/12; site api suite 209/209 and em-dash guard PASS.
+**Final gate:** kosmos full suite 11,096 pass / 0 fail. Two reds: the #4273 leak guard caught this branch's
+own test leaking a temp dir (FIXED, 7738a3b1a, proven both ways), and test-tunnel-handshake-gate, which fails on
+untouched origin/main as well (53/0 then 35/18 on consecutive runs; #4352). createdbeacon-3038 11/11. Site half:
+api 209/209 and em-dash guard PASS (merged as site #159).
 
 ### Per-Iteration Breakdown
 
