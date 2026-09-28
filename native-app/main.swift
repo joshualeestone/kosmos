@@ -2572,6 +2572,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         + " if (typeof window.kosmosSafeToRestart !== 'function') return 'unknown';"
         + " var v = window.kosmosSafeToRestart(); return v === true ? true : v === false ? false : v === 'hold' ? 'hold' : 'unknown'; })()"
     static let relaunchWaitLimit: TimeInterval = 180
+    /// With another app in front: how long the whole Mac must have had no input before a silent restart.
+    static let relaunchQuietSeconds: TimeInterval = 30
+    static func systemIdleSeconds() -> TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
     /// How often to look for the new app on disk, then to re-ask the page once it is there.
     static let relaunchPollForApp: TimeInterval = 3
     static let relaunchPollForPage: TimeInterval = 15
@@ -2655,6 +2660,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                          toldGaveUp: toldGaveUp, askedBefore: askedBefore, seenFresh: freshAt != nil)
             // A dialog may have opened while the page was answering: never act under it.
             if (step == .relaunchNow || step == .askPerson) && self.ownDialogOpen { step = .wait }
+            /* The page only sees activity inside Kosmos. With another app in front, a restart would pull the new
+               window in front of what the person is typing there, so it also waits for the whole Mac to be idle. */
+            if step == .relaunchNow && !NSApp.isActive && Self.systemIdleSeconds() < Self.relaunchQuietSeconds { step = .wait }
             switch step {
             case .wait:
                 let again = target != nil ? Self.relaunchPollForPage

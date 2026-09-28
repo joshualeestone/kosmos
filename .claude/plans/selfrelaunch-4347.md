@@ -117,3 +117,7 @@ contains this change. Every relaunch writes a timestamped `relaunch:` line to th
 update can be read from there.
 - Deliberate asymmetry: a failed silent restart is retried quietly (nobody saw it); a failed restart the
   person pressed is told at once and keeps the #1182 marker, as before this card (review iteration 13).
+- With another app in front, the silent restart also waits for 30 s with no input anywhere on the Mac, so the
+  new window never takes focus from what the person is typing elsewhere (review iteration 14).
+- Kept, and re-raised by review: in the cannot-tell case Return presses Restart (Josh's blue default). That case
+  is an old page, or a check that threw; when words are known to be waiting there is no Return key.
