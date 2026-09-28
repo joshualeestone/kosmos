@@ -324,6 +324,7 @@ func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         logLine("#4356: cannot stop the board: \(kosmosBin) is missing")
+        holdBoardStopped(kosmosHome: kosmosHome)   // so a CLI restored later still finds the board held off
         return .missing
     }
     let process = Process()
@@ -1201,8 +1202,13 @@ final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
 }
 
 /* #4356: the first screen's choice, handed to the app. Held weakly, as BadgeMessageProxy is, and
-   heard only from the board's own page in the main frame: another origin cannot pick this
-   computer's mode. */
+   heard only from the board's address in the main frame, and only while the app is asking
+   (pageChoseMode): another origin cannot pick this computer's mode.
+   ⚠️ The same trust as the Dock badge: "the page at 127.0.0.1:<this install's port>". A different
+   process answering on that port (a stale or misconfigured install) would be trusted too. Accepted
+   (review round 20): per-account ports make it rare, a choice is taken only while the app asks, and
+   what posts it is the person's own click on the screen they see; only a hostile local process
+   could post one unasked, and that computer is already not ours to defend here. */
 final class ModeMessageProxy: NSObject, WKScriptMessageHandler {
     weak var owner: AppDelegate?
     init(_ owner: AppDelegate) { self.owner = owner }
