@@ -78,6 +78,20 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
   - `dialog[open]` in `cnHeld` is unexercised: no `<dialog>` exists on the page, and it mirrors
     `tipModalOpen`. Noted, not acted on.
 
+## CI on the PR (2026-09-28, after the GitHub outage)
+
+- **browser-checks: 22 checks red.** `#cmnotice` intercepted every click into an agent page. Those
+  checks require `server.js` in-process, so `migrate()` (real-start path only) never runs, there is
+  no `community.json`, and `read()` answered `noticeSeen: false` for no file. Missed by five reviews
+  and by my own validation, which ran only the checks this diff selects locally.
+- **Fix:** no file owes no notice (`noticeSeen: true`). Only `migrate()` owes one, and it writes that
+  down. The switch still reads ON with no file. The notice-seen route test now starts from an owed
+  notice, or it would pass on no file alone.
+- **Measured:** render-agent-nav 86 PASS; the old default reds it (cmnotice intercepts) and reds 4
+  unit/route tests.
+- **test: the #2518 surface gate.** Per-check trailers for render-boot-no-flash.js (the notice only
+  reads the cover) and render-phone-offline-718.js ('grid' is only in a comment). Gate passes locally.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's
