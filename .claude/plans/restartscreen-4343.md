@@ -26,6 +26,18 @@ the Kosmos K, "Kosmos requires a full restart" (Josh's words, verbatim), and how
   a full-screen alarm. The small note still shows from the first failure.
 - A still K (startKLoader's reduced-motion frame via { still: true }), because an animating mark
   would say something is working.
+- A parsed 200 now counts as answered in tick() (it used to be only a refusal), so a painter that
+  throws on a good read can never put a person behind this screen. The small note follows the same
+  flag, which matches #268's rule that a board that answered is not absent.
+- While up: page scroll and the scrollbar gutter are off, nodes added to <body> are made inert, and
+  focus goes back where it was on recovery. Both painter calls are try-isolated.
+- Windows copy is a constant in windowsCopyTable (restartHow); the hermetic check runs the Mac branch.
+
+## Timing, stated plainly
+The 15 s clock starts at the first poll that RETURNS a failure. The poll's fetch has no timeout, so
+a board that accepts the connection but never answers delays both the note and this screen until
+the webview gives up (the #4342 side of this). With fast failures the screen appears 15 to 20 s
+after the first failed poll.
 
 ## Weakest premise
 The 15 s threshold. Too short and a normal board restart flashes the screen; too long and a person
