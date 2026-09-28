@@ -169,3 +169,17 @@ test('#4039: once agy caches the prompt, the ring counts the cached part too, so
   // CONTROL: a generation with no cache field reads 1.4.2 alone, as before.
   assert.equal(agy.decodeGeneration(generation({ prompt: 12561, reply: 149 })).prompt, 12561);
 });
+
+test('#4393: a turn served wholly from cache (1.4.2 left off the wire as a proto3 zero) reads as the cached prompt, not as no reading', () => {
+  const g = agy.decodeGeneration(generation({ prompt: null, cached: 39100, reply: 20, thoughts: 5 }));
+  assert.equal(g.prompt, 39100, 'an absent 1.4.2 beside a present 1.4.5 is 0 uncached, not a missing reading');
+  // And in a conversation, that newest generation is the ring, not an older, smaller one.
+  const { dir } = conversation([
+    generation({ prompt: 18372, reply: 18643, thoughts: 101 }),
+    generation({ prompt: 20875, cached: 16339, reply: 55, thoughts: 1 }),
+    generation({ prompt: null, cached: 39100, reply: 20, thoughts: 5 }),
+  ]);
+  assert.equal(agy.read(dir).contextUsed, 39100, 'the ring fell back to an older generation');
+  // CONTROL: a usage message with neither field is still no reading, never 0.
+  assert.equal(agy.decodeGeneration(generation({ prompt: null, reply: 3 })).prompt, null);
+});

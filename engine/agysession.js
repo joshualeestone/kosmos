@@ -126,7 +126,7 @@ function numberAt(buf, fieldPath) {
 }
 
 /** One generation's reading: { model, prompt, reply }, each null when absent. `prompt` is the prompt
-    as sent, cached part included (1.4.2 + 1.4.5); null when 1.4.2 is absent. */
+    as sent, cached part included (1.4.2 + 1.4.5); null only when both are absent. */
 function decodeGeneration(blob) {
   const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob || []);
   const modelBytes = messageAt(buf, FIELD.MODEL);
@@ -134,7 +134,10 @@ function decodeGeneration(blob) {
   const usage = messageAt(buf, FIELD.USAGE);
   const uncached = usage ? numberAt(usage, [FIELD.PROMPT_TOKENS]) : null;
   const cached = usage ? numberAt(usage, [FIELD.CACHED_PROMPT_TOKENS]) : null;
-  const prompt = uncached === null ? null : uncached + (cached || 0);
+  /* proto3 leaves a zero field off the wire: a turn served ENTIRELY from cache has no uncached part,
+     so 1.4.2 is absent while 1.4.5 is present. That is a prompt of `cached`, not no reading (review,
+     #4393 iteration 1). Only when BOTH are absent is there no reading. */
+  const prompt = uncached === null && cached === null ? null : (uncached || 0) + (cached || 0);
   const reply = usage ? numberAt(usage, [FIELD.REPLY_TOKENS]) : null;
   return { model, prompt, reply };
 }

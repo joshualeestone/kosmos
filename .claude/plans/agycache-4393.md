@@ -31,3 +31,13 @@ turns on a fresh agy agent under a sandboxed label (#3011), and the ring must ho
 That 1.4.5 is always the cached part of THIS request's prompt and never a cumulative counter. The per-generation
 values rise with the conversation and sum to the expected prompt at every step, which a cumulative counter would
 overshoot.
+
+## Review 1
+- WARNING proto3 leaves a zero field off the wire, so a turn served WHOLLY from cache has 1.4.5 but no 1.4.2; the
+  reader then skipped that generation and fell back to an older, smaller one (the card's own failure, another
+  way in) --> FIXED: an absent 1.4.2 beside a present 1.4.5 counts as 0 uncached; only both absent is no reading.
+  The fixture's `prompt: null` leaves 1.4.2 off the wire. The new test pins the decode, the ring in a
+  conversation, and the neither-field control. Reverting to the previous line reds it.
+- NIT an old plan (.claude/plans/ring-providers-4039.md) says "prompt 1.4.2" --> NOTED (history, not shipped).
+- Verified by the reviewer: status.js readAgySession is the only reader of agysession; win32agy.js and agystatus.js
+  parse no token usage of their own, so there is no second, unfixed reader.

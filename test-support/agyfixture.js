@@ -28,7 +28,10 @@ const minusOne = (field) => Buffer.concat([varint(field * 8), Buffer.from([0xff,
     inside the usage message and at top level, as real blobs carry such fields. */
 function generation({ model = 'gemini-3.8-flash', prompt, cached, reply, thoughts = 0, negative = false } = {}) {
   // `prompt` is 1.4.2 (the uncached part); `cached` is 1.4.5, written only once agy's cache is in use.
-  const usageParts = [num(1, 1318), num(2, prompt), num(3, reply + thoughts)];
+  // `prompt: null` leaves 1.4.2 off the wire, as proto3 does for a zero (a turn served wholly from cache).
+  const usageParts = [num(1, 1318)];
+  if (prompt !== null) usageParts.push(num(2, prompt));
+  usageParts.push(num(3, reply + thoughts));
   if (cached !== undefined) usageParts.push(num(5, cached));
   usageParts.push(num(9, reply), num(10, thoughts));
   if (negative) usageParts.push(minusOne(12));
