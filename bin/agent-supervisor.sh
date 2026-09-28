@@ -793,12 +793,28 @@ if [ -z "$adopt" ]; then
       "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true
       unset _AGY_VERSION
     fi
-    unset _AGY_BRIDGE
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
     unset _AGY_ARGS
+    # #4417: agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
+    # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board it is up and idle, once,
+    # now: through the same bridge, as the new pane (its pane id and the env the pane was given: the launch token,
+    # the port, the world), so the report is identified and authorised exactly as agy's own hooks are. Sent before
+    # agy can have started a turn, so it never overwrites a real "working"; `auto`, so it never erases a deliberate
+    # blocked. Best-effort and bounded by the bridge's own timeout: a board that is down costs this line, not the launch.
+    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ]; then
+      _AGY_PANE="$("$TMUX_BIN" display-message -p -t "$SESSION" '#{pane_id}' 2>/dev/null || true)"
+      if [ -n "$_AGY_PANE" ]; then
+        _AGY_SEED_ENV=()
+        for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do [ "$_x" = "-e" ] || _AGY_SEED_ENV+=("$_x"); done
+        env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
+        unset _AGY_SEED_ENV _x
+      fi
+      unset _AGY_PANE
+    fi
+    unset _AGY_BRIDGE
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
     # headless route is one `muse exec` per turn, so the pane runs Kosmos's front instead
