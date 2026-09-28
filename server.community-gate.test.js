@@ -82,7 +82,7 @@ test('#4287 CONTROL: GET /api/community/sent and POST /api/community/delete STAY
   assert.equal(await hit('/api/community/delete', { method: 'POST' }), 403, 'deleting a public post is the owner\'s action; it must require the board token');
 });
 
-test('#4287: with the board token, /sent answers, /delete withholds an unsent post and 404s an unknown one', async () => {
+test('#4287: with the board token, /sent answers, /delete 404s an unknown post and refuses one the board never sends', async () => {
   const r = await fetch(base + '/api/community/sent', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { posts: {} });
@@ -90,8 +90,9 @@ test('#4287: with the board token, /sent answers, /delete withholds an unsent po
   assert.equal(missing.status, 404);
   const made = await post('/api/community/human/post', { authorName: 'Pat', topic: 't', body: 'a post that was never sent' }, { 'x-kosmos-board-token': TOK });
   assert.equal(made.status, 200, JSON.stringify(made.json));
+  // A human post on the board is the operator's own and is never sent, so there is nothing to delete remotely.
   const d = await post('/api/community/delete', { id: made.json.id }, { 'x-kosmos-board-token': TOK });
-  assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'withheld' }]);
+  assert.deepEqual([d.status, d.json], [400, { error: 'the board never sends that post' }]);
   const bad = await post('/api/community/delete', {}, { 'x-kosmos-board-token': TOK });
   assert.equal(bad.status, 400);
 });

@@ -510,3 +510,71 @@ test('an unreadable sent, keys or deletes file pauses sending and is left for re
   assert.equal(cs.requestDelete(r.id).ok, false);
   assert.equal(fs.readFileSync(cs._paths.deletesFile(), 'utf8'), '{ not json');
 });
+
+test('a post whose send answer was lost, then deleted by the owner, is found on the server and deleted there', async () => {
+  await on();
+  const r = agentPost('xia', { topic: 'lost', body: 'answer lost' });
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts')) { await fetch(url, init); throw new Error('connection reset'); }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(be.st.posts.size, 1);
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed');
+  cs.requestDelete(r.id);
+  assert.equal(cs.statuses()[r.id].state, 'unconfirmed', 'a post that may be public was reported as never sent');
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal([...be.st.posts.values()][0].deleted, true, 'the server copy was left public');
+  assert.equal(cs.statuses()[r.id].state, 'deleted');
+});
+
+test('with the switch OFF, a delete of a post already public still goes out', async () => {
+  await on();
+  const r = agentPost('yan', { topic: 't', body: 'b' });
+  await cs.sweep();
+  SW = { on: false, ok: true };
+  cs.requestDelete(r.id);
+  assert.deepEqual(await cs.sweep(), { skipped: 'off' });
+  assert.equal([...be.st.posts.values()][0].deleted, true);
+  assert.equal(cs.statuses()[r.id].state, 'deleted');
+});
+
+test('keys belong to the server that issued them: a new address never sees the old key', async () => {
+  await on();
+  agentPost('zed', { topic: 'one', body: 'b' });
+  await cs.sweep();
+  const oldKey = [...be.st.agents.values()][0].key;
+  const first = be;
+  be = await backend();                      // a different server, and the env now points at it
+  try {
+    agentPost('zed', { topic: 'two', body: 'b' });
+    await cs.sweep();
+    assert.ok(!JSON.stringify(be.st.seen).includes(oldKey), 'the old server key was presented to the new one');
+    assert.ok(be.st.seen.some((s) => s.url === '/agents/register'), 'the new server was not registered with');
+  } finally {
+    first.server.closeAllConnections(); first.server.close();
+  }
+});
+
+test('a plain-http address that is not this machine is refused, and nothing is sent to it', async () => {
+  await on();
+  agentPost('abe', { topic: 't', body: 'b' });
+  const calls = [];
+  cs.setSender(async (url) => { calls.push(url); throw new Error('should not be called'); });
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com';
+  assert.deepEqual(await cs.sweep(), { skipped: 'insecure' });
+  assert.deepEqual(calls, []);
+});
+
+test('a delete is refused for a human post, which the board never sends; a held agent post can be withheld', async () => {
+  await on();
+  const communitysite = require('./communitysite');
+  const h = communitysite.publishHumanPost({ authorName: 'Pat', topic: 'x', body: 'y' });
+  assert.deepEqual(cs.requestDelete(h.id), { ok: false, notEligible: true, because: 'the board never sends that post' });
+  const held = agentPost('bea', { topic: 'held', body: 'b' }, { trusted: false });
+  assert.deepEqual(cs.requestDelete(held.id), { ok: true, state: 'withheld' });
+  communitystore.releaseHeld(held.id);
+  await cs.sweep();
+  assert.equal(posts().length, 0, 'a post withheld before release went out');
+});

@@ -354,10 +354,11 @@ function publishedPosts() {
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
-// #4287: whether a post with this id exists at all, in any status.
-function hasPost(id) {
+// #4287: a post's status and author type, or null when there is no such post.
+function postMeta(id) {
   const key = String(id);
-  return loadJson(postsFile(), []).some((p) => p.id === key);
+  const p = loadJson(postsFile(), []).find((x) => x.id === key);
+  return p ? { status: p.status, authorType: p.author && p.author.type } : null;
 }
 
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
@@ -505,7 +506,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  hasPost,
+  postMeta,
   // trust
   trustState,
   trustRecord,

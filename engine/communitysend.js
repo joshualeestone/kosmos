@@ -23,10 +23,12 @@
  * that goes looking in the data folder can read the file. Closing that needs the key
  * outside the agent's user (the Keychain, or a separate account), which this does not do.
  *
- * 🛑 ONLY WHILE THE SWITCH IS ON. The switch, and its default (ON, Josh's ruling on
- * #3485), belong to engine/communityswitch.js (#4288). This layer only reads it, at
- * send time. Until that module lands it reads as OFF, so nothing is sent: a default
- * and its control land together (#2013), and here the control lands in #4288.
+ * 🛑 POSTS GO OUT ONLY WHILE THE SWITCH IS ON. The switch, and its default (ON, Josh's
+ * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
+ * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
+ * default and its control land together (#2013), and here the control lands in #4288.
+ * Deletes the owner asks for, and take-down reads, still run with the switch OFF: they
+ * send nothing new.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
@@ -64,9 +66,14 @@ let sender = null;              // tests inject; production uses global fetch
 let running = null;             // the sweep in flight, so a second call joins it
 
 function dir() { return path.join(store.ROOT, 'communitysend'); }
+// Keys and send records belong to the server that issued them: one folder per endpoint,
+// so pointing the board at another server never presents a key or a remote id to it.
+function endpointDir() {
+  return path.join(dir(), crypto.createHash('sha256').update(endpoint()).digest('hex').slice(0, 12));
+}
 function stateFile() { return path.join(dir(), 'state.json'); }
-function keysFile() { return path.join(dir(), 'keys.json'); }
-function sentFile() { return path.join(dir(), 'sent.json'); }     // written ONLY by the sweep
+function keysFile() { return path.join(endpointDir(), 'keys.json'); }
+function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY by the sweep
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
 
 function saveJson(file, data) {
@@ -195,6 +202,16 @@ function registration(agentKey) {
   return out;
 }
 
+// Keys and tokens travel only over https, or plain http to this machine (the test and
+// local-instance case).
+function endpointAllowed() {
+  try {
+    const u = new URL(endpoint());
+    if (u.protocol === 'https:') return true;
+    return u.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
+  } catch { return false; }
+}
+
 async function request(method, pathname, { token, body } = {}) {
   const post = sender || ((url, init) => fetch(url, init));
   const ctl = new AbortController();
@@ -209,6 +226,7 @@ async function request(method, pathname, { token, body } = {}) {
     });
     let json = null;
     try { json = await res.json(); } catch { json = null; }
+    // Seconds only: this backend sends seconds, and an HTTP-date falls back to the default wait.
     const retry = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
     return { status: res.status, json, retryAfter: Number.isFinite(retry) ? retry : null };
   } catch {
@@ -360,33 +378,53 @@ async function sweepTakedowns(keys, sent, now) {
 
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
-  if (!switchOn()) { endOnPeriod(); return { skipped: 'off' }; }
-  const from = sinceForOnPeriod();
+  const on = switchOn();
+  if (!on) endOnPeriod();
+  if (!endpointAllowed()) {
+    log('the community address is not https, so nothing is sent to it');
+    return { skipped: 'insecure' };
+  }
   const keys = loadJson(keysFile());
   const sent = loadJson(sentFile());
-  const deletes = loadJson(deletesFile());
-  if (!keys || !sent || !deletes) return { skipped: 'unreadable' };
-  await sweepDeletes(keys, sent, deletes);
-  saveJson(sentFile(), sent);
-  const due = communitystore.publishedPosts()
-    .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
-    .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
-    .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
-  for (const post of due) {
-    if (!switchOn()) break;                           // switched off mid-sweep: stop
-    // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
-    const nowDeletes = loadJson(deletesFile());
-    if (!nowDeletes) break;                           // cannot see the owner's deletes: send nothing more
-    if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) {
-      sent[post.id] = { ...(sent[post.id] || { agent: post.agent }), state: 'withheld' };
-    } else {
-      await sendPost(post, keys, sent, now);
+  if (!keys || !sent || !loadJson(deletesFile())) return { skipped: 'unreadable' };
+  if (on) {
+    const from = sinceForOnPeriod();
+    const due = communitystore.publishedPosts()
+      .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
+      .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
+      .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
+    for (const post of due) {
+      if (!switchOn()) break;                         // switched off mid-sweep: stop sending
+      // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
+      const nowDeletes = loadJson(deletesFile());
+      if (!nowDeletes) break;                         // cannot see the owner's deletes: send nothing more
+      if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
+      else await sendPost(post, keys, sent, now);
+      saveJson(sentFile(), sent);
     }
-    saveJson(sentFile(), sent);
   }
+  // Deletes and take-down reads send nothing new, so they run with the switch OFF too.
+  const deletes = loadJson(deletesFile());
+  if (deletes) await sweepDeletes(keys, sent, deletes);
+  saveJson(sentFile(), sent);
   await sweepTakedowns(keys, sent, now);
   saveJson(sentFile(), sent);
-  return { ok: true };
+  return on ? { ok: true } : { skipped: 'off' };
+}
+
+// The owner deleted a post that is not known to be on the server. If an earlier send of it
+// got no answer, the server may hold it: adopt that copy so its DELETE goes out. Otherwise
+// it is withheld and never sent.
+async function withhold(post, keys, sent) {
+  const rec = sent[post.id] || { agent: post.agent };
+  if (rec.attempted) {
+    const k = keys[post.agent];
+    if (!k || !k.apiKey || k.refused) return;         // cannot ask: leave it for the next sweep
+    const found = await findExisting(post.agent, keys, payload(post, rec.channel), sent);
+    if (found === undefined) return;
+    if (found) { sent[post.id] = { ...rec, state: 'sent', remoteId: found }; return; }
+  }
+  sent[post.id] = { ...rec, state: 'withheld' };
 }
 
 /**
@@ -408,7 +446,9 @@ function requestDelete(localId) {
   const id = typeof localId === 'string' ? localId : '';
   if (!id) return { ok: false, because: 'a post id is required' };
   try {
-    if (!communitystore.hasPost(id)) return { ok: false, missing: true, because: 'there is no such post' };
+    const meta = communitystore.postMeta(id);
+    if (!meta) return { ok: false, missing: true, because: 'there is no such post' };
+    if (meta.authorType !== 'agent') return { ok: false, notEligible: true, because: 'the board never sends that post' };
     const deletes = loadJson(deletesFile());
     if (!deletes) return { ok: false, because: 'we could not read the list of deleted posts' };
     if (!deletes[id]) {
@@ -425,7 +465,9 @@ function statusOf(id, sent, deletes, keys) {
   const rec = sent[id] || {};
   const deleteRequested = Object.prototype.hasOwnProperty.call(deletes, id);
   let state = rec.state || 'pending';
-  if (deleteRequested && (state === 'pending' || !rec.state)) state = 'withheld';
+  // A send that got no answer may be on the server; say so rather than "not sent".
+  if (state === 'pending' && rec.attempted) state = 'unconfirmed';
+  else if (deleteRequested && state === 'pending') state = 'withheld';
   const k = rec.agent && keys[rec.agent];
   return {
     state, deleteRequested,
@@ -458,5 +500,5 @@ function setSwitch(f) { switchRead = f; }
 module.exports = {
   switchOn, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, stateFile, keysFile, sentFile, deletesFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
 };

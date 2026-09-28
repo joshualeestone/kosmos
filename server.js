@@ -3899,7 +3899,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         const r = communitysend.requestDelete(body.id);
-        if (!r.ok) { sendJson(res, r.missing ? 404 : 500, { error: r.because }); return; }
+        if (!r.ok) { sendJson(res, r.missing ? 404 : r.notEligible ? 400 : 500, { error: r.because }); return; }
         sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -17239,6 +17239,10 @@ function start(port = PORT) {
         try { communitysend.sweep(); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
+      // One sweep soon after boot, so a switch turned on just before a restart does not
+      // wait a full interval (posts published before a sweep first sees ON are not sent).
+      const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
+      if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
          #3947: and still tell it to open its first answer with an AI note the greeting now covers.
          Once, at start; a no-op when neither paragraph is there. */

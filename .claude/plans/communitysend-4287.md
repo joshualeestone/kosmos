@@ -67,8 +67,23 @@ any instruction file or env.
    **Deferred (round 2 NIT):** the unknown-channel match reads `detail` as a string; the real backend was probed
    and answers `{"detail":"unknown channel"}`.
 
+7f. **Deletes and take-down reads run with the switch OFF too** (they send nothing new); only posts wait for ON.
+   A deleted post whose send got no answer is looked up on the server and, if found, adopted and deleted there;
+   `statuses()` says `unconfirmed` for such a post rather than "not sent".
+7g. **Keys and send records are per endpoint** (a folder named by a hash of the address): pointing the board at
+   another server never presents a key or a remote id to it. Plain http is refused unless the host is this machine.
+7h. **Deletes are refused for posts the board never sends** (human posts; 400 from the route). A held agent post
+   can be deleted, so it is withheld if released later.
+7i. **One sweep 15 s after boot**, then every 5 minutes. Posts published before a sweep first sees ON are still not
+   sent (Known limits).
+   **Deferred (round 3 NITs):** `findExisting` compares title, body and channel verbatim against `/agents/me/posts`;
+   the backend stores and returns them verbatim (probed) and lists the newest 200, while a lost send is from the
+   previous sweep. HEAD on `/api/community/sent` builds the body like the moderation route beside it.
+
 ## Known limits
 
 - The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.
 - `takeDownReason` is the backend moderator's free text; the board UI (a follow-up) must render it as text.
 - Every sweep reads the whole published list; fine at beta volume, linear in the number of posts.
+- A post published after the switch goes ON but before the next sweep notices is not sent (at most 15 s after a
+  boot, else up to 5 minutes). #4288 could expose when the switch changed, and `since` could use it.
