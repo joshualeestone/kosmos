@@ -29357,12 +29357,16 @@ const ORG_SQUEEZE_MIN = 0.7;
 /* The square a fleet of outer radius maxR draws at when nothing has to fit: one
    derivation, read by orgFit and by paintOrg's .orgtight test. */
 function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
-function orgFit(maxR, avail) {
+/* kMin (optional, #4434): the smallest squeeze that keeps a TREE's faces apart. Squeezing scales every radius, so
+   a tree placed with its closest two nodes d apart stays overlap-free only down to k = 46 / d; below it the
+   faces touch, and the physics that separates them would push lines across each other (review it3). A tree
+   that needs more room than the screen scrolls instead. */
+function orgFit(maxR, avail, kMin) {
   const natural = orgNatural(maxR);
   if (!(avail > 0) || natural <= avail) return { size: natural, k: 1 };
   const half = Math.floor(avail / 2);
   if (maxR + ORG_PAD_MIN <= half) return { size: half * 2, k: 1 };
-  const k = Math.max(ORG_SQUEEZE_MIN, (half - ORG_PAD_MIN) / maxR);
+  const k = Math.min(1, Math.max(ORG_SQUEEZE_MIN, kMin || 0, (half - ORG_PAD_MIN) / maxR));
   return { size: Math.max(half * 2, Math.round((maxR * k + ORG_PAD_MIN) * 2)), k };
 }
 
@@ -29409,7 +29413,18 @@ function paintOrg() {
      here would draw at the natural size and overwrite ORG_POS in that frame. The
      next paint with a width draws it. */
   if (viewW === 0) return;
-  const fit = orgFit(maxR, viewW);
+  /* #4434: a tree is never squeezed below the scale that keeps its faces 46px apart (see orgFit). */
+  let closest = Infinity;
+  const spots = [...placed.values()];
+  if (spots.some((sp) => Number.isFinite(sp.lo))) {
+    for (let i = 0; i < spots.length; i += 1) {
+      for (let j = i + 1; j < spots.length; j += 1) {
+        closest = Math.min(closest, Math.hypot(Math.cos(spots[i].ang) * spots[i].r - Math.cos(spots[j].ang) * spots[j].r,
+          Math.sin(spots[i].ang) * spots[i].r - Math.sin(spots[j].ang) * spots[j].r));
+      }
+    }
+  }
+  const fit = orgFit(maxR, viewW, Number.isFinite(closest) ? 46 / closest : 0);
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
   /* #718: what changed since the last paint. Only a change in the box's width is
