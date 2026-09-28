@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: communityswitch-4288
-diff_hash: 338416986c98298b4cb491f904e6b0c998c7faf13a84c4eaedd86731d1165906
+diff_hash: 6642a897ad73ab7355e03dc0a9955a1a6ab5d335c0b91d4d4560421d13656b95
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T08:29:24Z
+timestamp: 2026-09-28T12:01:32Z
 iterations: 5
 converged: true
 ---
@@ -23,8 +23,18 @@ The validation after review 4 was red on the #2518 surface gate: the new `commun
 token `msg`, which render-unread-edge-3743 and render-agentdm-3414 key on. Neither reads Settings, so
 54f16a2f5 carries a `Browser-check-surface:` trailer for each, with that reason.
 
-**Final gate:** validation PASSED on 54f16a2f5 (val_exit=0, audit_exit=0, hash 338416986c98, clean worktree),
-10952 pass, 0 fail. engine/communityswitch.test.js 10/10; the new server.test.js route test passes; the
+**After the PR opened:**
+- CI's browser-checks job red `render-prompter-label-1843`: it also pins the Automation headings, and only
+  web.settings-nav had been updated (the #3552 class). Fixed; a repo-wide search found no third copy.
+- #4287 (Pete's send layer) landed first with a tripwire test that fails by design once this lands (April
+  measured it). Rebased onto main and replaced, as it asked, with a test of the real default through the
+  real module; flipping the module's no-file default to OFF reds it.
+- Two validations of f0515dbe6 were red only on timing tests in files this branch does not touch
+  (trust-lock-3088, server.usage, remote, updating-988, agytrust, win32agy) at load 7 to 9; each file
+  passed alone. The run above is the clean one.
+
+**Final gate:** validation PASSED on 416731681 (val_exit=0, audit_exit=0, hash 6642a897ad73, clean worktree),
+11030 pass, 0 fail, after a rebase onto main. engine/communityswitch.test.js 10/10; the new server.test.js route test passes; the
 browser check render-community-switch-4288 is all good on a sandboxed board (default ON, OFF note, 403,
 a 200 ok:false, the share line in four states, a click, and a refused click).
 
