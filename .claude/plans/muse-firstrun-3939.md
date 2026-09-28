@@ -78,4 +78,16 @@ That Add a provider can open over first-run without breaking first-run's own foc
 handling. It is the first thing to measure.
 
 ## Status
-- 2026-09-28 12:0x: plan committed; building next.
+- 2026-09-28 12:0x: plan committed.
+- 13:5x: built. museSigninFlow(prefix, { onDone }) (refactor alone first, the Add a provider check unchanged and
+  passing); the Meta row keeps today's markup (class="llm off", the Coming soon pill in place: two tests pin
+  them) and gains a hidden Connect plus a hidden fr-muse- panel; frPaintMeta on step 5; frClose stops the
+  sign-in. The model step's slice tripwire moved 49000 -> 54000 with its measurement (49755; create-model
+  115234 away). Browser check: switched off unchanged; switched on Connect; the panel opens with focus; one
+  start; closing first run stops it by id (removing that line reds it); Muse Code missing said; signed in
+  Connected with the gold box.
+- Weakest premise measured: at 390px wide the page does not scroll sideways (scrollWidth 390), the panel is
+  278px inside it, and the code boxes wrap to two lines and stay readable (scratchpad shots, light and dark;
+  first run draws light in both themes, like its other rows).
+- Decided: Connect stays pressable while a sign-in runs (pressing it again only re-opens the open panel).
+- Not in this slice: switching Muse on from first run (the switch is the marker file, #4400).
