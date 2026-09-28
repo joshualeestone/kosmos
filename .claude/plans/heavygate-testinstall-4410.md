@@ -44,6 +44,11 @@
   its own install gate (step 4b) never overlap, and the cut asked both questions at its start, so a
   refusal there could only abort a cut. KOSMOS_INSTALL_GATE=1 was the first scope and was wrong:
   `yarn test:install-gate` sets it with no cut and no claim.
+  Standing down loses no protection because two OLDER mechanisms cover the cut's whole life (review
+  2): a harness starting during a cut is refused by its own kosmos_refuse_if_cut_live (it sees the
+  cut's `cut` run marker), and a suite starting during a cut is refused by
+  kosmos_refuse_if_machine_claimed. The comment on kosmos_holds_machine_claim says so, so an edit to
+  either one knows it is load-bearing here.
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default

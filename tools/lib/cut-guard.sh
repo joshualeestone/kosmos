@@ -421,7 +421,7 @@ kosmos_refuse_if_harness_live() {
 # the connect arm). run-tests.sh now asks kosmos_refuse_if_harness_live before it starts; this is
 # the mirror, which test-install.sh asks before it takes a port. Same shape as the guards above:
 # only a bash/sh whose own command line IS tools/run-tests.sh counts (a mention does not), the
-# caller's own subtree is dropped, a proven unit-test fixture (a node --test ancestor, or the
+# caller's own subtree is dropped (defensive: test-install.sh never self-matches run-tests.sh), a proven unit-test fixture (a node --test ancestor, or the
 # kt<digits> sandbox: the suite's own shell tests run run-tests.sh fixtures) is dropped, and a
 # probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
@@ -619,6 +619,11 @@ kosmos_refuse_if_machine_claimed() {
 # a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate) and
 # which the cut already checked at its start; everything else, including `yarn test:install-gate`
 # outside a cut, still asks.
+# ⚠️ WHY STANDING DOWN LOSES NOTHING, and what it leans on. A harness that starts DURING the cut is
+# not caught by this stand-down's callers; it is refused by its own start-time
+# kosmos_refuse_if_cut_live, which sees the cut's `cut` marker (kosmos_mark_run in release.sh) for
+# the cut's whole life. A new suite during the cut is refused by kosmos_refuse_if_machine_claimed.
+# Change either of those and this stand-down becomes a real gap.
 kosmos_holds_machine_claim() {
   local active cookie self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
   [ -n "$self" ] || return 1
