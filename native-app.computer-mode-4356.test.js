@@ -146,6 +146,13 @@ test('#4356: a start after the choice that fails is said, not only logged', () =
   // Counted as a board start, so Reload does not run a second one alongside it.
   assert.match(ensure, /!boardStartInFlight else \{ return \}/);
   assert.match(ensure, /boardStartInFlight = true[\s\S]*self\.boardStartInFlight = false/);
+  assert.match(ensure, /asyncAfter\(deadline: \.now\(\) \+ 300\)/, 'a start that never returns leaves Reload dead (#965)');
+});
+
+test('#4356: the computers\' domain is derived from the sign-in host, not written twice', () => {
+  const fn = SRC.slice(SRC.indexOf('func isKosmosPlusURL(_ url: URL) -> Bool'));
+  assert.doesNotMatch(fn.slice(0, fn.indexOf('\n}\n')), /"\.kosmosplus\.com"/);
+  assert.match(fn, /labels\.dropFirst\(\)\.joined\(separator: "\."\)/);
 });
 
 test('#4356: Settings refuses on a connect computer even from its key equivalent', () => {
@@ -187,7 +194,7 @@ test('#4356: Reload on a connect computer never starts the board', () => {
   const guard = reload.indexOf('if computerMode == .connect {');
   assert.notEqual(guard, -1, 'Reload on a connect computer falls into the board start path');
   assert.ok(guard < reload.indexOf('loadBoard()'), 'the connect check comes after a path that starts the board');
-  assert.match(reload, /if computerMode == \.connect \{\n\s+if webView\.url == nil \|\| lastLoadFailed \{ loadConnect\(\) \} else \{ webView\.reload\(\) \}\n\s+return\n\s+\}/);
+  assert.match(reload, /if computerMode == \.connect \{\n\s+if webView\.backForwardList\.currentItem == nil \|\| lastLoadFailed \{ loadConnect\(\) \} else \{ webView\.reload\(\) \}\n\s+return\n\s+\}/);
 });
 
 test('#4356: a connect computer keeps its window to Kosmos Plus; a run computer is unchanged', () => {

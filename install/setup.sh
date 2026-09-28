@@ -2658,15 +2658,23 @@ mkdir -p "$KOSMOS_HOME" "$BIN_DIR" || die "Could not create $KOSMOS_HOME. Check 
 # board polls does not exist (every agent reads as unknown), and a version
 # change would strand the running tmux server on a protocol the new client
 # cannot speak.
-# #4356: this computer's choice ($KOSMOS_HOME/mode), read here, before the pause, so the pause's own
-# line and every later line about the board come from the one reading.
-# Read ONCE: the app can rewrite the file during this run (its menu's "Run agents on this computer"),
-# and every line below about the board must agree with the one decision (review round 5).
-_kosmos_mode_file=no; _kosmos_mode_word=""
-if [ -e "$KOSMOS_HOME/mode" ]; then
-  _kosmos_mode_file=yes
-  _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
-fi
+# #4356: this computer's choice ($KOSMOS_HOME/mode). The Mac app can change it WHILE this runs (the
+# first screen's buttons, its menu's "Run agents on this computer"), so it is read again at each
+# point this run decides something about the board, and the latest reading decides (reviews 5, 10,
+# 13): _kosmos_board_decide, before the pause, before the start, before the launchd restart, and at
+# the end, where a connect computer whose board is up is stopped. Every line below about the board
+# comes from the reading current when it is printed.
+_kosmos_mode_read() {
+  _kosmos_mode_file=no; _kosmos_mode_word=""
+  if [ -e "$KOSMOS_HOME/mode" ]; then
+    _kosmos_mode_file=yes
+    _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _kosmos_mode_word=""
+  fi
+}
+_kosmos_board_decide() {
+  _kosmos_mode_read
+  if _kosmos_mode_keeps_board_off; then _kosmos_board_off=yes; else _kosmos_board_off=no; fi
+}
 _kosmos_mode_keeps_board_off() {
   [ "$_kosmos_mode_file" = yes ] || return 1
   case "$_kosmos_mode_word" in
@@ -2674,6 +2682,7 @@ _kosmos_mode_keeps_board_off() {
   esac
   return 0
 }
+_kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
@@ -3729,17 +3738,10 @@ fi
 # including a file that cannot be read, is not started: the installer cannot ask, and the app
 # starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
 # app's reader does.
-# Decided once, here, and read again by the summary at the end, so every line this run prints
-# about the board agrees with what it did.
-# The file was read once, before the pause. It is read again here only to catch Connect picked on the
-# first screen while this update ran: then this run declines the start, and says so (it takes connect
-# as its reading from here on, so the step line and the summary match what it did). Only connect is
-# taken: declining is the safe direction; the reverse change (to Run agents) is the app's to start
-# (runAgentsHere, ensureBoardRunning).
-if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then _kosmos_mode_file=yes; _kosmos_mode_word=connect; fi
-_kosmos_board_off=no
-if _kosmos_mode_keeps_board_off; then
-  _kosmos_board_off=yes
+# Read again now (_kosmos_board_decide): the person may have answered the first screen, or used the
+# menu, during this run. The latest reading decides whether this run starts the board.
+_kosmos_board_decide
+if [ "$_kosmos_board_off" = yes ]; then
   # The marker is what launchd's login item (board-run) and the watchdog obey. An update's pause
   # already wrote it; a run that did not pause (a fresh bin/ over a leftover home) has not, and
   # without it the login item bootstrapped below would start the board this run just declined to.
@@ -4027,9 +4029,9 @@ if [ "$_board_ok" = yes ]; then
         # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
         # under the sandbox above, so this path is verified on a real box, not here.)
         # #4356: not on a computer that connects elsewhere; restart would clear board.stopped.
-        # (and read once more, as above, only to decline: Connect picked during this run)
-        [ "$_kosmos_board_off" = yes ] || [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ] \
-          || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        # (read again first: a choice made since the start step decides)
+        _kosmos_board_decide
+        [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else
@@ -4208,6 +4210,16 @@ fi
 # are the exact contradiction #3058 is about. _do_open is the whole launch predicate, computed
 # once and consumed by both the summary and the launch. The two knobs and the enforcing-update
 # gate are documented in full at the launch site below; this is the same computation, hoisted.
+# #4356: the last reading, before the summary. A computer that became connect during this run (a
+# first-screen answer after the start step) has its board stopped here rather than left for the
+# next login; stop writes board.stopped. An unreadable one is left as it is: the app started it to
+# ask. The summary below then describes this reading.
+_kosmos_board_decide
+if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
+  "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+  if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
+fi
+
 OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 _awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
 if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then

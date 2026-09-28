@@ -838,7 +838,8 @@ RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
 chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
-chk "the launchd bootstrap's restart is held by the same decision" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \\[ \"\$(cat \"\$KOSMOS_HOME/mode\" 2>/dev/null)\" = connect \\]' \"$SETUP\""
+chk "the launchd bootstrap's restart reads the choice again first" "grep -B1 'restart >/dev/null 2>&1 || true' \"$SETUP\" | grep -q '_kosmos_board_decide'"
+chk "and the run ends by stopping a board that became connect during it" "grep -A2 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' \"$SETUP\" | grep -q 'kosmos\" stop'"
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 

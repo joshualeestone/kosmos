@@ -250,6 +250,12 @@ test('#4356: tips, the Community notice, What\'s New and the setup assistant all
   // Every covering check that knows first run's .fr-back also knows the first screen.
   const frOnly = (PAGE.match(/\.fr-back:not\(\[hidden\]\)[^'"]*['"]/g) || []).filter((m) => !/\.frc-back/.test(m));
   assert.deepEqual(frOnly, [], 'a check that knows first run does not know the first screen');
+  // By-id guards (getElementById('firstrun') ... hidden) the sweep above cannot see: each one was read
+  // for #4356. tipsTick is followed by tipModalOpen(), which knows the screen; asbShows checks
+  // #fr-choice itself; asbScreen only names the screen for a helper that asbShows already hides.
+  // A new one fails here until someone reads it the same way.
+  const byId = (PAGE.match(/const fr = document\.getElementById\('firstrun'\);\n\s+if \(fr && !fr\.hidden\)/g) || []).length;
+  assert.equal(byId, 3, 'a new first-run guard by id: check it knows the first screen, then update this count');
   assert.match(lift('asbShows'), /const frc = document\.getElementById\('fr-choice'\);\n\s+if \(frc && !frc\.hidden\) return false;/, 'asbShows does not know the first screen');
   // And anything appended to <body> while the screen is up goes inert too.
   assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*n\.inert = true;[\s\S]*observe\(document\.body, \{ childList: true \}\)/);

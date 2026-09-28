@@ -266,7 +266,11 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
     else { return false }
     let coordinator = kosmosPlusSignIn.host!
     if host == coordinator { return true }
-    let suffix = ".kosmosplus.com"
+    // The computers live one label under the sign-in host's parent ("login.kosmosplus.com" gives
+    // "kosmosplus.com"), derived as iOS derives it (relayDomain), so moving the sign-in moves both.
+    let labels = coordinator.split(separator: ".")
+    guard labels.count >= 3 else { return false }
+    let suffix = "." + labels.dropFirst().joined(separator: ".")
     guard host.hasSuffix(suffix) else { return false }
     let label = String(host.dropLast(suffix.count))
     guard (1...63).contains(label.count), label.first != "-", label.last != "-", !label.hasPrefix("xn--")
@@ -1863,10 +1867,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Counted as a board start, as loadBoard's is, so a Cmd-R meanwhile is ignored (reloadDecision)
         // rather than racing a second `kosmos start` (review round 12).
         boardStartInFlight = true
+        boardStartGeneration += 1
+        let generation = boardStartGeneration
+        // The same 300 s watchdog loadBoard has: a start that never returns must not leave every
+        // Cmd-R a silent beep (#965).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+            guard let self, self.boardStartInFlight, self.boardStartGeneration == generation else { return }
+            logLine("#4356: the start after the choice gave no answer in 300s; re-arming Reload")
+            self.boardStartInFlight = false
+            self.boardStartGeneration += 1
+        }
         DispatchQueue.global(qos: .utility).async {
             let result = startBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.boardStartGeneration == generation else { return }
                 self.boardStartInFlight = false
                 if case .failed(let why) = result {
                     logLine("#4356: start after the choice failed: \(why)")
@@ -3244,7 +3258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // (WebKitErrorDomain 102); that is not Kosmos Plus failing to answer.
         let policyCancel = (error as NSError).domain == "WebKitErrorDomain" && (error as NSError).code == 102
         if computerMode == .connect && !policyCancel && (isBoardLoadNav || webView.backForwardList.currentItem == nil) {
-            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host ?? "login.kosmosplus.com")). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
+            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
             return
         }
         // One-shot fall-through: the user's reload hit a dead page (the
@@ -3281,7 +3295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
         // goes back to sign-in when there is none or the last load failed.
         if computerMode == .connect {
-            if webView.url == nil || lastLoadFailed { loadConnect() } else { webView.reload() }
+            if webView.backForwardList.currentItem == nil || lastLoadFailed { loadConnect() } else { webView.reload() }
             return
         }
         boardRecoveryIsUserInitiated = true
