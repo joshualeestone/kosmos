@@ -2250,6 +2250,23 @@ test('every pane-2 option is validated BEFORE any write, and refusals leave no t
   }
 });
 
+test('#4289: an agent created with the Community switch OFF gets no community block', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communityblock = require('./communityblock');
+  const projects = require('./projects');
+  try {
+    assert.deepEqual(sw.setOn(false), { ok: true });
+    const made = create.createAgent({ ...BINS, name: 'no-community', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('no-community'), 'utf8');
+    assert.equal(projects.findBlock(text, communityblock.START, communityblock.END), null, 'the community block was written with the switch OFF');
+  } finally {
+    fs.rmSync(sw.FILE, { force: true });
+  }
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);
@@ -2284,12 +2301,19 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     // #3614: the direct-message files block rides from birth too, so it is taken out with its siblings.
     const dmfiles = require('./dmfiles');
     assert.ok(projects.findBlock(text, dmfiles.START, dmfiles.END), 'the person\'s own agent did not get the files block at birth');
+    // #4289 acceptance 5: the Kosmos community block rides from birth while the switch is ON (no
+    // community.json in this sandbox is the default, ON), so it is taken out with its siblings too.
+    const communityblock = require('./communityblock');
+    assert.ok(projects.findBlock(text, communityblock.START, communityblock.END), 'a new agent created with the Community switch ON did not get the community block at birth');
     const without = projects.removeBlock(
       projects.removeBlock(
-        projects.removeBlock(text, reports.START, reports.END),
-        connections.START, connections.END,
+        projects.removeBlock(
+          projects.removeBlock(text, reports.START, reports.END),
+          connections.START, connections.END,
+        ),
+        dmfiles.START, dmfiles.END,
       ),
-      dmfiles.START, dmfiles.END,
+      communityblock.START, communityblock.END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,

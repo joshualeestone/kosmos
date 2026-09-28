@@ -71,7 +71,10 @@ function macVerbsFromBanner(text) {
 
 /* A verb's subcommands: the arms of every `case "$sub" in` / `case "${1:-}" in` in
    its cmd_<verb>() (arms one level in only, so a nested flag case is not read), plus
-   a literal `[ "$x" = "word" ]` compare (how cmd_room spots `reopen`). */
+   a literal `[ "$x" = "word" ]` or `!=` compare on the FIRST ARGUMENT: `$sub`, or a
+   variable set from `${1:-}` / `$1` (how cmd_room spots `reopen`, cmd_community
+   `post`). #4330: any variable at all read cmd_community's `[ "$status" = "held" ]`,
+   the board's answer, as a subcommand. */
 function macSubcommands(text, verb) {
   const open = text.indexOf('\ncmd_' + verb + '() {\n');
   if (open < 0) return [];
@@ -88,7 +91,8 @@ function macSubcommands(text, verb) {
       if (arm) for (const word of arm[1].split('|')) if (/^[a-z][a-z_]*$/.test(word) && word !== 'help') subs.add(word);
     }
   }
-  for (const m of body.matchAll(/\[ "\$[A-Za-z_]+" = "([a-z][a-z_]*)" \]/g)) subs.add(m[1]);
+  const firstArg = new Set(['sub', ...[...body.matchAll(/\b([A-Za-z_]+)="\$(?:\{1:-\}|1)"/g)].map((m) => m[1])]);
+  for (const m of body.matchAll(/\[ "\$([A-Za-z_]+)" !?= "([a-z][a-z_]*)" \]/g)) if (firstArg.has(m[1])) subs.add(m[2]);
   return [...subs];
 }
 
@@ -153,6 +157,7 @@ test('the parser really reads subcommands (a guard that cannot find any would pa
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'list', 'message']);   // built: #3951
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
+  assert.deepEqual(macSubcommands(MAC_CLI, 'community'), ['post'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {
