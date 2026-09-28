@@ -135,6 +135,13 @@ let backoffMs = 1000;
    report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
 let restarts = 0;   // since process start, never reset (resetForTests leaves it): read it as a delta
 let restartPending = false;
+/* kosmos#4277 review 22: the tunnel rewrites its status to "connecting" (no reason) at the start of
+   every retry (kosmos-relay lib.rs run_forever), so a stuck tunnel shows WHY only in the backoff
+   window. The last failure sentence the CURRENT process wrote is kept here, sampled whenever
+   status() reads the file (the report, a page, and the 15 s ensure tick), so the report can name
+   it while the tunnel is dialling again. Memory only: the report classifies it and never sends
+   it. Cleared when that process is up, and for a new process. */
+let lastTunnelFailure = null;
 let localPort = null;
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
@@ -242,8 +249,9 @@ async function fetchStanding() {
    not stack fetches, and best-effort (never throws into the status tick). */
 /* kosmos#4277: the timer that sends the remote report on its own, so a board nobody is watching
    still reports (review 8; tested here rather than in server.js, review 15). Every ten minutes it
-   runs the refresh, which is single-flighted and TTL-gated, so an open tab polling /api/status adds
-   nothing, and a board makes at most one standing call per ten minutes from it. The TTL sits under
+   runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
+   refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
+   caller, at most one standing call per ten minutes. The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick (review 10). Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
@@ -545,7 +553,8 @@ function ensure(port) {
     // tunnel started in the retire wait would run on the key being deleted.
     const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
-    if (child || restartTimer) return;
+    if (child) { status(); return; }   // samples the tunnel's last failure (kosmos#4277 review 22)
+    if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
     // minute would run the new identity on the old certificate. The register
@@ -577,6 +586,7 @@ function spawnFedSeat(edgeId) {
 
 function startChild() {
   if (restartPending) { restarts += 1; restartPending = false; }
+  lastTunnelFailure = null;   // a new process has written nothing yet
   const args = [
     'run',
     '--relay', RELAY(),
@@ -734,6 +744,8 @@ function status() {
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
+    if (raw.state === 'up') lastTunnelFailure = null;
+    else if (raw.state === 'restarting' && typeof raw.because === 'string' && raw.because) lastTunnelFailure = raw.because;
     if (raw.state === 'up') {
       /* A healthy run earns a fresh backoff: without this the window only
          ever grows (stopChild is the sole other reset), so a board that has
@@ -1913,6 +1925,9 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   stateDir: STATE_DIR,
   /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
   restartCount: () => restarts,
+  /* kosmos#4277 review 22: the current tunnel process's last failure sentence, for
+     engine/remote-report.js to classify. Never sent as text. */
+  lastTunnelFailure: () => lastTunnelFailure,
   /* kosmos#4277 review 10: whether the supervisor's tunnel process is up ('alive'), dead with a
      relaunch scheduled ('waiting'), or not running ('none'). This, not status(), says whether a
      relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */

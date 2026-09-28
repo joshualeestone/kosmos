@@ -138,6 +138,13 @@ function build(deps) {
     const dirThere = (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })();
     const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
     const tunnel = tunnelState(st.state, on, sup, ENROL_FILES.every(exists));
+    // While the tunnel dials again it says only "connecting to the relay" (it clears its reason at
+    // each retry), so a stuck tunnel is named by the last failure its process wrote (review 22).
+    let because = st.because;
+    if (tunnel === 'starting' && classify(because) === 'starting' && typeof remote.lastTunnelFailure === 'function') {
+      const last = remote.lastTunnelFailure();
+      if (typeof last === 'string' && last) because = last;
+    }
     const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     let heal = 'none';
     if (restarts > lastRestarts) {
@@ -150,7 +157,7 @@ function build(deps) {
     const r = {
       on,
       tunnel,
-      error: tunnel === 'running' ? null : errorCode(st.because, on, exists),
+      error: tunnel === 'running' ? null : errorCode(because, on, exists),
       stateDir: !dirThere ? 'missing' : (env.AGENT_WORKFORCE_TUNNEL_STATE ? 'custom' : 'default'),
       macId: exists('mac_id'),
       macKey: exists('mac_key'),

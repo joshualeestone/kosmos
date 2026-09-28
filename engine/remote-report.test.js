@@ -16,10 +16,11 @@ const path = require('node:path');
 const report = require('./remote-report');
 
 
-function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0, sup }) {
+function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0, sup, lastFailure = null }) {
   const supervisor = sup || (state === 'restarting' ? 'waiting' : (state === 'up' || state === 'connecting' ? 'alive' : 'none'));
   return {
     supervisorState: () => supervisor,
+    lastTunnelFailure: () => lastFailure,
     read: () => ({ ok, on }),
     status: () => ({ state, because }),
     stateDir: () => dir,
@@ -139,6 +140,20 @@ test('classify: each healthy dialling sentence matches `starting` and no failure
     const hits = report.CODES.filter(([, re]) => re.test(s)).map(([c]) => c);
     assert.deepEqual(hits, ['starting'], s);
   }
+});
+
+test('a tunnel dialling again after a failure is named by that failure, not by "connecting" (review 22)', () => {
+  report.resetForTests();
+  const dir = stateDir(report.ENROL_FILES);
+  const stuck = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'connecting to the relay', lastFailure: 'relay refused the tunnel: bad ticket' }), env: {} });
+  assert.equal(stuck.tunnel, 'starting');
+  assert.equal(stuck.error, 'relay-refused', 'a stuck tunnel read as one coming up');
+  assert.ok(!JSON.stringify(stuck).includes('bad ticket'), 'the failure sentence left the Mac');
+  const fresh = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'connecting to the relay' }), env: {} });
+  assert.equal(fresh.error, 'starting', 'a tunnel with no failure yet is simply starting');
+  // A real reason in the status wins over the remembered one.
+  const now = report.build({ remote: fakeRemote({ dir, state: 'restarting', because: 'relay said go away: replaced', sup: 'alive', lastFailure: 'relay refused the tunnel: x' }), env: {} });
+  assert.equal(now.error, 'relay-dropped');
 });
 
 test('classify is bounded: a 100k-character hostile line classifies fast', () => {

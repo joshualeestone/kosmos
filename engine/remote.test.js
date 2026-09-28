@@ -264,10 +264,19 @@ if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
+  // Like the real run_forever: a session fails (restarting, with a reason), then the next retry
+  // rewrites the status to connecting with NO reason (#4277 review 22).
+  if (mode.includes('retry-loop')) {
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'restarting', address: null, because: 'relay refused the tunnel: bad ticket', pid: process.pid }) + '\\n');
+    setTimeout(() => fs.writeFileSync(statusFile, JSON.stringify({ state: 'connecting', address: null, because: null, pid: process.pid }) + '\\n'), 400);
+    setInterval(() => {}, 1000);
+    process.on('SIGTERM', () => process.exit(0));
+  } else {
   const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
   fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', address, because: null, pid: process.pid }) + '\\n');
   setInterval(() => {}, 1000);
   process.on('SIGTERM', () => process.exit(0));
+  }
 }
 `, { mode: 0o755 });
 
@@ -713,6 +722,27 @@ test('#4277: the report timer runs the refresh on its own, under a TTL below its
     await until(() => seen.length >= 3, 'the timer to keep firing after a throw and a rejection');
     assert.equal(seen[0].ttlMs, remote.REPORT_TTL_MS, 'the timer does not pass its TTL');
   } finally { clearInterval(t); clearTimeout(t.first); remote.refreshStandingIfStale = real; }
+});
+
+test('#4277: the ensure tick remembers the tunnel\'s last failure through its retry, so the report names a stuck tunnel', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9449';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();
+  process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+  try {
+    remote.ensure(4350);
+    const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
+    // Read the FILE, not status(), so only the tick samples it.
+    await until(() => { const f = statusFile(); return f && f.state === 'restarting'; }, 'the tunnel to write its failure');
+    remote.ensure(4350);   // the 15 s tick
+    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)');
+    assert.equal(remote.lastTunnelFailure(), 'relay refused the tunnel: bad ticket', 'the tick did not keep the failure');
+    assert.equal(remote.status().because, 'connecting to the relay', 'fixture: the live status no longer says why');
+    const r = require('./remote-report').build();
+    assert.equal(r.error, 'relay-refused', 'the report of a stuck tunnel said only that it is starting');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {

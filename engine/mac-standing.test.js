@@ -41,6 +41,8 @@ function unenroll() { for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key'
 
 /* Run fn with the fake answering `mode`, the network tripwire armed, and stderr
    captured. Returns { value, stderr, calls, dialled }. */
+/* An env var set to undefined becomes the string "undefined", which would disarm the suite's guard. */
+function restoreSeam(v) { if (v === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_BIN; else process.env.AGENT_WORKFORCE_TUNNEL_BIN = v; }
 async function run(mode, fn) {
   fake.reset();
   process.env.FAKE_MAC_REQUEST_MODE = mode;
@@ -160,13 +162,13 @@ test('#4277: under the test runner with NO test tunnel binary, the not-enrolled 
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(called, 0, 'the guard must stop the report before macRequest');
     // CONTROL: the same state WITH the seam set does call it, so the zero above is the guard's doing.
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam;
+    restoreSeam(seam);
     remote.resetForTests();
     keyOnly(true);
     await remote.refreshStandingIfStale({ now: Date.now() + 60 * 60 * 1000, ttlMs: 0 });
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(called, 1, 'control: with the seam set the report was not attempted, so the zero proves nothing');
-  } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+  } finally { remote.macRequest = real; restoreSeam(seam); }
 });
 
 test('#4277: the enrolled standing call commits the heal baseline only when the send succeeded', async () => {
@@ -216,6 +218,10 @@ test('#4277: the not-enrolled report commits its heal baseline only when it went
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(committed.length, 1, 'a report that went out did not commit its heal baseline');
   } finally { rr.commitHeal = realCommit; remote.macRequest = realReq; process.stderr.write = realWrite; }
+});
+
+test('#4277: the key-only route IS the standing route (one fact, two modules)', () => {
+  assert.equal(remote.KEY_ONLY_ROUTE, macStanding.ROUTE, 'key-only signing opens a different route from the one the report uses');
 });
 
 test('#4277: key-only signing still needs the key and id on disk', async () => {
@@ -362,10 +368,10 @@ test('the SUITE GUARD: under the test runner with NO test tunnel binary, macRequ
   try {
     assert.equal(await macStanding.fetchStanding(), null);
     assert.equal(called, 0, 'the guard must stop the call before macRequest');
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam;
+    restoreSeam(seam);
     assert.equal(await macStanding.fetchStanding(), 'good', 'CONTROL: with the seam set, the same spy IS called');
     assert.equal(called, 1);
-  } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+  } finally { remote.macRequest = real; restoreSeam(seam); }
 });
 
 test.after(() => {

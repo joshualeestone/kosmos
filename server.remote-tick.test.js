@@ -48,7 +48,15 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const remote = require('./engine/remote');
 let base;
+/* kosmos#4277 review 22: the report timer is what makes a board nobody is watching report at all;
+   pin that the real boot starts it (once), not only that the function works. */
+let reportTimerStarts = 0;
+const realStartReportTimer = remote.startReportTimer;
+remote.startReportTimer = (...args) => { reportTimerStarts += 1; const t = realStartReportTimer(...args); clearInterval(t); clearTimeout(t.first); return t; };
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+test('#4277: the real boot starts the remote report timer, once', () => {
+  assert.equal(reportTimerStarts, 1, 'the server did not start the report timer (an unwatched board would never report)');
+});
 test.after(async () => {
   remote.setOn(false); remote.ensure();
   server.closeAllConnections(); server.close();

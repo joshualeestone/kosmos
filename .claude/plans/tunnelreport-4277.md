@@ -19,16 +19,25 @@ Rejected:
 - **Relaxing `enrolled()` to start the tunnel on a half-enrolled state dir.** A tunnel without its certificate cannot serve. The fix is to report the half state, not to paper over it.
 
 ## Evidence
-- `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
-- `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
+- `node --test engine/remote-report.test.js`: 13 of 13 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
+- `engine/mac-standing.test.js`: 18 of 18, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
 - `engine/remote-standing-refresh.test.js`: 9 of 9, including a future standing_at (a clock stepped back) read as stale.
-- `engine/remote.test.js`: 108 of 108, including seven #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 109 of 109, including eight #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2), since resolved
 - Resolved in review 17: clearHalfIdentity waits for signed calls already out (as Forget does) before it retires and wipes; the key-only report fires exactly when a person is likely to sign in again, so the race was no longer rare. Tested; a mutant without the wait fails.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 22
+- A stuck tunnel read as one coming up: the tunnel rewrites its status to connecting (no reason) at every retry (lib.rs run_forever), so the report mostly said `starting`/`starting`. remote.js now keeps the last failure sentence the CURRENT tunnel process wrote (sampled by status(), which the 15 s ensure tick now calls while a child runs; cleared when that process is up or a new one starts), and remote-report.js classifies it while the tunnel dials again. Memory only, never sent as text. Tests: remote-report (a stuck tunnel reads its failure code, a fresh one reads starting, a live reason wins) and remote.test.js (a fake tunnel in `retry-loop` writes a failure then retries with no reason; the tick keeps it; the report names it). Mutants removing the memory or the tick's sampling fail.
+- server.remote-tick.test.js pins that the real boot starts the report timer, once (removing the call fails it).
+- mac-standing.test.js pins KEY_ONLY_ROUTE equal to mac-standing's ROUTE (one fact, two modules).
+- The timer comment had the tab case backwards: with a tab open /api/status refreshes on its own shorter TTL and the timer adds nothing; with none, the timer is the only caller.
+- A test seam restore that could write the string "undefined" now deletes the variable instead.
+- Deferred: a tunnel that hangs with no timeout (relay TLS handshake, AUTH write) never writes a failure, so it reads `starting`; the fix is in the tunnel, filed as #4315.
+- Deferred, by design: relaunches counted before a board loses its enrolment are not reported by the first not-enrolled report (no process, nothing scheduled: not a result).
 
 ## Review 21
 - The ship-order gate is MET: kosmos-relay #190 merged (07ab09d) and was deployed by Kitty; verified from here 2026-09-28 01:50 CDT: /v1/meta build 07ab09d, and an unsigned POST /v1/mac/standing answers 401 missing signature headers.
