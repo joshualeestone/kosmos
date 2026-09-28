@@ -173,7 +173,32 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
     GAP_ALARM_POINTERS: ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW),
   });
   assert.equal(r.code, 2);
+  // Said only once it has lasted 3 h (review 9): the first hour is silent...
+  assert.equal(s.msg.read() + s.gh.read(), '', 'a first could-not-tell hour posted');
+  // ...and three hours on it is said, and is not a pass.
+  const r3 = run([], {
+    KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW), GAP_ALARM_NOW: String(NOW + 3 * H),
+  });
+  assert.equal(r3.code, 2);
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
+});
+
+test('review 9: a could-not-tell that comes and goes posts nothing; one that lasts is said once', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H]]);
+  const s = stubs();
+  const base = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin };
+  const clear = ptrs(shas.prod, shas.prod, NOW - 100 * H);
+  const unknown = ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW);
+  // Six hours alternating clear and could-not-tell: nothing to say.
+  for (let i = 0; i < 6; i++) run([], Object.assign({}, base, { GAP_ALARM_POINTERS: i % 2 ? unknown : clear, GAP_ALARM_NOW: String(NOW + i * H) }));
+  assert.equal(s.msg.read() + s.gh.read(), '', 'an intermittent could-not-tell posted');
+  // Now it lasts: said once after 3 h, not again within the day.
+  for (let i = 6; i <= 12; i++) run([], Object.assign({}, base, { GAP_ALARM_POINTERS: unknown, GAP_ALARM_NOW: String(NOW + i * H) }));
+  assert.equal((s.msg.read().match(/could not tell/g) || []).length, 1, 'a lasting could-not-tell was not said exactly once');
+  // Measurable again: the all-clear says so.
+  run([], Object.assign({}, base, { GAP_ALARM_POINTERS: clear, GAP_ALARM_NOW: String(NOW + 13 * H) }));
+  assert.match(s.msg.read(), /measurable again, and under the limits/);
 });
 
 test('main\'s hours run from when work LANDED on main: a merge commit\'s older side-branch commits do not alarm', () => {
@@ -236,7 +261,8 @@ test('a state file from before per-channel clocks is read as both channels: no r
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 24 * H) }));
   assert.match(s.msg.read(), /staging-hours/); assert.match(s.gh.read(), /staging-hours/);
   const st = JSON.parse(fs.readFileSync(s.state, 'utf8'));
-  assert.deepEqual(Object.keys(st).sort(), ['card', 'lastRunAt', 'pane']);
+  assert.deepEqual(Object.keys(st).sort(), ['card', 'lastRunAt', 'pane', 'unknownSince']);
+  assert.equal(st.unknownSince, null, 'a measured run left a could-not-tell spell open');
 });
 
 test('a state that cannot be recorded is said, is not fatal, and leaves no temp file behind', () => {

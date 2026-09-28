@@ -57,6 +57,11 @@ const RETRY_S = 3 * 3600;
    quiet either way. So while it stays clear the CARD (never the pane) gets one "still watching"
    line a week, and every run records lastRunAt in the state file for anyone who looks. */
 const WATCHING_S = 7 * 24 * 3600;
+/* Could-not-tell is said only once it has lasted this long (review 9). A failure that comes and
+   goes (a flaky route, a CDN challenge on some requests, a lock clash in the shared checkout)
+   would otherwise flip the key every hour, and every flip posts to both channels. A debounced
+   hour never becomes a posted key, so the next known verdict compares with what was last SAID. */
+const UNKNOWN_GRACE_S = 3 * 3600;
 const env = process.env;
 
 /* The verdict, pure. `main` is main against staging: { ahead, oldestAt: committer time (s) of the
@@ -317,6 +322,12 @@ async function main(argv) {
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
   const state = readState();
+  const unknownSince = v.unknown ? ((state && Number(state.unknownSince)) || v.now) : null;
+  if (v.unknown && v.now - unknownSince < UNKNOWN_GRACE_S) {
+    // Not yet: record the run and when this spell began, and say nothing.
+    writeState({ pane: lastFor(state, 'pane'), card: lastFor(state, 'card'), lastRunAt: v.now, unknownSince });
+    return code;
+  }
   const next = {};
   const due = {};
   for (const ch of CHANNELS) {
@@ -362,7 +373,7 @@ async function main(argv) {
     process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
   // Every run writes, so lastRunAt shows the job is alive (review 7).
-  writeState({ pane: next.pane, card: next.card, lastRunAt: v.now });
+  writeState({ pane: next.pane, card: next.card, lastRunAt: v.now, unknownSince });
   return code;
 }
 
