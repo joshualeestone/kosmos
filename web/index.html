@@ -20405,7 +20405,7 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1>Kosmos requires a full restart</h1>'
     + '<p>' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
-    + (detail.length ? '<small>' + detail.join(', ') + '.</small>' : '')
+    + (detail.length ? '<small>' + (d => d.charAt(0).toUpperCase() + d.slice(1))(detail.join(', ')) + '.</small>' : '')
     + '</div>';
   document.body.appendChild(back);
   startKLoader(back.querySelector('.restart-k'), { still: true });

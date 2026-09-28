@@ -112,7 +112,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       });
       ok(t + ' the headline is Josh\'s words exactly', s.head === 'Kosmos requires a full restart', JSON.stringify(s.head));
       ok(t + ' it says how: Command-Q, then the Applications folder', /Command-Q/.test(s.how) && /Applications folder/.test(s.how), JSON.stringify(s.how));
-      ok(t + ' the details line carries the version and the address, small and last', /nothing answered at 127\.0\.0\.1:\d+/.test(s.small), JSON.stringify(s.small));
+      ok(t + ' the details line starts with a capital and carries the address (and the version when one is baked)', /^[A-Z]/.test(s.small) && /nothing answered at 127\.0\.0\.1:\d+/i.test(s.small), JSON.stringify(s.small));
       ok(t + ' the ground is opaque (nothing shows through)', s.alpha === 1, s.bg);
       ok(t + ' it fills the window and covers the header, the board and the corners', s.full && s.covered, JSON.stringify({ full: s.full, covered: s.covered }));
       ok(t + ' the message is centered (within 2px each way)', s.dx <= 2 && s.dy <= 2, JSON.stringify({ dx: s.dx, dy: s.dy }));
