@@ -790,6 +790,35 @@ chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$POR
 # the marker guard deleted, so a first-pass count check cannot fail.
 chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$SB/zprofile\")\" = 1 ]"
 
+echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
+# The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
+# on another computer". An install or update must not start that board again, whether it finishes
+# or fails, and an unreadable choice must not become "run" either. The last pair is the control: the
+# same update with `run` in the file DOES start the board, so the stopped checks above it can fail.
+printf 'connect\n' > "$SB/home/mode"
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "CONTROL: the connect computer's board is down before the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+RC=0; cat "$SETUP" | sh > "$SB/update-connect.log" 2>&1 || RC=$?
+chk "an update on a connect computer exits 0" "rc_ok $RC"
+chk "it says why it did not start Kosmos" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/update-connect.log\""
+chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
+RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/update-connect-failed.log" 2>&1 || RC=$?
+chk "the forced failure on a connect computer is a failure (or this arm tests nothing)" "rc_refused $RC"
+chk "a failed update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and leaves board.stopped" "[ -e \"$SB/home/board.stopped\" ]"
+printf 'garbled\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
+chk "an update with an unreadable choice exits 0" "rc_ok $RC"
+chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+printf 'run\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
+chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
+chk "CONTROL: and starts its board" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "the launchd bootstrap's restart is held by the same check" "grep -q '_kosmos_mode_keeps_board_off || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
+rm -f "$SB/home/mode"
+chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+
 echo "== refusals speak sentences =="
 OUT="$(sh -s -- --uninstal < "$SETUP" 2>&1 || true)"
 chk "typo flag refuses instead of installing" "echo \"\$OUT\" | grep -q 'The only option is --uninstall'"

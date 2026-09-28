@@ -25,7 +25,8 @@
     run by the app, the installer and updates, exactly as today.
   - `run` / `connect`: chosen.
   - anything else, or unreadable: the app starts the board and shows the choice screen
-    again; the installer does not start the board (it cannot tell).
+    again; the installer does not start the board (it cannot ask; an update's own pause has
+    stopped it, and the app's next launch starts it and asks).
 - The choice screen is its own overlay (#fr-choice), not a wizard pane, so the wizard's
   chrome and screen-reader lines are not on it. It shows only in the Mac app (the page
   sees the app's `kosmosMode` message handler) and only when the app says the mode is

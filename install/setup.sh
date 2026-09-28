@@ -3705,8 +3705,21 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
     || printf '  (could not record the source channel; the board will read the default, prod)\n'
 fi
 
-step "Starting Kosmos."
-KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+# #4356: a computer can connect to agents on another computer instead of running its own. The Mac
+# app records that in $KOSMOS_HOME/mode (one word, run or connect) and stops the board, and an
+# install or update must not start it again. So the board is started only when the file is absent
+# (never chosen: a fresh install, and every install before #4356) or reads exactly `run`. Anything
+# else, including a file that cannot be read, is not started: the installer cannot ask, and the
+# app starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the app's reader does.
+_kosmos_mode_keeps_board_off() {
+  [ -e "$KOSMOS_HOME/mode" ] && [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" != run ]
+}
+if _kosmos_mode_keeps_board_off; then
+  step "This computer connects to agents on another computer, so Kosmos is not started here."
+else
+  step "Starting Kosmos."
+  KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+fi
 ok
 
 # ---- and start it again at every login --------------------------------------
@@ -3974,7 +3987,8 @@ if [ "$_board_ok" = yes ]; then
         # board-run guard still prevents a double-bind, so this only ever improves on
         # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
         # under the sandbox above, so this path is verified on a real box, not here.)
-        "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        # #4356: not on a computer that connects elsewhere; restart would clear board.stopped.
+        _kosmos_mode_keeps_board_off || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else
