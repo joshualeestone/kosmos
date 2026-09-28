@@ -276,10 +276,10 @@ if (args[0] === 'run') {
     const w = (o) => fs.writeFileSync(statusFile, JSON.stringify(Object.assign({ address: null, pid: process.pid }, o)) + '\\n');
     w({ state: 'connecting', because: null });
     setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 100);
-    setTimeout(() => w({ state: 'connecting', because: null }), 500);
+    setTimeout(() => w({ state: 'connecting', because: null }), 2500);
     if (mode.includes('then-up')) {
       const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
-      setTimeout(() => w({ state: 'up', address, because: null }), 900);
+      setTimeout(() => w({ state: 'up', address, because: null }), 2900);
     }
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => process.exit(0));
@@ -771,9 +771,10 @@ test('#4277: the ensure tick remembers the tunnel\'s last failure through its re
     remote.ensure(4350);
     const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
     // Read the FILE, not status(), so only the tick samples it.
-    await until(() => { const f = statusFile(); return f && f.state === 'restarting'; }, 'the tunnel to write its failure');
-    remote.ensure(4350);   // the 15 s tick
-    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)');
+    // Only the tick samples here (the test reads the FILE, never status()), repeated until it
+    // catches the failure, as the real 15 s tick does across a backoff.
+    await until(() => { remote.ensure(4350); return remote.lastTunnelFailure() !== null; }, 'the tick to keep the failure', 15000);
+    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)', 15000);
     assert.equal(remote.lastTunnelFailure(), 'relay refused the tunnel: bad ticket', 'the tick did not keep the failure');
     assert.equal(remote.status().because, 'connecting to the relay', 'fixture: the live status no longer says why');
     const r = require('./remote-report').build();
@@ -786,12 +787,8 @@ test('#4277: the remembered failure belongs to one tunnel process: a new process
   remote.setOn(true);
   await remote.setupStart('her@example.com');
   await remote.setupComplete('123456', 'hers');
-  const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
-  const failed = async () => {
-    await until(() => { const f = statusFile(); return f && f.state === 'restarting'; }, 'the tunnel to write its failure');
-    remote.ensure(4370);
-    assert.equal(remote.lastTunnelFailure(), 'relay refused the tunnel: bad ticket', 'fixture: the failure was not kept');
-  };
+  // The tick, repeated until it catches the failure, as the real 15 s tick does across a backoff.
+  const failed = () => until(() => { remote.ensure(4370); return remote.lastTunnelFailure() === 'relay refused the tunnel: bad ticket'; }, 'the tick to keep the failure', 15000);
   try {
     // 1. The same process goes up: the failure is cleared.
     remote.resetForTests();

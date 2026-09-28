@@ -46,8 +46,8 @@ function tunnelState(state, on, sup, enrolledHere) {
   return on ? 'stopped' : 'off';
 }
 
-/* kosmos#4277: NO free text leaves the Mac. Four rounds of review kept finding
-   identifying text that a scrubber missed (hostnames, device names, LAN addresses, phone
+/* kosmos#4277: NO free text leaves the Mac. A scrubber kept missing
+   identifying text (hostnames, device names, LAN addresses, phone
    numbers, file:// and relative paths), and a scrubber that grows forever also destroys the
    diagnosis. So the board's own sentence is CLASSIFIED here, on the Mac, into one code from a
    fixed list, and only the code is sent. The input is cut to CLASSIFY_MAX_CHARS first, and every
@@ -78,7 +78,7 @@ const CODES = [
   // waiting for a code, which sends `not-enrolled; missing: ...` instead. Both read `other`.
   ['status-unreadable', /^status unreadable/i],
   // status() words every spawn failure as `the tunnel program could not be started: <why>`.
-  ['binary-missing', /^the tunnel program could not be started/i],
+  ['binary-unstartable', /^the tunnel program could not be started/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
   // The Mac's own check found the coordinator's ticket expired, by this Mac's clock: usually a Mac
   // clock that is wrong, not a bad key. The relay's refusal of an expired ticket (`relay refused
@@ -100,7 +100,10 @@ const CODES = [
   ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH|relay did not take AUTH/i],
   ['relay-refused', /relay refused|relay answered AUTH/i],
   // A write error sending AUTH: the connection broke mid-handshake (kosmos#4315's tunnel wording).
-  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay|^writing AUTH to the relay/i],
+  // A bare frame error can only come from AUTH (mid-session ones carry `relay connection lost:`):
+  // the relay closed the connection while this Mac authenticated. Tunnels already shipped write
+  // it this way.
+  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay|^writing AUTH to the relay|^(reading|writing) frame header/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
   // close): routine, not a failure.
   ['reconnecting', /the connection closed/i],
@@ -115,8 +118,7 @@ function classify(text) {
 }
 /* The enrolment files enrolled() needs, by their FIXED names: which are missing is the reason a
    board with its switch on and a key in hand still believes it is not enrolled. The same list as
-   remote.js ENROL_FILES, which enrolled() reads; remote.test.js asserts the two are equal (review
-   11). Not required from remote.js here, so this module stays loadable without it. */
+   remote.js ENROL_FILES, which enrolled() reads; remote.test.js asserts the two are equal. Not required from remote.js here, so this module stays loadable without it. */
 const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
@@ -181,9 +183,10 @@ function build(deps) {
    enrolment files are missing (fixed names), not status()'s sign-in sentence, which would
    blame the person for what may be a half-written state dir. */
 function errorCode(because, on, exists) {
-  // Both senders hold the key before they build (mac-standing.js via enrolled(), remote.js via
-  // holdsKey()); this re-reads mac_key rather than trusting that, so a key deleted in between (a
-  // Forget) falls back to classify(), which loses the missing-files detail but never leaks text.
+  // Only a board holding its key (mac_key on disk) is named not-enrolled: enrolled() does not
+  // check mac_key, so this reads it here. A board without it (the key deleted, or an enrolled one
+  // whose key is gone) falls back to classify(), which loses the missing-files detail but never
+  // leaks text.
   const missing = ENROL_FILES.filter((f) => !exists(f));
   if (on && missing.length && exists('mac_key')) return 'not-enrolled; missing: ' + missing.join(', ');
   return classify(because);

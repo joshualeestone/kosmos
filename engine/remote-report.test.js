@@ -71,7 +71,8 @@ test('classify: each known failure kind gets its code, anything else is other, n
   const cases = [
     // session.rs, verbatim shape: the tunnel reconnects to renew its certificate.
     ['certificate renewal is due (20 days left); reconnecting to renew', 'cert-renewal'],
-    ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
+    ['the tunnel program could not be started: spawn /x ENOENT', 'binary-unstartable'],
+    ['the tunnel program could not be started: spawn /x EACCES', 'binary-unstartable'],
     // Unreachable in a report (the tunnel refuses a dir only without mac_id, which
     // enrolled() requires), so it has no code of its own and must not leak.
     ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'other'],
@@ -116,6 +117,9 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['relay connection lost: Connection reset by peer (os error 54)', 'relay-dropped'],
     ['relay stopped answering keepalives', 'relay-dropped'],
     ['writer gone', 'relay-dropped'],
+    // proto frame.rs, bare: the relay closed the connection during AUTH (tunnels already shipped).
+    ['reading frame header: early eof', 'relay-dropped'],
+    ['writing frame header: Broken pipe (os error 32)', 'relay-dropped'],
     // coordinator.rs, verbatim: an answer that is not the coordinator's.
     ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
     ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],

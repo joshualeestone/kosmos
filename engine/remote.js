@@ -140,7 +140,10 @@ let restartPending = false;
    window. The last failure sentence the CURRENT process wrote is kept here, sampled whenever
    status() reads the file (the report, a page, and the 15 s ensure tick), so the report can name
    it while the tunnel is dialling again. Memory only: the report classifies it and never sends
-   it. Cleared when that process is up, and for a new process. */
+   it. Cleared when that process is up, and for a new process. It is a sample: a failure is seen
+   only if a read lands in the tunnel's `restarting` window (its backoff, 1 s and doubling), so
+   a tunnel that failed once or twice may still read `starting`; one that keeps failing is caught
+   within about a minute, as the backoff passes the 15 s tick. */
 let lastTunnelFailure = null;
 let localPort = null;
 
@@ -255,10 +258,9 @@ async function fetchStanding() {
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick. Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
-   board that an update just restarted says how it came back without waiting a whole interval
-  . That tick asks with a TTL of 0: the last report's time is saved in remote.json and
-   survives the restart, so under the ordinary TTL it sent nothing four restarts in five (review
-   18). Both timers are unref'd so neither holds the process open; the early one rides on the
+   board that an update just restarted says how it came back without waiting a whole interval.
+   That tick asks with a TTL of 0: the last report's time is saved in remote.json and survives
+   the restart, so under the ordinary TTL it would send nothing about four restarts in five. Both timers are unref'd so neither holds the process open; the early one rides on the
    returned interval as `.first`, so a caller can clear it too. */
 const REPORT_INTERVAL_MS = 10 * 60 * 1000;
 const REPORT_TTL_MS = 9 * 60 * 1000;

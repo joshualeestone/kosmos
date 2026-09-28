@@ -17006,8 +17006,8 @@ function start(port = PORT) {
          forever. ensure() is idempotent (a pending restart returns at once; a
          running child is only sampled: status() reads the settings and the
          tunnel's status file, which keeps its last failure for the remote
-         report and resets a healthy board's backoff), so a tick costs two
-         settings reads, a few stat() calls and one small file read every
+         report and resets a healthy board's backoff), so a tick costs
+         up to four settings reads (RELAY() reads them too), a few stat() calls and one small file read every
          fifteen seconds, and the resting state can last at most that long.
          unref'd so it never holds the process open. */
       const ensureTick = setInterval(() => {
