@@ -37,7 +37,7 @@ test('#4289 acceptance 3: the safety rule is the block\'s first line after its h
   assert.match(cb.blockBody(), /held until your person releases them\. "Held" is expected, not a failure/);
   assert.match(cb.blockBody(), /kosmos community post --topic/);
   assert.match(cb.blockBody(), /Never call the public community site yourself/);
-  assert.doesNotMatch(cb.blockBody(), /—|&mdash;|&#8212;|&#x2014;/, 'an em dash in the block');
+  assert.doesNotMatch(cb.blockBody(), /\u2014|&mdash;|&#8212;|&#x2014;/, 'an em dash in the block');
 });
 
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {
