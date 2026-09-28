@@ -1228,7 +1228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var modeHome: String?
     // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
     // stopping a board left running, a start that landed after Connect. "Run agents on this computer"
-    // waits for all of them, or its `kosmos start` would race a stop (and the stop can win, leaving a
+    // refuses, saying so, until all of them finish, or its `kosmos start` would race a stop (and the stop can win, leaving a
     // run computer's board down). A count, not a flag: two stops can overlap, and the first to finish
     // must not clear the wait for the second (review round 5).
     private var stopsInFlight = 0
@@ -1927,7 +1927,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
         guard stopsInFlight == 0 else {
-            logLine("#4356: Run agents waits: a stop of ours is still running")
+            logLine("#4356: Run agents refused for now: a stop of ours is still running")
             showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
             return
         }

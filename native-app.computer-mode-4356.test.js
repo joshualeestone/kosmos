@@ -106,7 +106,7 @@ test('#4356: a failed stop is said, and every connect launch stops a board left 
   assert.match(body('private func stopBoardIfRunning()'), /!FileManager\.default\.fileExists\(atPath: home \+ "\/board\.stopped"\)/);
 });
 
-test('#4356: Run agents waits for every stop of ours to finish; a count, so overlapping stops cannot clear each other', () => {
+test('#4356: Run agents refuses until every stop of ours has finished; a count, so overlapping stops cannot clear each other', () => {
   assert.match(SRC, /private var stopsInFlight = 0/);
   assert.equal((SRC.match(/stopsInFlight \+= 1/g) || []).length, (SRC.match(/stopsInFlight -= 1/g) || []).length, 'a stop that raises the count and never lowers it (or the reverse)');
   assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0 else \{/);

@@ -89,7 +89,7 @@ test('#4356: the three buttons are the only controls, and each one\'s accessible
   }
   for (const [, attrs] of buttons) assert.doesNotMatch(attrs, /aria-label/, 'an aria-label would give a button a name that differs from its label');
   assert.deepEqual(buttons.map((b) => (b[1].match(/data-mode="([^"]*)"/) || [])[1]), ['run', 'connect', 'both']);
-  assert.doesNotMatch(html, /<(a|input|select|textarea)\b/, 'the screen has a control besides the two buttons');
+  assert.doesNotMatch(html, /<(a|input|select|textarea)\b/, 'the screen has a control besides the three buttons');
 });
 
 /* ---- behaviour: the page's own functions, lifted and run ---------------------------------- */

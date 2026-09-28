@@ -3776,7 +3776,13 @@ ok
 # watchdog stays one release as belt-and-braces for boards not yet rebooted onto
 # this plist (an update rewrites the file but does not reload a loaded job until
 # the next login).
-step "Keeping Kosmos running after a restart."
+# #4356: the heading says what this run does. On a computer set not to run a board, the login item is
+# still installed (so "Run agents on this computer" works later) and board.stopped keeps it off.
+if [ "$_kosmos_board_off" = yes ]; then
+  step "Installing the login item. It stays off while Kosmos does not run a board on this computer."
+else
+  step "Keeping Kosmos running after a restart."
+fi
 _launch_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
 # ⚠️ THE LABEL IS UNIQUE ONLY WHEN KOSMOS_HOME IS NOT THE REAL DEFAULT (#883).
 # A default install's label MUST stay the literal `com.kosmos.board` --
@@ -4065,7 +4071,11 @@ fi
 # body -- guarded by tools/test-plist-heredoc-clean.sh), the same sandbox guard
 # (no launchctl under AGENT_WORKFORCE_LAUNCH), enable-before-bootstrap, and
 # leave-an-already-loaded-job-alone idempotency.
-step "Watching the board so it comes back after a restart."
+if [ "$_kosmos_board_off" = yes ]; then
+  step "Installing the board watchdog. It stays off while Kosmos does not run a board on this computer."
+else
+  step "Watching the board so it comes back after a restart."
+fi
 _wd_label=com.kosmos.board.watchdog
 if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   _wd_label="com.kosmos.board.watchdog.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
@@ -4205,17 +4215,23 @@ fi
 if [ "$_kosmos_board_off" = "yes" ] && [ "$BOARD_OURS" = "yes" ]; then
   # #4356: set not to run one, but a board of ours is up anyway (a stop that failed, or one started
   # by hand). Said as it is; the app stops it when it opens (stopBoardIfRunning).
-  printf '\n  Kosmos is installed. This computer is set not to run a board, but one is still running.\n'
   if [ "$_kosmos_mode_word" = connect ]; then
+    printf '\n  Kosmos is installed. This computer is set not to run a board, but one is still running.\n'
     printf '  Open the Kosmos app from your Applications folder and it will stop it.\n\n'
   else
+    printf '\n  Kosmos is installed. This computer'"'"'s setup choice could not be read, and a board is still running.\n'
     printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
   fi
 elif [ "$_kosmos_board_off" = "yes" ]; then
   # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
   # advice would start a board on a computer that connects elsewhere.
-  printf '\n  Kosmos is installed. No board runs on this computer, on purpose (see above).\n'
-  printf '  Open the Kosmos app from your Applications folder.\n\n'
+  if [ "$_kosmos_mode_word" = connect ]; then
+    printf '\n  Kosmos is installed. No board runs on this computer, on purpose (see above).\n'
+    printf '  Open the Kosmos app from your Applications folder.\n\n'
+  else
+    printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
+    printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
+  fi
 elif [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
   # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
