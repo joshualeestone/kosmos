@@ -63,7 +63,7 @@ const chk = (ok, label, extra) => {
       const method = (opts && opts.method) || 'GET';
       if (/\/api\/muse$/.test(u)) { const hold = window.__holdMuse; if (hold) { window.__holdMuse = null; const ans = window.__museOn; await hold; return enc(ans ? { enabled: true, installed: true, because: null, signedIn: false } : { enabled: false }); } }
       if (/\/api\/muse$/.test(u)) { if (window.__museRead === 'throw') throw new Error('offline'); if (window.__museRead === 500) return enc({ error: 'x' }, 500); }
-      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: false } : { enabled: false });
+      if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: window.__museSignedIn === true } : { enabled: false });
       if (/\/api\/muse\/signin(\/retry|\/stop)?$/.test(u) && method === 'POST') {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__posts.push({ path: u.replace(/^.*\/api\/muse\/signin/, '') || '/', id: body.id || null });
@@ -524,15 +524,20 @@ const chk = (ok, label, extra) => {
   await q(() => acctFlowPaint({ phase: 'signin-browser-open' })); await settle();
   chk(await q((n) => window.__posts.length === n, museCallsBefore), 'and no Muse sign-in is started or stopped around it, even as the Claude sign-in moves on');
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
-  // Round 1, W5: the Connections box never counts Meta Muse as thinking for agents (no agent runs on it yet).
+  // #3939 3c-3b: an agent can be made on Meta Muse now, so the Connections box counts a signed-in Muse.
   await q((row) => { window.__accounts = [row]; }, MUSE_ROW);
   await q(() => paintConnLive()); await settle();
   const connOnly = await q(() => document.getElementById('conn-live').textContent);
-  chk(/Meta Muse is signed in, but no agent can run on it yet/.test(connOnly) && !/thinking for your agents/.test(connOnly), 'with only Meta Muse the Connections box says so, never that it thinks for agents', connOnly);
+  chk(/^One account is connected and thinking for your agents/.test(connOnly), 'with only Meta Muse signed in, the Connections box counts it', connOnly);
   await q((row) => { window.__accounts = [row, { provider: 'openai', providerName: 'OpenAI', dir: '/h/.codex', email: null, keyTail: 'ab12', authMode: 'apikey', connection: { state: 'connected', badge: 'working' } }]; }, MUSE_ROW);
   await q(() => paintConnLive()); await settle();
   const connTwo = await q(() => document.getElementById('conn-live').textContent);
-  chk(/^One account /.test(connTwo), 'beside an OpenAI account it counts one account, not two', connTwo);
+  chk(/^2 accounts /.test(connTwo), 'beside an OpenAI account it counts two', connTwo);
+  // CONTROL: a Muse row that is not signed in is not counted.
+  await q((row) => { window.__accounts = [{ ...row, connection: { state: 'none', badge: 'signed_out' } }]; }, MUSE_ROW);
+  await q(() => paintConnLive()); await settle();
+  const connOut = await q(() => document.getElementById('conn-live').textContent);
+  chk(/Nothing is connected yet/.test(connOut), 'CONTROL: a signed-out Meta Muse is not counted', connOut);
   await q(() => { window.__accounts = []; });
   /* Round 2: the create-agent form, through its own functions and its own elements. With only Meta Muse
      and an OpenAI account, the form must start on OpenAI (Muse is not a Claude account), and its Claude
@@ -556,6 +561,77 @@ const chk = (ok, label, extra) => {
   const withCtl = await q(([c]) => { CREATE_ACCOUNTS = [c, { ...c, dir: '/h/.claude-b', email: 'd@example.com', isDefault: false }]; document.getElementById('create-provider').value = 'anthropic'; fillCreateAccounts(); return document.getElementById('create-account').options.length; }, [CLAUDE_ROW]);
   chk(withCtl >= 2, 'CONTROL: the same picker does list two real Claude accounts', String(withCtl));
   await q(() => { CREATE_ACCOUNTS = []; });
+
+  /* ---- #3939 3c-3b: Meta Muse in the Create Agent form ---- */
+  const createMeta = () => q(() => { const o = document.querySelector('#create-provider option[value="meta"]'); return { disabled: o.disabled, off: o.dataset.off || '' }; });
+  const museRead = async () => { await q(() => museCreateAsk()); await settle(); };
+  // Flag off: exactly today's option (disabled, the "Coming soon" pill, no reason).
+  await q(() => { window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; fillCreateAccounts(); });
+  await museRead();
+  let cm = await createMeta();
+  chk(cm.disabled === true && cm.off === '', 'create form, flag off: Meta stays disabled with no reason (Coming soon)', JSON.stringify(cm));
+  // On but not signed in: disabled, and it says where to set it up.
+  await q(() => { window.__museOn = true; window.__museSignedIn = false; });
+  await museRead();
+  cm = await createMeta();
+  chk(cm.disabled === true && cm.off === 'Set up in Settings: Add a provider', 'create form, on but not signed in: disabled, says where to set it up', JSON.stringify(cm));
+  // On, installed and signed in: offered.
+  await q(() => { window.__museSignedIn = true; });
+  await museRead();
+  cm = await createMeta();
+  chk(cm.disabled === false && cm.off === '', 'create form, signed in: Meta is offered', JSON.stringify(cm));
+  // The agent page never offers a switch ONTO Meta (only its own current provider).
+  const dMeta = await q(() => { const s = document.getElementById('d-provider'); paintMuseOption(s, 'anthropic'); const a = s.querySelector('option[value="meta"]').disabled; paintMuseOption(s, 'meta'); const b = s.querySelector('option[value="meta"]').disabled; return [a, b]; });
+  chk(dMeta[0] === true && dMeta[1] === false, 'agent page: Meta is selectable only as an agent\'s current provider', JSON.stringify(dMeta));
+  chk(await q(() => providerOf({ runner: 'muse' }) === 'meta' && providerOf({ runner: 'claude' }) === 'anthropic'), 'an agent on the muse runner reads as Meta (CONTROL: a Claude agent as Anthropic)');
+  // Chosen through the real logo combobox: no account row, no model row, one line on who picks the model.
+  const picked = await q(([m, c]) => {
+    CREATE_ACCOUNTS = [m, c];
+    fillCreateAccounts();
+    const sel = document.getElementById('create-provider');
+    const trig = sel.parentElement.querySelector('.pcombo-trigger');
+    trig.click();
+    const list = document.getElementById(trig.getAttribute('aria-controls'));
+    const li = [...list.querySelectorAll('li.pcombo-opt')].find((x) => x.dataset.value === 'meta');
+    li.click();
+    return {
+      prov: sel.value,
+      acct: document.getElementById('create-account').value,
+      acctText: [...document.getElementById('create-account').options].map((o) => o.textContent).join('|'),
+      acctHidden: document.getElementById('create-account-row').hidden,
+      model: document.getElementById('create-model').value,
+      modelHidden: document.getElementById('create-model-row').hidden,
+      why: document.getElementById('create-model-why').textContent,
+    };
+  }, [MUSE_ROW, CLAUDE_ROW]);
+  chk(picked.prov === 'meta' && picked.acct === '' && picked.acctHidden === true && picked.model === '' && picked.modelHidden === true,
+    'Meta chosen: no account and no model travel with the create (both empty, both rows hidden)', JSON.stringify(picked));
+  chk(picked.acctText === '', 'Meta chosen: the account menu holds nothing (no Muse row, no "Meta Muse key" fallback)', JSON.stringify(picked));
+  chk(picked.why === 'Meta Muse picks its own model.', 'Meta chosen: one line says Meta Muse picks its own model', JSON.stringify(picked));
+  /* The accounts read failed (an empty list) while Meta is chosen: the account menu still holds nothing.
+     Aimed here because with a signed-in Muse row in the list the old path listed that row, whose value and
+     name are empty too, so only the empty list tells the Meta branch from the key fallback. */
+  const emptyList = await q(() => {
+    CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false;
+    fillCreateAccounts();
+    return { prov: document.getElementById('create-provider').value, text: [...document.getElementById('create-account').options].map((o) => o.textContent).join('|') };
+  });
+  chk(emptyList.prov === 'meta' && emptyList.text === '', 'Meta chosen, account list unread: no "Meta Muse key" line, nothing to pick', JSON.stringify(emptyList));
+  await q(() => { CREATE_ACCOUNTS_KNOWN = true; });
+  // Signed out with Meta chosen: the pick goes back to the default, and the form says why.
+  await q(() => { window.__museSignedIn = false; });
+  await museRead();
+  const back = await q(() => ({ prov: document.getElementById('create-provider').value, why: document.getElementById('create-model-why').textContent }));
+  chk(back.prov === 'anthropic' && /^Meta Muse is not signed in on this computer, so this is back on Claude\./.test(back.why), 'a Meta pick that is no longer signed in goes back to Claude, said', JSON.stringify(back));
+  // CONTROL: a failed read leaves a good answer as it was (never a confident "off" from a failure).
+  await q(() => { window.__museSignedIn = true; });
+  await museRead();
+  await q(() => { window.__museRead = 'throw'; });
+  await museRead();
+  cm = await createMeta();
+  chk(cm.disabled === false, 'CONTROL: a failed /api/muse read keeps the last good answer', JSON.stringify(cm));
+  await q(() => { window.__museRead = null; window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; });
+  await museRead();
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
