@@ -149,6 +149,12 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   createAgent. One NIT, not acted on: one test passes `bootoutWorks: false` beside `verifyThrows`, where the
   throw decides the outcome and the flag is inert.
 
+## CI
+
+- Windows CI (PR #4310) red two #4279 unit tests: they drive macOS-only launchd logic on `/private` paths
+  and lacked the `WIN_LAUNCHD` skip every other #4279 test carries. Both now carry it. The same run's
+  `tools.win-installer-native.test.js` reds are #4266 (the same 8 probes fail on unrelated branches).
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

@@ -853,7 +853,7 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
 });
 
-test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', () => {
+test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', WIN_LAUNCHD, () => {
   /* Unit level on purpose: through createAgent an existing own plist is refused earlier ("no folder
      for it") and launchctl is never asked, so a create-level test of this arm tests nothing. */
   const own = create.plistPath('leftover-ownreal');
@@ -978,7 +978,7 @@ test('#4279: a job loaded from a PRESENT plist outside temp is refused, and the 
   assert.match(r.because, /\/etc\/hosts/, 'the refusal does not name the file it found');
 });
 
-test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', () => {
+test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', WIN_LAUNCHD, () => {
   const ours = '/Users/x/Library/LaunchAgents/com.kosmos.agent.a.plist';
   assert.equal(create.leftoverJob('x = { ... }', ours), null, 'no path reported: not provable');
   assert.equal(create.leftoverJob(`\tpath = ${ours}\n`, ours), null, 'our own path');
