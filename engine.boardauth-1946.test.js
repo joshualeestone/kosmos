@@ -139,7 +139,7 @@ test('fail CLOSED: a null token (provisioning failed) accepts nothing and bootst
   assert.equal(boardauth.bootstrap({ token: null, req: { url: '/?token=anything', headers: {} }, routingBase: base, method: 'GET' }), null);
 });
 
-test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent', () => {
+test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent', (t) => {
   const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-token-'));
   const prev = process.env.AGENT_WORKFORCE_DATA;
   process.env.AGENT_WORKFORCE_DATA = SB;
@@ -151,10 +151,16 @@ test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent'
     const t1 = ba.ensureToken();
     assert.match(t1, /^[0-9a-f]{64}$/, 'a 256-bit hex token');
     const p = ba.tokenPath();
-    const st = fs.statSync(p);
-    assert.equal(st.mode & 0o777, 0o600, 'token file is owner-only (mode 600)');
-    const dirMode = fs.statSync(path.dirname(p)).mode & 0o777;
-    assert.equal(dirMode, 0o700, 'token dir is owner-only (mode 700)');
+    // Mode bits are the boundary only where the product says they are (ownerOnlyModeIsEnforced):
+    // on a Windows host they do not exist, and #1777 measured this arm red there.
+    if (ba.ownerOnlyModeIsEnforced()) {
+      const st = fs.statSync(p);
+      assert.equal(st.mode & 0o777, 0o600, 'token file is owner-only (mode 600)');
+      const dirMode = fs.statSync(path.dirname(p)).mode & 0o777;
+      assert.equal(dirMode, 0o700, 'token dir is owner-only (mode 700)');
+    } else {
+      t.diagnostic('mode 600/700 arm NOT RUN: this host has no owner-only mode bits');
+    }
     const t2 = ba.ensureToken();
     assert.equal(t2, t1, 'idempotent: a second call returns the same token');
     assert.equal(ba.readToken(), t1);

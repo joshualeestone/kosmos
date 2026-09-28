@@ -24,6 +24,12 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - `yarn test:shell` runs the large shell-and-tooling suite (`bash -n` syntax checks plus
   focused tool tests); `run-tests.sh` invokes it.
 - `yarn test:install` / `test:install-gate` exercise the installer.
+- The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
+  `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is
+  news a Mac run cannot give: a Windows defect, or (more often so far) a test that assumes macOS.
+  Its lists, each entry with its card or reason: `KNOWN_RED` (tests expected to fail), `FLAKY`
+  (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
+  (Windows-branching files left out).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
   shells out to `yarn` (`yarn -s test:shell`, line 210), and its own coverage-mismatch message
   names `yarn test` the canonical helper, so yarn must be present regardless. There is no
@@ -69,6 +75,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Task | Where to Look |
 |------|---------------|
 | Run the test suite the way CI does | `yarn test` -> `tools/run-tests.sh` |
+| Read a red `windows` check (#1777) | `tools/windows-tests.js` (selection, verdict, `KNOWN_RED`); it runs on windows-latest only |
 | Add or change a test | Most suites are dot-namespaced at the repo root (`web.foo.test.js`); `engine/` mostly colocates in-directory. The runner (`tools/run-tests.sh`) considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
 | See which browser checks a page PR runs, and why (#4119) | `node tools/bc-pr-select.js origin/main HEAD`; the PR job runs the fixed allowlist plus that selection. How a check is selected: the tool's header and `docs/browser-checks/README.md` |

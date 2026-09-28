@@ -1,0 +1,67 @@
+# #1777: the Windows tests, run on Windows.
+#
+# The fleet develops and tests on macOS, where the engine's Windows tests either simulate win32
+# or skip the arms that need it, so the `test` job's green says nothing about Windows. This job
+# runs those files (tools/windows-tests.js says which, and how it judges) on a real Windows
+# runner. Measured before it was written (#1777): on windows-latest, Windows tests that are green
+# on every Mac failed, and win32-only tests that no Mac runs had never run anywhere.
+#
+# ADVISORY, like `test`: nothing here gates a merge. A red is a Windows defect or a test that
+# assumes macOS, and either way it is news the Mac suite cannot give.
+#
+# WHAT A GREEN IS NOT: windows-latest is a Windows Server image, run as an admin, with no Kosmos
+# user setup. It is evidence about Windows, not about a user's Windows 11 laptop.
+#
+# Free: this repo is public, so GitHub-hosted Windows minutes cost nothing.
+
+name: windows
+
+on:
+  push:
+    # Main only, as in test.yml (#3499): a PR runs this once, via pull_request.
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+# As test.yml (#4021): cancel a superseded run of the same ref, never a run on main.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    # Measured on the runner: the 99 selected files take about 13 minutes one at a time. The script
+    # bounds each test (60s) and each file (20m), and starts no file after 33 minutes (the rest are
+    # reported NOT RUN, a red). 33 + 20 = 53, so at 60 the job always ends with the script's
+    # verdict, never cancelled mid-file (a cancel reads as a fail with no reason, #3499).
+    timeout-minutes: 60
+    steps:
+      # Check out the bytes that ship. The Windows bundle is built from this repo's LF sources
+      # on a Mac, but git on a Windows runner converts to CRLF at checkout (core.autocrlf=true),
+      # and tests that cut functions out of source by '\n}\n' then read the wrong bytes (#1777
+      # measured web.win32-board-copy red for exactly that). Before checkout, so it applies.
+      - name: keep LF line endings for the checkout below, as shipped
+        shell: bash
+        run: git config --global core.autocrlf false
+      # Full history: on a PR the script diffs against the base (WINDOWS_TESTS_PR_BASE below) to
+      # decide whether a stale known-red entry is this PR's to fix.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Node 26, as test.yml (#1794): the suite is written on node 26.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        shell: bash
+        run: |
+          echo "node:  $(node --version 2>&1 || echo ABSENT)"
+          echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+      - name: the Windows tests, on Windows (#1777)
+        env:
+          # Empty on a push to main, where every stale entry fails the run.
+          WINDOWS_TESTS_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: node tools/windows-tests.js
