@@ -428,8 +428,11 @@ kosmos_refuse_if_harness_live() {
 # the connect arm). run-tests.sh now asks kosmos_refuse_if_harness_live before it starts; this is
 # the mirror, which test-install.sh asks before it takes a port. Same shape as the guards above:
 # only a bash/sh whose own command line IS tools/run-tests.sh counts (a mention does not), the
-# caller's own subtree is dropped (defensive: test-install.sh never self-matches run-tests.sh), a proven unit-test fixture (a node --test ancestor, or the
-# kt<digits> sandbox: the suite's own shell tests run run-tests.sh fixtures) is dropped, and a
+# caller's own subtree is dropped (defensive: test-install.sh never self-matches run-tests.sh), and a
+# proven unit-test fixture is dropped: a node --test ancestor (tools.shell-shard-4317.test.js runs
+# run-tests.sh under node --test), or the kt<digits> sandbox, kept for parity with the other guards
+# (no test runs a real run-tests.sh stand-in there today, so that branch is tested through the
+# KOSMOS_SUITE_PROBE seam only). And a
 # probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
 # Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
