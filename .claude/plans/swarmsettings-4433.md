@@ -84,3 +84,10 @@ That removing Stop now from the phone chat header costs nothing important. A per
 
 ## Review round 6 (sonnet, blind): 0 BLOCKERs, 1 WARNING
 - WARNING Nothing pinned the new refusal wording. Added engine/swarm.test.js "#4433": every reason names "Set it to Active in Swarm Settings" and never "switch it back on". Control: the old copy restored for 'person' (applied 1) turns it red.
+
+## Review round 7 (opus, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- **WARNING** The Paused card's aria-describedby always named the limit line, and a hidden element named that way is still read. A person-paused swarm was described as having reached today's limit.
+  - Measured in Chromium: the accessibility tree's description carried the false sentence.
+  - Fixed: the limit line joins the description only while it is true.
+  - S8 and S21 read the description from Chromium's own accessibility tree (CDP getFullAXTree). The mutant with the static description turns S21 red with the false sentence.
+- **NIT** In Firefox, Space on Stopped may open the question and close it on keyup, because focus moved to Keep it running. KEPT: it only ever lands on the safe answer, and Kosmos runs on Chromium and WebKit (the gate runs Chromium).

@@ -58,6 +58,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     /* #4433: which state card is chosen, read in the page. */
     await page.addInitScript(() => { window.cardChecked = (st) => { const c = document.querySelector('#d-swarm-states .swcard[data-st="' + st + '"]'); return !!c && c.getAttribute('aria-checked') === 'true'; }; });
     /* #4433: the swarm's controls are in the Swarm Settings view; open it (a click needs them on screen). */
+    /* #4433: the Paused card's accessible description, from Chromium's own accessibility tree (not the attribute). */
+    const pausedDescription = async () => {
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+        const n = nodes.find((x) => x.role && x.role.value === 'radio' && x.name && x.name.value === 'Paused');
+        return n ? String((n.description && n.description.value) || '') : null;
+      } finally { await cdp.detach(); }
+    };
     const openSwarm = async () => {
       await waitFor(page, () => !document.getElementById('d-nav-swarm').hidden, null, 8000);
       await page.click('#d-nav-swarm');
@@ -857,6 +866,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S8 paused at the limit with an idle lead: Paused is chosen and says it resumes tomorrow, with the way to the limit; the box says Paused (limit)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-limit.png') });
     chk(await page.getByRole('button', { name: /^Swarm Settings\s*Paused \(limit\)$/ }).count() === 1, 'S8 and a screen reader hears "Swarm Settings Paused (limit)"');
+    const d8 = await pausedDescription();
+    chk(d8 !== null && /today's limit and resumes tomorrow/.test(d8), 'S8 the Paused card\'s spoken description includes the limit line', JSON.stringify(d8));
     chk(await stopAsks(), 'S8 from a limit pause, picking Stopped still asks: it is a real change (a stop does not resume tomorrow)');
     await page.click('#d-swarm-tolimit');
     chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-swarm-cap'), 'S8 Change today\'s limit takes the person to the limit');
@@ -881,6 +892,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // S21: paused by the person with no helper counted, the lead's turn still runs: Stop now (its only interrupt) stays.
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'person' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S21 precondition: the person-paused, no-helper row');
+    const d21 = await pausedDescription();
+    chk(d21 !== null && /Takes nothing new/.test(d21) && !/today's limit/.test(d21), 'S21 paused by the person: the Paused card\'s spoken description has no limit line (review round 7)', JSON.stringify(d21));
     chk(await page.evaluate(() => cardChecked('paused') && document.getElementById('d-swarm-l-limit').hidden) && await stopAsks(),
       'S21 paused by the person: no limit line, and picking Stopped asks (the lead\'s turn still runs); CONTROL: S8 at the limit');
     // S22: switched back on over today's limit: the engine will not pause it again today, so the page does not promise to.

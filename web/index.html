@@ -11736,7 +11736,7 @@ window.kosmosMeasureScrollbarWidth();
           <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-active">Active</span><span class="swcheck" aria-hidden="true">&#10003;</span>
           <span class="swline" id="d-swarm-l-active">Takes work. Brings in helpers when parts of a task can run at the same time.</span>
         </div>
-        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-paused" aria-describedby="d-swarm-l-paused d-swarm-l-limit">
+        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-paused" aria-describedby="d-swarm-l-paused">
           <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-paused">Paused</span><span class="swcheck" aria-hidden="true">&#10003;</span>
           <span class="swline" id="d-swarm-l-paused">Takes nothing new. Anything already in progress finishes.</span>
           <span class="swline swlimit" id="d-swarm-l-limit" hidden>It reached today's limit and resumes tomorrow.</span>
@@ -45122,6 +45122,10 @@ function swarmPagePaint(a, { force = false } = {}) {
   const limitPaused = !on && sw.pausedBecause === 'limit';
   if (SWARM_BUSY !== who) swarmCardsPaint(st);
   document.getElementById('d-swarm-l-limit').hidden = !limitPaused;
+  /* A hidden element named by aria-describedby is still READ (the accessible-name rules), so the limit line joins the
+     Paused card's description only while it is true (review round 7). */
+  { const pc = document.querySelector('#d-swarm-states .swcard[data-st="paused"]');
+    if (pc) pc.setAttribute('aria-describedby', limitPaused ? 'd-swarm-l-paused d-swarm-l-limit' : 'd-swarm-l-paused'); }
   document.getElementById('d-swarm-tolimit').hidden = !limitPaused || !(Number(sw.dailyTokenLimit) > 0);
   if (SWARM_BUSY !== who) swarmPillPaint(st, limitPaused);
   /* #4433: when is a stop USED UP? Only when nothing is left to stop: stopped (or paused at the limit), no helper
