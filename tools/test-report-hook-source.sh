@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The #1058 guard, arm by arm: a compaction must not clear a deliberate
 # `blocked`, and a genuinely new run must still report `started`.
 #
@@ -26,7 +27,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 HOOK="install/kosmos-report-hook.sh"
 [ -r "$HOOK" ] || { echo "FAIL  $HOOK not found"; exit 1; }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/report-hook-source.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/report-hook-source.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # The stub CLI. Bare `report` must mention needs_you or the hook's own version

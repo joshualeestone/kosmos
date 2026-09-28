@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#3 / #2125: BEHAVIORAL guard for the --kosmos-app-scan hatch's no-symlink-escape rule.
 #
 # The hatch walks the TCC-protected roots (~/Documents, ~/Downloads, ~/Desktop) under the app's
@@ -16,7 +17,7 @@ if ! command -v swiftc >/dev/null 2>&1; then
   exit 0
 fi
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/scan-hatch-symlink-2.XXXXXXXXXX")"
+tmp="$(mktemp -d "$TMP_BASE/scan-hatch-symlink-2.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 BIN="$tmp/kosmosapp"
 FLOOR="$(cat "$REPO/tools/macos-floor" 2>/dev/null || echo 13.5)"

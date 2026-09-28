@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #2860: tools/lib/board-shape.sh is the ONE board deploy-shape classifier, used by BOTH
 # tools/release.sh (step 10a refresh) and tools/restart-local-board.sh (the #360 restart).
 # Because both callers use these functions, they cannot drift; this test pins the
@@ -55,7 +56,7 @@ eq "empty WD with empty repo arg -> other"  "$(board_shape_of "" "" /a/libexec)"
 # sets the WD to the same STRING as libexec, so no normalization is needed, and adding it
 # would turn a fail-safe no-op into an action in the cut. If a future change added
 # realpath normalization, this assertion would flip to `libexec` and go red.
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/board-shape-2860.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "$TMP_BASE/board-shape-2860.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/real-libexec"
 ln -s "$TMP/real-libexec" "$TMP/alias-libexec"
 eq "aliased (symlinked) WD is NOT normalized to libexec -> other" \

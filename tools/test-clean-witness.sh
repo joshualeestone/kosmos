@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The launchd witness's judging rules, driven arm by arm (#566). The lib is
 # the same file clean-machine.sh sources, so the harness and this test
 # cannot drift; launchctl is stubbed through the lib's own seam, so nothing
@@ -72,7 +73,7 @@ expect "a persistent real job still judges REAL" \
 
 # 7. The snapshot half, through the lib's own launchctl seam: list and
 #    print answered by a stub, paths landing beside their labels.
-STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clean-witness.XXXXXXXXXX")"
+STUB_DIR="$(mktemp -d "$TMP_BASE/clean-witness.XXXXXXXXXX")"
 # Removed on the way out (#1151): this file kept none of its scratch and left a
 # directory in TMPDIR on every run.
 trap 'rm -rf "$STUB_DIR"' EXIT

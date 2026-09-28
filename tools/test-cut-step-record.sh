@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The cut's completion line names WHICH STEP it died in (#1050 follow-up).
 #
 # ⭐ WHY: three cuts died on 2026-08-26 and `completed exit=1` named the fact
@@ -39,7 +40,7 @@ run() {   # $1 = script body appended after the block, $2 = exit code to record
   # repeatedly, so a leak here is one directory per invocation, not one per run.
   # A function-local trap would fire on the SCRIPT's exit, not the function's,
   # and would be replaced by the next call's, so the removal is explicit below.
-  local T; T="$(mktemp -d "${TMPDIR:-/tmp}/cut-step-record.XXXXXXXXXX")"; mkdir -p "$T/.claude/logs"
+  local T; T="$(mktemp -d "$TMP_BASE/cut-step-record.XXXXXXXXXX")"; mkdir -p "$T/.claude/logs"
   HOME="$T" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
     # 🛑 THE SAME SHELL OPTIONS release.sh RUNS UNDER (tools/release.sh:17), OR THIS
     # GUARD IS BLIND TO THE MOST LIKELY REGRESSION IN THE CODE IT GUARDS. Measured: an
@@ -209,7 +210,7 @@ has "$out" 'outcome=failed' && has "$out" 'step=' \
 # read-only dup let bash reuse the freed number for the `>>` and interleave the failed echo's bytes,
 # an artifact of the simulation, not of a real cut. So we simulate the failure (closed fd) and
 # assert only the load-bearing property the BLOCKER was about: the row still lands.
-brT="$(mktemp -d "${TMPDIR:-/tmp}/cut-step-record.XXXXXXXXXX")"; mkdir -p "$brT/.claude/logs"
+brT="$(mktemp -d "$TMP_BASE/cut-step-record.XXXXXXXXXX")"; mkdir -p "$brT/.claude/logs"
 HOME="$brT" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
   set -euo pipefail
   _CUT_DONE_WRITTEN=0; V=9.9.9

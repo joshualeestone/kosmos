@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # test-served-verify.sh -- kosmos#1667. Proves tools/lib/served-verify.sh can return the DANGEROUS
 # answer, which is the whole point of the card: a check that certifies a green it could never have
 # reddened is worthless.
@@ -149,7 +150,7 @@ PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$DIR/lib/served-verify.sh"
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/served-verify.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/served-verify.XXXXXXXXXX")"
 SRV=""
 trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
 

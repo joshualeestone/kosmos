@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #2870: deploy/install-board.sh must refuse a destination that is unsafe to swap
 # the app tree into, BEFORE it copies or moves anything.
 #
@@ -26,7 +27,7 @@ fails=0
 ok()  { printf 'PASS: %s\n' "$1"; }
 bad() { printf 'FAIL: %s\n' "$1"; fails=$((fails+1)); }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/install-board-paths.XXXXXXXXXX")"
+TMP="$(mktemp -d "$TMP_BASE/install-board-paths.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # A NON-git source repo carrying a copy of the script under deploy/, so the

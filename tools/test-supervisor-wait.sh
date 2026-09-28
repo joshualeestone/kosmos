@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The not-ours wait says so, on a cadence, and never quietly gives up (#579).
 #
 # Drives the REAL bin/agent-supervisor.sh against a stub tmux whose
@@ -15,7 +16,7 @@
 # ⇒ it runs the supervisor from the repo root, so the engine IS a sibling and the mint fires.
 # Same rule every store-using test in this repo already follows: sandbox BEFORE
 # anything can resolve the store root.
-AGENT_WORKFORCE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-wait.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
+AGENT_WORKFORCE_DATA="$(mktemp -d "$TMP_BASE/supervisor-wait.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
 trap 'rm -rf "$AGENT_WORKFORCE_DATA"' EXIT
 
 set -u
@@ -24,7 +25,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-wait.XXXXXXXXXX")"
+SB="$(mktemp -d "$TMP_BASE/supervisor-wait.XXXXXXXXXX")"
 # 🛑 BOTH DIRS IN ONE TRAP (#1151). A second `trap ... EXIT` REPLACES the first,
 # it does not add to it -- measured. This file had two, so the sandbox above was
 # never removed and every run left it in TMPDIR. Add a new temp dir to THIS line

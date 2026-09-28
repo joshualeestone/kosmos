@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # refresh-local-cli.sh goes red on purpose, and green, before anyone trusts it
 # (#1758). The point of the card is that a check which has only ever seen a good
 # state has not been tested, so this stales an installed CLI deliberately and
@@ -16,7 +17,7 @@ SCRIPT="$HERE/refresh-local-cli.sh"
 # unreachable too. A test must not be able to touch the real machine even when
 # the code it tests is wrong.
 export PATH=/usr/bin:/bin
-T="$(mktemp -d "${TMPDIR:-/tmp}/refresh-local-cli.XXXXXXXXXX")"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/refresh-local-cli.XXXXXXXXXX")"; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # test-staging-wire-2036.sh -- kosmos#2036, the SHELL side of wiring the staging channel
 # into the cut. Covers the channel selectors (release.sh, setup.sh) and the abort-time
 # cleanup of an uncommitted staging pointer (release_site_restore). The update.js consume
@@ -11,7 +12,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 PASS=0; FAIL=0
 ok(){ echo "PASS  $1"; PASS=$((PASS+1)); }
 no(){ echo "FAIL  $1"; FAIL=$((FAIL+1)); }
-T="$(mktemp -d "${TMPDIR:-/tmp}/staging-wire-2036.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/staging-wire-2036.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 # --- release.sh: the channel -> pointer-file case block, extracted and evaluated ----------
 # (Unit-testing the mapping without running a whole cut. The block is the source of truth for

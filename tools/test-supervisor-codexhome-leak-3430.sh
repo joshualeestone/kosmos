@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #3430: a default-account codex agent's pane must read the DEFAULT codex home ($HOME/.codex,
 # where default signin leaves auth.json and where create.js writes default-account codex trust
 # via defaultAgentCodexHome()), NOT the tmux server-global CODEX_HOME it would otherwise inherit.
@@ -22,7 +23,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-codexhome.XXXXXXXXXX")"
+SB="$(mktemp -d "$TMP_BASE/supervisor-codexhome.XXXXXXXXXX")"
 DEFAULT_HOME="$SB/default-codex"   # where auth lives (defaultAgentCodexHome, via the test seam)
 LEAK_HOME="$SB/leaked-codex"       # the tmux server-global CODEX_HOME the pane would inherit -- WRONG
 trap 'rm -rf "${SB:-}"' EXIT

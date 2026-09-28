@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The versions-page gate shown red and green on both of its axes (#1463).
 #
 # ⚠️ THE ARM THAT EARNS ITS KEEP IS "a publication stamp read at step 1".
@@ -26,7 +27,7 @@ set -u
 unset KOSMOS_STEP1_PAST_BOUND KOSMOS_LATE_PAST_BOUND KOSMOS_FUTURE_BOUND
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/versions-entry.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/versions-entry-gate.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/versions-entry-gate.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 F="$T/versions.html"
 fails=0
 pass() { echo "PASS  $1"; }

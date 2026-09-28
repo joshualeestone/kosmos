@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # grep-code.sh, arm by arm. The tool exists because our deleted-copy comment
 # convention makes raw searches report deleted copy as present; these arms are
 # the cases that actually fooled people on 2026-08-27, plus the ways the strip
@@ -9,7 +10,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/grep-code.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/grep-code.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 cat > "$T/a.html" <<'EOF'

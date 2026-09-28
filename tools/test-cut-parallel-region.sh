@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # Behavioural test for the #2760 P1 gated-steps region of tools/release.sh -- the
 # restructure that lets the node suite (step 3) OVERLAP the headless render checks
 # (step 3b) at low priority, opt-in via KOSMOS_CUT_PARALLEL=1.
@@ -24,7 +25,7 @@ fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-parallel-region.XXXXXXXXXX")"
+WORK="$(mktemp -d "$TMP_BASE/cut-parallel-region.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- extract the region between the markers (fail LOUD if absent: a vacuous

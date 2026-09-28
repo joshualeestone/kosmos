@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # Test for tools/lib/cut-load-guard.sh (#2017): the cut's load guard. It waits
 # for a quiet box before a gated step and, on a persistent-saturation timeout,
 # stops with the LOAD named rather than running a gate into a starved box.
@@ -11,7 +12,7 @@ fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-load-guard.XXXXXXXXXX")"
+WORK="$(mktemp -d "$TMP_BASE/cut-load-guard.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- threshold ---

@@ -1,9 +1,10 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The live-cut guard shown red, green and unable to answer (#708).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/cut-guard.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/cut-guard.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
 # macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the

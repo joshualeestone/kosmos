@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # test-artifact-setup-source-2360.sh - kosmos#2360.
 #
 # The 9e outside-audit's "served /setup matches the repo" check used to compare the served /setup
@@ -46,7 +47,7 @@ grep -q 'unp "served /setup matches the LOCAL' "$CHECK" \
 
 # ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
 # Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.
-T="$(mktemp -d "${TMPDIR:-/tmp}/artifact-setup-sourc.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/artifact-setup-sourc.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/site" 2>/dev/null

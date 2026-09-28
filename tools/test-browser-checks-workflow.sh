@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#2445: the per-PR page-layer gate. The cut's browser checks (step 3b) must
 # ALSO run at PR time, or a rendered-behavior change passes its own PR and only
 # fails weeks later at cut (measured: #2085 flaked the 0.6.47 cut twice). This test
@@ -228,7 +229,7 @@ fi
 # (the invariants above pin defaults.run.shell: bash, i.e. bash -eo pipefail), with gh
 # stubbed as a shell FUNCTION (never a freshly written executable).
 if command -v ruby >/dev/null 2>&1; then
-  BT="$(mktemp -d "${TMPDIR:-/tmp}/browser-checks-workf.XXXXXXXXXX")"
+  BT="$(mktemp -d "$TMP_BASE/browser-checks-workf.XXXXXXXXXX")"
   trap 'rm -rf "$BT"' EXIT
   ruby -ryaml -e '
     j = YAML.load_file(ARGV[0])["jobs"]

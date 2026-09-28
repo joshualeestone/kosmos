@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#2518: the PR-time browser-check DIFF gates must stay ARMED in CI.
 #
 # 🛑 WHAT THIS IS AND WHY. #2518 built a precise, no-browser surface->check gate
@@ -146,7 +147,7 @@ pass "both gate libs exist and parse (the sourced-and-called scripts are real)"
 # pattern that silently never matches (a typo, a dialect slip) would let Part A
 # pass for the wrong reason (negative-control-before-destructive-check).
 # ---------------------------------------------------------------------------
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/ci-gate-armed-2518.XXXXXXXXXX")"
+tmp="$(mktemp -d "$TMP_BASE/ci-gate-armed-2518.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 # 4a. Drop fetch-depth: 0 from a copy of test.yml -> assertion 1 must now MISS.

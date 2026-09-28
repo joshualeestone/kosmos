@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # test-publish-r2-3725.sh - offline checks for tools/windows/publish-r2.ps1 (#3725).
 #
 # The script's real work (signed S3 reads and writes to R2, reads back through installkosmos.com)
@@ -31,7 +32,7 @@ if [ -z "$PWSH" ]; then
   if [ -n "${CI:-}" ]; then echo "FAIL pwsh is not installed on this CI runner, so publish-r2.ps1 is untested"; exit 1; fi
   echo "SKIP test-publish-r2-3725: pwsh is not installed here (CI runs it)"; exit 0
 fi
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/publish-r2-3725.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "$TMP_BASE/publish-r2-3725.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 
 # (pwsh -Command appends trailing words to the command text instead of binding $args, so each
 # PowerShell step is a small -File script.)

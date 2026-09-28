@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # check-block-delivery.js, arm by arm, against a fixture fleet.
 #
 # 🛑 THE ARM THAT MATTERS is the one separating UNDELIVERED from CORRECTLY
@@ -16,7 +17,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/block-delivery.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/block-delivery.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 # #2259/#2648: the content side (you/policy/doctrine) is read from REAL engine state via
 # engine/store.js's data root (AGENT_WORKFORCE_HOME || os.homedir()), NOT a stub, and the arms
 # below assume that state is EMPTY (no you record, no policies). That held on a dev
