@@ -10,9 +10,15 @@
  * with HOME() = ~/.gemini/antigravity-cli. In each db, `gen_metadata` holds one protobuf blob per
  * model generation. There is no published schema; the fields below were read raw and checked:
  *   1.19      the model id, e.g. "gemini-3.8-flash"
- *   1.4       the usage message:  1.4.2 prompt tokens, 1.4.9 reply tokens, 1.4.10 thought tokens,
- *             1.4.3 their output total. Check that held in every captured generation:
- *             1.4.3 === 1.4.9 + 1.4.10, the shape of Gemini's own usage metadata.
+ *   1.4       the usage message:  1.4.2 prompt tokens NOT served from cache, 1.4.5 prompt tokens
+ *             served from cache (present only once agy's prompt cache is in use), 1.4.9 reply tokens,
+ *             1.4.10 thought tokens, 1.4.3 their output total. Check that held in every captured
+ *             generation: 1.4.3 === 1.4.9 + 1.4.10, the shape of Gemini's own usage metadata.
+ * 🛑 THE PROMPT AS SENT IS 1.4.2 + 1.4.5 (kosmos#4039, measured 2026-09-28 on prod 0.7.05). Once the
+ *   cache is in use, 1.4.2 alone is only the new, uncached part: a real two-turn conversation read
+ *   1.4.2 = 18372, 20875, 4756, 2292 (the ring fell 89% on a LONGER turn) while 1.4.2 + 1.4.5 read
+ *   18372, 37214, 37424, 39039 (and 37214 = 18372 plus the 18643 tokens the first generation wrote).
+ *   The short conversations this was first read from never reached the cache, so 1.4.5 was absent.
  * ⚠️ The mapping is inferred from short sign-in-check conversations, not documented. Every field
  * is optional here: a blob without the usage message reads as "no reading", never as 0.
  * ⚠️ agy does NOT record the model's window. An earlier reading took 3.13.2.22 (1048576) for it;
@@ -42,6 +48,7 @@ const FIELD = {
   MODEL: [1, 19],
   USAGE: [1, 4],
   PROMPT_TOKENS: 2,
+  CACHED_PROMPT_TOKENS: 5,
   REPLY_TOKENS: 9,
 };
 /* How many of the newest generations one read decodes: enough to find the newest that reported
@@ -118,13 +125,19 @@ function numberAt(buf, fieldPath) {
   return hit && hit.value !== null ? hit.value : null;
 }
 
-/** One generation's reading: { model, prompt, reply }, each null when absent. */
+/** One generation's reading: { model, prompt, reply }, each null when absent. `prompt` is the prompt
+    as sent, cached part included (1.4.2 + 1.4.5); null only when both are absent. */
 function decodeGeneration(blob) {
   const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob || []);
   const modelBytes = messageAt(buf, FIELD.MODEL);
   const model = modelBytes && /^[\w.-]{1,80}$/.test(modelBytes.toString('utf8')) ? modelBytes.toString('utf8') : null;
   const usage = messageAt(buf, FIELD.USAGE);
-  const prompt = usage ? numberAt(usage, [FIELD.PROMPT_TOKENS]) : null;
+  const uncached = usage ? numberAt(usage, [FIELD.PROMPT_TOKENS]) : null;
+  const cached = usage ? numberAt(usage, [FIELD.CACHED_PROMPT_TOKENS]) : null;
+  /* proto3 leaves a zero field off the wire: a turn served ENTIRELY from cache has no uncached part,
+     so 1.4.2 is absent while 1.4.5 is present. That is a prompt of `cached`, not no reading (review,
+     #4393 iteration 1). Only when BOTH are absent is there no reading. */
+  const prompt = uncached === null && cached === null ? null : (uncached || 0) + (cached || 0);
   const reply = usage ? numberAt(usage, [FIELD.REPLY_TOKENS]) : null;
   return { model, prompt, reply };
 }

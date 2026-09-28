@@ -150,3 +150,36 @@ test('#4039: an empty -wal (made by any reader, this one included) is not activi
   fs.writeFileSync(file + '-wal', 'x');
   assert.notEqual(agy.read(dir).lastAt, past.toISOString(), 'control: a -wal with content IS the newest write');
 });
+
+test('#4039: once agy caches the prompt, the ring counts the cached part too, so it grows and never falls on a longer turn', () => {
+  // The real two-turn conversation from prod 0.7.05 (field values as measured, not invented).
+  const gens = [
+    generation({ prompt: 18372, reply: 18643, thoughts: 101 }),
+    generation({ prompt: 20875, cached: 16339, reply: 55, thoughts: 1 }),
+    generation({ prompt: 4756, cached: 32668, reply: 1271, thoughts: 246 }),
+    generation({ prompt: 2292, cached: 36747, reply: 175, thoughts: 118 }),
+  ];
+  const seen = [];
+  for (let n = 1; n <= gens.length; n += 1) {
+    const { dir } = conversation(gens.slice(0, n));
+    seen.push(agy.read(dir).contextUsed);
+  }
+  assert.deepEqual(seen, [18372, 37214, 37424, 39039], 'the prompt as sent is 1.4.2 + 1.4.5');
+  for (let i = 1; i < seen.length; i += 1) assert.ok(seen[i] >= seen[i - 1], 'the ring fell between turns: ' + seen.join(', '));
+  // CONTROL: a generation with no cache field reads 1.4.2 alone, as before.
+  assert.equal(agy.decodeGeneration(generation({ prompt: 12561, reply: 149 })).prompt, 12561);
+});
+
+test('#4393: a turn served wholly from cache (1.4.2 left off the wire as a proto3 zero) reads as the cached prompt, not as no reading', () => {
+  const g = agy.decodeGeneration(generation({ prompt: null, cached: 39100, reply: 20, thoughts: 5 }));
+  assert.equal(g.prompt, 39100, 'an absent 1.4.2 beside a present 1.4.5 is 0 uncached, not a missing reading');
+  // And in a conversation, that newest generation is the ring, not an older, smaller one.
+  const { dir } = conversation([
+    generation({ prompt: 18372, reply: 18643, thoughts: 101 }),
+    generation({ prompt: 20875, cached: 16339, reply: 55, thoughts: 1 }),
+    generation({ prompt: null, cached: 39100, reply: 20, thoughts: 5 }),
+  ]);
+  assert.equal(agy.read(dir).contextUsed, 39100, 'the ring fell back to an older generation');
+  // CONTROL: a usage message with neither field is still no reading, never 0.
+  assert.equal(agy.decodeGeneration(generation({ prompt: null, reply: 3 })).prompt, null);
+});
