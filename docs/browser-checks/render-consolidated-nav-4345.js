@@ -99,6 +99,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.p_gridHidden = $('grid').hidden === true;
         res.p_lit = lit();
         res.p_projectsColShown = $('pj-list-view').hidden === false;
+        // The way back keeps the active project (review round 1: it used to drop it).
+        res.p_keptProject = PJ_CURRENT === 'k' && $('pj-one-view').hidden === false;
 
         // 6. Opening a project from the rail while Agents is open closes it (project navigation).
         tab('agents').click();
@@ -147,11 +149,59 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' an agent click in the column opens that agent (openDetail, as the rail does)', e0 && out.a_clickOpened === 'max', J);
     ok(t + ' an org-chart person gets the chart in the column, not the grid', e0 && out.o_orgShown && out.o_gridHidden, J);
     ok(t + ' Projects brings the board back and closes the Agents view', e0 && out.p_cons && out.p_agentsHidden && out.p_gridHidden && out.p_lit === 'projects' && out.p_projectsColShown, J);
+    ok(t + ' ...and keeps the project that was open, rather than resetting to the list', e0 && out.p_keptProject === true, J);
     ok(t + ' opening a project closes the Agents view, Projects lit', e0 && out.n_agentsHidden && out.n_projectShown && out.n_lit === 'projects', J);
     ok(t + ' ...and clears the record, so the grid is hidden again, not only its wrapper', e0 && out.n_flagCleared === true, J);
     ok(t + ' Settings over the Agents view hides it, and no nav item is lit', e0 && out.s_settingsShown && out.s_agentsHidden && out.s_lit === '', J);
     ok(t + ' Tasks loads into the column, staying consolidated, Tasks lit', e0 && out.t_cons && out.t_inColumn && out.t_lit === 'tasks', J);
     ok(t + ' leaving the consolidated view restores the grid and chart to the tab view (CONTROL: an ordinary tab switch)', e0 && out.x_cons === false && out.x_gridHome && out.x_orgHome && out.x_gridShown, J);
+    // ---- Review round 1: an agent's page, the column's own layout switch, and a takeover. ----
+    const r1 = await page.evaluate(() => {
+      const $ = (id) => document.getElementById(id);
+      const tab = (name) => document.querySelector('#tabs .tab[data-tab="' + name + '"]');
+      const res = {};
+      try {
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        PJ_CURRENT = 'k'; BOARD_LAYOUT = 'grid';
+        showTab('projects');
+        // (a) From an agent's page (which drops the consolidated class), Agents lands on the Agents view.
+        showTab('detail');
+        res.d_leftCons = document.body.classList.contains('consolidated') === false;   // CONTROL: the page really left it
+        tab('agents').click();
+        res.d_agentsOpen = document.body.classList.contains('consolidated') && $('panel-cons-agents').hidden === false && CONS_AGENTS_OPEN === true;
+        // (b) "All agents" returns to the Agents view when the agent was opened from it...
+        showTab('detail');
+        $('detail-back').click();
+        res.b_back = $('panel-cons-agents').hidden === false && CONS_AGENTS_OPEN === true;
+        // ...and to the board when it was not (CONTROL).
+        tab('projects').click();
+        showTab('detail');
+        $('detail-back').click();
+        res.b_ctl = CONS_AGENTS_OPEN === false && $('panel-cons-agents').hidden === true;
+        // (c) The column's switch: Org chart shows the chart and saves the choice; Grid brings the grid back.
+        tab('agents').click();
+        const sw = (v) => $('panel-cons-agents').querySelector('[data-conslay="' + v + '"]');
+        sw('org').click();
+        let saved = null; try { saved = localStorage.getItem('kosmos.layout.agents'); } catch { saved = 'unreadable'; }
+        res.s_org = $('orgview').hidden === false && $('grid').hidden === true && sw('org').getAttribute('aria-pressed') === 'true' && saved === 'org';
+        sw('grid').click();
+        res.s_grid = $('grid').hidden === false && $('orgview').hidden === true && sw('grid').getAttribute('aria-pressed') === 'true';
+        // (d) Another overlay taking the column re-hides the grid, not only its wrapper.
+        $('userpop-settings').click();
+        res.t_rehidden = $('grid').hidden === true && CONS_AGENTS_OPEN === false;
+        res.err = null;
+      } catch (e) { res.err = String(e && e.stack || e); }
+      return res;
+    });
+    const R1 = JSON.stringify(r1);
+    const r0 = r1.err === null;
+    ok(t + ' from an agent\'s page, Agents lands on the Agents view (CONTROL: the page had left the consolidated class)', r0 && r1.d_leftCons === true && r1.d_agentsOpen === true, R1);
+    ok(t + ' "All agents" returns to the Agents view when the agent was opened from it', r0 && r1.b_back === true, R1);
+    ok(t + ' CONTROL: "All agents" returns to the board when the Agents view was not open', r0 && r1.b_ctl === true, R1);
+    ok(t + ' the column\'s Org chart switch shows the chart and saves the choice', r0 && r1.s_org === true, R1);
+    ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
+    ok(t + ' another overlay taking the column re-hides the grid itself', r0 && r1.t_rehidden === true, R1);
+
     // ---- The LIST state (no project open): the "Open or create a project" hint must not draw over
     // the Agents view, including after the 5s poll's paintPjNone. Same guard #3053 has for Create. ----
     const listState = await page.evaluate(() => {

@@ -185,7 +185,7 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      is verified by render-tophead-consolidated-2282.js; here we pin the CSS rule. */
   assert.match(block, /> \.apphead header \{[^}]*display: flex/, 'the consolidated header is not laid out as a top bar (#2282)');
   assert.match(block, /> \.apphead h1 \{ display: none; \}/, 'the consolidated view no longer hides the h1 (#2282)');
-  assert.doesNotMatch(decls, /> \.apphead[^{]*\.tabs[ ,][^{]*\{[^}]*display: none|> \.apphead[^{]*\.tabs \{[^}]*display: none/, 'the consolidated view hides the center tabs again (#4345: they stay and load into the display column)');
+  assert.doesNotMatch(decls, /> \.apphead[^{]*\.tabs\b[^{]*\{[^}]*display:\s*none/, 'the consolidated view hides the center tabs again (#4345: they stay and load into the display column)');
   assert.doesNotMatch(decls, /> \.apphead \.headright[ ,][^{]*\{[^}]*display: none/, 'the consolidated view still hides the top-right controls -- #2282 keeps them in the header instead of folding them to the rail');
   assert.doesNotMatch(decls, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
   /* ⚠️ THIS USED TO FORBID MENTIONING A SLOT AT ALL, which is a proxy for the
