@@ -33,11 +33,11 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
-    # Measured on the runner: the selected files take about 12 minutes one at a time. The script
-    # bounds each test (60s) and each file (15m), and starts no file after 33 minutes (the rest are
-    # reported NOT RUN, a red). 33 + 15 = 48, so at 55 the job always ends with the script's
+    # Measured on the runner: the selected files take about 13 minutes one at a time. The script
+    # bounds each test (60s) and each file (20m), and starts no file after 33 minutes (the rest are
+    # reported NOT RUN, a red). 33 + 20 = 53, so at 60 the job always ends with the script's
     # verdict, never cancelled mid-file (a cancel reads as a fail with no reason, #3499).
-    timeout-minutes: 55
+    timeout-minutes: 60
     steps:
       # Check out the bytes that ship. The Windows bundle is built from this repo's LF sources
       # on a Mac, but git on a Windows runner converts to CRLF at checkout (core.autocrlf=true),

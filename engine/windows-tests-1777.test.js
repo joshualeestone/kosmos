@@ -27,10 +27,10 @@ test('selection: win32 test files in engine/ and at the root, plus ALSO, and not
 
 test('selection on the real tree: named files are in, and the count has not shrunk', () => {
   const got = w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT));
-  // 100 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
+  // 99 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
   // raises the count and needs nothing. A single file renamed out of the rule does not; the
   // host-branch test below catches the ones that matter.
-  assert.ok(got.length >= 100, `only ${got.length} files selected`);
+  assert.ok(got.length >= 99, `only ${got.length} files selected`);
   for (const f of [
     'engine/win32apply.test.js', 'engine/runners.win32-codex.test.js', 'engine/win32board.test.js',
     'engine/runners.win-runnable-2270.test.js', 'engine/windows-coupling-audit-1732.test.js',
@@ -137,6 +137,29 @@ test('a stale entry blocks main always, and a PR only when it touches that file 
   assert.equal(w.staleBlocks(st, ['server.js']), false, 'someone else\'s PR is not failed for it');
   assert.equal(w.staleBlocks(st, ['engine/a.test.js']), true);
   assert.equal(w.staleBlocks(st, ['tools/windows-tests.js']), true);
+});
+
+test('FLAKY: a listed flaky test failing is not judged, and a file failing only on it is a pass', () => {
+  const flaky = { 'engine/f.test.js': { card: '#7', tests: ['timing'] } };
+  const onlyFlaky = w.judge([{ file: 'engine/f.test.js', ok: false, failing: ['timing'] }], {}, {}, flaky);
+  assert.deepEqual(onlyFlaky.failed, []); assert.deepEqual(onlyFlaky.stale, []);
+  const more = w.judge([{ file: 'engine/f.test.js', ok: false, failing: ['timing', 'real'] }], {}, {}, flaky);
+  assert.equal(more.failed.length, 1, 'a real failure beside the flaky one is still a new red');
+  const killed = w.judge([{ file: 'engine/f.test.js', ok: false, failing: ['timing'], killed: true }], {}, {}, flaky);
+  assert.equal(killed.failed.length, 1, 'a kill is never excused as flaky');
+  const withKnown = w.judge([{ file: 'engine/a.test.js', ok: false, failing: ['t1', 't2', 'timing'] }], KNOWN, {},
+    { 'engine/a.test.js': { card: '#7', tests: ['timing'] } });
+  assert.deepEqual(withKnown.failed, []); assert.equal(withKnown.known.length, 1);
+});
+
+test('every FLAKY entry names a selected file, a card and tests in that file', () => {
+  const selected = new Set(w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT)));
+  for (const [file, entry] of Object.entries(w.FLAKY)) {
+    assert.ok(selected.has(file), `${file} is FLAKY but not selected`);
+    assert.match(entry.card, /^#\d+$/);
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    for (const name of entry.tests) assert.ok(src.includes(name) || src.includes(name.replace(/'/g, "\\'")), `${file} has no test named "${name}"`);
+  }
 });
 
 test('every ALL_SKIP_OK entry is a selected file with a reason', () => {

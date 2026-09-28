@@ -29,20 +29,39 @@ when a listed file passes again or is no longer run.
   - win32handoff's zone-by-interface-name arm: Windows zones are numeric. Filed as #4258.
 
 ## Build
-- tools/windows-tests.js: selects `*win32*.test.js` in engine/ and at the root (the root adds
-  engine.connect-win32-install-570 and five web.* files), plus ALSO. It runs each with stdin
-  closed, a 60s per-test timeout and a 15m per-file timeout, and starts no file after 33 minutes
-  (the rest are NOT RUN, a red). It prints per-file test and skip counts, and flags a file over half
-  its cap. KNOWN_RED maps a file to its card AND the exact tests expected to fail: any other failing
-  test, a kill, or a failure with no test named is a new red; a listed test that passes is stale.
-  Pure selectFiles/failingTests/judge are exported. Zero files selected is a failure.
-- .github/workflows/windows.yml: windows-latest, node 26, timeout 55m (above the 33m start budget
-  plus one 15m file). Push to main and pull_request, with the same concurrency shape as test.yml
-  (#4021: never cancel a main run).
-- engine/windows-tests-1777.test.js: selection (synthetic and real tree), the verdict (new red,
-  known, stale, missing), that KNOWN_RED names selected files and cards, and that the workflow
-  runs the script on windows-latest.
-- ci.main-runs-finish-4021.test.js: windows.yml added to PINNED_WORKFLOWS (its control demanded it).
+- tools/windows-tests.js selects:
+  - `*win32*.test.js` in engine/ and at the root;
+  - the root's `tools.win-*` / `tools.windows-*`;
+  - ALSO (engine) and ALSO_ROOT, which include every test file that branches on a win32 HOST.
+  HOST_BRANCH_EXCLUDED names the host-branch files left out, each with why, and a Mac-side test
+  fails on any host-branch file that is neither selected nor excluded. 99 files.
+- How it runs each file: stdin closed, a 60s per-test timeout, a 20m per-file timeout, and no
+  file started after 33 minutes (the rest are NOT RUN, a red). It prints every failing name,
+  per-file test and skip counts, and flags a file over half its cap.
+- How it judges:
+  - KNOWN_RED maps a file to its card AND the exact tests expected to fail. Any other failing
+    test, a kill, a spawn error, or a failure with no test named is a new red.
+  - A listed test that passes is stale. Stale fails main always, and a PR only when the PR
+    touches that file or the script (staleBlocks, via WINDOWS_TESTS_PR_BASE).
+  - A file whose every test skips is red unless ALL_SKIP_OK names it.
+  - Zero files selected is a failure.
+- .github/workflows/windows.yml:
+  - windows-latest, node 26; LF checkout; fetch-depth 0; timeout 60m, above the 33m budget plus
+    one 20m file.
+  - Push to main and pull_request, with the same concurrency shape as test.yml (#4021: never
+    cancel a main run).
+- engine/windows-tests-1777.test.js covers:
+  - selection (synthetic, real tree, and the host-branch guard);
+  - failing-name parsing;
+  - every verdict path;
+  - staleBlocks;
+  - that KNOWN_RED and ALL_SKIP_OK name real selected files, cards and tests;
+  - the workflow's triggers, env and timeouts.
+- ci.main-runs-finish-4021.test.js: windows.yml added to PINNED_WORKFLOWS (its control demanded
+  it).
+- Test fixes, each measured red on the runner and green after:
+  - engine/runners.win-runnable-2270 (a 0o644 POSIX control, POSIX host only);
+  - engine.boardauth-1946 (the mode arm asks ownerOnlyModeIsEnforced()).
 
 ## Proven on the runner before the PR (temporary push trigger, since reverted)
 - Run 36356771856 at 4c12c93: success; 73 passed, 3 failed, all 3 known red; 0 new, 0 stale.
@@ -63,6 +82,16 @@ when a listed file passes again or is no longer run.
   kosmos.ps1 resolution). tools.build-windows / tools.publish-windows stay out: Mac-side
   release tooling.
 
+- Review round 4: host-branch files. Run 36363427109 added six. outbox, world-guard-lift and
+  cli.world-outbox pass. boardauth's mode arm was fixed. remove's #169 arm is filed as #4269.
+  create.test.js failed 121 of 189 (run 36364391579): they need Claude Code installed or macOS
+  LaunchAgents, so it is excluded with that reason. Its Windows path is the create.win32-* files,
+  which pass. The four e2e/integration files skip everything on the runner and are named in
+  ALL_SKIP_OK.
+- The same run failed a win32handoff arm that had passed five times: it probes the runner's own
+  address (10.1.0.10) and got "refused" instead of a timeout. It is listed in FLAKY under #4258;
+  a flaky failure is not judged, and a kill is never excused.
+
 ## Decided
 - CI on a GitHub Windows runner, free on this public repo, over the options below.
 - Rejected: the whole suite on Windows (always red on POSIX-mode tests, and so walked past);
@@ -76,6 +105,11 @@ when a listed file passes again or is no longer run.
 - The job's verdict is only as good as the list. Listing by test name means a known red no longer
   hides other failures in its file, but it does hide a CHANGE inside a listed test (it fails for a
   new reason) until its card is fixed.
+- Failing tests are matched by title, so two tests with one title in a listed file cannot be told
+  apart; a new failure in the unlisted twin would be hidden.
+- A FLAKY test is not run in any sense that counts; the list must stay short.
+- A file that skips SOME tests on Windows is counted, not judged. A new `skip` on win32 inside
+  a file that still runs other tests goes unnoticed.
 - On a per-file timeout, only the `node --test` process is killed; its child can outlive it on
   Windows and share the runner with the next files.
 - About 11 minutes a run. If the runner turns out flaky (the same sha red, then green), the job
