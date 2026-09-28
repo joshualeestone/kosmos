@@ -4226,7 +4226,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        discussion gets its breathing room from its own padding instead. */
     column-gap: 0; align-content: stretch;
     /* 🛑 `overflow-y: auto`, NOT `hidden`, and the row below carries a FLOOR.
-       These two are one fix for one hole: the 38 pre-rail tracks are `auto`
+       These two are one fix for one hole: the 39 pre-rail tracks are `auto`
        and take whatever the notices need, while the row holding #alist and
        #panel-projects was `minmax(0, 1fr)` and could be squeezed to ZERO. With
        `overflow: hidden` that content was then unreachable -- no page scroll
@@ -4306,7 +4306,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 41
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
      is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
@@ -4594,7 +4594,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
-  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 39
      pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
      Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
      reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
@@ -5001,7 +5001,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 39). */
+     to sit flush with row 40). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -9633,7 +9633,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
-/* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
+/* #4080: the Lost your phone? dialog is a child of this section (the body's 39-row limit), and the rule above, at id
    specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
 #s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
 /* 0.7.03 walk, against Josh's 22:22 mock: while connected the status line and the device message are empty, and their
@@ -10194,8 +10194,8 @@ window.kosmosMeasureScrollbarWidth();
      adds delegated listeners on document, so it runs the same from here as from the end of
      the body. ⚠️ IT LIVES IN THE HEAD ON PURPOSE (and this note names no tags, because the
      row counter finds the body by its opening tag's text): every direct child of the body costs one of the
-     consolidated layout's 38 pre-rail auto rows (web.consolidated-980.test.js counts scripts
-     too), main already used all 38, and a 39th child means widening that layout, a FIVE-site
+     consolidated layout's 39 pre-rail auto rows (web.consolidated-980.test.js counts scripts
+     too), main uses all 39 (the 39th is #4356's first screen), and one more child means widening that layout, a FIVE-site
      renumbering. A script needs no row, so it goes where it takes none. -->
 <script id="gold-light">
 (function () {
