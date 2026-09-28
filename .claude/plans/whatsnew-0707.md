@@ -5,7 +5,7 @@ Splinter, 2026-09-28 12:14: the release lane owns the What's New highlights. 0.7
 
 ## Call
 - `web/whats-new.json` for version 0.7.07 (the next free number after 0.7.06; if Windows takes 0.7.07 first, this is a one-field change to the next free number, which release.sh step 1b-ii will name).
-- Five tiles, each from a change merged since 0.7.05 that a person will notice: a Project Manager makes the agents the work needs (#1279); Reply in Direct Messages and the unread outline (#4256, #3743); one reminder for a new agent that has not answered (#3226); the Kosmos Community switch and its one-time notice (#4288); "Kosmos+ member" in the user menu (#3360) with the Mac's remote-access status report (#4277).
+- Five tiles, each from a change merged since 0.7.05 that a person will notice: a NEW Project Manager can make the agents the work needs (#1279; one made before keeps its old brief); Reply in Direct Messages and the unread outline (#4256, #3743); one reminder for a new agent that has not answered (#3226); the Kosmos Community switch and its one-time notice (#4288); "Kosmos+ member" in the user menu (#3360).
 - Left out on purpose: Meta Muse (behind a flag, so not something a person sees yet); test and CI work; small fixes a person would not notice in a tile. The versions.html entry carries the longer list.
 - Limits from engine/whatsnew.js: at most 5 highlights, title <= 48 characters, line <= 140, icons from the app's set.
 
@@ -14,3 +14,9 @@ That the Muse switch stays invisible to ordinary users in the next build. If Ang
 
 ## Evidence
 - `node tools/whats-new-check.js 0.7.07`: 5 highlight(s) for 0.7.07.
+
+## Review 1 (Opus, blind, checked each tile against main)
+- BLOCKER fixed: tile 5 claimed "a Mac that stops answering can now be looked into" (#4277), which only Kosmos staff can see (nothing under web/). The tile is now the Kosmos+ menu item alone.
+- WARNING fixed: tile 1 promised every Project Manager makes agents, but one made before #1279 keeps the brief it was born with. Now "A new Project Manager can make agents".
+- NIT taken: tile 3 promises the reminder, not the result.
+- Verified: tiles 2 and 4 true and on by default; Muse correctly left out (behind the flag).

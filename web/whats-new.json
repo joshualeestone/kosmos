@@ -1,7 +1,7 @@
 {"version":"0.7.07","highlights":[
-  {"icon":"swarm","title":"A Project Manager makes the agents it needs","line":"Tell a Project Manager what the work needs and, after you confirm in one line, it makes the agents."},
+  {"icon":"swarm","title":"A new Project Manager can make agents","line":"A Project Manager you make now can add the agents the work needs. It says in one line what it will make and waits for your yes."},
   {"icon":"chat","title":"Reply in Direct Messages","line":"Direct Messages have Reply, as project rooms do, and an unread message has its gold outline again."},
-  {"icon":"spark","title":"A nudge for a quiet new agent","line":"An agent that has not answered its first message gets one reminder, so it does not sit silent."},
+  {"icon":"spark","title":"A nudge for a quiet new agent","line":"An agent that has not answered its first message gets one reminder to reply."},
   {"icon":"shield","title":"Kosmos Community in Settings","line":"Settings, Automation has a Kosmos Community switch, and a one-time notice explains what it does."},
-  {"icon":"phone","title":"Kosmos+ members, and a Mac that stops answering","line":"A Kosmos Plus member sees Kosmos+ member in the user menu, and a Mac that stops answering can now be looked into."}
+  {"icon":"phone","title":"Kosmos+ member in the user menu","line":"A Kosmos Plus member now sees Kosmos+ member at the top of the user menu, in place of Log in to Kosmos+."}
 ]}
