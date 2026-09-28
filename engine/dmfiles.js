@@ -38,6 +38,8 @@ const instructions = require('./instructions');
 
 const START = projects.DMFILES_START;
 const END = projects.DMFILES_END;
+const TOP_START = projects.DMFILES_TOP_START;
+const TOP_END = projects.DMFILES_TOP_END;
 
 /* The folder's name inside the agent's own folder (#3614's call, written on the card). */
 const FOLDER = 'Files';
@@ -115,12 +117,19 @@ function blockBody(dir) {
     '',
     '`' + where + '`',
     '',
+    /* #4420 (Josh, 2026-09-28 15:29): a Gemini agent saved a file for him in its own folder, the one ABOVE this
+       one, then told him it was in the files panel. Neither is possible if the agent reads these two lines. */
+    'Directly inside that folder: not in your own folder above it, and not in a',
+    'subfolder. Only files there appear on your page; a file anywhere else is',
+    'invisible to the person. Never tell them a file is under Files unless you',
+    'saved it at that exact path.',
+    '',
     /* "Kosmos lists what is in it on your page": the Files list on the agent page (April's
        half of #3614) shipped in the same change as that sentence, so promise and page agree. */
     'Tell them in one line where you saved it, in words that mean something to them:',
     'the file\'s name, and that it is under Files on your page in Kosmos (to them it',
-    'is not "your Files folder"). This Files folder is inside your own folder, and it',
-    'is only for files made for the person: your running summaries and other working',
+    'is not "your Files folder"). This Files folder is only for files made for the',
+    'person: your running summaries and other working',
     'files stay where your instructions put them. Create the folder if it is not',
     'there yet. Keeping what you make in a direct conversation in one place means',
     'they always know where to find it: Kosmos lists what is in it on your page,',
@@ -149,6 +158,40 @@ function blockBody(dir) {
     'When the conversation itself happens inside a project, not in a direct',
     'conversation, keep using that project\'s own folder, as you already do there.',
   ].join('\n');
+}
+
+/* #4420: the pointer near the top, for an agent whose model is not Claude. One line, so it costs nothing to read
+   first; the rule itself stays in the block. PURE. */
+function topLine(dir) {
+  const where = projects.neutralise(String(dir == null ? '' : dir));
+  return 'Files you make for the person go directly in `' + where + '`, never your own folder above it: only files there '
+    + 'show on your page in Kosmos. The full rule is under "Where to save files you make for the person" below.';
+}
+
+/* Put the pointer right under the file's first heading (or at the very top when it has none), or replace it where it
+   already is. Refuses (returns the text unchanged) on two pointers, like spliceBlock. PURE. */
+function spliceTop(text, dir) {
+  const original = String(text == null ? '' : text);
+  const block = TOP_START + '\n' + topLine(dir) + '\n' + TOP_END;
+  const at = projects.findBlock(original, TOP_START, TOP_END);
+  if (at && at.ambiguous) return original;
+  if (at) return original.slice(0, at.start) + block + original.slice(at.end);
+  const nl = original.indexOf('\n');
+  if (/^#\s/.test(original) && nl !== -1) return original.slice(0, nl + 1) + '\n' + block + '\n' + original.slice(nl + 1);
+  return block + '\n\n' + original;
+}
+
+/* #4420: both managed parts for one agent: the block (every runner) and, for a runner other than Claude, the pointer
+   at the top; a Claude agent carries no pointer (one it had from another runner is taken out). The ONE composition,
+   used at birth (create.js, which knows the runner before the job is written) and by tellAgent. Null when the agent
+   has no folder to name. */
+function applyTo(text, sessionName, runner) {
+  const dir = filesDir(sessionName);
+  if (!dir) return null;
+  let next = projects.spliceBlock(text, blockBody(dir), START, END);
+  const claude = !runner || runner === 'claude';
+  next = claude ? projects.removeBlock(next, TOP_START, TOP_END) : spliceTop(next, dir);
+  return next;
 }
 
 /** The body for an agent, or null when it has no folder to name. */
@@ -190,7 +233,14 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos files blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = projects.spliceBlock(current.text || '', body, START, END);
+    let runner = null;
+    try { runner = require('./create').recordedRunner(sessionName); } catch { runner = null; }
+    const topFound = projects.findBlock(current.text || '', TOP_START, TOP_END);
+    if (topFound && topFound.ambiguous) {
+      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${topFound.pairs} Kosmos files pointers, so we cannot tell which is ours and did not change anything` };
+    }
+    const next = applyTo(current.text || '', sessionName, runner);   // #4420: the block, and the pointer for a non-Claude runner
+    if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
     /* Unchanged is TOLD, not a failure: the block already says this. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
@@ -219,4 +269,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, FOLDER, filesDir, ownDir, blockBody, bodyFor, tellAgent, syncEveryone };
+module.exports = { START, END, TOP_START, TOP_END, FOLDER, filesDir, ownDir, blockBody, bodyFor, topLine, spliceTop, applyTo, tellAgent, syncEveryone };

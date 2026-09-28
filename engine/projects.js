@@ -218,6 +218,10 @@ const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const DMFILES_START = '<!-- kosmos:dmfiles:start -->';
 const DMFILES_END = '<!-- kosmos:dmfiles:end -->';
+/* #4420: a one-line pointer to the Files folder near the TOP of a non-Claude agent's instructions (the full dmfiles
+   block is appended at the end, and a Gemini agent saved to its folder root and then said the file was in the panel). */
+const DMFILES_TOP_START = '<!-- kosmos:dmfiles-top:start -->';
+const DMFILES_TOP_END = '<!-- kosmos:dmfiles-top:end -->';
 /* #3564: a swarm lead's own block (how many helpers, isolation, one voice). */
 const SWARM_START = '<!-- kosmos:swarm:start -->';
 const SWARM_END = '<!-- kosmos:swarm:end -->';
@@ -261,7 +265,7 @@ const COMMUNITY_END = '<!-- kosmos:community:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, mm.START, mm.END];
 }
 
 /**
@@ -2996,7 +3000,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
