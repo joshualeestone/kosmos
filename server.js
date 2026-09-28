@@ -2972,22 +2972,32 @@ function guideMaskedRows(rows, wholeThread) {
    engine/messages.js; the same mask applies there, keyed on the resolved sender. */
 messages.setSenderTextFilter(guideMasked);
 
+/* #4423: a room note in the words it would have if written NOW. A recommender note keeps its facts by session
+   (`rec`, messages.roomNote), so its sentence is re-made with each agent's current name (readIdentity: the recorded
+   name, whatever the provider); every other note, and any written before notes kept their facts, is its text.
+   `names` is one room read's cache (session -> identity), so a room with many notes reads each agent once. If any
+   name would be only the bare id (no record and no readable brief), the sentence as written is kept: it named them
+   properly then, and the id is the thing this card exists to keep off the screen. */
+function noteTextNow(m, names) {
+  const r = m && m.rec;
+  if (!r || typeof r.stuck !== 'string' || !Array.isArray(r.asked) || typeof r.because !== 'string') return (m && m.text) || null;
+  const cache = names instanceof Map ? names : new Map();
+  const idOf = (s) => {
+    if (!cache.has(s)) { let id = null; try { id = readIdentity(s); } catch { id = null; } cache.set(s, id); }
+    return cache.get(s);
+  };
+  const people = [r.stuck, ...r.asked].map(idOf);
+  if (people.some((id) => !id || id.derived !== true || !id.displayName)) return m.text || null;
+  try {
+    return recommender.roomNoteText({ name: people[0].displayName, because: r.because,
+      asked: people.slice(1).map((id) => ({ name: id.displayName })) });
+  } catch { return m.text || null; }
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
    for its notice (#4354: the clock the pause's pausedAt is written with). */
-/* #4423: a room note in the words it would have if written NOW. A recommender note keeps its facts by session
-   (`rec`, messages.roomNote), so its sentence is re-made with each agent's current name (readIdentity: the recorded
-   name, whatever the provider); every other note, and any written before notes kept their facts, is its text. */
-function noteTextNow(m) {
-  const r = m && m.rec;
-  if (!r || typeof r.stuck !== 'string' || !Array.isArray(r.asked) || typeof r.because !== 'string') return (m && m.text) || null;
-  const nameOf = (s) => { try { return readIdentity(s).displayName || s; } catch { return s; } };
-  try {
-    return recommender.roomNoteText({ name: nameOf(r.stuck), because: r.because, asked: r.asked.map((s) => ({ name: nameOf(s) })) });
-  } catch { return m.text || null; }
-}
-
 function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
@@ -15362,6 +15372,7 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
@@ -15383,7 +15394,7 @@ const server = http.createServer(async (req, res) => {
           : m.kind === 'external'
           ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
-          ? { kind: 'note', text: noteTextNow(m), at: m.at }
+          ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'
           ? (() => {
               /* #2255: the post's reactions, replayed from the reaction events in
@@ -15436,7 +15447,7 @@ const server = http.createServer(async (req, res) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
-          if (m.kind === 'note') return [when + '  [kosmos] ' + String(noteTextNow(m) || '')];
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */

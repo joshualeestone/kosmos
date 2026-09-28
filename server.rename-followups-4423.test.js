@@ -87,3 +87,19 @@ test('#4423: the note keeps only its facts in the known shape, and the sentence 
   assert.equal(kept.text, 'Recommender: Alpha is stuck. (as written)', 'the stored sentence was changed');
   assert.deepEqual(kept.rec, { stuck: 'stuck-a', asked: ['peer-b'], because: 'which layout to ship' });
 });
+
+test('#4423: a note whose agent would show only as a bare id keeps the sentence it was written with', async () => {
+  // 'ghost-z' has no record and no instructions file: readIdentity can only give back the id.
+  messages.roomNote(room.id, 'Recommender: Alpha is stuck. Kosmos asked Zed for one reply each here (as written).', {
+    recommender: { stuck: 'stuck-a', asked: ['ghost-z'], because: 'a question about ghosts' },
+  });
+  const t = (await notes()).find((x) => /ghosts|as written\)\.$/.test(x));
+  assert.equal(t, 'Recommender: Alpha is stuck. Kosmos asked Zed for one reply each here (as written).',
+    'the note swapped a name it was written with for the bare id');
+});
+
+test('#4423: the recommender sweep passes the note\'s facts through to messages.roomNote (the wiring)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /roomNote: \(projectId, text, opts\) => messages\.roomNote\(projectId, text, opts\)/,
+    'the server drops the recommender note\'s facts, so its names can never follow a rename');
+});

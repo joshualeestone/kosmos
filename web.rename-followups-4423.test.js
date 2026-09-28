@@ -37,8 +37,8 @@ test('#4423 fixture: real cards, before and after a rename', () => {
   assert.equal(APRIL.name, 'April Ludgate');
 });
 
-function followWorld({ selValue = '', focused = false } = {}) {
-  const sel = { value: selValue };
+function followWorld({ selValue = '', shown = selValue, focused = false } = {}) {
+  const sel = { value: selValue, dataset: { shown } };
   const doc = { getElementById: (id) => (id === 'd-reports' ? sel : null), get activeElement() { return focused ? sel : null; } };
   const metas = []; const reports = [];
   const src = 'let CURRENT = null;\n' + page.lift(SCRIPT, 'followCard') + '\nreturn { set: (c) => { CURRENT = c; }, followCard };';
@@ -58,7 +58,7 @@ test('#4423: the title line follows the card every poll, and the Reports-to menu
 
 test('#4423: a Reports-to choice somebody picked and has not saved is theirs: no repaint', () => {
   const fresh = { ...LEAD, profile: { ...(LEAD.profile || {}), reportsTo: 'april' } };
-  const picked = followWorld({ selValue: '' });   // they chose "You"; the record still says april
+  const picked = followWorld({ selValue: '', shown: 'april' });   // they chose "You"; the menu last showed april
   picked.set({ ...LEAD });
   picked.followCard(fresh);
   assert.deepEqual(picked.reports, [], 'an unsaved choice was put back to the saved one');
@@ -115,4 +115,38 @@ test('#4423: a former project member\'s picture falls back to the board\'s card 
   const row = page.lift(SCRIPT, 'pjRoomRow');
   assert.match(row, /\(p\.agents \|\| \[\]\)\.find\(\(a\) => a\.sessionName === m\.from\)\s*\n?\s*\|\| \(\(typeof LAST !== 'undefined'/,
     'a former member\'s photo is looked up among current members only again');
+});
+
+test('#4423: the menu follows while it shows what it was painted with, even when the record names an agent not listed', () => {
+  /* The record says "gone-agent" (removed), so the menu showed "You"; comparing with the record would have read that as
+     an unsaved pick and stopped the menu following for good. */
+  const fresh = { ...LEAD, profile: { ...(LEAD.profile || {}), reportsTo: 'gone-agent' } };
+  const w = followWorld({ selValue: '', shown: '' });
+  w.set({ ...LEAD });
+  w.followCard(fresh);
+  assert.deepEqual(w.reports, [fresh], 'a menu showing "You" for a record naming a removed agent stopped following');
+});
+
+test('#4423: the Reports-to menu is rewritten only when what it would write changed (not every poll)', () => {
+  let writes = 0;
+  const sel = { dataset: {}, value: '', set innerHTML(v) { writes += 1; this._h = v; }, get innerHTML() { return (this._h || '').replace(/ selected>/g, ' selected="">'); } };
+  const wrap = { hidden: true };
+  const doc = { getElementById: (id) => (id === 'd-reports' ? sel : id === 'd-reports-wrap' ? wrap : null) };
+  const src = 'let LAST = [];\nlet YOU_NAME = "Josh";\n' + page.liftAll(SCRIPT, ['esc', 'paintReportsTo'])
+    + '\nreturn { setLast: (l) => { LAST = l; }, paintReportsTo };';
+  // eslint-disable-next-line no-new-func
+  const w = new Function('document', src)(doc);
+  w.setLast([{ ...LEAD }, { ...APRIL }]);   // plain copies: paintReportsTo reads isGuide, which cards do not carry
+  const me = { ...LEAD, profile: { reportsTo: 'april' } };
+  w.paintReportsTo(me);
+  w.paintReportsTo(me);   // the browser reads `selected` back differently, which used to rewrite every time
+  assert.equal(writes, 1, 'the menu was rebuilt although nothing it shows changed');
+  w.setLast([{ ...LEAD }, { ...APRIL, name: 'April Renamed' }]);
+  w.paintReportsTo(me);
+  assert.equal(writes, 2, 'a renamed agent in the list did not rewrite the menu');
+});
+
+test('#4423: the room repaints a pending reply on its own poll (paintRoom calls pjReplyPaint)', () => {
+  const room = page.lift(SCRIPT, 'paintRoom');
+  assert.match(room, /^\s*pjReplyPaint\(PJ_CURRENT\);/m, 'the room poll no longer repaints the pending reply strip');
 });

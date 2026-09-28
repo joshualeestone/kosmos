@@ -23,6 +23,25 @@ needs_you on the board.
 6. **A former member's photo in the room**: the room row falls back to the board's card (guarded like dmRow's LAST).
 7. **Community identity**: not built; decision on the card.
 
+## Review iteration 1 (opus): 1 BLOCKER, 5 WARNING, 1 CONVENTION, 4 NIT
+- B FIXED: followCard sat between paintBusy and the #3958 pill comment that web.pill-remembered-3958 pins as adjacent;
+  moved after refreshStartAffordance. Sweep now 31 files, each alone, 0 fail.
+- W1 FIXED: the room strip was repainted only on a click or a project switch; paintRoom now calls pjReplyPaint every
+  room poll, keyed (project, message, name) so the close button is not rebuilt each time.
+- W2 FIXED: the menu (and the title line) compared with innerHTML read back, which a browser rewrites (`selected=""`,
+  `&quot;`), so the menu was rebuilt every poll. Both compare with what they last WROTE (dataset). Test counts writes;
+  the old comparison fails it.
+- W3 FIXED: "untouched" is now "still shows what paintReportsTo last showed" (dataset.shown, set by paint and by a
+  successful Save), not "equals the record", which stopped the menu for good when the record named an agent not in
+  the list or changed elsewhere. Test for the removed-agent case.
+- W4 FIXED: a source pin on the server's recommender wiring (opts passed through).
+- W5 FIXED: noteTextNow takes one room read's cache, so each agent's identity is read once per read, not per note.
+- C FIXED: noteTextNow moved above keepAgentReply's doc comment.
+- N1 FIXED: the text-view edit did nothing (rows are already re-worded); reverted.
+- N2 FIXED: if any name would be only the bare id, the note keeps the sentence it was written with (test; control).
+- N3 NOTED: the former-member picture test stays a source pin (pjRoomRow's lift needs much of the room).
+- N4 NOTED: web.reply-where's window was at 3379/3400 before this card; this card does not move it.
+
 ## Weakest part
 Item 4 names each agent through readIdentity per note per room read; a room with very many recommender notes pays
 that each poll. Cheap today (profile + one small file); a cache per read would be the fix if it shows.
@@ -34,5 +53,7 @@ that each poll. Cheap today (profile + one small file); a cache per read would b
   views name the new name; a note without facts is served as stored; malformed facts are not kept. With the route
   serving only the stored text, it fails.
 - engine/recommender.test.js: runOnce passes the note's facts (stuck, the peers actually asked, the reason).
-- Existing pins kept intact: followCard sits after paintBusy (web.reply-where's 3400-char window), and the meta write
-  stays on the `metaBits.join(` line (server.test.js drives that slice).
+- Existing pins: followCard sits after refreshStartAffordance (web.reply-where's 3400-char window reaches paintBusy;
+  web.pill-remembered-3958 needs paintBusy and the #3958 pill comment adjacent), and the meta write stays on the
+  `metaBits.join(` line (server.test.js drives that slice). CORRECTION: the first version said "kept intact" while
+  it broke web.pill-remembered-3958 (review iteration 1).
