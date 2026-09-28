@@ -1,0 +1,38 @@
+# swarmsettings-4433: the Swarm Settings box and view (#3946 item 14)
+
+Card: #4433 (priority, claimed pigeonpete). Josh, 2026-09-28 17:11: "When are we putting our stuff for the swarm agents into the agent settings? So we can get it out of the left-hand column."
+Design: Mona Lisa's on #3946 (2026-09-26 12:46).
+
+## Built (web only; the engine already has all three states and the limit override)
+- **The Swarm Settings box**, below the four-pack, the same size and shape as Direct Message. Swarm agents only (swarmPagePaint shows it).
+  - A state pill with a dot and a word: Active, Paused, Paused (limit), Stopped.
+  - The whole box has a soft 14% tint of the state colour. No left bar; the gold edge marks it open.
+- **The view** (`#d-sec-swarm`): the heading and Mona's sub-line, then three state cards, then Maximum helpers, Daily usage limit and Today.
+  - The cards are a custom `role="radiogroup"` with roving focus: arrows move, Space or Enter picks, a click picks.
+  - Active: PUT {active:true}. The engine gives today's override when the swarm was limit-paused, so Active stays available over the limit.
+  - Paused: PUT {active:false}.
+  - Stopped asks first, inline ("Stop now? Unfinished work is dropped.", Stop now / Keep it running; Escape keeps). Stop now POSTs swarm/stop.
+  - Limit-paused: the Paused card carries "It reached today's limit and resumes tomorrow.", with a "Change today's limit" link that focuses the limit slider.
+- **The old header panel is gone.** The controls keep their ids, so swarmPagePaint, swarmSend, the busy guards and the metered-false honesty are unchanged.
+  - The phone chat-first header rules for it (the 190px floor and the compact controls) are removed, because they no longer match anything.
+
+## Decided
+- **A custom radio group, not native radios.** A native radio picks on an arrow key, and a pick applies at once, so arrowing past Paused would pause a live swarm. Mona's spec also says arrows move and Space or Enter picks.
+- **Picking Stopped again when it is already chosen** re-offers the stop only while a stop could still do something. That is the old Stop now's disabled rule, kept as `SWARM_STOP_SPENT`.
+  - When it could, a line says "It is still finishing what it was doing. Pick Stopped again to stop it now."
+- **From Paused (by the person or the limit), Stopped always asks.** It is a real change: a limit pause resumes by itself, a stop does not.
+- **The poll never moves the reader** (web.agent-nav.test.js). A view left open when the swarm field goes stays, and says "Swarm settings are not available for this agent right now." My first version called detailGo from the paint; that test caught it.
+- **On the phone**, the Swarm Settings box joins the section strip as a pill with its dot. The word stays for a screen reader.
+
+## Rejected
+- Keeping Stop now in the phone header "for speed": Josh asked for the controls out of the left column, and the phone reaches the view in one tap from the strip.
+- A modal for the stop question: Mona specified inline.
+
+## Weakest premise
+That removing Stop now from the phone chat header costs nothing important. A person on a phone now needs two taps plus a confirm to stop a swarm, where it used to be one. That is Mona's design and Josh's ask, and it is reversible.
+
+## Checks
+- render-swarm-ui-3564: 104 pass. New arms S42 (the box), S30 (the cards), S43 (the keys), S44 (Stopped asks first). The stop arms are rewritten for the cards.
+  - Mutants, each red: Stopped skips the question (S44), an arrow picks (S43), the box never shows (S42).
+- render-dm-chatfirst-718, render-signin-visible-3892 (134, pin updated with its derivation) and render-dm-sideways-3969: the header arms now assert that no swarm control is in the header and that the Swarm Settings pill is on screen.
+- web.agent-nav: 10 sections.

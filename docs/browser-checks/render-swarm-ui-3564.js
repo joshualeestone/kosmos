@@ -1,4 +1,4 @@
-// Browser-check-surface: orgmap create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
+// Browser-check-surface: orgmap create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-nav-swarm d-sec-swarm d-swarm-states swcard d-swarm-confirm d-swarm-keep d-swarm-tolimit d-swarm-none d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
 'use strict';
 
 /**
@@ -55,6 +55,14 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
+    /* #4433: which state card is chosen, read in the page. */
+    await page.addInitScript(() => { window.cardChecked = (st) => { const c = document.querySelector('#d-swarm-states .swcard[data-st="' + st + '"]'); return !!c && c.getAttribute('aria-checked') === 'true'; }; });
+    /* #4433: the swarm's controls are in the Swarm Settings view; open it (a click needs them on screen). */
+    const openSwarm = async () => {
+      await waitFor(page, () => !document.getElementById('d-nav-swarm').hidden, null, 8000);
+      await page.click('#d-nav-swarm');
+      await waitFor(page, () => !document.getElementById('d-sec-swarm').hidden, null, 4000);
+    };
 
     /* The engine, as the contract says. `engineOn` flips the flag; `crewSwarm` is the crew's card field. */
     let engineOn = false;
@@ -530,34 +538,63 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.evaluate(() => document.querySelector('#grid [data-agent="rex"]').click());
     await page.waitForTimeout(600);
     chk(await page.evaluate(() => document.getElementById('d-swarm-panel').hidden === true && document.getElementById('d-swarm').hidden === true), 'S6 CONTROL: an ordinary agent\'s page has no swarm panel');
+    chk(await page.evaluate(() => document.getElementById('d-nav-swarm').hidden === true && getComputedStyle(document.getElementById('d-nav-swarm')).display === 'none'), 'S42 CONTROL: an ordinary agent has no Swarm Settings box (#4433)');
     chk(await page.evaluate(() => !document.getElementById('d-provider').closest('.frow').hidden), 'S19 CONTROL: an ordinary agent\'s page offers the provider switch');
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     chk(await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden), 'S6 the swarm\'s page shows its controls');
-    // S30 (#3946): the Paused toggle says how it differs from Stop now (Josh asked). Item 13's move of this panel
-    // below the section buttons is superseded by item 14 (a Swarm Settings view) and waits for it.
-    const s30 = await page.evaluate(() => ({ hint: (document.getElementById('d-swarm-pause-hint') || {}).textContent || '',
-      described: (document.querySelector('#d-swarm-panel fieldset.swmode') || { getAttribute: () => '' }).getAttribute('aria-describedby'),
+    // S42 (#4433, #3946 item 14): the controls are out of the header, behind a Swarm Settings box under the four-pack
+    // that says the state in colour and in words.
+    const s42 = await page.evaluate(() => { const b = document.getElementById('d-nav-swarm'); const pack = document.querySelector('#d-nav .dnav-pack');
+      return { shown: !b.hidden && b.getBoundingClientRect().height > 0, below: !!pack && b.getBoundingClientRect().top >= pack.getBoundingClientRect().bottom,
+        word: document.getElementById('d-nav-swarm-word').textContent, st: b.dataset.st, inHeader: !!document.querySelector('.dhead #d-swarm-panel, .dhead .swcard'),
+        viewHidden: document.getElementById('d-sec-swarm').hidden }; });
+    chk(s42.shown && s42.below && s42.word === 'Active' && s42.st === 'active' && !s42.inHeader && s42.viewHidden,
+      'S42 a swarm has a Swarm Settings box below the four-pack saying Active, and no swarm control in the header', JSON.stringify(s42));
+    await openSwarm();
+    // S30 (#3946, now #4433): three state cards, each saying what it does, as one radio group; Active is chosen.
+    const s30 = await page.evaluate(() => ({ group: document.getElementById('d-swarm-states').getAttribute('role'),
+      cards: [...document.querySelectorAll('#d-swarm-states .swcard')].map((c) => [c.getAttribute('role'), c.dataset.st, c.getAttribute('aria-checked'), c.tabIndex, c.textContent.replace(/\s+/g, ' ').trim()]),
       maxLabel: document.querySelector('label[for="d-swarm-max"]').textContent }));
-    chk(/Paused finishes what it is doing, then takes nothing new/.test(s30.hint) && s30.described === 'd-swarm-pause-hint' && s30.maxLabel === 'Maximum helpers',
-      'S30 Paused says how it differs from Stop now, and the page says Maximum helpers (#3946)', JSON.stringify(s30));
+    chk(s30.group === 'radiogroup' && s30.cards.length === 3 && s30.cards.every((c) => c[0] === 'radio')
+      && s30.cards[0][1] === 'active' && s30.cards[0][2] === 'true' && s30.cards[0][3] === 0 && s30.cards[1][3] === -1
+      && /Takes work\. Brings in helpers/.test(s30.cards[0][4]) && /Takes nothing new\. Anything already in progress finishes\./.test(s30.cards[1][4])
+      && /unfinished work is dropped\. It stays stopped until you set it to Active\./.test(s30.cards[2][4]) && s30.maxLabel === 'Maximum helpers',
+      'S30 three state cards in a radio group say what each does; Active is chosen and the one tab stop (#4433)', JSON.stringify(s30));
     chk(await page.evaluate(() => document.getElementById('d-provider').closest('.frow').hidden), 'S19 a swarm\'s page offers no provider switch (it runs on Claude only)');
-    const s6 = await page.evaluate(() => ({ active: document.querySelector('input[name="d-swarm-active"][value="on"]').checked, today: document.getElementById('d-swarm-today').textContent,
+    const s6 = await page.evaluate(() => ({ active: cardChecked('active'), today: document.getElementById('d-swarm-today').textContent,
       limit: document.getElementById('d-swarm-limit').textContent, bar: document.getElementById('d-swarm-bar').style.width, max: document.getElementById('d-swarm-max').value,
-      stop: !document.getElementById('d-swarm-stop').disabled, head: document.querySelectorAll('#d-swarm .swd').length }));
-    chk(s6.active && s6.today === '2,461,380 tokens' && s6.limit === 'of 6,000,000 limit' && /^41(\.0)?%$/.test(s6.bar) && s6.max === '5' && s6.stop && s6.head === 5,
-      'S6 Active, Today in full with its bar, Most helpers at 5, Stop now ready, the header cluster', JSON.stringify(s6));
+      confirm: document.getElementById('d-swarm-confirm').hidden, head: document.querySelectorAll('#d-swarm .swd').length }));
+    chk(s6.active && s6.today === '2,461,380 tokens' && s6.limit === 'of 6,000,000 limit' && /^41(\.0)?%$/.test(s6.bar) && s6.max === '5' && s6.confirm && s6.head === 5,
+      'S6 Active, Today in full with its bar, Most helpers at 5, no stop question open, the header cluster', JSON.stringify(s6));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'page.png') });
 
     // S7: the controls send the contract's requests.
     sent.length = 0;
-    await page.click('label.pj-mode-opt:has(input[name="d-swarm-active"][value="off"])');
+    await page.click('#d-swarm-states .swcard[data-st="paused"]');
     await waitFor(page, () => true, null, 50);
     for (let i = 0; i < 20 && !sent.length; i++) await page.waitForTimeout(100);
     chk(sent[0] && sent[0].method === 'PUT' && sent[0].url === '/api/agent/crew/swarm' && sent[0].body.active === false, 'S7 Paused sends PUT /api/agent/crew/swarm { active: false }', JSON.stringify(sent[0]));
-    await page.click('label.pj-mode-opt:has(input[name="d-swarm-active"][value="on"])');
+    await page.click('#d-swarm-states .swcard[data-st="active"]');
     for (let i = 0; i < 20 && sent.length < 2; i++) await page.waitForTimeout(100);
+    chk(sent[1] && sent[1].body.active === true, 'S7 Active sends PUT { active: true }', JSON.stringify(sent[1]));
+    // S43 (#4433): the arrow keys MOVE between the cards and pick nothing (a native radio would pick, and a pick applies
+    // at once); Space picks. CONTROL: the Space press does send, so the silence before it is the keys, not a dead page.
+    await waitFor(page, () => SWARM_BUSY === null && cardChecked('active'), null, 6000);
+    const before43 = sent.length;
+    await page.focus('#d-swarm-states .swcard[data-st="active"]');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(400);
+    const s43 = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.dataset.st, active: cardChecked('active') }));
+    chk(s43.focus === 'paused' && s43.active && sent.length === before43, 'S43 an arrow key moves to Paused and sends nothing', JSON.stringify({ s43, sent: sent.slice(before43) }));
+    await page.keyboard.press(' ');
+    for (let i = 0; i < 20 && sent.length === before43; i++) await page.waitForTimeout(100);
+    chk(sent.length === before43 + 1 && sent[before43].body.active === false, 'S43 CONTROL: Space picks Paused and sends it', JSON.stringify(sent.slice(before43)));
+    chk(await waitFor(page, () => document.getElementById('d-nav-swarm-word').textContent === 'Paused' && document.getElementById('d-nav-swarm').dataset.st === 'paused', null, 8000),
+      'S43 the Swarm Settings box now says Paused', await page.evaluate(() => document.getElementById('d-nav-swarm-word').textContent));
+    await page.click('#d-swarm-states .swcard[data-st="active"]');
+    await waitFor(page, () => SWARM_BUSY === null && cardChecked('active') && document.getElementById('d-nav-swarm-word').textContent === 'Active', null, 8000);
     /* fill() fires its own change, so the requests are found by what they are, not by position. */
     const find = (pred) => sent.find(pred);
     await page.fill('#d-swarm-max', '8');
@@ -633,7 +670,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'limit' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S17 precondition: the page has the limit-paused, no-helper, unmeasured row');
-    chk(await page.evaluate(() => !document.getElementById('d-swarm-stop').disabled), 'S17 paused at the limit with no helper counted in a partial read, Stop now stays');
+    chk(await page.evaluate(() => SWARM_STOP_SPENT === false), 'S17 paused at the limit with no helper counted in a partial read, a stop is still on offer');
     // S20: unmeasured, the card claims no helper count: no lit circle, no badge, "Up to N helpers".
     await page.evaluate(() => showTab('agents'));
     chk(await waitFor(page, () => { const c = document.querySelector('#grid [data-agent="crew"]'); return !!c && /Up to \d+ helpers|Paused/.test(c.textContent); }, null, 8000), 'S20 precondition: the crew card repainted');
@@ -643,6 +680,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(s20.words && s20.lit === 0 && !s20.badge, 'S20 unmeasured, the card says "Up to N helpers", lights no circle and shows no count', JSON.stringify(s20));
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
+    await openSwarm();
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
     crewSwarm = { ...crewSwarm, metered: true, tokensToday: 2461380 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-today').textContent === '2,461,380 tokens' && !document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
@@ -683,49 +721,78 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S27 and the page\'s cluster says so to a screen reader (not "7 of 5")', await page.evaluate(() => (document.querySelector('#d-swarm .swc') || {}).getAttribute && document.querySelector('#d-swarm .swc').getAttribute('aria-label')));
     crewSwarm = { ...crewSwarm, activeHelpers: 3 };
     await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
+    await openSwarm();
     // S28: the page header follows the field: dropped, the cluster goes; back, it returns.
     crewNoSwarm = true;
     chk(await waitFor(page, () => document.getElementById('d-swarm').hidden && document.getElementById('d-swarm-panel').hidden, null, 15000), 'S28 the swarm field gone: the header cluster and panel go');
+    chk(await page.evaluate(() => document.getElementById('d-nav-swarm').hidden && !document.getElementById('d-sec-swarm').hidden && !document.getElementById('d-swarm-none').hidden),
+      'S28 and the box goes, while the open view stays put and says why (the poll never moves the reader)');
     crewNoSwarm = false;
     chk(await waitFor(page, () => !document.getElementById('d-swarm').hidden && !document.getElementById('d-swarm-panel').hidden, null, 15000), 'S28 CONTROL: back, they return');
+    chk(await page.evaluate(() => !document.getElementById('d-nav-swarm').hidden && document.getElementById('d-swarm-none').hidden), 'S28 CONTROL: and the box with them');
     putTold = null;
     crewSwarm = { ...crewSwarm, helperTokenRatio: null };
+    // S44 (#4433): Stopped asks first, because dropping unfinished work cannot be undone. Keep it running sends nothing.
+    const before44 = sent.length;
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
+    await page.waitForTimeout(400);
+    const s44 = await page.evaluate(() => ({ shown: !document.getElementById('d-swarm-confirm').hidden, q: document.getElementById('d-swarm-confirm-q').textContent,
+      focus: document.activeElement && document.activeElement.id, active: cardChecked('active') }));
+    chk(s44.shown && s44.q === 'Stop now? Unfinished work is dropped.' && s44.focus === 'd-swarm-stop' && s44.active && sent.length === before44,
+      'S44 picking Stopped asks first, focuses Stop now, and sends nothing yet', JSON.stringify({ s44, sent: sent.slice(before44) }));
+    await page.click('#d-swarm-keep');
+    await page.waitForTimeout(300);
+    chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden && document.activeElement && document.activeElement.dataset.st === 'active') && sent.length === before44,
+      'S44 Keep it running closes the question, sends nothing, and returns to the chosen card');
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
+    await page.keyboard.press('Escape');
+    chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden) && sent.length === before44, 'S44 Escape keeps it running too');
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));
     chk(await waitFor(page, () => /^Stopped\..*work not handed back was dropped\.$/.test(document.getElementById('d-swarm-msg').textContent), null, 6000),
       'S7 the done message says unfinished work was dropped', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
-    const hint7 = await page.evaluate(() => { const id = document.getElementById('d-swarm-stop').getAttribute('aria-describedby'); const h = id && document.getElementById(id); return h ? h.textContent : null; });
-    chk(!!hint7 && /Work not handed back is dropped/.test(hint7), 'S7 Stop now is described by its hint, so a screen reader hears what it drops', JSON.stringify(hint7));
+    const hint7 = await page.evaluate(() => { const g = document.getElementById('d-swarm-confirm'); const id = g.getAttribute('aria-labelledby'); const h = id && document.getElementById(id); return h ? h.textContent : null; });
+    chk(!!hint7 && /Unfinished work is dropped/.test(hint7), 'S7 the stop question is the group\'s name, so a screen reader hears what Stop now drops', JSON.stringify(hint7));
     // S12: Paused stops NEW helpers only, so Stop now stays usable while one is still working. Set up so the helper
     // count is the ONLY thing keeping it: stopped, the lead idle, a full count. CONTROL: the same with none greys it.
     crewState = 'idle';
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped', metered: true, activeHelpers: 2 };
-    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !!SWARM_ROW && SWARM_ROW.state === 'idle' && !document.getElementById('d-swarm-stop').disabled, null, 15000),   // the lead's state rides the status poll, as in S24
-      'S12 stopped with an idle lead but two helpers still working: Stop now is still there to press',
-      JSON.stringify(await page.evaluate(() => ({ off: document.querySelector('input[name="d-swarm-active"][value="off"]').checked, state: SWARM_ROW && SWARM_ROW.state, sw: SWARM_ROW && SWARM_ROW.swarm, dis: document.getElementById('d-swarm-stop').disabled }))));
+    chk(await waitFor(page, () => cardChecked('stopped') && !!SWARM_ROW && SWARM_ROW.state === 'idle' && SWARM_STOP_SPENT === false
+      && /still finishing/.test(document.getElementById('d-swarm-why').textContent), null, 15000),   // the lead's state rides the status poll, as in S24
+      'S12 stopped with an idle lead but two helpers still working: it says so, and a stop is still on offer',
+      JSON.stringify(await page.evaluate(() => ({ stopped: cardChecked('stopped'), state: SWARM_ROW && SWARM_ROW.state, sw: SWARM_ROW && SWARM_ROW.swarm, spent: SWARM_STOP_SPENT }))));
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
+    chk(await waitFor(page, () => !document.getElementById('d-swarm-confirm').hidden, null, 3000), 'S12 and picking Stopped again asks to stop it now');
+    await page.click('#d-swarm-keep');
     crewSwarm = { ...crewSwarm, activeHelpers: 0 };
-    chk(await waitFor(page, () => document.getElementById('d-swarm-stop').disabled, null, 8000), 'S12 CONTROL: the same with no helper working, Stop now greys');
+    chk(await waitFor(page, () => SWARM_STOP_SPENT === true && document.getElementById('d-swarm-why').hidden, null, 8000), 'S12 CONTROL: the same with no helper working, nothing is left to stop');
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
+    await page.waitForTimeout(300);
+    chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden), 'S12 CONTROL: and picking Stopped again asks nothing');
     crewSwarm = { ...crewSwarm, activeHelpers: 2 };
     crewState = null;
-    await waitFor(page, () => !document.getElementById('d-swarm-stop').disabled, null, 8000);
+    await waitFor(page, () => SWARM_STOP_SPENT === false, null, 8000);
     // S14: a stop that did not take says the engine's reason, not "Stopped".
     stopAnswer = { ok: true, stopped: false, because: 'we could not reach the lead just now' };
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.click('#d-swarm-stop');
     chk(await waitFor(page, () => /could not reach the lead/i.test(document.getElementById('d-swarm-msg').textContent)), 'S14 a stop that did not take says why, never Stopped', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
     stopAnswer = null;
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
-    await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="on"]').checked, null, 8000);
+    await waitFor(page, () => cardChecked('active'), null, 8000);
 
     // S16: a change still in flight when the person opens ANOTHER swarm: when its answer lands, the second
     // swarm's page keeps its own settings and no message from the first appears on it.
     slowPut = 2000;
+    await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.click('#d-swarm-stop');   // its answer writes a message ("Stopped..."), which must not land on crew2
     await page.evaluate(() => { showTab('agents'); });
     await page.waitForTimeout(200);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew2"]').click());
     await page.waitForTimeout(3000);   // past the slow answer
-    const s16 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, on: document.querySelector('input[name="d-swarm-active"][value="on"]').checked,
+    const s16 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, on: cardChecked('active'),
       max: document.getElementById('d-swarm-max').value, msg: document.getElementById('d-swarm-msg').textContent, today: document.getElementById('d-swarm-today').textContent }));
     chk(s16.who === 'crew2' && s16.on && s16.max === '4' && s16.msg === '' && s16.today === '1,000 tokens',
       'S16 an answer for one swarm that lands on another\'s page changes nothing there', JSON.stringify(s16));
@@ -735,15 +802,20 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.waitForTimeout(300);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
+    await openSwarm();
 
     // S8: a swarm paused at its limit says why and cannot be stopped again (from the board's own answer).
     crewState = 'idle';   // the lead's turn has ended; only then is there nothing left to stop
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };   // the engine interrupts the lead at the limit, ending its helpers
-    chk(await waitFor(page, () => /today's limit/.test(document.getElementById('d-swarm-why').textContent) && document.getElementById('d-swarm-stop').disabled
-      && document.querySelector('input[name="d-swarm-active"][value="off"]').checked, null, 15000), 'S8 paused at the limit with an idle lead: says so, shows Paused, Stop now is off');
+    chk(await waitFor(page, () => !document.getElementById('d-swarm-l-limit').hidden && /today's limit and resumes tomorrow/.test(document.getElementById('d-swarm-l-limit').textContent)
+      && SWARM_STOP_SPENT === true && cardChecked('paused') && !document.getElementById('d-swarm-tolimit').hidden
+      && document.getElementById('d-nav-swarm-word').textContent === 'Paused (limit)', null, 15000),
+      'S8 paused at the limit with an idle lead: Paused is chosen and says it resumes tomorrow, with the way to the limit; the box says Paused (limit)');
+    await page.click('#d-swarm-tolimit');
+    chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-swarm-cap'), 'S8 Change today\'s limit takes the person to the limit');
     // S24: the same pause with the lead still working (its interrupt failed): Stop now stays, the only interrupt.
     crewState = 'working';
-    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.state === 'working' && !document.getElementById('d-swarm-stop').disabled, null, 15000), 'S24 paused at the limit but the lead still working: Stop now stays');
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.state === 'working' && SWARM_STOP_SPENT === false, null, 15000), 'S24 paused at the limit but the lead still working: a stop is still on offer');
     crewState = null;
     // S23: no helpers and a lead that is neither working nor idle (rate limited): the swarm line claims no "Idle".
     // CONTROL: the same row idle says "Idle, working alone".
@@ -758,10 +830,12 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     crewSwarm = { ...crewSwarm, activeHelpers: 3 };
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
+    await openSwarm();
     // S21: paused by the person with no helper counted, the lead's turn still runs: Stop now (its only interrupt) stays.
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'person' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S21 precondition: the person-paused, no-helper row');
-    chk(await page.evaluate(() => !document.getElementById('d-swarm-stop').disabled), 'S21 paused by the person, Stop now stays (the lead\'s turn still runs); CONTROL: S8 greys it at the limit');
+    chk(await page.evaluate(() => SWARM_STOP_SPENT === false && cardChecked('paused') && document.getElementById('d-swarm-l-limit').hidden),
+      'S21 paused by the person, a stop is still on offer (the lead\'s turn still runs) and no limit line; CONTROL: S8 at the limit');
     // S22: switched back on over today's limit: the engine will not pause it again today, so the page does not promise to.
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 1, tokensToday: 6100000 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-hint').textContent === 'Over today\'s limit.', null, 15000), 'S22 over the limit while Active: the hint says so, and promises no pause it may not make',
