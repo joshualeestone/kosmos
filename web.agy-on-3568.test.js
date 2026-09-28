@@ -98,6 +98,7 @@ test('#3568: creating on Gemini by subscription sends no account: the account ro
   // eslint-disable-next-line no-new-func
   const fill = new Function('document', 'CREATE_ACCOUNTS', 'CREATE_ACCOUNTS_KNOWN', 'CREATE_ACCOUNTS_FAILED', `
     function paintKeyedProviderOptions() {} function paintAgyOption() {} function agyAsk() {}
+    function paintMuseOption() {} function museCreateAsk() {}   // #3939 3c-3b: tested in web.muse-create-3939
     function acctProvider() { return 'anthropic'; }
     ${grab('function fillCreateAccounts(')}
     return fillCreateAccounts;
@@ -345,14 +346,15 @@ test('#3568: one predicate says which providers pick their own model (review rou
   // eslint-disable-next-line no-new-func
   const f = new Function(PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + grab('function keyOnlyProvider(') + '\n'
     + grab('function vendorPicksModel(') + '\nreturn vendorPicksModel;')();
-  for (const p of ['google', 'xai', 'antigravity']) assert.equal(f(p), true, p);
-  for (const p of ['anthropic', 'openai', 'meta', '']) assert.equal(f(p), false, 'CONTROL ' + p);
+  for (const p of ['google', 'xai', 'antigravity', 'meta']) assert.equal(f(p), true, p);   // meta: #3939 3c-3b
+  for (const p of ['anthropic', 'openai', 'alibaba', '']) assert.equal(f(p), false, 'CONTROL ' + p);
   // No site still spells the pair by hand: the only copy is the helper's own body.
   assert.equal((PAGE.match(/keyOnlyProvider\([^)]*\) \|\| [a-zA-Z.]+ === 'antigravity'/g) || []).length, 1);
   // The saved create pick restores for Gemini by subscription while it is offered and installed.
   assert.match(PAGE, /\|\| \(pref\.provider === 'antigravity' && AGY_OFFERED !== false && AGY_INSTALLED === true\)/);
   // The create form's recovery and the switch's pre-refusal cover it, with its own words.
-  assert.match(PAGE, /if \(cur && cur\.disabled && vendorPicksModel\(cur\.value\)\)/);
+  // #3939 3c-3b: the recovery is one function now (createPickGone), shared with the Meta Muse read.
+  assert.match(PAGE, /if \(!\(cur && cur\.disabled && vendorPicksModel\(cur\.value\)\)\) return;/);
   assert.match(PAGE, /if \(vendorPicksModel\(want\) && wantOpt && wantOpt\.disabled\)/);
   assert.equal((PAGE.match(/Gemini \(Google subscription\) is not set up on this computer/g) || []).length, 2);
 });

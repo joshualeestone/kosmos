@@ -113,6 +113,7 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
       'acctProvider', 'paintKeyedProviderOptions', 'switchKeyedWord', 'switchKeyedSay', 'keyOnlyProvider', 'acctOfferableTarget'])
     + '\n' + page.liftConst(script, 'ACCT_KEYED_ROUTE')
     + '\nfunction paintAgyOption() {} function agyAsk() {}'   // #3568: the agy option has its own test (web.agy-on-3568)
+    + '\nfunction paintMuseOption() {} function museCreateAsk() {}'   // #3939 3c-3b: tested in web.muse-create-3939
     + '\n' + page.liftConst(script, 'providerOf')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_HINT')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_UNREADABLE')

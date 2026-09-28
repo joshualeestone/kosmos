@@ -68,6 +68,7 @@ function runFillCreate(accounts, providerValue) {
   };
   const factory = new Function('document', 'accounts', `
     function paintAgyOption() {} function agyAsk() {}   // #3568: the agy option has its own test (web.agy-on-3568)
+    function paintMuseOption() {} function museCreateAsk() {}   // #3939 3c-3b: tested in web.muse-create-3939
     ${escSrc}
     ${chosenNameSrc}
     ${primNameSrc}
