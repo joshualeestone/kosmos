@@ -130,25 +130,30 @@ leak_family() {
 # (`aoc-state.*.polls`); `#` starts a comment. Allowlisted families that left nothing
 # are counted on one closing line (so the list can shrink without burying a failure).
 leak_tmp_check() {
-  local root="${1%/}" allow="$2" found=0 n fam pat ok left allowed unused=0
+  local root="${1%/}" allow="$2" found=0 n fam pat ok left allowed unused=0 line
   [ -d "$root" ] || return 0
-  left=$(find "$root" -mindepth 1 -maxdepth 1 2>/dev/null | while IFS= read -r p; do leak_family "${p##*/}"; done | LC_ALL=C sort | uniq -c)
+  # One line per family: count, family, TAB, one raw name (so a report says what to fix).
+  local ex
+  left=$(find "$root" -mindepth 1 -maxdepth 1 2>/dev/null | while IFS= read -r p; do printf '%s\t%s\n' "$(leak_family "${p##*/}")" "${p##*/}"; done \
+    | LC_ALL=C sort | awk -F '\t' '{ n[$1]++; if (!($1 in e)) e[$1] = $2 } END { for (f in n) print n[f] " " f "\t" e[f] }')
   allowed=""
   [ -f "$allow" ] && allowed=$(sed 's/#.*//; s/[[:space:]]*$//; s/^[[:space:]]*//' "$allow" | grep -v '^$' | LC_ALL=C sort -u)
-  while read -r n fam; do
-    [ -n "$fam" ] || continue
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    ex=${line##*$'\t'}; line=${line%$'\t'*}; n=${line%% *}; fam=${line#* }
     ok=0
     while IFS= read -r pat; do
       [ -n "$pat" ] || continue
       # shellcheck disable=SC2254  # the pattern is a glob on purpose
       case "$fam" in $pat) ok=1; break ;; esac
     done <<< "$allowed"
-    if [ "$ok" -eq 0 ]; then echo "temp: $n x $fam (not on the allowlist)"; found=1; fi
+    if [ "$ok" -eq 0 ]; then echo "temp: $n x $fam (not on the allowlist; e.g. $ex)"; found=1; fi
   done <<< "$left"
   while IFS= read -r pat; do
     [ -n "$pat" ] || continue
     ok=0
-    while read -r n fam; do
+    while IFS= read -r line; do
+      line=${line%$'\t'*}; fam=${line#* }
       # shellcheck disable=SC2254
       case "$fam" in $pat) ok=1; break ;; esac
     done <<< "$left"

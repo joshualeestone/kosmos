@@ -11,9 +11,9 @@ temp root; only an explicit template path is honoured).
   every mkdtemp and every child process lands inside), removed on exit and on SIGINT/SIGTERM/SIGHUP.
 - Adopted as the first code line of the 24 files that leaked most. Each alone in a fresh TMPDIR: 253 -> 0.
 - docs/browser-checks/lib-sandbox-home.js and thread-server.js remove their dirs on a signal too.
-- tools/lib/test-leak-guard.sh + run-tests.sh: after the suite, scoped to THIS run's temp root:
-  a new launchd job whose plist is under it is booted out and fails the run; a process whose command line names
-  it is stopped and fails the run; a temp FAMILY not on tools/test-leak-allowlist.txt fails the run, and a
+- tools/lib/test-leak-guard.sh (leak_guard_after_suite) + run-tests.sh: after the suite, scoped to THIS run's
+  temp root: a new launchd job whose plist is under it (either spelling, /var or /private/var) is booted out and
+  fails the run; an ORPHANED process (ppid 1) whose command line names it is stopped and fails the run; a temp FAMILY not on tools/test-leak-allowlist.txt fails the run, and a
   listed family that left nothing prints a note (the list only shrinks).
 - tools/test-test-leak-guard-4273.sh: every check has an arm and a control; launchctl is a stub.
 
@@ -29,3 +29,22 @@ tokens inside a name, and 10+ digit timestamps; a test whose dir name embeds som
 read as a NEW family every run (a false red). Full run 2 is the measurement.
 
 ## Review record
+- Round 1 (opus): B launchd reports the RESOLVED plist path (/private/var), the root is /var: the check could never
+  match -> both spellings. B a pid inside a name (kosmos-flags-<pid>.txt) made a new family every run (every run
+  red); its source, tools.win-installer-native.test.js, called async cliMain unawaited: the assertion compared a
+  Promise with 64 (could not fail) and the report leaked -> digit-only tokens dropped; the test awaits. W family
+  rule ate real words / skipped empty names -> tail stripped only as a 6/10 token or the last 6 chars; empty ->
+  `(unnamed)`, reported. W an all-one-case random token mid-name (~1%) -> allowlist lines may be globs. W process
+  check: orphans only (ppid 1) so an operator's `tail` is never killed. W tmpscope re-raised over a file's own
+  handler (the file then ran on with TMPDIR gone) -> stands aside when another listener exists; test; red without
+  the check. W wiring untested -> one entry point leak_guard_after_suite, tested end to end, and a pin that
+  run-tests.sh calls it after the suite. N notes collapsed, comments updated.
+  FOUND WHILE FIXING (mine, not the reviewer's): plain `ps` lists only processes with a controlling terminal, so
+  an ORPHAN was never listed -> `ps -Aww`; `ps -E` shows no environment on macOS 26.7, so environment matching
+  (the reviewer's suggestion) is impossible and is a documented limit; the orphans my env-only test arm started
+  could not be cleaned up by path and leaked (killed; the arm is gone). The guard's own labels file sat inside
+  the root and would have been counted as a leak -> removed after the launchd check.
+  Allowlist rebuilt from runs 1 and 3 (258 lines). `(unnamed)` is allowlisted TEMPORARILY: one fully random
+  entry per run, source not found; the guard now prints a raw example per reported family to trace it.
+  Run 2 had 4 failures, all load flakes (none of the 4 files uses tmpscope; alone they pass 339/339).
+

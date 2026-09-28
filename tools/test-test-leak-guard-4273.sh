@@ -42,7 +42,7 @@ mkdir "$root/codex-forget-AbC123" "$root/codex-forget-DeF456" "$root/brand-new-Q
 printf '%s\n' '# allowed' 'codex-forget' '  tmp  # trailing comment' 'aoc-state.*.polls' 'gone-family' > "$work/allow"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 [ "$rc" -eq 1 ] && ok "an unlisted family fails the check" || bad "an unlisted family: rc=$rc"
-printf '%s\n' "$out" | grep -q 'brand-new (not on the allowlist)' && ok "the unlisted family is named" || bad "unlisted family not named: $out"
+printf '%s\n' "$out" | grep -q 'brand-new (not on the allowlist; e.g. brand-new-Qw12Er)' && ok "the unlisted family is named, with a raw example" || bad "unlisted family not named: $out"
 printf '%s\n' "$out" | grep -q -E 'x codex-forget|x aoc-state|x tmp ' && bad "an allowlisted family was reported: $out" || ok "allowlisted families (a name, a glob, a commented line) are not reported"
 printf '%s\n' "$out" | grep -q 'note: 1 allowlisted families left nothing' && ok "listed families that left nothing are counted on one note line" || bad "no single note: $out"
 rm -rf "$root/brand-new-Qw12Er"

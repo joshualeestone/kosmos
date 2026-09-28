@@ -8,23 +8,34 @@
 #
 # Measured by a full run on 2026-09-27 (kosmos#4273), after test-support/tmpscope.js was
 # adopted in the 24 files that leaked most. One family per line.
+#
+# Globs are allowed. aoc-state.*.polls: a mid-name random token that happens to be all one
+# case is not recognised as random, so the family is matched by pattern.
+aoc-state.*.polls
+# (unnamed): TEMPORARY. Full run 3 left one entry whose whole name is random characters
+# (a mkdtemp with an empty prefix); its source was not found by searching. The guard now
+# prints a raw example beside every family it reports; trace it from that, fix the
+# source, and delete this line.
+(unnamed)
+# kosmos-dmfiles: left only when server.dmfiles-refresh-3614.test.js FAILS (seen once, a
+# load flake), i.e. a failure-path leak.
 agy-e2e
 agy-routes
 agystatus-data
 aoc-state.polls
 avatarver
-aw-agent-token-570-launch
-aw-agent-token-570-proj
-aw-agent-token-570-work
+aw-agent-token-launch
+aw-agent-token-proj
+aw-agent-token-work
 aw-all
 aw-all-data
 aw-alltasks
 aw-assigner
 aw-buildheader
-aw-buildheader-570-data
-aw-buildheader-570-launch
-aw-buildheader-570-proj
-aw-buildheader-570-work
+aw-buildheader-data
+aw-buildheader-launch
+aw-buildheader-proj
+aw-buildheader-work
 aw-built-data
 aw-built-proj
 aw-chatgpt-browserurl
@@ -53,7 +64,7 @@ aw-cpa-launch
 aw-cpa-projects
 aw-cpa-workers
 aw-delprimary-oai
-aw-delprimary-oai-2684-noid
+aw-delprimary-oai-noid
 aw-dlgate
 aw-due-data
 aw-due-proj
@@ -107,9 +118,9 @@ aw-import-ep-launch
 aw-import-ep-proj
 aw-import-ep-work
 aw-import-scan
-aw-inreplyto-3224-launch
-aw-inreplyto-3224-proj
-aw-inreplyto-3224-work
+aw-inreplyto-launch
+aw-inreplyto-proj
+aw-inreplyto-work
 aw-link
 aw-nudge
 aw-openai-identity
@@ -125,9 +136,9 @@ aw-pol-data
 aw-pol-home
 aw-pol-projects
 aw-pol-workers
-aw-post-project-2837-launch
-aw-post-project-2837-proj
-aw-post-project-2837-work
+aw-post-project-launch
+aw-post-project-proj
+aw-post-project-work
 aw-rb-data
 aw-rb-home
 aw-rb-launch
@@ -160,9 +171,9 @@ aw-tstate
 aw-tstate-data
 aw-tstate-launch
 aw-tstate-workers
-aw-whichroom-3224-launch
-aw-whichroom-3224-proj
-aw-whichroom-3224-work
+aw-whichroom-launch
+aw-whichroom-proj
+aw-whichroom-work
 aw-wimport-config
 aw-wimport-data
 aw-wimport-launch
@@ -173,24 +184,26 @@ aw-you-home
 aw-you-projects
 aw-you-workers
 bcsm
-cli
+cli path
 cli$evil
 clipath
 clipath-inst
 codex-e2e
 codexhome
+codexhome2906
 e2e
 feedbackpull
 filelock-test
 gemring
+gemring3296
 grokring
+grokring3391
 groksettings
 imgtype
 installjob-gx
 kosmos
-kosmos-1726-seam
-kosmos-570-upd
 kosmos-agy
+kosmos-agy-th
 kosmos-allowance
 kosmos-anchor
 kosmos-attach
@@ -202,11 +215,11 @@ kosmos-cuthome-guard
 kosmos-cuthome-pre
 kosmos-cuthome-rel
 kosmos-disruption
+kosmos-dmfiles
 kosmos-dmunread-test
 kosmos-doctrine
 kosmos-feedback-data
 kosmos-feedback-home
-kosmos-flags-49593.txt
 kosmos-ghdev
 kosmos-hook-main
 kosmos-hook-thr
@@ -219,13 +232,14 @@ kosmos-nyw
 kosmos-observed
 kosmos-projects
 kosmos-reactions-test
-kosmos-release-notes-0.6.31.preview.txt
-kosmos-release-notes-9.9.9.preview.txt
+kosmos-release-notes.preview.txt
 kosmos-relocate
 kosmos-reporthook
+kosmos-seam
 kosmos-selfreport
 kosmos-tmuxbin
-kosmos-tz-1668-test
+kosmos-tz-test
+kosmos-upd
 kosmos-updcheck
 kosmos-updoffer
 kosmos-win32arm
@@ -239,6 +253,8 @@ pete-codex
 plus
 renet-gemini
 ring
+ring2257
+ring2406
 setprovider-google-xai
 setprovider-writes
 srv-launch-term
