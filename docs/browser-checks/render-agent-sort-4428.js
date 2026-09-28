@@ -25,7 +25,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     page.on('console', (m) => {
       if (m.type() !== 'error') return;
       const x = m.text();
-      if (/ERR_FILE_NOT_FOUND|URL scheme "file"|Failed to (fetch|load)/.test(x)) return;
+      if (/ERR_FILE_NOT_FOUND|URL scheme "file"|Failed to (fetch|load)|Access to fetch at 'file:\/\/\/api\//.test(x)) return;
       problems.push(`[${theme}] console: ${x}`);
     });
     await page.goto(PAGE);
@@ -96,6 +96,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.documentElement.setAttribute('data-layout', 'tabs');
         showTab('agents');
         layoutApply('agents', 'grid');
+        document.getElementById('uoffline-slot').innerHTML = '';
+        document.getElementById('removed-msg').textContent = '';
       });
       await page.screenshot({ path: path.join(SHOTS, `agent-sort-${theme}.png`), fullPage: false });
     }
