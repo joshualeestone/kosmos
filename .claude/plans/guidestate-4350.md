@@ -12,12 +12,20 @@ reason locally, and do not count the auto-created guide as a person-created agen
 - server.js: both ensureGuide call sites `.then(recordGuideOutcome)`, which re-sends the
   install ping on a change (idempotent server-side: count 0 never lowers a count).
 - createdbeacon payload gains `guide: <state>|'unknown'`.
-- `create.createdCount` leaves out births with createdBy 'kosmos' and role 'setup'.
+- `create.createdCount` leaves out births with createdBy GUIDE_CREATED_BY ('kosmos'), role
+  SETUP_ROLE_KEY ('setup') AND a purpose starting GUIDE_PURPOSE_PREFIX, all read from
+  setup-assistant.js (lazy require: it requires create.js).
+- Seeded before this shipped: the sweep's early return records 'seeded'.
+- The change ping waits 30 s, one timer, so it cannot race the board-start ping on the collector.
+- The state file is written only when something changed; `at` is when the state first appeared.
 
 ## Rejected
 - A new ping: the card asks for a field on the existing one.
 - Sending the reason: it is free text and could carry error details.
 
 ## Weakest premise
-- That createdBy 'kosmos' + role 'setup' identifies only the auto guide. A person can create
-  a setup-role agent (control in the test), but nothing else writes createdBy 'kosmos' today.
+- That the three-field match identifies only the auto guide. The team route lets an operator
+  set createdBy, so each field alone is spoofable; the purpose prefix is what separates them
+  (a team member with createdBy 'kosmos' and role 'setup' still counts: tested).
+- An install that already reported a count including its guide keeps that higher number on
+  the collector (Math.max), so its next creation does not move the public total, once.

@@ -826,6 +826,9 @@ const guidestate = require('./engine/guidestate');
    lists, then writes, then deletes the other names), counting the install twice. One timer
    at a time: a later change inside the delay rides the same ping, which reads the newest. */
 const GUIDE_PING_DELAY_MS = 30 * 1000;
+/* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
+   early once seeded), so the sweep records this for it. */
+const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
 let guidePingTimer = null;
 function recordGuideOutcome(r) {
   try {
@@ -17332,13 +17335,7 @@ function start(port = PORT) {
         const guideTick = () => {
           try {
             /* Once a guide exists there is nothing left to do: stop the timer. */
-            if (setupAssistant.setupAssistantSeeded()) {
-              /* #4350: record it, so an install seeded BEFORE the guide state existed says
-                 "seeded" rather than nothing (this early return never reaches ensureGuide). */
-              recordGuideOutcome({ seeded: false, state: 'seeded', reason: 'already seeded' });
-              if (guideSweep) clearInterval(guideSweep);
-              return;
-            }
+            if (setupAssistant.setupAssistantSeeded()) { recordGuideOutcome(GUIDE_SEEDED); if (guideSweep) clearInterval(guideSweep); return; }
             setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
               .then(recordGuideOutcome)
               .catch(() => { /* best-effort */ });

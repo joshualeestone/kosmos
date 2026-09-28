@@ -51,6 +51,10 @@ const accounts = require('./accounts');
 const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
+/* #4350: how the auto-created guide's birth is recognised (create.isAutoGuideBirth), so it is
+   left out of the public agents-created count. ONE definition, used for the create below. */
+const GUIDE_CREATED_BY = 'kosmos';
+const GUIDE_PURPOSE_PREFIX = 'default Kosmos setup guide';
 
 /* The guide's name, and its short AI tag (#3034, Josh 2026-09-24), used in the guide's purpose line below. */
 const GUIDE_NAME = 'Josh';
@@ -354,8 +358,8 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       out = createAgent({
         name,
         role: SETUP_ROLE_KEY,
-        createdBy: 'kosmos',
-        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created when a model was connected, #3034/#3660)`,
+        createdBy: GUIDE_CREATED_BY,
+        purpose: `${GUIDE_PURPOSE_PREFIX}, ${GUIDE_TAG} (auto-created when a model was connected, #3034/#3660)`,
         /* The model that was connected, so an OpenAI-only (or Gemini, Grok) person gets a
            guide that can run; absent, createAgent's own default (Claude) applies. */
         ...(model && model.provider ? { provider: model.provider } : {}),
@@ -719,6 +723,8 @@ function mergeSetting(stored, patch) {
 
 module.exports = {
   SETUP_ROLE_KEY,
+  GUIDE_CREATED_BY,
+  GUIDE_PURPOSE_PREFIX,
   armPath,
   armSetupAssistant,
   guideDenyRules,

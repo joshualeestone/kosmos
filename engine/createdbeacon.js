@@ -13,18 +13,19 @@
  * TWO signals leave the machine here, both fire-and-forget:
  *   - install ping   UNCONDITIONAL, on board start. Registers the install with
  *                    count 0, so the homepage INSTALL count moves. It carries no
- *                    agent count and nothing agent-identifying. Since #4350 it
- *                    does carry ONE word about this install's setup guide (see
- *                    guidestate.js: created, not armed, turned off by the person,
- *                    no model connected, refused, names taken), which says
- *                    something about the person's setup and choices; Splinter
- *                    ruled that inside Josh's 09-14 telemetry ruling (#4350).
+ *                    agent count and nothing agent-identifying.
  *   - created ping   on agent create, GATED on the create-agent checkbox
  *                    (default CHECKED, hardcoded on the form, #238). Carries the
  *                    install's TOTAL-EVER-CREATED count (create.createdCount,
  *                    from the birth log; #3038 -- NOT the live running roster,
  *                    which froze at peak-running under Math.max), so the homepage
  *                    AGENT count moves to the true number (not +1 -- see below).
+ *
+ * BOTH pings also carry ONE word about this install's setup guide (#4350; they share
+ * payload()): created, not armed, turned off by the person, no model connected,
+ * refused, names taken, or switched off in this build (guidestate.STATES). It says
+ * something about the person's setup and choices; Splinter ruled it inside Josh's
+ * 09-14 telemetry ruling (#4350).
  *
  * The split is deliberate: the install ping cannot be opted out (it is a
  * headcount of installs plus the guide state above, no agent count), and the agent count

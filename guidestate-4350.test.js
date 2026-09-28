@@ -117,6 +117,7 @@ test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re
   assert.match(fn, /guidestate\.record\(r\)\.changed/, 'recordGuideOutcome must act on a state change');
   assert.match(fn, /setTimeout\([\s\S]*createdbeacon\.pingInstall\(\)[\s\S]*GUIDE_PING_DELAY_MS\)/,
     'the change ping must be DELAYED, or it races the board-start ping into two collector records');
-  assert.match(src, /setupAssistantSeeded\(\)\)\s*\{[\s\S]{0,400}?recordGuideOutcome\(\{[^}]*state: 'seeded'/,
+  assert.match(src, /const GUIDE_SEEDED = Object\.freeze\(\{[^}]*state: 'seeded'/, 'the seeded outcome is not defined');
+  assert.match(src, /setupAssistantSeeded\(\)\)\s*\{\s*recordGuideOutcome\(GUIDE_SEEDED\)/,
     'an install seeded before the guide state existed must record seeded at the sweep\'s early return');
 });
