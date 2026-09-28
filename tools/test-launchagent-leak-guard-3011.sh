@@ -134,11 +134,17 @@ else
 fi
 # #4392: no TEST may use the reserved prefix, or a real test leak under it would go unseen. Every tracked file is
 # searched except the two that define and pin the skip.
+# It catches LITERAL use only: a name built at runtime ('zz-live' + 'check') evades it. That is accepted because the
+# count guards against accidental reuse, and #3605 (launch-guard.js) already refuses any test's write to the real
+# LaunchAgents under node --test, whatever the name.
 # git grep: 0 = found, 1 = found nothing, anything else = it could not search (which must not read as clean).
 REPO_ROOT="$(cd -- "$HERE/.." && pwd -P)"
 ctl="$(git -C "$REPO_ROOT" grep -l 'launchagent_snapshot' -- 'tools/run-tests.sh' 2>/dev/null)"; ctl_rc=$?
-[ "$ctl_rc" -eq 0 ] && [ -n "$ctl" ] && pass "#4392 control: the search finds a string that is there (run-tests.sh calls launchagent_snapshot)" \
-  || fail "#4392 control: the search could not find a string that is there (rc=$ctl_rc), so its zero below would mean nothing"
+if [ "$ctl_rc" -eq 0 ] && [ -n "$ctl" ]; then
+  pass "#4392 control: the search finds a string that is there (run-tests.sh calls launchagent_snapshot)"
+else
+  fail "#4392 control: the search could not find a string that is there (rc=$ctl_rc), so its zero below would mean nothing"
+fi
 used="$(git -C "$REPO_ROOT" grep -l 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
 if [ "$used_rc" -gt 1 ]; then
   fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"

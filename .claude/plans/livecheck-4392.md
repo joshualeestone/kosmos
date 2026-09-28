@@ -18,3 +18,7 @@ That nothing but a deliberate live check will ever name an agent zz-livecheck-*.
 ## Evidence
 - tools/test-launchagent-leak-guard-3011.sh: all PASS, with four new legs (skip, near-miss control, search control, reserved-prefix count).
 - Mutants: without the guard's skip, the skip leg fails; with a test file containing the prefix, the count leg fails. Found and fixed in flight: the first version of the count leg read an undefined $REPO, failed to search, and PASSED anyway; it now uses the test's own repo root, refuses a git grep error, and has a positive control.
+
+## Review 1 (Opus, blind): CONVERGED
+- Verified: the find expression (implicit AND; the quoted pattern expands the prefix but never globs), the prefix cannot be emptied from the environment, the #4273 launchd check and the leaked-supervisor sweep never touch a plist in the real LaunchAgents (so neither boots out nor reports a live check's agent), no other before/after scanner of com.kosmos.agent.* needs the skip.
+- NITs taken: the guard comment no longer names a personal path; the search control is an if; the test says the count catches literal use only, with #3605 as the barrier against a runtime-built name.

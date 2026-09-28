@@ -32,7 +32,7 @@ _la_mtime() {
 # Empty output when <dir> has none or does not exist. A changed mtime yields a
 # different line, so a MODIFIED plist is caught as well as a new one.
 # #4392: agents named with the RESERVED live-check prefix are skipped. A post-promote live check
-# (~/work/workers/barondraxum/postpromote/check_4039_3965.py) makes real agents on the operator's board, so
+# (the live-check harness, kosmos#4392) makes real agents on the operator's board, so
 # their plists land here; on 2026-09-28 three such runs reddened every full suite running at the same time
 # (Angel's and Kitty's), for a leak that was not theirs. The live check names its agents zz-livecheck-*, and no
 # TEST may use that prefix (tools/test-launchagent-leak-guard-3011.sh counts it), so a test that leaks is
