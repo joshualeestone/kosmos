@@ -1,0 +1,48 @@
+# TEMP (#4317): time each test:shell command, and the node part, on the CI runner. Removed before the PR.
+name: probe-4317
+on:
+  push:
+    branches: ["shard-4317"]
+permissions:
+  contents: read
+jobs:
+  shell:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: brew install tmux
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: each test:shell command, timed
+        run: |
+          node -e 'const s=require("./package.json").scripts["test:shell"]; for (const c of s.split(" && ")) console.log(c)' > cmds.txt
+          wc -l cmds.txt
+          ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
+          i=0
+          while IFS= read -r c; do
+            i=$((i+1)); t0=$(ms); bash -c "$c" < /dev/null > out.txt 2>&1 && rc=0 || rc=$?; t1=$(ms)
+            echo "SHELLTIME	$((t1-t0))	$rc	$c"
+          done < cmds.txt
+  node:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: brew install tmux
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: the node part alone, with per-file times
+        run: |
+          echo "cores: $(sysctl -n hw.ncpu)"
+          t0=$(perl -MTime::HiRes=time -e 'printf "%d\n", time*1000')
+          node --test --test-reporter=spec --require "$PWD/test-support/launch-guard.js" engine/*.test.js *.test.js < /dev/null > node.txt 2>&1 && rc=0 || rc=$?
+          t1=$(perl -MTime::HiRes=time -e 'printf "%d\n", time*1000')
+          echo "NODEWALL	$((t1-t0))	$rc"
+          grep -E "^ℹ (tests|pass|fail|duration_ms)" node.txt
