@@ -61,6 +61,9 @@
 - The suite guard's real name arm is tested through _kosmos_suite_candidates (pgrep plus the filter)
   against its own stand-in's pid, because a refusal on a busy Mac cannot say whose suite it saw.
   Breaking the filter turns that arm red (measured).
+  The guard's logic after the source (rc, self drop, fixture drop, refusal) is shared by the seam
+  and the live read, so the seam arms cover it; inverting its found/none test turns an arm red
+  (review 8, measured).
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default

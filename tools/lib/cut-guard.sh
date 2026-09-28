@@ -450,12 +450,15 @@ _kosmos_suite_candidates() {
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
+  # The source differs (the seam or the real name arm); everything after it is shared, so the
+  # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
+  # name arm is tested on its own through _kosmos_suite_candidates (#4410 review 8).
   if [ -n "$probe" ]; then
     out="$("$probe" 2>/dev/null)"; rc=$?
   else
     out="$(_kosmos_suite_candidates)"; rc=$?
-    if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
   fi
+  if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
