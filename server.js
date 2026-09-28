@@ -15968,8 +15968,8 @@ const server = http.createServer((req, res) => {
         /* Busy or unreadable is OUR state and worth retrying: a 4xx would tell a sender like Zapier
            to drop the event for good. */
         // Includes a disk that refused the write (ENOSPC, EACCES, EROFS...), as the settings routes do.
-        const ours = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
-        sendJson(res, ours ? 503 : 400, { error: msg || 'we could not add that task' });
+        const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
+        sendJson(res, ourTrouble ? 503 : 400, { error: msg || 'we could not add that task' });
         return;
       }
       webhooks.touch(hook.id);
@@ -15998,8 +15998,8 @@ const server = http.createServer((req, res) => {
     const fail = (err, fallback) => {
       const msg = String((err && err.message) || '');
       // Our own state (unreadable, busy, a disk that refused the write) is 5xx; the request's is 400.
-      const ours = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/.test(msg);
-      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (ours ? 503 : 400), { error: msg || fallback });
+      const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
+      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (ourTrouble ? 503 : 400), { error: msg || fallback });
     };
     const made0 = project.createdAt || null;
     /* Making, renaming and deleting are the person's, from the screen (the same advisory check as

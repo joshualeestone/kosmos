@@ -162,6 +162,21 @@ test('renaming keeps the URL; deleting revokes it at once', async () => {
   assert.equal((await call(made.json.url, { title: 'gone' })).status, 404);
 });
 
+test('a deleted webhook stops verifying even when the store file\'s stat does not change', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'SameStat' } });
+  const [, id, secret] = /\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/.exec(made.json.url);
+  // Every stat of the store answers the same inode, mtime and size, as a delete and a
+  // same-size write inside one mtime tick on a reused inode would.
+  const realStat = fs.statSync;
+  const frozen = realStat(path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json'));
+  fs.statSync = (p, ...rest) => (/webhooks[\\/]webhooks\.json$/.test(String(p)) ? frozen : realStat(p, ...rest));
+  try {
+    assert.ok(webhooks.verify(id, secret), 'CONTROL: the live webhook verifies under the frozen stat');
+    assert.equal((await api(P() + '/' + id, { method: 'DELETE' })).status, 200);
+    assert.equal(webhooks.verify(id, secret), null);
+  } finally { fs.statSync = realStat; }
+});
+
 test('bad input is refused with a sentence and adds nothing', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Input' } });
   const before = projects.get(projectId).tasks.length;

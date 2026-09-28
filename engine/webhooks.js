@@ -70,8 +70,12 @@ function readAll() {
   return kept.hooks.filter((h) => h && ID_RE.test(String(h.id)) && typeof h.hash === 'string' && typeof h.projectId === 'string');
 }
 
+/* Bumped by every write this process makes, and part of readCached's key, so a write here is
+   never answered from the parsed copy it replaced, whatever the file's stat says. */
+let writes = 0;
 function writeAll(hooks) {
   securewrite.secureDir(dirOf(), 0o700);
+  writes += 1;
   securewrite.writeSecret(fileOf(), JSON.stringify({ hooks }), FILE_MODE);
 }
 
@@ -227,9 +231,7 @@ function readCached() {
     if (e && e.code === 'ENOENT') { cached = { key: null, hooks: [] }; return []; }
     throw e;
   }
-  // The inode too: every write replaces the file, so two writes in one mtime tick usually differ
-  // (a freed inode can come back; the cost of a miss is a stale name or last-used time, not a secret).
-  const key = fileOf() + ':' + st.ino + ':' + st.mtimeMs + ':' + st.size;
+  const key = fileOf() + ':' + writes + ':' + st.ino + ':' + st.mtimeMs + ':' + st.size;
   if (cached.key !== key) cached = { key, hooks: readAll() };
   return cached.hooks;
 }
