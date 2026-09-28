@@ -219,14 +219,15 @@ async function readCard(pg) {
       chk(card.rollbackShown, 'rollback: the Roll back button is shown when a kept build is on hand', JSON.stringify(card));
       chk(card.rollbackText === 'Roll back to ' + PREV, 'rollback: the button names the version it restores', JSON.stringify(card.rollbackText));
       chk(!card.downloadShown, 'rollback: no manual Download link', JSON.stringify(card));
-      chk(!/Up to date/.test(card.line) || card.line === 'Up to date.', 'rollback: the offer line is unaffected', JSON.stringify(card.line));
+      chk(!/Up to date/.test(card.line) || card.line === 'Up to date on the release channel.', 'rollback: the offer line is unaffected', JSON.stringify(card.line));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-rollback.png') });
     } else {
       await pg.click('#upd-btn');
       await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
       const card = await readCard(pg);
-      chk(card.line === 'Up to date.', 'CONTROL current: the press says "Up to date."', JSON.stringify(card.line));
+      // #2969: the stub's channel is prod, so the verdict names the release channel.
+      chk(card.line === 'Up to date on the release channel.', 'CONTROL current: the press says "Up to date on the release channel."', JSON.stringify(card.line));
       chk(!card.downloadShown && card.buttonShown, 'CONTROL current: no link, and the check button is there', JSON.stringify(card));
       chk(!card.rollbackShown, 'CONTROL current: no Roll back button with nothing kept to roll back to', JSON.stringify(card));
     }

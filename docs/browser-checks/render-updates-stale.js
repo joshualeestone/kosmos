@@ -202,7 +202,8 @@ function chk(ok, label, extra) {
       await pg.click('#upd-btn');
       await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
       const line = await pg.$eval('#upd-line', (el) => el.textContent);
-      chk(line === 'Up to date.', 'CONTROL current: the press still says "Up to date."', JSON.stringify(line));
+      // #2969: the verdict names the channel it checked (the real board's, not stubbed here).
+      chk(/^Up to date on the (release|staging) channel\.$/.test(line), 'CONTROL current: the press still says "Up to date", naming its channel', JSON.stringify(line));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'updates-' + state + '.png') });
       chk(errs.length === 0, state + ': no console errors', errs.join(' | '));
