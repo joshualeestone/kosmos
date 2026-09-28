@@ -23,19 +23,28 @@ const SCRIPT = page.scriptOf(HTML);
 const OLD = 'Gemini-Sub';          // the session name, which the old surfaces kept showing
 const NEW = 'Demis Hassabis - Gemini';
 
-function world() {
+function world({ boxValue = OLD, focused = false } = {}) {
   const heading = { textContent: OLD };
+  const els = {
+    'd-name': heading,
+    'd-initials': { textContent: 'G' },
+    'd-instr-lede': { textContent: '' },
+    'd-memory': { innerHTML: '' },
+    'd-rename': { value: boxValue },
+  };
   const nav = [];
-  const doc = { getElementById: (id) => (id === 'd-name' ? heading : null) };
+  const doc = { getElementById: (id) => els[id] || null, get activeElement() { return focused ? els['d-rename'] : null; } };
   const src = 'let CURRENT = null;\n'
     + page.liftConst(SCRIPT, 'WORKING_VERB') + '\n'
     // The avatar tints: one line each (DISC_INKS is aligned with two spaces, which liftConst does not match).
     + ['DISC_TINTS', 'DISC_INKS'].map((c) => (SCRIPT.match(new RegExp('^const ' + c + '\\s+=.*$', 'm')) || [''])[0]).join('\n') + '\n'
-    + page.liftAll(SCRIPT, ['esc', 'initials', 'discIndex', 'discTint', 'discInk', 'busyRow', 'dmWho', 'followRename']) + '\n'
-    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, followRename, dmWho, busyRow };';
+    + page.liftAll(SCRIPT, ['esc', 'initials', 'discIndex', 'discTint', 'discInk', 'busyRow', 'dmWho', 'followRename', 'paintInstrLede']) + '\n'
+    + 'return { set: (c) => { CURRENT = c; }, get: () => CURRENT, followRename, dmWho, busyRow, initials };';
   // eslint-disable-next-line no-new-func
-  const w = new Function('document', 'detailNavNames', 'fitDetailName', src)(doc, (n) => nav.push(n), () => {});
-  return { ...w, heading, nav };
+  /* memoryBox is the page's own; stubbed to show which card it was handed (its name is what matters here). */
+  const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', src)(
+    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name));
+  return { ...w, heading, nav, els };
 }
 
 const opened = () => ({ sessionName: OLD, name: OLD, state: 'working', hasAvatar: false });
@@ -61,6 +70,40 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.doesNotMatch(busy, new RegExp(OLD), 'the "is working" line still names the id: ' + busy);
   assert.equal(w.heading.textContent, NEW, 'the heading follows a rename made anywhere else too');
   assert.deepEqual(w.nav, [NEW]);
+  assert.equal(w.els['d-initials'].textContent, w.initials(NEW), 'the initials on the picture (the page\'s own rule)');
+  assert.notEqual(w.initials(NEW), w.initials(OLD), 'fixture: the two names share initials, so this proves nothing');
+  assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
+  assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW, 'the memory box is drawn from the renamed card');
+  assert.equal(w.els['d-rename'].value, NEW, 'the rename box, which Save sends as the name');
+});
+
+test('#4421: the rename box follows only while untouched, so Save cannot rename the agent back, and typing is kept', () => {
+  const idle = world();
+  idle.set(opened());
+  idle.followRename(polled());
+  assert.equal(idle.els['d-rename'].value, NEW, 'an untouched box kept the old name, and the next Save would restore it');
+  const typed = world({ boxValue: 'Somebody New' });
+  typed.set(opened());
+  typed.followRename(polled());
+  assert.equal(typed.els['d-rename'].value, 'Somebody New', 'a name somebody typed was overwritten');
+  const focused = world({ focused: true });
+  focused.set(opened());
+  focused.followRename(polled());
+  assert.equal(focused.els['d-rename'].value, OLD, 'the box was changed under somebody\'s cursor');
+});
+
+test('#4421: a room or task label for an agent that has left the project uses its current card, not its id', () => {
+  const src = 'let LAST = null;\n' + page.liftAll(SCRIPT, ['tskAgentName', 'pjNameOf', 'tkMemberName'])
+    + '\nreturn { setLast: (l) => { LAST = l; }, pjNameOf, tkMemberName };';
+  // eslint-disable-next-line no-new-func
+  const f = new Function(src)();
+  const project = { agents: [] };   // it left
+  f.setLast([{ sessionName: OLD, name: NEW }]);
+  assert.equal(f.pjNameOf(project, OLD), NEW, 'a room post from a former member showed its id');
+  assert.equal(f.tkMemberName(project, OLD), NEW, 'a task row for a former member showed its id');
+  f.setLast([]);
+  assert.equal(f.pjNameOf(project, OLD), OLD, 'with no card anywhere, the id is all there is');
+  assert.equal(f.pjNameOf({ agents: [{ sessionName: OLD, name: 'Member Name' }] }, OLD), 'Member Name', 'a member keeps its project name');
 });
 
 test('#4421: no card this poll, another agent\'s card, or a card with no name keeps the last name rather than guessing', () => {

@@ -30611,11 +30611,35 @@ function renderAvatar(a) {
 function followRename(fresh) {
   if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
   if (typeof fresh.name !== 'string' || !fresh.name || fresh.name === CURRENT.name) return;
+  const was = CURRENT.name;
   CURRENT.name = fresh.name;
   const h = document.getElementById('d-name');
   if (h) h.textContent = fresh.name;
   detailNavNames(fresh.name);
   fitDetailName();
+  /* The other places openDetail named it once (#4421 sweep). */
+  const ini = document.getElementById('d-initials');
+  if (ini) ini.textContent = initials(fresh.name);
+  paintInstrLede(CURRENT);
+  const mem = document.getElementById('d-memory');
+  if (mem) mem.innerHTML = memoryBox(fresh);
+  /* 🛑 THE RENAME BOX, and this one is not cosmetic: Save always sends its value as the name, so a box still
+     holding the old name after a rename made elsewhere would quietly rename the agent BACK the next time somebody
+     saved its role. Moved only while it still says the old name and nobody is typing in it; a name somebody is in
+     the middle of typing is theirs. */
+  const box = document.getElementById('d-rename');
+  if (box && box.value === (was || '') && document.activeElement !== box) box.value = fresh.name;
+}
+
+/* "What <name> is for", the Instructions lede: one sentence, painted at open and after a rename (#4421).
+   Falls back to the generic when there is no name, rather than "What  is for". */
+function paintInstrLede(a) {
+  const lede = document.getElementById('d-instr-lede');
+  if (!lede) return;
+  const who = (a && (a.name || a.sessionName)) || '';
+  lede.textContent = (who ? 'What ' + who + ' is for' : 'What this agent is for')
+    + ', in your words. The first thing they read every time they start, '
+    + 'and the only thing that survives a restart.';
 }
 
 function refreshAvatar() {
@@ -33207,13 +33231,7 @@ function openDetail(sessionName, section, fromProject) {
      rendering "What  is for": a missing name is a state this panel can be in
      for a tick, and a sentence with a hole in it reads as broken rather than
      as generic. */
-  const lede = document.getElementById('d-instr-lede');
-  if (lede) {
-    const who = (a && (a.name || a.sessionName)) || '';
-    lede.textContent = (who ? 'What ' + who + ' is for' : 'What this agent is for')
-      + ', in your words. The first thing they read every time they start, '
-      + 'and the only thing that survives a restart.';
-  }
+  paintInstrLede(a);
   /* ⚠️ AFTER the badge/task block, deliberately: a test extracts that block by
      its first and last lines and runs it in isolation, so a call placed inside
      it needs a stub the test would then be asserting against instead of the
@@ -49644,7 +49662,7 @@ async function pjReload() {
 
 function tkMemberName(p, sessionName) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
-  return (m && m.name) || sessionName;
+  return (m && m.name) || tskAgentName(sessionName);   // #4421: a former member by its current card, as pjNameOf
 }
 
 /* THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
@@ -56048,7 +56066,9 @@ function pjPinWho(who) {
 /** The name to SPEAK for a member. Act on the machine name, speak this one. */
 function pjNameOf(p, sessionName) {
   const m = (p.agents || []).find((a) => a.sessionName === sessionName);
-  return (m && m.name) || sessionName;
+  /* #4421: an agent that is no longer a member (a post from before it left) is named by its current card, the
+     same lookup the Tasks page uses, and by its id only when there is no card at all. */
+  return (m && m.name) || tskAgentName(sessionName);
 }
 
 /**
