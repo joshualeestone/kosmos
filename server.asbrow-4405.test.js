@@ -124,8 +124,34 @@ test('#4405: switched ON with a model and no guide, it makes the guide once; ON 
     assert.equal(sg.reason, 'not-guide', 'CONTROL: the ambiguous state this arm is about: ' + JSON.stringify(sg));
     const again = await save(booted.base, true);
     assert.equal(again.status, 200);
-    assert.equal(again.body.guide, undefined, 'ON with a recorded guide in doubt tried to make another (a second guide)');
+    assert.deepEqual(again.body.guide, { state: 'unclear', seeded: false }, 'ON with a recorded guide in doubt did not say unclear: ' + JSON.stringify(again.body));
     assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).at, flag.at, 'the guide record was rewritten');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});
+
+test('#4405: a guide that was made and then REMOVED is put back by switching ON (restore), never made a second time', async () => {
+  const box = sandbox();
+  let child;
+  try {
+    // The state on disk: a guide recorded as made, its folder marked as the guide, and its name on the removed list.
+    fs.mkdirSync(path.join(box.data, 'Kosmos'), { recursive: true });
+    fs.writeFileSync(flagFile(box), JSON.stringify({ at: '2026-09-01T00:00:00.000Z', name: 'josh', via: 'first-run', provider: 'anthropic' }));
+    const folder = path.join(box.sb, 'workers', 'josh');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, '.kosmos-setup-guide'), '');
+    fs.writeFileSync(path.join(box.data, 'Kosmos', 'removed.json'), JSON.stringify([{ name: 'josh', removedAt: '2026-09-02T00:00:00.000Z' }]));
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    const sg = await (await fetch(booted.base + '/api/setup-guide')).json();
+    assert.equal(sg.reason, 'none', 'CONTROL: a removed guide reads as none: ' + JSON.stringify(sg));
+    const on = await save(booted.base, true);
+    assert.equal(on.status, 200);
+    assert.ok(on.body.guide && ['restored', 'refused'].includes(on.body.guide.state), 'the removed guide did not go down the restore path: ' + JSON.stringify(on.body));
+    assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'first-run', 'the guide record was rewritten: a second guide was made');
+    assert.equal(fs.existsSync(path.join(box.sb, 'workers', 'josh-ai')), false, 'a second guide (Josh AI) was made');
   } finally {
     if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });

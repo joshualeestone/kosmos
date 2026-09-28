@@ -3675,7 +3675,8 @@ function setupGuideNow() {
   if (!setupAssistant.isGuideFolder(guide)) return { ok: false, status: 409, reason: 'not-guide', error: 'the setup guide is not on this computer any more' };
   const removed = removal.removedNames();
   if (!removed.ok) return { ok: false, status: 409, reason: 'unchecked', error: 'we could not check whether the setup guide was removed' };
-  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
+  /* `removed` (#4405): the guide was made and then removed; switching the assistant on RESTORES it. */
+  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', removed: guide, error: 'there is no setup guide on this computer' };
   return { ok: true, name: guide };
 }
 
@@ -10610,15 +10611,25 @@ const server = http.createServer((req, res) => {
            now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
         if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
           const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
-          /* Only when the board is SURE there is none: never made, or made and REMOVED (reason 'none'). 'not-guide'
-             is ambiguous (another agent took the name, or the guide's own folder lost its marker): making one
-             there could make a SECOND guide, so it is left alone; 'unchecked' changes nothing on a guess. */
-          if (now && !now.ok && now.reason === 'none') {
+          /* Made only when the board is SURE there has never been one: no guide on record at all. A record that
+             exists but cannot be read, or a recorded guide whose folder lost its marker ('not-guide'), or a check the
+             board could not make ('unchecked'), is ambiguous: making one there could make a SECOND guide. */
+          if (now && !now.ok && now.reason === 'none' && !setupAssistant.setupAssistantSeeded()) {
             return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
               .then(recordGuideOutcome)   // returns its input
               .catch(() => ({ seeded: false, state: 'refused' }))
               .then((out) => sendJson(res, 200, { ...reply, guide: { state: (out && out.state) || 'refused', seeded: !!(out && out.seeded) } }));
           }
+          /* A guide that was made and then REMOVED is put back (the same restore as the Removed list), never made
+             a second time: its name is on the removed list, and a new one would be a second guide. */
+          if (now && !now.ok && now.removed) {
+            let back = null;
+            try { back = removal.restore(now.removed); } catch { back = null; }
+            const ok = !!back && back.outcome !== removal.OUTCOME.REFUSED;
+            sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok } });
+            return;
+          }
+          if (now && !now.ok) { sendJson(res, 200, { ...reply, guide: { state: 'unclear', seeded: false } }); return; }
         }
         sendJson(res, 200, reply);
       })

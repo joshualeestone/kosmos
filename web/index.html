@@ -63920,9 +63920,13 @@ function asbSayNotMade(made) {
   const deadModel = made.state === 'no-usable-model';
   /* names-taken is final until the board restarts (engine/setup-assistant.js namesTaken), so "in a moment" would be false. */
   const taken = made.state === 'names-taken';
+  /* 'unclear' (the board could not be sure there is no guide, so it made none) and 'seeded' (a guide was already
+     made this session) do not clear with a moment's wait either. */
+  const unclear = made.state === 'unclear' || made.state === 'seeded';
   m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
     : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
     : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
+    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. Restart Kosmos, then try again.'
     : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
   m.hidden = false;
   m.dataset.notMade = '1';   // cleared by asbPaintSetting once a guide is here
@@ -63939,8 +63943,14 @@ function asbSayNotMade(made) {
 /* #4405: switch the assistant ON (the switch, or "Set it up now"). With no guide on this computer the board tries
    to make one (/api/settings) and says what happened. Each try is a real attempt: a dead sign-in costs one live
    check per click (ensureGuide's explicit path skips the retry wait on purpose). */
-async function asbTurnOn(ctl) {
-  ctl.disabled = true;
+async function asbTurnOn() {
+  /* One latch for BOTH controls (the switch and Set it up now): a click on one while the other is mid-save would
+     race it (an OFF landing on an in-flight create). */
+  if (ASB.turning) return;
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
+  const release = () => { ASB.turning = false; ctls.forEach((c) => { c.disabled = false; }); };
   ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
   ASB.lastGuide = null;
   let ok = false;
@@ -63950,7 +63960,7 @@ async function asbTurnOn(ctl) {
   const made = ASB.lastGuide;
   if (ok && made && !made.seeded && !asbIsHosted()) {
     ASB.holding = false;
-    ctl.disabled = false;
+    release();
     asbSayNotMade(made);
     asbPaintSetting();
     return;
@@ -63961,11 +63971,11 @@ async function asbTurnOn(ctl) {
   if (ok && !ASB.guide && !asbIsHosted()) await asbFindNow();
   const confirmed = !ok || asbIsHosted() || (ASB.guide ? await asbConfirmGuide() : false);
   ASB.holding = false;
-  ctl.disabled = false;   // only now: a second click mid-check would start a second hold
+  release();   // only now: a second click mid-check would start a second hold
   asbPaintSetting();
   if (!confirmed && asbIsHosted()) { asbPaint(); return; }   // the guide went, and the hosted assistant stands in
   if (!confirmed) {
-    if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
+    if (m) { m.textContent = 'The Kosmos Guide is not on this computer right now.'; m.hidden = false; }
     document.getElementById('tips-toggle')?.focus();
     return;
   }
@@ -63992,8 +64002,8 @@ function asbPaintSetting() {
 }
 document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
-  if (!ASB.setting || sw.disabled) return;
-  if (!asbSwitchShowsOn()) { await asbTurnOn(sw); return; }
+  if (!ASB.setting || sw.disabled || ASB.turning) return;
+  if (!asbSwitchShowsOn()) { await asbTurnOn(); return; }
   /* Switching OFF: recorded as the person's choice; nothing is made or removed. */
   sw.disabled = true;
   let ok = false;
@@ -64004,7 +64014,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   asbPaintSetting();
   asbPaint();
 });
-document.getElementById('asb-row-setup')?.addEventListener('click', (e) => { asbTurnOn(e.currentTarget); });
+document.getElementById('asb-row-setup')?.addEventListener('click', () => { asbTurnOn(); });
 
 function asbTick() {
   /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */

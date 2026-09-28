@@ -274,8 +274,6 @@ test('#4405 an install whose first-run flag cannot be read IS armed at board sta
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-
-
 test('#4405 explicit: a never-armed install gets a guide when the person switches it on, and is armed', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(false);
@@ -291,18 +289,17 @@ test('#4405 explicit: a never-armed install gets a guide when the person switche
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('#4405 explicit: a guide that was made and then REMOVED is made again; the automatic path never re-makes it', async () => {
+test('#4405 explicit never makes a SECOND guide once one was made (a removed one is restored by /api/settings instead)', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);
   try {
-    setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });   // made once (then removed: the caller found none)
+    setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
     const calls = [];
-    const ctl = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
-    assert.equal(ctl.state, 'seeded', 'CONTROL: the automatic path never re-creates a guide someone removed');
-    assert.equal(calls.length, 0);
-    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE, explicit: true, via: 'settings' });
-    assert.equal(r.seeded, true, r.reason || '');
-    assert.equal(calls.length, 1, 'the person\'s switch did not make the guide again');
+    for (const explicit of [false, true]) {
+      const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE, explicit });
+      assert.equal(r.state, 'seeded', 'explicit=' + explicit);
+    }
+    assert.equal(calls.length, 0, 'a second guide was made');
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 

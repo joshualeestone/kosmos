@@ -327,8 +327,7 @@ function guideName() {
 }
 
 /*
- * Seed the setup assistant if it has never been seeded (or, with `reseed`, when the person asked for it and no
- * guide is on the computer now; #4405). Returns:
+ * Seed the setup assistant if it has never been seeded. Returns:
  *   { seeded: true, name, avatarCopied, marked } -- created
  *   { seeded: false, reason: '<why>' }            -- did not create (all benign)
  *
@@ -338,11 +337,9 @@ function guideName() {
  * that must not turn either into an error. The caller writes the once-ever flag
  * on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model, reseed = false } = {}) {
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
-  /* #4405: `reseed` is the person switching the assistant ON with no guide on the computer now
-     (never made, or removed): the once-ever flag does not stop that. */
-  if (!reseed && setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
+  if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
 
   // A live agent needs a model. Gate on a connected account rather than create a
@@ -611,14 +608,15 @@ function retryWaitMs() {
 
 /**
  * Create the guide if, and only if: the automatic path is on, this install is armed,
- * it has never been seeded (unless `explicit`, below), and a model is connected. Tries each connected model in
+ * it has never been seeded, and a model is connected (`explicit`, below, only arms and skips the retry wait). Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
  * create at most one. Never throws. Resolves { seeded, state?, name?, reason? }: `state` is one
  * of guidestate.STATES, absent only for a retry wait (which says nothing new; #4350).
- * `explicit` (#4405) is the PERSON switching the assistant on in Settings > Help while the caller has
- * found NO guide on this computer now: it arms the install, skips the never-seeded gate and the retry
- * wait (a click deserves a real try), and re-seeds after a removal. Every other gate stands.
+ * `explicit` (#4405) is the PERSON switching the assistant on in Settings > Help on an install that has never
+ * had a guide: it arms the install and skips the retry wait (a click deserves a real try; a dead sign-in costs
+ * one live check per click). Every other gate stands, the never-seeded one included: a guide that was made and
+ * then removed is RESTORED by the caller (/api/settings), never made a second time.
  * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
  * enabled / settings (the switches) and avatarDir. Production passes none.
  */
@@ -637,10 +635,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   /* #4405: the person asking for it arms the install, so a model connected later still makes one. */
   if (explicit) armSetupAssistant();
   if (!isArmed()) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
-  if (!explicit && (createdHere || setupAssistantSeeded())) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
-  /* Even explicit: a guide made in THIS process whose record could not be written (a full disk) must not get a
-     second one under the fallback name; that is what the in-process latch is for. */
-  if (explicit && createdHere && !setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'made this session; its record could not be written' });
+  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, state: 'names-taken', reason: 'both guide names are taken by other agents' });
   /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
@@ -661,7 +656,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         /* hasConnectedAccount is already answered, more strictly, by usable() (any
            provider, create's own gate); the seed's default check is Claude-only and would
            refuse an OpenAI-only person, so it is bypassed here on purpose. */
-        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model, reseed: explicit });
+        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
         if (seed && seed.seeded) {
           createdHere = true;
           markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
