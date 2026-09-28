@@ -34,7 +34,9 @@ openssl x509 -req -in "$W/leaf.csr" -CA "$W/ca.pem" -CAkey "$W/ca.key" -CAcreate
 # so each connector serves its own page.
 PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
 echo ok > "$W/mode"; echo ok > "$W/meta"
-python3 - "$W" "$PORT" <<'PY' >/dev/null 2>&1 &
+# Started from inside the repo (its cwd is HERE), so a liveness check reads it as this repo's work
+# whoever runs the test; the trap is dropped before the exec (a pre-exec kill would run it).
+( trap - EXIT; cd "$HERE" && exec python3 - "$W" "$PORT" ) <<'PY' >/dev/null 2>&1 &
 import http.server, ssl, sys
 w, port = sys.argv[1], int(sys.argv[2])
 class H(http.server.BaseHTTPRequestHandler):
@@ -80,6 +82,9 @@ case "$mode" in
   ticket)   echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: Kosmos+ answered 502 for /v1/mac/relay-ticket"; hold ;;
   auth)     echo "2026-09-28T01:21:47Z  WARN kosmos_tunnel_client: session ended: relay TLS handshake: invalid peer certificate: UnknownIssuer"; hold ;;
   renew)    echo renewed-crt > "$state/tls.crt"; echo renewed-key > "$state/tls.key"; up ok; hold ;;
+  checkfresh) # a renewal is "due" unless the control's renewal is already in place: then fine,
+             # else the build's renewal breaks (the round-7 false PASS, when the gate kept it early)
+             if [ "$(cat "$state/tls.crt")" = renewed-crt ]; then up ok; else echo "session ended: relay TLS handshake: bad certificate"; fi; hold ;;
   renew2)   echo ctl-renewed-crt > "$state/tls.crt"; echo ctl-renewed-key > "$state/tls.key"; up ok; hold ;;
   renewbad) echo bad-crt > "$state/tls.crt"; echo bad-key > "$state/tls.key"; echo "session ended: relay TLS handshake: bad certificate"; hold ;;
   exits)    echo "error: something broke"; exit 1 ;;
@@ -172,10 +177,9 @@ tarball_case "--tarball WITHOUT a connector -> FAIL (a build defect)" 1 "FAIL at
 tarball_case "--tarball that does not exist -> CANNOT TELL"           2 "no such tarball"              up   "$W/nope.tar.gz"
 tarball_case "no connector during an outage is still FAIL, not an outage" 1 "FAIL at build"          up   "$W/without.tar.gz" --coordinator http://127.0.0.1:9
 tarball_case "no connector with NO identity enrolled is still FAIL"   1 "FAIL at build"                up   "$W/without.tar.gz" --state-dir "$W/nothing-here"
-# Listed but not extractable here (a dangling link stands in for a full disk): the machine's
-# problem, not the build's.
+# A connector that is not a regular file (here a dangling link) is what every Mac would get.
 mkdir -p "$W/tbl/app/bin"; ln -s /nowhere/kosmos-tunnel "$W/tbl/app/bin/kosmos-tunnel"; tar -czf "$W/dangling.tar.gz" -C "$W/tbl" app
-tarball_case "a connector listed but not extracted -> CANNOT TELL"    2 "could not extract"            up   "$W/dangling.tar.gz"
+tarball_case "a connector that is a dangling link -> FAIL (a build defect)" 1 "FAIL at build"       up   "$W/dangling.tar.gz"
 tarball_case "--control-tarball arbitrates a broken candidate -> FAIL" 1 "FAIL at dial-auth"           auth "$W/with.tar.gz" --control-tarball "$W/ctl.tar.gz"
 tarball_case "--control-tarball with no connector -> CANNOT TELL, says why" 2 "gave no connector"      auth "$W/with.tar.gz" --control-tarball "$W/without.tar.gz"
 
@@ -192,6 +196,11 @@ standin "$W/state" " --state-dir="
 run "the same, started as --state-dir=DIR -> CANNOT TELL"          2 "gate's identity is still running"   "up" "up"; unstand
 standin "$W/state" " --coordinator x --state-dir "
 run "the same, with --state-dir after another flag -> CANNOT TELL"  2 "gate's identity is still running"   "up" "up"; unstand
+# Another gate's connector for ANOTHER identity (its copied state has another address) does not hold
+# this one; the Stale1 stand-in above has no readable state, so it counts (it could be ours).
+mkdir -p "$W/tunnel-gate.Other1/a1/state"; echo other.kosmos.test > "$W/tunnel-gate.Other1/a1/state/address"
+standin "$W/tunnel-gate.Other1/a1/state"
+run "another identity's gate connector does not hold this one"      0 "tunnel-gate: PASS"                  "up" "up"; unstand
 standin "$W/state-other"
 run "control: another Mac's connector does not hold the gate"        0 "tunnel-gate: PASS"                  "up" "up"; unstand
 # The state path is ESCAPED for the regex: '+' would otherwise be a quantifier, and "st+ate"
@@ -230,6 +239,10 @@ run "a renewal by the second control, on a FAIL -> kept"           1 "kept the c
 if [ "$(cat "$W/state/tls.crt")" = ctl-renewed-crt ]; then pass=$((pass + 1)); echo "  ok    the second control's renewal is in the enrolled state dir"
 else fail=$((fail + 1)); echo "  FAIL  the second control's renewal was dropped: tls.crt=$(cat "$W/state/tls.crt")"; fi
 
+# Round 7: control 1's renewal must NOT reach the retry. The candidate breaks renewal; its retry
+# passes only if handed control 1's fresh certificate. Held until the verdict, it is a FAIL.
+run "a build that breaks renewal does not pass on the retry -> FAIL"  1 "FAIL at dial-auth"                "renewbad checkfresh" "renew"
+
 # The takeover lock: a fresh one holds; one left by a gate killed mid-takeover (old) is recovered.
 # A dead pid from a child that exits by itself. NOT a killed `sleep &`: a child killed before its
 # exec still holds this script's EXIT trap and would run it, deleting $W (it did, once).
@@ -248,5 +261,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 50 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 50 ]
+# 52 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 52 ]

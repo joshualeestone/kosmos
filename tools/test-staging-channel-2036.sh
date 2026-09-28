@@ -178,7 +178,7 @@ out="$(KM_LJ_VERSION="" KM_LJ_SHA=x KM_LJ_ARTIFACT=a KM_LJ_MANIFEST=m node "$HER
 # It is handed the STAGED tarball (the bytes being promoted), and its arms follow the same contract.
 St0="$(make_site)"; bash "$PUBLISH" "$St0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St0" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && has "$out" "tunnel-gate-args:--tarball $St0/dist/" && has "$out" "tunnel handshake gate PASSED" && [ -f "$St0/dist/latest.json" ] && pass "promote: tunnel gate is handed the staged tarball, 0 -> promote" || bad "promote tunnel-gate-0 (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && has "$out" "tunnel-gate-args:--tarball $St0/dist/$(jget "$St0/dist/latest-staging.json" artifact)" && has "$out" "tunnel handshake gate PASSED" && [ -f "$St0/dist/latest.json" ] && pass "promote: tunnel gate is handed the staged tarball, 0 -> promote" || bad "promote tunnel-gate-0 (rc=$rc, out=$out)"
 St1="$(make_site)"; bash "$PUBLISH" "$St1" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "tunnel handshake gate FAILED" && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 (remote access broken) -> refuse, no promote" || bad "promote tunnel-gate-1 (rc=$rc, out=$out)"

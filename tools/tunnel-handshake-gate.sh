@@ -125,6 +125,9 @@ MEMBER=app/bin/kosmos-tunnel
 from_tarball() {
   [ -f "$1" ] || return 1
   tar -tzf "$1" 2>/dev/null | grep -qxF "$MEMBER" || return 3
+  # A regular file: a symlink or a hardlink there is the build's defect (a dangling link is what
+  # every Mac would get), not a failed extraction.
+  tar -tvzf "$1" 2>/dev/null | awk -v m="$MEMBER" '$NF==m || $(NF-2)==m {print substr($1,1,1); exit}' | grep -qx -- '-' || return 3
   mkdir -p "$WORK/$2" && tar -xzf "$1" -C "$WORK/$2" "$MEMBER" 2>/dev/null || return 4
   [ -f "$WORK/$2/$MEMBER" ] || return 4
   [ -x "$WORK/$2/$MEMBER" ] || return 3
@@ -134,7 +137,7 @@ if [ -n "$TARBALL" ]; then
   TUNNEL="$(from_tarball "$TARBALL" cand)"; rc=$?
   case "$rc" in
     1) cannot "no such tarball: $TARBALL" ;;
-    3) fail build "$TARBALL has no executable $MEMBER: every Mac on this build would have no remote access" ;;
+    3) fail build "$TARBALL has no executable regular-file $MEMBER: every Mac on this build would have no remote access" ;;
     4) cannot "could not extract $MEMBER from $TARBALL here (disk or temp dir), so this run says nothing about the build" ;;
   esac
 fi
@@ -205,7 +208,15 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 # carries --state-dir too). The state path is escaped for the regex. NOT seen: a relative
 # or symlinked spelling of the state path, or a copy of the identity on ANOTHER machine.
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-stale="$(pgrep -f "kosmos-tunnel run .*--state-dir[= ]([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
+stale="$(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)" 2>/dev/null | tr '\n' ' ')"
+# A connector under ANOTHER gate's temp dir counts only if its state holds THIS identity (the same
+# address), so a gate for another identity, or a concurrent test's gate, does not hold this one.
+# One whose state cannot be read still counts: it could be ours.
+for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ][^ ]*/tunnel-gate\\.[A-Za-z0-9]+/" 2>/dev/null); do
+  d="$(ps -o command= -p "$p" 2>/dev/null | sed -n 's/.*--state-dir[= ]\([^ ]*\).*/\1/p')"
+  a="$(tr -d ' \n' < "$d/address" 2>/dev/null)"
+  [ -z "$a" ] || [ "$a" = "$ADDRESS" ] && stale="$stale$p "
+done
 [ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
 
 # A fast hold when the coordinator or relay is plainly down. The coordinator counts only on a 2xx
@@ -225,7 +236,7 @@ attempt() {
   N=$((N + 1))
   local st="$WORK/a$N/state" log="$WORK/a$N/connector.log"
   mkdir -p "$WORK/a$N"
-  cp -R "$STATE" "$st" || { STEP=setup; WHY="could not copy the state dir"; return 1; }
+  cp -R "$STATE" "$st" || cannot "could not copy the state dir into $st here, so this run says nothing about the build"
   chmod 700 "$st"
   LAST_LOG="$log"; LAST_STATE="$st"
   local args=(run --state-dir "$st" --coordinator "$COORD" --relay "$RELAY" --local 127.0.0.1:9)
@@ -233,7 +244,10 @@ attempt() {
   say "attempt $N ($2): connector $(shasum -a 256 "$1" | cut -c1-12) -> coordinator $COORD, relay $RELAY, as $ADDRESS"
   # The child drops the EXIT trap before it execs: a TERM that lands before the exec would
   # otherwise run cleanup() IN THE CHILD, removing the work dir and the lock under the gate.
-  ( trap - EXIT; exec "$1" "${args[@]}" ) > "$log" 2>&1 &
+  # RUST_LOG=info: "tunnel up" and "session ended" are info/warn lines, and an operator's RUST_LOG
+  # must not hide them. KOSMOS_RENEW_UNDER_SECS is dropped so the operator's shell cannot change
+  # when a renewal is due.
+  ( trap - EXIT; exec env -u KOSMOS_RENEW_UNDER_SECS RUST_LOG=info "$1" "${args[@]}" ) > "$log" 2>&1 &
   PID=$!
   local deadline=$(( $(date +%s) + TIMEOUT )) plain ended
   while :; do
@@ -280,7 +294,7 @@ show_log() {
 # or a partial write, and must never become every later run's identity. Renamed in, key first;
 # the pair is always carried together (a renewal makes a new key, setup.rs).
 keep_renewed_cert() {
-  local st="$LAST_STATE"
+  local st="${1:-$LAST_STATE}"
   [ -s "$st/tls.crt" ] && [ -s "$st/tls.key" ] || return 0
   cmp -s "$st/tls.crt" "$STATE/tls.crt" && return 0
   cp "$st/tls.key" "$STATE/.tls.key.gate-new" && cp "$st/tls.crt" "$STATE/.tls.crt.gate-new" \
@@ -291,7 +305,8 @@ keep_renewed_cert() {
 pass() { keep_renewed_cert; say "PASS${1:+ ($1)}"; exit 0; }
 
 attempt "$TUNNEL" candidate && pass
-say "  the candidate failed at $STEP: $WHY"; show_log
+FIRST="at $STEP: $WHY"
+say "  the candidate failed $FIRST"; show_log
 if [ -z "$CTUNNEL" ]; then
   cannot "the candidate failed at $STEP and there is no control connector to tell a broken build from the environment${CONTROL_NOTE:+ ($CONTROL_NOTE)}"
 fi
@@ -299,8 +314,10 @@ if ! attempt "$CTUNNEL" control; then
   show_log
   cannot "the served build's connector fails too (at $STEP: $WHY), so the environment or the gate identity is at fault, not this build"
 fi
-keep_renewed_cert
-FIRST="at $STEP: $WHY"
+# Control 1's renewal (if any) is NOT kept yet: the retry must face the SAME certificate the first
+# attempt faced. Kept now, a due certificate would be fresh for the retry, renewal would not run,
+# and a build that breaks renewal would pass on the retry. It is kept at the verdict instead.
+CONTROL1_STATE="$LAST_STATE"
 # A retry pass is a PASS, and it says so: the control proved the environment was usable, and the
 # candidate then did the whole handshake. Weakest premise: a connector that fails intermittently
 # gets two tries. The line below names the first failure so a flaky one is visible in the log.
@@ -311,6 +328,7 @@ CAND_STEP="$STEP"; CAND_WHY="$WHY"
 # a coordinator deploy, relay restart or network drop during the retry must not become a refusal.
 if ! attempt "$CTUNNEL" "control again"; then
   show_log
+  keep_renewed_cert "$CONTROL1_STATE"
   cannot "the candidate failed twice, but the served build's connector then failed too (at $STEP: $WHY): the environment changed during the run"
 fi
 # The control that just passed may have renewed the certificate, and its visit proved the new pair

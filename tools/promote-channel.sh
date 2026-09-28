@@ -270,7 +270,7 @@ if [ "$FAMILY" = mac ]; then
   $TUNNEL_GATE_CMD --tarball "$SITE/dist/$ARTIFACT" ${TUNNEL_CONTROL[@]+"${TUNNEL_CONTROL[@]}"}; TUNNEL_RC=$?
   case "$TUNNEL_RC" in
     0) echo "promote-channel: tunnel handshake gate PASSED - $V's connector fetched a ticket, authenticated at the live relay and served." ;;
-    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the step is named above; the served build's connector passed the same check). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
+    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the gate's FAIL line above names the step and why). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
