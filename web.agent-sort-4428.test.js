@@ -104,8 +104,8 @@ test('#4428: sorting is pure and invalid input remains harmless', () => {
 test('#4428: the persisted control repaints both flat views and hides for the org chart', () => {
   assert.match(SCRIPT, /localStorage\.getItem\('kosmos\.sort\.agents'\)/);
   assert.match(SCRIPT, /localStorage\.setItem\('kosmos\.sort\.agents', AGENT_SORT\)/);
-  assert.match(SCRIPT, /sortAgents\(shown, AGENT_SORT, PROJECTS\)\.map\(card\)/);
-  assert.match(SCRIPT, /sortAgents\([^;]*AGENT_SORT, PROJECTS\)[^;]*\.map\(lrow\)/s);
+  assert.match(SCRIPT, /const orderedAgents = sortAgents\(shown, AGENT_SORT, PROJECTS\);[\s\S]*orderedAgents\.map\(card\)/);
+  assert.match(SCRIPT, /const shown = sortAgents\(lim \? src\.slice\(0, Number\(lim\)\) : src, AGENT_SORT, PROJECTS\);[\s\S]*shown\.map\(lrow\)/);
   assert.match(SCRIPT, /agentSortVisibility\(\)/);
   assert.match(SCRIPT, /BOARD_LAYOUT === 'org'/);
 });
