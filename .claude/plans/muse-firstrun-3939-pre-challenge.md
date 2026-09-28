@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 4
 **Converged:** Yes
-**Total findings:** 22 (1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 13 NITs)
-**Fixed:** 1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 6 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 20 (1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 11 NITs)
+**Fixed:** 1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 7 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Validation: the 6.0 run and the runs after iterations 1, 2 and 3 all passed. The branch was then rebased on
 origin/main (two conflicts, both the render-muse-signin-3939 README row: main's reworded text kept, this
