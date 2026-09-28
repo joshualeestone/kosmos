@@ -76,8 +76,7 @@ function nfkc(s) {
    or path without changing what a reader perceives. Never rewrite the stored
    post: accepted output must remain byte-for-byte what the agent submitted. */
 function stripFormatCharacters(s) {
-  try { return String(s).replace(/\p{Cf}/gu, ''); }
-  catch { return String(s).replace(/[­᠎​-‏⁠-⁯﻿]/g, ''); }
+  return String(s).replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
 }
 
 /* Luhn checksum over a digit string. Used to detect card numbers with low false
@@ -250,7 +249,7 @@ function normalizeForNameScan(s) {
   // Strip ALL Unicode format characters (\p{Cf}: zero-width space/joiner, word
   // joiner, soft hyphen, BOM, ...) rather than an enumerated few, then NFKC-fold
   // full-width forms, then collapse whitespace and lowercase.
-  try { out = out.replace(/\p{Cf}/gu, ''); } catch { out = out.replace(/[­᠎​-‏⁠-⁯﻿]/g, ''); }
+  out = stripFormatCharacters(out);
   try { out = out.normalize('NFKC'); } catch { /* keep as-is on a bad input */ }
   return out.replace(/\s+/g, ' ').toLowerCase();
 }
