@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: remote-unreadable-4308
-diff_hash: 7cd8c4990a81c868b95583f3e72c37ef8caefb15cf158cb623d2eb2ce97075b0
+diff_hash: 5cb9c349f0e60d250bedf8f21181f53fb4a67fc0b8b0284491b7215783f25306
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-28T07:33:50Z
@@ -26,6 +26,9 @@ Validation: `yarn test` via validation-log, gated on tools/heavy-gate.sh, PASSED
   message described but had not applied. Tests only. The day-old case fails on the engine before the 24h ceiling.
 - 2e7567a changes one log line and its comment from "this Mac" to "this computer" (the full suite's
   engine/machine.test.js forbids "this Mac" in a live sentence). Text only.
+- After the PR opened (Liu Kang's ruling on Scorpion's review, #4318): test 4's name and message and the plan
+  now claim only the remote-access standing call, not every signed call. Wording only; the validation above
+  (hash 7cd8c4990a81) ran on the code before this rename, and test 4 was re-run by name after it (8/8).
 Iteration 4 reviewed c04dc0a, whose engine code is identical to the final head apart from that one string.
 
 Real board: this branch, sandboxed data, a fake tunnel, an enrolled Mac with a damaged remote.json. The Plus pane
@@ -95,4 +98,4 @@ page now shows that sentence, pinned end to end by web.remote-unreadable-4308.te
 - The repair gate sits in write(), the one place every write passes, so no background writer can erase a damaged file (iterations 1, 3, 4)
 - The device-id carry-over closes a real duplicate "this computer" hole, tested end to end through signinStart (iterations 2, 3)
 - One source for the repair sentence, pinned end to end from a real damaged file through status() to paintPlus (iteration 3)
-- Test 4's control proves an enrolled, switched-on Mac does call, so its "no call" is not vacuous (iterations 1, 3)
+- Test 4's control proves an enrolled, switched-on Mac does call, so its "no standing call" is not vacuous (iterations 1, 3)
