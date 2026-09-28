@@ -53121,7 +53121,9 @@ function pjReplyMention(p, m, previous) {
   let cut = 0;   // characters taken off the front, so a caret left alone still sits on the same letter
   if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
   const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
-  const ins = agent ? '@' + agent.key + ' ' : '';
+  /* Already addressed somewhere in the words (moved, or typed mid-sentence): not a second time. */
+  const named = !!agent && new RegExp('(^|[^A-Za-z0-9._-])@' + agent.key.replace(/[.]/g, '\\.') + '(?![A-Za-z0-9._-])').test(text.slice(text.startsWith('@' + agent.key + ' ') ? agent.key.length + 2 : 0));
+  const ins = agent && !named ? '@' + agent.key + ' ' : '';
   /* The mention is Reply's to take back out later (on x, or on a Reply to another post) only if Reply
      wrote it: now, or on an earlier Reply whose mention is still at the front. One the person typed
      is theirs, and nothing here ever removes it. */
@@ -53134,6 +53136,7 @@ function pjReplyMention(p, m, previous) {
      cursor is already past it, in the person's own words. Without a mention it stays on the same
      letter it was on (a selected range collapses to its start). */
   const at = ins ? (after === before && caret >= ins.length ? caret : ins.length) : Math.max(0, caret - cut);
+  input.focus();   // focus first, so no engine can drop the cursor we set when focus arrives later
   input.setSelectionRange(at, at);
   if (after === before) return;   // nothing changed, so nothing to repaint
   // The same path typing takes, so the mention highlight and the box's height follow.

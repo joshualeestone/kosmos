@@ -202,14 +202,20 @@ function chk(ok, label, extra) {
       const typedRec = PJ_REPLY[PJ_CURRENT].mention;
       pjReplyStart(PJ_REPLY_ORIGINAL_ID);
       const typedKept = box.value;
+      // A mention already in the words, not at the front, is not added a second time.
+      box.value = 'hi @roomer '; pjReplyStart('agent-4359');
+      const moved = box.value;
+      box.value = 'please @roomer check'; pjReplyStart('agent-4359');
+      const midSentence = box.value;
       PJ_ROOM_POSTS.delete('agent-4359');
       delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
-      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept };
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
     chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
     chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
     chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
+    chk(ment.moved === 'hi @roomer ' && ment.midSentence === 'please @roomer check', 'a mention already in the words (moved, or mid-sentence) is not added again', JSON.stringify({ moved: ment.moved, mid: ment.midSentence }));
     chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
     chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
     chk(ment.kept.value === 'half a thought' && ment.kept.caret === 14, 'Reply to your own post with a draft in the box moves neither the draft nor the cursor', JSON.stringify(ment.kept));

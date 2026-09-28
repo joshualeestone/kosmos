@@ -11,8 +11,8 @@
 
 - #4359: Reply on an agent's room post puts "@<key> " (exactly what the @ picker inserts) at the
   start of the composer, cursor after it, so it goes to that agent only unless deleted. A post of
-  your own, or from anyone not on the project's agent list, gets none. A second Reply does not
-  stack it; switching the reply to another post swaps or removes the mention Reply put there;
+  your own, or from anyone not on the project's agent list, gets none. A Reply never adds it when
+  the words already @-name that agent anywhere (at the front, moved, or mid-sentence); switching the reply to another post swaps or removes the mention Reply put there;
   x on a box holding only that mention empties it. The "Add @name to ask them directly" hint is gone.
 - render-room-reply-3745.js asserts all of that through pjReplyStart (the click's own function).
 
