@@ -2804,31 +2804,17 @@ function looksLikeManager(role) {
  * agent row goes through keepAgentReply with `from` equal to the agent (its `kosmos reply`, a drained reply, and
  * Kosmos's own daily-limit notice said in the agent's name, which clears the debt too: an answer is visibly
  * there). Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one
- * that could not be delivered was never received, the same rule dmOwesLine applies to its timing. An ANSWER TO
- * THE AGENT'S OWN QUESTION is not a message to answer: a menu answer (a row with a `wire`, the keystroke) or any
- * row sent while the agent was asking (`toQuestion`, set by the DM POST when the card read NEEDS_YOU). The agent
- * carries on working and owes nothing. Owes when the newest remaining person message is newer than the
+ * that could not be delivered was never received, the same rule dmOwesLine applies to its timing. A MENU ANSWER
+ * (a row with a `wire`: the keystroke that picked one of the agent's own buttons, stored by appendMessage) is not a
+ * message to answer: the agent carries on working and owes nothing.
+ * ⚠️ A TYPED answer to a question the agent asked in prose is NOT told apart and still counts as owed: nothing
+ * stored says a typed row answered a question, and NEEDS_YOU at send time is not that fact (a reported needs_you
+ * can stand for hours while the person writes about other things). Known limit, recorded on #4340. Owes when the newest remaining person message is newer than the
  * agent's newest row. Never spoken to: clear.
  *
- * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Same shape as owesReply.
+ * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Returns {state, lastHeardAt,
+ * lastSentAt, because}, the shape dmOwesLine reads.
  */
-/**
- * #4340: was this person message an answer to the agent's OWN question? The DM POST stores `toQuestion: true`
- * when this says so, and dmOwes then owes nothing for it (a typed answer, like a menu answer, is not a message
- * the agent must reply to).
- *
- * BOTH reads must say the agent was asking: the route's card, read before the send (`askingCard`), and the card
- * `deliver` itself read just before typing (`delivery.paneState`). The second is the freshest this process has:
- * no read can see the pane after the keystrokes land. So a question that resolves in the moment between that read
- * and the typing can still mark a row that landed as an ordinary message. That residual fails toward SILENCE
- * (one missed "Nothing back yet."), never toward accusing the agent of ignoring an answer it was never owed.
- * Only a message that was placed can be an answer at all.
- */
-function answersQuestion(card, delivery) {
-  return Boolean(card) && card.state === status.STATE.NEEDS_YOU
-    && Boolean(delivery) && delivery.state === DELIVERY.PLACED && delivery.paneState === status.STATE.NEEDS_YOU;
-}
-
 function dmOwes(rows, agent) {
   const name = String(agent == null ? '' : agent);
   if (rows === null || rows === undefined || !Array.isArray(rows)) {
@@ -2843,7 +2829,7 @@ function dmOwes(rows, agent) {
     if (t === null) continue;
     if (m.from === undefined || m.from === null) {
       if (!(m.delivery && m.delivery.state === DELIVERY.PLACED)) continue;
-      if ((typeof m.wire === 'string' && m.wire) || m.toQuestion === true) continue;   // an answer to its own question
+      if (typeof m.wire === 'string' && m.wire) continue;   // a menu answer, not a message to reply to
       if (heard === null || t > heard) { heard = t; heardAt = m.at; }
     } else if (m.from === name) {
       if (sent === null || t > sent) { sent = t; sentAt = m.at; }
@@ -3149,7 +3135,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, dmOwes, answersQuestion, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
+  DELIVERY, DIRECT, dmOwes, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

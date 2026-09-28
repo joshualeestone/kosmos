@@ -53305,10 +53305,10 @@ function dmOwesLine(owes, rows) {
      actually reached (`state === 'placed'`) can be said to have gone quiet.
      The room enforced this before #3130/#3202 removed that surface; it is kept
      here because it is correct, not because the room still runs it. */
-  /* #4340: the same rows chat.dmOwes counts: placed, and not an answer to the agent's own question (a menu answer
-     with a `wire`, or a row sent while it was asking), so the grace is timed from the message actually owed. */
+  /* #4340: the same rows chat.dmOwes counts: placed, and not a menu answer (a row with a `wire`), so the grace is
+     timed from the message actually owed, not from a button pressed since. */
   const landed = rows.filter((m) => m && m.delivery && m.delivery.state === 'placed'
-    && !(typeof m.wire === 'string' && m.wire) && m.toQuestion !== true);
+    && !(typeof m.wire === 'string' && m.wire));
   if (!landed.length) return '';
   /* ⚠️ THE GRACE IS MEASURED ON THE MESSAGE THAT LANDED, not on the state and
      not on the newest row. `owes` is true the instant something is recorded, so

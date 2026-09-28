@@ -11,8 +11,9 @@
  *   ANSWERED the agent replied after it: no line.
  *   GRACE    a DM that landed 30 seconds ago: owes, but inside the 2-minute grace, so no line yet.
  *   NOT DELIVERED  a DM that never reached the agent: no line (it was never received).
- *   MENU / TYPED ANSWER  the person answered the agent's own question (a menu button's `wire`, or a message sent
- *            while it was asking, `toQuestion`): no line, the agent owes nothing for an answer to its question.
+ *   MENU ANSWER  a DM owed 10 minutes, then a menu button pressed 30 seconds ago (a `wire` row): the line still shows,
+ *            because the grace is timed from the message owed, not from the button (the page's own filter).
+ *            (A TYPED answer to a question is not told apart: a known limit, recorded on #4340.)
  * Every arm also asserts the thread's message rows really rendered, so a "no line" arm cannot pass on a blank paint.
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the thread poll from the fixture,
  * set CURRENT, call paintTalk.
@@ -47,8 +48,7 @@ const ARMS = [
   { name: 'ANSWERED', rows: [dm(5), reply(3)], owes: 'clear', line: false },
   { name: 'GRACE', rows: [dm(0.5)], owes: 'owes', line: false },
   { name: 'NOT DELIVERED', rows: [dm(5, chat.DELIVERY.COULD_NOT)], owes: 'clear', line: false },
-  { name: 'MENU ANSWER', rows: [{ ...dm(5), text: 'Yes, and don\'t ask again', wire: '2' }], owes: 'clear', line: false },
-  { name: 'TYPED ANSWER', rows: [{ ...dm(5), text: 'call it report-final', toQuestion: true }], owes: 'clear', line: false },
+  { name: 'MENU ANSWER', rows: [dm(10), { ...dm(0.5), text: 'Yes, and don\'t ask again', wire: '2' }], owes: 'owes', line: true },
 ];
 
 (async () => {

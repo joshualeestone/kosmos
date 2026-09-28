@@ -120,16 +120,12 @@ test('a message that never reached the agent does not accuse it of silence', () 
   assert.match(line({ state: 'owes', lastHeardAt: OLD }, [landed(OLD), failed(NOW)]), /Nothing back yet/);
 });
 
-test('#4340: the grace is timed from the message actually owed, not from an answer to the agent\'s own question', () => {
+test('#4340: the grace is timed from the message actually owed, not from a menu button pressed since', () => {
   const NOW = new Date().toISOString();
-  const menu = { ...landed(NOW), wire: '2' };
-  const typedAnswer = { ...landed(NOW), toQuestion: true };
-  for (const answer of [menu, typedAnswer]) {
-    assert.match(line({ state: 'owes', lastHeardAt: OLD }, [landed(OLD), answer]), /Nothing back yet\./,
-      'a fresh answer to the agent\'s question hid the line for a message owed 10 minutes: ' + JSON.stringify(answer));
-  }
-  assert.equal(line({ state: 'owes', lastHeardAt: OLD }, [{ ...landed(OLD), toQuestion: true }]), '',
-    'CONTROL: with only an answer to its question, there is nothing owed to time from');
+  assert.match(line({ state: 'owes', lastHeardAt: OLD }, [landed(OLD), { ...landed(NOW), wire: '2' }]), /Nothing back yet\./,
+    'a fresh menu answer hid the line for a message owed 10 minutes');
+  assert.equal(line({ state: 'owes', lastHeardAt: OLD }, [{ ...landed(OLD), wire: '2' }]), '',
+    'CONTROL: with only a menu answer, there is nothing owed to time from');
 });
 
 test('#4340: the unknown sentence speaks of this conversation, not the kosmos msg record', () => {
@@ -138,8 +134,3 @@ test('#4340: the unknown sentence speaks of this conversation, not the kosmos ms
   assert.doesNotMatch(s, /message record/);
 });
 
-test('#4340: the DM POST marks a message sent while the agent was asking, and only then', () => {
-  const srv = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  assert.match(srv, /\.\.\.\(chat\.answersQuestion\(askingCard, delivery\) \? \{ toQuestion: true \} : \{\}\),/,
-    'the DM POST no longer marks an answer to the agent\'s question, so a typed answer would put it in debt');
-});

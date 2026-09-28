@@ -7,7 +7,15 @@ require('../test-support/tmpscope');   // #4273: this file's temp dirs are remov
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+/* A SANDBOXED data root before chat is required: the writer test below appends a real thread file, and without
+   this it lands in the person's own Kosmos data (it did, once, while this was being written). */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-dmowes-4340-'));
 const chat = require('./chat');
+const store = require('./store');
+assert.ok(store.ROOT.startsWith(process.env.AGENT_WORKFORCE_DATA), 'the data root is not the sandbox: ' + store.ROOT);
 
 const A = 'nova';
 const at = (minAgo) => new Date(Date.now() - minAgo * 60000).toISOString();
@@ -45,10 +53,20 @@ test('a MENU ANSWER (a row with a wire: the keystroke that answered the agent\'s
   assert.equal(chat.dmOwes([{ ...person(5), wire: null }], A).state, 'owes', 'an ordinary message (wire null) stopped counting');
 });
 
-test('a row sent while the agent was ASKING (toQuestion: a typed answer to its question) owes nothing', () => {
-  const typed = { ...person(5), text: 'call it report-final', toQuestion: true };
-  assert.equal(chat.dmOwes([typed], A).state, 'clear', 'a typed answer to the agent\'s question put it in debt');
-  assert.equal(chat.dmOwes([person(9), typed], A).state, 'owes', 'CONTROL: a real message before it is still owed');
+test('KNOWN LIMIT: a TYPED answer to a question the agent asked in prose still counts as owed (nothing stored says so)', () => {
+  const typed = { ...person(5), text: 'call it report-final' };
+  assert.equal(chat.dmOwes([typed], A).state, 'owes',
+    'a typed row is now excused: if this is deliberate, update the #4340 known limit and this test together');
+});
+
+test('a menu answer goes through the REAL writer with its wire, and reads back as owing nothing', () => {
+  const T = 'menu-writer-4340';
+  chat.appendMessage(chat.DIRECT, T, { text: 'Yes, and don\'t ask again', wire: '2', at: at(5), delivery: { state: chat.DELIVERY.PLACED } });
+  const rows = chat.readThread(chat.DIRECT, T).messages;
+  assert.equal(rows[rows.length - 1].wire, '2', 'the writer dropped the wire, so the menu rule could never fire');
+  assert.equal(chat.dmOwes(rows, T).state, 'clear');
+  chat.appendMessage(chat.DIRECT, T, { text: 'and the invoice?', at: at(1), delivery: { state: chat.DELIVERY.PLACED } });
+  assert.equal(chat.dmOwes(chat.readThread(chat.DIRECT, T).messages, T).state, 'owes', 'CONTROL: a real message after it is owed');
 });
 
 test('only the agent\'s own rows are its answer; another author (a question row for someone else) is not', () => {
@@ -67,15 +85,3 @@ test('a row whose time does not parse is skipped, not read as long ago', () => {
     'a reply with no real timestamp cleared the debt');
 });
 
-test('answersQuestion: only when BOTH the route\'s card and deliver\'s own read say the agent was asking, and it landed', () => {
-  const ASK = require('./status').STATE.NEEDS_YOU;
-  const card = { state: ASK };
-  const placed = { state: chat.DELIVERY.PLACED, paneState: ASK };
-  assert.equal(chat.answersQuestion(card, placed), true);
-  assert.equal(chat.answersQuestion({ state: 'working' }, placed), false, 'the route card was not asking');
-  assert.equal(chat.answersQuestion(card, { ...placed, paneState: 'working' }), false,
-    'the question resolved before deliver read the pane: this is an ordinary message');
-  assert.equal(chat.answersQuestion(card, { ...placed, state: chat.DELIVERY.COULD_NOT }), false, 'nothing landed');
-  assert.equal(chat.answersQuestion(null, placed), false);
-  assert.equal(chat.answersQuestion(card, null), false);
-});
