@@ -4799,8 +4799,7 @@ test('#3939: the supervisor runs the Muse front under node, in the agent folder,
   const script = supervisorText();
   assert.match(script, /elif \[ "\$RUNNER" = muse \]; then/);
   assert.match(script, /"\$NODE_BIN" "\$_eng\/musefront\.js" "\$WORKDIR" \|\| exit 1/);
-  assert.match(script, /-e "KOSMOS_MUSE_BRIDGE=\$_MUSE_BRIDGE"/);
-  assert.match(script, /_MUSE_BRIDGE=.*\/agy-report-bridge\.js"/);
+  // Run against the real script, with a fake tmux: supervisor.muse-launch-3939.test.js.
 });
 
 test('#3391: a Grok create is refused when the runner is missing', () => {
