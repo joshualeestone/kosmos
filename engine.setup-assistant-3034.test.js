@@ -235,7 +235,12 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.equal((src.match(/seedSetupAssistant\s*\(/g) || []).length, 0, 'server.js seeds directly, bypassing ensureGuide');
   const calls = [...src.matchAll(/setupAssistant\.ensureGuide\s*\(/g)];
-  assert.equal(calls.length, 2, 'expected the Giddy Up call and the sweep, found ' + calls.length);
+  assert.equal(calls.length, 3, 'expected the Giddy Up call, the sweep and the Settings switch (#4405), found ' + calls.length);
+  /* #4405: the third is the person switching the assistant ON in Settings > Help: explicit, and only there. */
+  const explicitCalls = calls.filter((c) => /explicit:\s*true/.test(src.slice(c.index, c.index + 200)));
+  assert.equal(explicitCalls.length, 1, 'exactly one ensureGuide call may be explicit');
+  assert.ok(src.lastIndexOf("'/api/settings'", explicitCalls[0].index) > src.lastIndexOf('pathname ===', explicitCalls[0].index) - 200,
+    'the explicit ensureGuide call is not in the /api/settings route');
   for (const c of calls) {
     const before = src.slice(Math.max(0, c.index - 900), c.index);
     assert.match(before, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)/, 'an ensureGuide call is not behind FIRSTRUN_AUTOCREATE_ENABLED');
@@ -250,6 +255,78 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
   assert.equal(existing.length, 1, 'the existing-install arm must happen in exactly one place');
   assert.match(src.slice(existing[0].index, existing[0].index + 120), /firstRunSeen:\s*firstrun\.seen\b/, 'the existing-install arm is not given the real first-run reader');
   assert.match(src.slice(Math.max(0, existing[0].index - 900), existing[0].index), /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)/, 'the existing-install arm is not behind FIRSTRUN_AUTOCREATE_ENABLED');
+});
+
+/* ---- #4405: switching the assistant ON in Settings makes a guide when none is here ---- */
+
+test('#4405 an install whose first-run flag cannot be read IS armed at board start (Ben), and then gets its guide', async () => {
+  // Josh 2026-09-28 14:53: "default that on so everybody gets it and has to turn it off".
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    assert.deepEqual(setupAssistant.armExistingInstall({ firstRunSeen: () => ({ known: false, done: true }) }), { armed: true });
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(calls.length, 1);
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+
+
+test('#4405 explicit: a never-armed install gets a guide when the person switches it on, and is armed', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    const calls = [];
+    const ctl = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(ctl.state, 'not-armed', 'CONTROL: the automatic path still waits for an armed install');
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE, explicit: true, via: 'settings' });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(r.state, 'seeded');
+    assert.equal(calls.length, 1);
+    assert.equal(fs.existsSync(setupAssistant.armPath()), true, 'the switch did not arm the install');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#4405 explicit: a guide that was made and then REMOVED is made again; the automatic path never re-makes it', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });   // made once (then removed: the caller found none)
+    const calls = [];
+    const ctl = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(ctl.state, 'seeded', 'CONTROL: the automatic path never re-creates a guide someone removed');
+    assert.equal(calls.length, 0);
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE, explicit: true, via: 'settings' });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(calls.length, 1, 'the person\'s switch did not make the guide again');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#4405 explicit with no model connected says so (no-model) and makes nothing; the arm stays for later', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: MODELS_3760({}), explicit: true, via: 'settings' });
+    assert.equal(r.state, 'no-model');
+    assert.equal(calls.length, 0);
+    assert.equal(fs.existsSync(setupAssistant.armPath()), true, 'a model connected later would not make the guide');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#4405 explicit still respects "switched off" (it is only asked after the switch is saved ON)', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    await withSettings({ on: false, asked: true }, async () => {
+      const calls = [];
+      const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE, explicit: true });
+      assert.equal(r.state, 'off');
+      assert.equal(calls.length, 0);
+    });
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 /* ---- #3760: existing installs get the guide once, and can turn it off ------ */
@@ -284,13 +361,11 @@ test('#3760 an existing install (first run finished, never armed) is armed once 
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('#3760 a fresh install still in first run is NOT armed by the update path (Giddy Up does that), nor one whose flag is unreadable', async () => {
+test('#3760 a fresh install still in first run is NOT armed by the update path (Giddy Up does that); #4405 an unreadable flag IS', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(false);
   try {
     assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: () => ({ known: true, done: false }) }).armed, false);
-    assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: () => ({ known: false, done: true }) }).armed, false,
-      'an unreadable first-run flag armed an agent on a guess');
     assert.equal(setupAssistant.armExistingInstall({}).armed, false, 'no reader armed');
     assert.equal(fs.existsSync(setupAssistant.armPath()), false);
     const calls = [];

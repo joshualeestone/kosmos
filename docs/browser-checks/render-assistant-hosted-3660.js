@@ -272,8 +272,10 @@ const BUBBLE_SHOWN_ON_JOSH = () => {
     chk(await waitFor(page, () => !!document.activeElement && document.activeElement !== document.body && !document.activeElement.closest('#asblayer'), 2000), 'H9 and the keyboard goes back to the page, not nowhere',
       await page.evaluate(() => document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : 'none'));
     await page.evaluate(() => showTab('settings'));
-    chk(await waitFor(page, () => document.getElementById('asb-row').hidden), 'H9 and the Settings switch goes with it',
-      JSON.stringify(await page.evaluate(() => ({ hidden: document.getElementById('asb-row').hidden, guide: ASB.guide, hosted: ASB.hosted, off: ASB.hostedOff, setting: ASB.setting }))));
+    /* #4405: the switch STAYS (it is how a person gets an assistant back), reading OFF with none to show. */
+    chk(await waitFor(page, () => !document.getElementById('asb-row').hidden && document.getElementById('asb-toggle').getAttribute('aria-checked') === 'false'),
+      'H9 and the Settings switch stays, reading off (#4405)',
+      JSON.stringify(await page.evaluate(() => ({ hidden: document.getElementById('asb-row').hidden, checked: document.getElementById('asb-toggle').getAttribute('aria-checked'), guide: ASB.guide, hosted: ASB.hosted, off: ASB.hostedOff, setting: ASB.setting }))));
     await page.evaluate(() => showTab('agents'));
     await boot();
     await page.waitForTimeout(3000);

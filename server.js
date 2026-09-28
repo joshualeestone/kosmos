@@ -10604,7 +10604,20 @@ const server = http.createServer((req, res) => {
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) });
+        const reply = { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) };
+        /* #4405: switching the setup assistant ON in Settings > Help is how a person GETS one when
+           none is on this computer (never made: Ben; removed after "close forever": Nacho). Create it
+           now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
+        if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+          const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
+          if (now && !now.ok && now.reason !== 'unchecked') {
+            return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
+              .then(recordGuideOutcome)   // returns its input
+              .catch(() => ({ seeded: false, state: 'refused' }))
+              .then((out) => sendJson(res, 200, { ...reply, guide: { state: (out && out.state) || 'refused', seeded: !!(out && out.seeded) } }));
+          }
+        }
+        sendJson(res, 200, reply);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
