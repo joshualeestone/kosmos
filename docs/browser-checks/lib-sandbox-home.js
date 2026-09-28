@@ -25,18 +25,13 @@ const os = require('node:os');
 const path = require('node:path');
 
 /* Folders this file made, removed when the check ends; never one a caller set. */
+/* At exit and on SIGINT/SIGTERM/SIGHUP, through the one shared handler (kosmos#4273):
+   a runner's timeout or an interrupt is how a check usually ends early. */
+const { removeAtEnd } = require('../../test-support/remove-at-end');
 const made = [];
-function sweepMade() {
+removeAtEnd(() => {
   for (const d of made.splice(0)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
-}
-process.on('exit', sweepMade);
-
-/* A signal skips 'exit' handlers, and a runner's timeout or an interrupt is how a
-   browser check or a test file usually ends early (kosmos#4273). Sweep, then re-raise
-   the same signal with this listener gone, so the process still dies the normal way. */
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.once(sig, () => { if (process.listenerCount(sig) > 0) return; sweepMade(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
-}
+});
 
 function freshHome() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-bc-home-'));

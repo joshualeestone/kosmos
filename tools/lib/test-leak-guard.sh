@@ -20,7 +20,14 @@
 # outside it), a process that names the root only in its ENVIRONMENT (macOS ps cannot
 # read it), a leaked process still parented by something alive, and anything
 # a test file makes when it is run directly, outside run-tests.sh
-# (test-support/tmpscope.js is the fix for that one).
+# (test-support/tmpscope.js is the fix for that one). An INTERRUPTED run
+# (Ctrl-C, a timeout) never reaches leak_guard_after_suite: run-tests.sh's exit
+# trap runs only the launchd check then, and no process or temp check.
+#
+# A NEW TEMP PREFIX WITH NO SEPARATOR before its random part (`fixtureAbC123`; none today) is
+# recognised only when that part mixes letters with digits or cases, so about 1 run in
+# 90 keeps it and reports a new family. Give such a prefix a separator, or allowlist it
+# as a glob (`fixture*`), as `aoc-state.*.polls` is for a random part mid-name.
 #
 # The check functions print what they found to stdout and return 1 when they found
 # something, 0 when clean. They never exit, and never fail on a missing tool.

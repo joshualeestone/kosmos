@@ -190,7 +190,11 @@ fi
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
 if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
-  trap 'rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  # kosmos#4273: an INTERRUPTED run (Ctrl-C, a runner's timeout) never reaches the leak
+  # guard, and removing the root under a launchd job loaded from a plist in it is the
+  # 8,096-respawn shape. So while the labels snapshot is still unused (the guard removes
+  # it), the trap boots out this run's jobs before the root goes.
+  trap '[ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
 else
   # Never fail a run over housekeeping: the suite is what matters.

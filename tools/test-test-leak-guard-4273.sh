@@ -125,6 +125,31 @@ mkdir "$groot/new-leak-Qw12Er"
 out=$(PATH="$stub:$PATH" leak_guard_after_suite "" "$groot" "$work/allow2"); rc=$?
 if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'new-leak'; then ok "a leak fails the whole guard even with no labels snapshot"; else bad "whole guard leak: rc=$rc out=$out"; fi
 
+# --- an INTERRUPTED run: run-tests.sh's own exit trap boots out this run's job -----
+# The trap line is taken from run-tests.sh and run in a child bash that is sent SIGTERM
+# mid-"suite", with the labels snapshot still unused, as an interrupted run leaves it.
+trap_line=$(grep -m1 "^  trap '.*leak_launchd_check.*' EXIT$" "$HERE/run-tests.sh" | sed 's/^  //')
+if [ -z "$trap_line" ]; then
+  bad "run-tests.sh has no exit trap that runs leak_launchd_check"
+else
+  for arm in unused used; do
+    iroot="$work/kt5-$arm"; mkdir -p "$iroot"; : > "$work/booted"
+    printf -- '-\t0\tcom.apple.x\n' > "$work/labels"
+    PATH="$stub:$PATH" leak_labels_snapshot > "$iroot/tl-labels.snap"
+    printf -- '-\t0\tcom.apple.x\n-\t78\tcom.kosmos.agent.leak\n' > "$work/labels"
+    # The stub reports the leak job's plist under $lreal; point this arm's root there.
+    [ "$arm" = used ] && rm -f "$iroot/tl-labels.snap"
+    PATH="$stub:$PATH" /bin/bash -c ". '$HERE/lib/test-leak-guard.sh'; KOSMOS_RUN_TMPDIR='$lroot'; _tl_labels_before='$iroot/tl-labels.snap'; mkdir -p '$lroot'; $trap_line
+      kill -TERM \$\$; sleep 5" > /dev/null 2>&1
+    if [ "$arm" = unused ]; then
+      grep -qx "gui/$(id -u)/com.kosmos.agent.leak" "$work/booted" && ok "an interrupted run's exit trap boots out its job" || bad "the exit trap did not boot out the job on SIGTERM"
+      [ -e "$lroot" ] && bad "the exit trap left the run root" || ok "the exit trap still removes the run root"
+    else
+      [ -s "$work/booted" ] && bad "the exit trap booted out a job after the guard had already run" || ok "after the guard ran (snapshot used), the trap boots out nothing (control)"
+    fi
+  done
+fi
+
 # --- run-tests.sh really calls it, after the suite ------------------------------
 rt="$HERE/run-tests.sh"
 suite_line=$(grep -n '^node --test ' "$rt" | head -1 | cut -d: -f1)

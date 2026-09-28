@@ -40,6 +40,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { removeAtEnd } = require('./remove-at-end');
 
 let scoped = null;
 
@@ -49,22 +50,11 @@ function activate() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
     scoped = dir;
     process.env.TMPDIR = dir;
-    const sweep = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* exiting anyway */ } };
-    process.on('exit', sweep);
-    /* A signal skips 'exit' handlers, and a runner's timeout or an interrupt is how a
-       test file usually ends early. When this is the ONLY listener, sweep and re-raise
-       the same signal (now with no listener) so the process dies the normal way. When
-       the file has its own handler for that signal, stand aside: that handler decides
-       whether the process ends, and sweeping here would leave it running with its
-       TMPDIR gone (measured: a later mkdtemp failed ENOENT and the file exited 0). The
-       'exit' handler still sweeps when it does end. */
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-      process.once(sig, () => {
-        if (process.listenerCount(sig) > 0) return;
-        sweep();
-        try { process.kill(process.pid, sig); } catch { /* already going */ }
-      });
-    }
+    /* At exit, and on SIGINT/SIGTERM/SIGHUP (./remove-at-end.js). When the file has its
+       own handler for the signal, that handler decides whether the process ends, and the
+       sweep waits for the exit: sweeping first would leave it running with its TMPDIR
+       gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
+    removeAtEnd(() => fs.rmSync(dir, { recursive: true, force: true }));
   } catch {
     /* No scope is better than a red test: the file then behaves exactly as before. */
   }
