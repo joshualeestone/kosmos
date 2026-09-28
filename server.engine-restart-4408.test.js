@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4408 (Ben on prod, 2026-09-28): a board running older code than is on disk offers ONE Restart Kosmos
+ * #4408 (an external tester on prod, 2026-09-28): a board running older code than is on disk offers ONE Restart Kosmos
  * button, and POST /api/engine/restart restarts it through engine/boardrestart, the path a world switch
  * uses. Its own file because it stubs boardrestart (no launchd, a fake installed CLI, a recording
  * spawner) and those stubs cannot be undone; node --test runs each file in its own process.

@@ -536,7 +536,7 @@ test('the board reports when its own engine is behind the disk, and says nothing
   assert.ok('staleSince' in first, 'staleSince is absent rather than null');
   assert.equal(first.staleSince, null, 'a freshly started server reports itself stale');
 
-  /* #4408 (Ben on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
+  /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
      is, and the changed file is named. A throwaway module under engine/ (never a real source file:
      another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
   const probe = nodePath.join(__dirname, 'engine', `.freshness-probe-${process.pid}.js`);

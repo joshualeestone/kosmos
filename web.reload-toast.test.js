@@ -62,7 +62,7 @@ test('#4408: a stale board that can restart itself offers ONE Restart Kosmos but
   const t = toast({ baked: '0.2.75', served: '0.2.75', engine });
   assert.equal(t.v, 'engine-btn');
   assert.match(t.html, /<button type="button" id="ut-engine-restart">Restart Kosmos<\/button>/);
-  // #4408: it names what changed and says it changed here (Ben's was an agent's edit, not an update).
+  // #4408: it names what changed and says it changed here (the tester's was an agent's edit, not an update).
   assert.match(t.html, /A Kosmos file was changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
   assert.match(t.html, /A restart picks it up\. Your agents keep running\./);
   assert.doesNotMatch(t.html, /finish updating/, 'it said "updating" about a file an agent edited');

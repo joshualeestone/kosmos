@@ -19596,13 +19596,13 @@ function renderUpdateToast(u) {
      on disk is the one condition that makes the page-stale state moot and the
      update offer premature: restarting is the act that settles all three, so
      it is the one to ask for first. Same slot, same class, not dismissible: a
-     state, not a notice. #4408 (Ben on prod, 2026-09-28): no Terminal wording (#996). When the board can
+     state, not a notice. #4408 (an external tester on prod, 2026-09-28): no Terminal wording (#996). When the board can
      restart itself it offers one Restart Kosmos button, which runs the same path a world switch does
      (POST /api/engine/restart). No version number: the merges that caused this never moved one, which is
      why this compares files to the process and not numbers. */
   if (ENGINE_STALE && ENGINE_STALE.staleSince) {
     const can = ENGINE_STALE.canRestart === true;
-    /* #4408: say WHAT changed and that it changed on this computer. Ben's banner came from an agent editing
+    /* #4408: say WHAT changed and that it changed on this computer. the tester's banner came from an agent editing
        an installed file, not an update, so "finish updating" would have been false. */
     const changed = Array.isArray(ENGINE_STALE.changed) ? ENGINE_STALE.changed.filter((f) => typeof f === 'string' && f) : [];
     const what = changed.length

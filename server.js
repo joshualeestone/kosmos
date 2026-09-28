@@ -249,7 +249,7 @@ const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
 let engineLook = { at: 0, staleSince: null, changed: [], canRestart: false };
 let engineRestartAsked = false;   // #4408: a restart from the button is already on its way
-/* #4408 (Ben on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
+/* #4408 (an external tester on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
    installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
    and the board told a real person it was running old code. So each loaded file's content is hashed when
    first seen (the startup sweep below covers everything loaded at boot), a moved mtime only triggers a
@@ -4023,7 +4023,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* #4408: the one-button remedy for a board running older code than is on disk (Ben on prod, 2026-09-28).
+  /* #4408: the one-button remedy for a board running older code than is on disk (an external tester on prod, 2026-09-28).
      Board-token gated like every /api/ route. It restarts through the same path a world switch uses
      (engine/boardrestart: a detached `kosmos restart`, or the launchd/logon job), and only when the board
      is actually stale and can bring itself back; otherwise it says why and does nothing. */

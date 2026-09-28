@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * #4408 (Ben on prod, 2026-09-28): a board running older code than is on disk (a loaded file whose CONTENT
- * changed; Ben's was an agent's edit). The toast says "Kosmos needs a quick restart", names the file and
+ * #4408 (an external tester on prod, 2026-09-28): a board running older code than is on disk (a loaded file whose CONTENT
+ * changed; the tester's was an agent's edit). The toast says "Kosmos needs a quick restart", names the file and
  * says it changed on this computer, with no Terminal command, and a board that can restart itself
  * offers ONE Restart Kosmos button; pressing it POSTs /api/engine/restart and, once a board with a
  * new start time answers, reloads the page onto it.
