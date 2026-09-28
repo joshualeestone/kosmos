@@ -55,6 +55,9 @@ const SETUP_ROLE_KEY = 'setup';
    left out of the public agents-created count. ONE definition, used for the create below. */
 const GUIDE_CREATED_BY = 'kosmos';
 const GUIDE_PURPOSE_PREFIX = 'default Kosmos setup guide';
+/* Every purpose a shipped guide was born with, for recognising older births: 0.6.70 (37213fca1,
+   2026-09-15 to 09-16) wrote "default Kosmos setup assistant (auto-created on first-run, #3034)". */
+const GUIDE_PURPOSE_PREFIXES = Object.freeze([GUIDE_PURPOSE_PREFIX, 'default Kosmos setup assistant (auto-created']);
 
 /* The guide's name, and its short AI tag (#3034, Josh 2026-09-24), used in the guide's purpose line below. */
 const GUIDE_NAME = 'Josh';
@@ -619,8 +622,8 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
      run it is off unless a test turns it on with AGENT_WORKFORCE_SETUP_GUIDE=on. */
   const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
   const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
-  // 'disabled' reaches the collector only from a direct caller: the board's own callers are
-  // gated on FIRSTRUN_AUTOCREATE_ENABLED and never run under the dry run.
+  // 'disabled' is what a dry-run board (browser checks, dev boards) records: the board's sweep
+  // is gated on FIRSTRUN_AUTOCREATE_ENABLED only, and this dry-run check is what stops it here.
   if (!enabled) return Promise.resolve({ seeded: false, state: 'disabled', reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
@@ -725,6 +728,7 @@ module.exports = {
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
   GUIDE_PURPOSE_PREFIX,
+  GUIDE_PURPOSE_PREFIXES,
   armPath,
   armSetupAssistant,
   guideDenyRules,

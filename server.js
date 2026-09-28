@@ -823,8 +823,10 @@ const guidestate = require('./engine/guidestate');
    so the extra ping moves no number. It is sent GUIDE_PING_DELAY_MS later, not at once:
    the first outcome lands within milliseconds of the board-start ping, and two pings in
    flight together with different states could each leave a record on the collector (it
-   lists, then writes, then deletes the other names), counting the install twice. One timer
-   at a time: a later change inside the delay rides the same ping, which reads the newest. */
+   lists, then writes, then deletes the other names), counting the install twice until its
+   next ping. This covers the board-start ping only: a created ping (an agent made inside the
+   window) can still race it, as a count change always could. One timer at a time: a later
+   change inside the delay rides the same ping, which reads the newest. */
 const GUIDE_PING_DELAY_MS = 30 * 1000;
 /* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
    early once seeded), so the sweep records this for it. */

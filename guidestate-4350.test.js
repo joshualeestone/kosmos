@@ -99,6 +99,9 @@ test('#4350 the auto-created guide is not counted as an agent the person created
     // creator was set to 'kosmos' through the team route, with any other purpose.
     { outcome: create.OUTCOME.CREATED, name: 'helper', role: 'setup', createdBy: null },
     { outcome: create.OUTCOME.CREATED, name: 'teamed', role: 'setup', createdBy: 'kosmos', purpose: 'our launch team' },
+    // 0.6.70's guide, born with the older purpose: also not counted.
+    { outcome: create.OUTCOME.CREATED, name: 'Kosmos Setup', role: 'setup', createdBy: 'kosmos',
+      purpose: 'default Kosmos setup assistant (auto-created on first-run, #3034)' },
     { outcome: create.OUTCOME.REFUSED, name: 'no', role: 'coder', createdBy: null },
   ];
   fs.writeFileSync(create.createdLogFile(), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');

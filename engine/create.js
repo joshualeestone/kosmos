@@ -3627,7 +3627,8 @@ function createdLog() {
    excludes REFUSED (nothing was made) and UNKNOWN. This is the SAME "created or
    partial line is the tie" interpretation register.js uses to decide an agent
    was ever made here. It only sees births since the birth log shipped (#157);
-   agents created before that are not in the log and cannot be counted here. */
+   agents created before that are not in the log and cannot be counted here.
+   #4350: minus the setup guide Kosmos created by itself (isAutoGuideBirth, below). */
 function createdCount() {
   return createdLog().filter((e) => (e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL)
     && !isAutoGuideBirth(e)).length;
@@ -3636,7 +3637,8 @@ function createdCount() {
 /* #4350 (Splinter's call on the card): the setup guide Kosmos creates by itself is not an
    agent the PERSON created, so it is left out of the public "agents created" number. It is
    recognised by all three things setup-assistant.js writes for it, read from its own constants:
-   GUIDE_CREATED_BY, SETUP_ROLE_KEY and a purpose starting GUIDE_PURPOSE_PREFIX. (The team route lets an
+   GUIDE_CREATED_BY, SETUP_ROLE_KEY and a purpose starting with one of GUIDE_PURPOSE_PREFIXES
+   (the current one and 0.6.70's). (The team route lets an
    operator set createdBy, so role alone or createdBy alone would drop real agents.)
    ⚠️ An install that already reported a count INCLUDING its guide keeps that higher number on
    the collector (Math.max), so its next creation does not move the public total once. */
@@ -3644,7 +3646,7 @@ function isAutoGuideBirth(e) {
   // Lazy: setup-assistant.js requires this file, so a top-level require would be a cycle.
   const sa = require('./setup-assistant');
   return e.createdBy === sa.GUIDE_CREATED_BY && e.role === sa.SETUP_ROLE_KEY
-    && String(e.purpose || '').startsWith(sa.GUIDE_PURPOSE_PREFIX);
+    && sa.GUIDE_PURPOSE_PREFIXES.some((pre) => String(e.purpose || '').startsWith(pre));
 }
 
 /* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what
