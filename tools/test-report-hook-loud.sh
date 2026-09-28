@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The three quiet paths of #561, arm by arm, plus the silent control.
 #
 # 🛑 WHY THIS FILE EXISTS. `install/kosmos-report-hook.sh` carries a "loud
@@ -26,7 +27,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/install/kosmos-report-hook.sh"
 [ -r "$HOOK" ] || { echo "FAIL  $HOOK not found"; exit 1; }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/report-hook-loud.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/report-hook-loud.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # A CLI that speaks the verb and delivers. The `report` probe must mention

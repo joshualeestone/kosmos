@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#1708: the browser gate must ASSERT the resolved Playwright is the
 # PINNED version (tools/provision-pw.sh PW_VERSION), not merely that a playwright
 # exists. A drifted pw-runtime otherwise changes the browser build silently --
@@ -27,7 +28,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok   %s\n' "$*"; }
 [ -n "$PIN" ] || fail "could not read the PW_VERSION pin"
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/pw-version-assert.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "$TMP_BASE/pw-version-assert.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 fake_pw() { # <version> -> prints a node_modules dir whose playwright is that version
   d="$(mktemp -d "$TMP/nm.XXXXXX")"; mkdir -p "$d/playwright"
   printf '{"name":"playwright","version":"%s"}\n' "$1" > "$d/playwright/package.json"

@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#3233 (the open half of #920): install/setup.sh emits determinate
 # download progress for the install page by writing install-progress.js
 # (window.__kosmosInstallProgress = {bytes,total,phase,ts}). The emit is
@@ -23,7 +24,7 @@ has()  { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 [ -f "$SETUP" ] || { echo "FAIL  setup.sh not found at $SETUP"; exit 1; }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/install-progress-emi.XXXXXXXXXX")"
+TMP="$(mktemp -d "$TMP_BASE/install-progress-emi.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # --- extract the real _kp_emit, verbatim, from the shipped setup.sh ----------

@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The leaked-supervisor sweep, driven arm by arm (#626). launchctl is stubbed
 # through the witness lib's own seam, so nothing here touches the real gui
 # domain; the plist-file fact is driven with real files in a temp dir. The
@@ -11,7 +12,7 @@ FAILS=0
 ok()   { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/sweep-leaked.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/sweep-leaked.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 REAL_DIR="$T/LaunchAgents"
 mkdir -p "$REAL_DIR"

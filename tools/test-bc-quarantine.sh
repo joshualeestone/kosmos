@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # A quarantined browser check is QUARANTINED, not PASS, and fails the run unless
 # overridden (#4160). Browser-free: drives tools/lib/bc-quarantine.sh directly.
 set -uo pipefail
@@ -12,7 +13,7 @@ LOGGED=""
 log() { LOGGED+="$*"$'\n'; }
 reset() { QUARANTINED=(); FAILED=(); REASONS=(); LOGGED=""; }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/bc-quarantine.XXXXXXXXXX")"
+TMP="$(mktemp -d "$TMP_BASE/bc-quarantine.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 printf 'PASS  regress-a-night QUARANTINED for this cut (stale click)\n' > "$TMP/q.out"
 printf 'PASS  all 55 assertions\n' > "$TMP/pass.out"

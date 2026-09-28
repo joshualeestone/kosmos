@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #2956: drive the REAL `kosmos board-run` (the supervised foreground entry) in a
 # fake KOSMOS_HOME, asserting the three things the supervisor depends on:
 #   1. a deliberate stop (the #2955 marker) is honored even on the RunAtLoad race
@@ -23,7 +24,7 @@ bad() { echo "FAIL  $1"; fails=1; }
 # a stub app, a stub bundled tmux (present+executable so board-run's integrity
 # check passes; never actually invoked here).
 new_home() {
-  local h; h="$(mktemp -d "${TMPDIR:-/tmp}/board-foreground-295.XXXXXXXXXX")"
+  local h; h="$(mktemp -d "$TMP_BASE/board-foreground-295.XXXXXXXXXX")"
   mkdir -p "$h/runtime/bin" "$h/app" "$h/tmux/bin" "$h/logs"
   # The stub node records that it ran, whether the pidfile already named ITS pid
   # (proving board-run wrote $$ before exec), and the PORT it inherited.
@@ -92,7 +93,7 @@ rm -rf "$H"
 #   $1 = module (http|net)   $2 = host   $3 = HTTP body (http only)
 start_holder() {
   local mod="$1" host="$2" body="${3:-}" dir i
-  dir="$(mktemp -d "${TMPDIR:-/tmp}/board-foreground-295.XXXXXXXXXX")"
+  dir="$(mktemp -d "$TMP_BASE/board-foreground-295.XXXXXXXXXX")"
   HOLDER_PORT=""
   PF="$dir/port" BODY="$body" "$NODE_BIN" -e '
     const fs = require("fs"), m = process.argv[1], host = process.argv[2];

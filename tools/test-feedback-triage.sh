@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # Functional test for `kosmos feedback triage` (#2246): exercises the CLI glue
 # that bash -n cannot -- flag parsing, --dir, --since, --cards, exit codes, and
 # the guarded per-file read -- against the real engine, not a mock. The sibling
@@ -15,8 +16,8 @@ fail() { echo "FAIL: $1"; exit 1; }
 
 # A fake KOSMOS_HOME whose app/ is the repo (so app/engine/* resolves) and whose
 # runtime/bin/node is the real node. The CLI resolves NODE and APP from here.
-HOME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/feedback-triage.XXXXXXXXXX")"
-REPORTS="$(mktemp -d "${TMPDIR:-/tmp}/feedback-triage.XXXXXXXXXX")"
+HOME_DIR="$(mktemp -d "$TMP_BASE/feedback-triage.XXXXXXXXXX")"
+REPORTS="$(mktemp -d "$TMP_BASE/feedback-triage.XXXXXXXXXX")"
 trap 'rm -rf "$HOME_DIR" "$REPORTS"' EXIT
 ln -s "$REPO" "$HOME_DIR/app"
 mkdir -p "$HOME_DIR/runtime/bin"

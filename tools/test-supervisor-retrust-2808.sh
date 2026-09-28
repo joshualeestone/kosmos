@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #2808 class-1 / #2129: the supervisor RE-APPLIES folder-trust + bypass pre-accept on
 # every (re)launch, not just at create.
 #
@@ -20,8 +21,8 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-retrust-2.XXXXXXXXXX")"
-DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-retrust-2.XXXXXXXXXX")"
+SB="$(mktemp -d "$TMP_BASE/supervisor-retrust-2.XXXXXXXXXX")"
+DATA="$(mktemp -d "$TMP_BASE/supervisor-retrust-2.XXXXXXXXXX")"
 CFG="$SB/claude.json"          # AGENT_WORKFORCE_CLAUDE_CONFIG target (default-account trust write)
 SET="$SB/settings.json"        # AGENT_WORKFORCE_CLAUDE_SETTINGS target (bypass pre-accept write)
 trap 'rm -rf "${SB:-}" "${DATA:-}"' EXIT

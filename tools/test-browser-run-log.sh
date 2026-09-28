@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The page-layer run log records every run, and never fails a run (#1079).
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,7 +9,7 @@ passes=0
 ok()  { printf 'PASS: %s\n' "$1"; passes=$((passes+1)); }
 bad() { printf 'FAIL: %s\n' "$1"; fails=$((fails+1)); }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/browser-run-log.XXXXXXXXXX")"
+TMP="$(mktemp -d "$TMP_BASE/browser-run-log.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # --- it records a run, with the variable #1079 is about -----------------------

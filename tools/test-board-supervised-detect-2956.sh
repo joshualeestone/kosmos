@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #2956: unit-test the recursion-safe supervised detection in install/kosmos.
 # _kosmos_board_supervised must be true ONLY when the LOADED launchd job actually
 # runs `board-run` -- a job still defined as `kosmos start` (the update-window
@@ -20,7 +21,7 @@ bad() { echo "FAIL  $1"; fails=1; }
 
 # Pull the two function bodies (each ends at a `}` in column 0) + the LAUNCHCTL
 # default line, into a sourceable snippet.
-SNIP="$(mktemp "${TMPDIR:-/tmp}/board-supervised-det.XXXXXXXXXX")"
+SNIP="$(mktemp "$TMP_BASE/board-supervised-det.XXXXXXXXXX")"
 awk '/^LAUNCHCTL=/{print}
      /^_kosmos_board_label\(\) \{/{l=1}
      l{print} l&&/^\}/{l=0}
@@ -34,7 +35,7 @@ grep -q '^_kosmos_board_label()' "$SNIP" && grep -q '^_kosmos_board_supervised()
 #   board-run -> a job defined with board-run in its arguments (supervised)
 #   start     -> a job defined with the old `kosmos start` (NOT supervised)
 #   absent    -> print exits non-zero (no such job)
-STUBDIR="$(mktemp -d "${TMPDIR:-/tmp}/board-supervised-det.XXXXXXXXXX")"
+STUBDIR="$(mktemp -d "$TMP_BASE/board-supervised-det.XXXXXXXXXX")"
 cat > "$STUBDIR/launchctl" <<'LC'
 #!/bin/bash
 case "$1 ${KOSMOS_STUB_PRINT:-}" in

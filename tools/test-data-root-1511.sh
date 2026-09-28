@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #1511: install/setup.sh held its own definition of the data root, and it is the
 # one that deletes. `_kosmos_data_root` is now the single shell answer, preferring
 # the product's own `dataRootFor` when the install can give one.
@@ -11,7 +12,7 @@ ok()   { PASS=$((PASS+1)); printf 'PASS  %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf 'FAIL  %s\n     got: %s\n' "$1" "$2"; }
 
 SETUP="$(cd "$(dirname "$0")/.." && pwd)/install/setup.sh"
-HELPER="$(mktemp "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"
+HELPER="$(mktemp "$TMP_BASE/data-root-1511.XXXXXXXXXX")"
 python3 - "$SETUP" "$HELPER" <<'PY'
 import io,sys
 s=io.open(sys.argv[1],encoding='utf-8').read()
@@ -37,7 +38,7 @@ run_err() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2
 # Support (neither leaf) rather than the runner's real one, which may hold either leaf
 # (a cut box carries the installed /Kosmos). These fallback arms then assert the
 # post-#2439 fresh default deterministically: /Kosmos.
-PINNED_HOME="$(mktemp -d "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"; export HOME="$PINNED_HOME"; mkdir -p "$HOME/Library/Application Support"
+PINNED_HOME="$(mktemp -d "$TMP_BASE/data-root-1511.XXXXXXXXXX")"; export HOME="$PINNED_HOME"; mkdir -p "$HOME/Library/Application Support"
 EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/Kosmos"
 
 # 0. THE FILE PARSES. Every refusal arm below asserts "nothing on stdout, non-zero",
@@ -67,7 +68,7 @@ r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511')
 # 2b. #2439 fallback leaf selection, legacy arm: a base that already carries the legacy
 #     AgentWorkforce data (and no Kosmos yet) resolves to /AgentWorkforce, so a
 #     pre-migration partial uninstall still finds its own data. Mirrors setup.sh:3522.
-SBXL="$(mktemp -d "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"; mkdir -p "$SBXL/AgentWorkforce"
+SBXL="$(mktemp -d "$TMP_BASE/data-root-1511.XXXXXXXXXX")"; mkdir -p "$SBXL/AgentWorkforce"
 r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$SBXL")
 [ "$r" = "$SBXL/AgentWorkforce" ] \
   && ok "the fallback picks the legacy leaf when only AgentWorkforce exists" \
@@ -83,7 +84,7 @@ r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$SBXL")
   || bad "the fallback prefers /Kosmos once it exists, even beside a lingering AgentWorkforce" "$r"
 rm -rf "${SBXL:?}"
 
-FAKE="$(mktemp -d "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"; mkdir -p "$FAKE/runtime/bin" "$FAKE/app/engine"
+FAKE="$(mktemp -d "$TMP_BASE/data-root-1511.XXXXXXXXXX")"; mkdir -p "$FAKE/runtime/bin" "$FAKE/app/engine"
 ln -sf "$(command -v node)" "$FAKE/runtime/bin/node"
 
 # 3. THE ARM THAT CAN TELL THE TWO PATHS APART. On macOS the product's answer and
@@ -195,7 +196,7 @@ done
 
 # 9e. A SYMLINK TO THE SYSTEM LIBRARY IS REFUSED, because the parent is canonicalised
 #     before the comparison. Control: a symlink to an ordinary folder is accepted.
-LNK="$(mktemp -d "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"; ln -s "/Library/Application Support" "$LNK/lnk"; mkdir -p "$LNK/plain"; ln -s "$LNK/plain" "$LNK/ok"
+LNK="$(mktemp -d "$TMP_BASE/data-root-1511.XXXXXXXXXX")"; ln -s "/Library/Application Support" "$LNK/lnk"; mkdir -p "$LNK/plain"; ln -s "$LNK/plain" "$LNK/ok"
 d=$(refused "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/lnk" 'system-wide Library') \
   && ok "a symlink to the system Library is refused (parent canonicalised)" \
   || bad "a symlink to the system Library is refused (parent canonicalised)" "$d"
@@ -295,7 +296,7 @@ left=$(pgrep -fx 'sleep 37' | wc -l | tr -d ' '); leftsh=$(pgrep -f "KOSMOS_HOME
 #      The install has runtime/bin/node and VERSION+app, so rm -rf "$KOSMOS_HOME" DOES
 #      run in the box; a capture placed after it would delete the literal's bin
 #      instead, which is exactly the iteration-0 defect this card records.
-B="$(mktemp -d "${TMPDIR:-/tmp}/data-root-1511.XXXXXXXXXX")"
+B="$(mktemp -d "$TMP_BASE/data-root-1511.XXXXXXXXXX")"
 box_build() {   # $1 = with-runtime | no-runtime
   rm -rf "${B:?}"/*; mkdir -p "$B/home" "$B/launch" "$B/workers" "$B/apps" "$B/sysapps" "$B/homeapps" "$B/bin" \
     "$B/data/AgentWorkforce/bin" "$B/ONLY-NODE/AgentWorkforce/bin" "$B/kh/app/engine"

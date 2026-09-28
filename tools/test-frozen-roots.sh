@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The frozen-root checker, arm by arm, on synthetic fixtures.
 #
 # 🛑 THE ARMS THAT MATTER ARE 3 AND 4. This tool exists because two hand-written
@@ -13,7 +14,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/check-frozen-roots.js"
 [ -r "$TOOL" ] || { echo "FAIL  $TOOL not found"; exit 1; }
-T="$(mktemp -d "${TMPDIR:-/tmp}/frozen-roots.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/frozen-roots.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 fixture() { printf '%s\n' "$2" > "$T/$1.js"; }
 run() { node "$TOOL" "$T/$1.js" >"$T/out" 2>&1; echo $?; }

@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The token doors' handoff (#529): every file under secrets/env/ rides into
 # the agent's pane as the variable it is named for, and nothing else in that
 # directory does. Drives a COPY of the real bin/agent-supervisor.sh from a
@@ -17,7 +18,7 @@
 # than as what production does. It is now asserted BOTH ways below.
 # Same rule every store-using test in this repo already follows: sandbox BEFORE
 # anything can resolve the store root.
-AGENT_WORKFORCE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
+AGENT_WORKFORCE_DATA="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
 # 🛑 ONE TRAP FOR EVERY TEMP DIR IN THIS FILE (#1151). A second `trap ... EXIT`
 # REPLACES the first rather than adding to it -- measured, not assumed. This file
 # had THREE, so only the last one's dirs were ever removed and the sandbox above
@@ -35,7 +36,7 @@ cd "$(dirname "$0")/.." || exit 1
 FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
+SB="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
 mkdir -p "$SB/bin" "$SB/secrets/env" "$SB/work"
 cp bin/agent-supervisor.sh "$SB/bin/agent-supervisor.sh"
 printf '%s\n' 'sekrit-discord' > "$SB/secrets/env/DISCORD_BOT_TOKEN"
@@ -86,7 +87,7 @@ else
   ok "control: no engine sibling and no pointer means no token, rather than a broken one"
 fi
 
-SB2="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
+SB2="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
 mkdir -p "$SB2/bin" "$SB2/work"
 cp bin/agent-supervisor.sh "$SB2/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB2/tmux"
@@ -94,7 +95,7 @@ cp "$SB/tmux" "$SB2/tmux"
 printf '%s\n' "$PWD/engine" > "$SB2/bin/engine-path"
 # ⚠️ NAMED, not created inline. As a bare command-prefix assignment this made a
 # directory that no variable held, so no trap could ever have removed it.
-DATA2="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"
+DATA2="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"
 AGENT_WORKFORCE_DATA="$DATA2" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB2/bin/agent-supervisor.sh" ptrtest "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
 ARGS2="$SB2/new-session.args"
@@ -121,7 +122,7 @@ if grep -q "$PWD/engine" "$SB2/out.log" "$SB2/start.log" 2>/dev/null; then bad "
 # 🛑 STORE-FREE. sendertoken.js here is a stub whose mint returns a fixed hex
 # token, so this proves NODE RESOLUTION without minting a real credential into
 # any store -- the real mint is engine/sendertoken's own tests.
-SB3="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
+SB3="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
 mkdir -p "$SB3/bin" "$SB3/work" "$SB3/root/app/engine" "$SB3/root/runtime/bin"
 cp bin/agent-supervisor.sh "$SB3/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB3/tmux"
@@ -133,7 +134,7 @@ STUBJS
 # not to a symlink target's parent.
 ln -s "$(command -v node)" "$SB3/root/runtime/bin/node"
 printf '%s\n' "$SB3/root/app/engine" > "$SB3/bin/engine-path"
-DATA3="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"
+DATA3="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"
 # 🛑 THE LAUNCHD PATH, exactly -- no node, only coreutils. /bin/bash by absolute
 # path so stripping PATH cannot lose the interpreter itself; PATH exported inside
 # the subshell so the supervisor and everything it spawns sees the launchd set.
@@ -158,7 +159,7 @@ fi
 # Same launchd-PATH + bundled-node fixture as #1897, but RUNNER=codex (arg 7) and a
 # codex-dismiss stub that writes a marker only if it actually RAN (i.e. node
 # resolved). Asserts the marker exists: FAILS on the old bare-`node` dismiss line.
-SB4="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
+SB4="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
 mkdir -p "$SB4/bin" "$SB4/work" "$SB4/root/app/engine" "$SB4/root/runtime/bin"
 cp bin/agent-supervisor.sh "$SB4/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB4/tmux"
@@ -173,7 +174,7 @@ printf '%s\n' "$SB4/root/app/engine" > "$SB4/bin/engine-path"
 cat > "$SB4/bin/codex-dismiss-update.js" <<'STUBJS'
 require('node:fs').writeFileSync(process.env.DISMISS_MARKER, 'ran');
 STUBJS
-DATA4="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"
+DATA4="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"
 MARKER4="$SB4/dismiss-ran"
 (
   export AGENT_WORKFORCE_DATA="$DATA4" STUB_DIR="$SB4" AGENT_WORKFORCE_WAIT_POLL_SECS=1
@@ -192,7 +193,7 @@ fi
 # agent must never give out passwords or keys). Its folder carries .kosmos-setup-guide
 # from before its first start. Two runs of ONE sandbox: without the marker every token
 # arrives (the control, so the second run can show the danger), with it none does.
-SB5="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
+SB5="$(mktemp -d "$TMP_BASE/supervisor-env.XXXXXXXXXX")"   # removed by the single trap above
 mkdir -p "$SB5/bin" "$SB5/secrets/env" "$SB5/work" "$SB5/knownhome"
 cp bin/agent-supervisor.sh "$SB5/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB5/tmux"

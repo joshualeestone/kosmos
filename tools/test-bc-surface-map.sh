@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#2518: prove the surface-map query helper (tools/bc-surface-map.sh) emits the map and
 # answers the "changed web ids -> covering cut-checks" query precisely, and AGREES with the
 # gate on the seeded checks (no drift). Runs from the repo root (uses the real docs/browser-checks).
@@ -6,7 +7,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 BCM="$HERE/bc-surface-map.sh"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/bc-surface-map.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "$TMP_BASE/bc-surface-map.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }

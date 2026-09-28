@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The head-match guard, arm by arm, with a stubbed `gh` so nothing touches the
 # network or a real PR.
 #
@@ -14,7 +15,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 TOOL="$(cd "$(dirname "$0")/.." && pwd)/tools/pr-head-match.sh"
 [ -r "$TOOL" ] || { echo "FAIL  $TOOL not found"; exit 1; }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/pr-head-match.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/pr-head-match.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/repo"
 
 # A git repo with one known sha, so the local side is deterministic.

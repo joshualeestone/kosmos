@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # Test for tools/lib/cut-sign-preflight.sh (#3579): the cut proves it can sign
 # before the gated steps, and a locked keychain stops it with the unlock commands.
 # Stub codesigns (shell functions) drive each arm, so this runs on any box (CI included).
@@ -12,7 +13,7 @@ passes=0
 ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-sign-preflight.XXXXXXXXXX")"
+WORK="$(mktemp -d "$TMP_BASE/cut-sign-preflight.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # Stub codesigns are shell FUNCTIONS, not files: `command -v` finds a function and

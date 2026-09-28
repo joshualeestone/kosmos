@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # The disk guard goes red on purpose, and green, before anyone trusts it (#736).
 # Each outcome is captured into variables first and judged with case, so no
 # status is ever read through a pipe (#632).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/disk-guard.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/disk-guard.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/disk-guard.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }

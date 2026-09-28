@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # resolve_kosmos(), arm by arm. The function that decides WHETHER AN AGENT CAN
 # REPORT AT ALL, and until this file it had NO TEST ANYWHERE.
 #
@@ -30,7 +31,7 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 HOOK="install/kosmos-report-hook.sh"
 [ -r "$HOOK" ] || { echo "FAIL  $HOOK not found"; exit 1; }
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/report-hook-resolver.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/report-hook-resolver.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # Drive the real function, extracted from the real file, so this cannot drift

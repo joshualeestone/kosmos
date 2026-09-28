@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #3417: the supervisor must trust the config dir the PANE ACTUALLY READS, even when
 # that dir comes from the tmux SERVER's global environment rather than this supervisor's
 # own env or the plist.
@@ -27,8 +28,8 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-ccd-leak.XXXXXXXXXX")"
-DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-ccd-leak.XXXXXXXXXX")"
+SB="$(mktemp -d "$TMP_BASE/supervisor-ccd-leak.XXXXXXXXXX")"
+DATA="$(mktemp -d "$TMP_BASE/supervisor-ccd-leak.XXXXXXXXXX")"
 SRV_CCD="$SB/work1"            # the account dir the (stub) tmux SERVER global points at -- the leak
 CFG="$SB/claude.json"         # AGENT_WORKFORCE_CLAUDE_CONFIG: the DEFAULT-account file. It must STAY EMPTY.
 SET="$SB/settings.json"       # AGENT_WORKFORCE_CLAUDE_SETTINGS: the default settings seam.

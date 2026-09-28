@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # Test for tools/lib/cut-rerun-guard.sh (#2006): the cut's isolation-rerun
 # discriminator. It re-runs a failing test FILE alone and dismisses ONLY a file
 # that goes green alone (contention makes false reds, never false greens), so
@@ -13,7 +14,7 @@ fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cut-rerun-guard.XXXXXXXXXX")"
+WORK="$(mktemp -d "$TMP_BASE/cut-rerun-guard.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # A scratch repo with one file that passes alone and one that fails alone.

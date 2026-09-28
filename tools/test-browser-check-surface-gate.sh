@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # kosmos#2518: prove the surface-specific browser-check gate fires PRECISELY -- it
 # refuses a web/index.html change that touches a MAPPED check's surface token without
 # updating that check, and only that. Uses the real docs/browser-checks annotations
@@ -8,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=tools/lib/browser-check-surface-gate.sh
 . "$HERE/lib/browser-check-surface-gate.sh"
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/browser-check-surfac.XXXXXXXXXX")"
+TMP="$(mktemp -d "$TMP_BASE/browser-check-surfac.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }

@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # tools/insert-release-entry.js, shown doing each thing it claims (#1455).
 #
 # The tool is the cure for the stamp-drift class that killed cuts: it stamps the
@@ -11,7 +12,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 TOOL="$REPO/tools/insert-release-entry.js"
-T="$(mktemp -d "${TMPDIR:-/tmp}/insert-release-entry.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "$TMP_BASE/insert-release-entry.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }

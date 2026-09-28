@@ -1,4 +1,5 @@
 #!/bin/bash
+TMP_BASE="${TMPDIR:-/tmp}"; TMP_BASE="${TMP_BASE%/}"  # kosmos#4298: where mktemp templates go (macOS mktemp ignores TMPDIR; no trailing slash)
 # #1073: browser-checks picks all 16 ports up front and binds late ones minutes
 # later, so a late port can be taken by another run in the pick-to-bind window.
 # When that NARROW race fires, the loser's node server exits with EADDRINUSE and
@@ -46,7 +47,7 @@ esac
 log() { printf '%s\n' "$*"; }
 eval "$WAIT_UP_SRC"
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/wait-up-collision-10.XXXXXXXXXX")"
+T="$(mktemp -d "$TMP_BASE/wait-up-collision-10.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # A port nothing is listening on: pick one with the OS then leave it unbound, so
