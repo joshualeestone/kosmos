@@ -57,9 +57,10 @@ function standInBoard(rec) {
 }
 
 /* One supervisor run. `signedIn` writes (or not) the board's last Antigravity check; `extraEnv` is inherited. */
-async function run(name, { signedIn, adopt = false, extraEnv = {} }) {
+async function run(name, { signedIn, adopt = false, extraEnv = {}, gitWork = false }) {
   const dir = fs.mkdtempSync(nodePath.join(ROOT, name + '-'));
   const work = nodePath.join(dir, 'work'); fs.mkdirSync(work);
+  if (gitWork) fs.mkdirSync(nodePath.join(work, '.git'));   // a folder inside a git project: agyhooks writes no hook
   const data = nodePath.join(dir, 'data');
   fs.mkdirSync(nodePath.join(data, 'Kosmos', 'agy-account'), { recursive: true });
   if (signedIn !== undefined) fs.writeFileSync(nodePath.join(data, 'Kosmos', 'agy-account', 'last.json'), JSON.stringify({ signedIn, at: '2026-09-28T00:00:00Z' }));
@@ -67,7 +68,8 @@ async function run(name, { signedIn, adopt = false, extraEnv = {} }) {
   const board = await standInBoard(rec);
   const session = 'zz-test-4417-' + name;
   const env = {
-    PATH: process.env.PATH, HOME: dir, AGENT_WORKFORCE_HOME: dir, AGENT_WORKFORCE_DATA: data,
+    /* TMPDIR, so the bridge's throttle marker lands in this process's tmpscope dir, not the real /tmp (review 8). */
+    PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, HOME: dir, AGENT_WORKFORCE_HOME: dir, AGENT_WORKFORCE_DATA: data,
     AGENT_WORKFORCE_AGY_HOME: nodePath.join(dir, 'agyhome'), KOSMOS_PORT: String(board.port),
     REC: rec, SESSION_NAME: session, ...(adopt ? { ADOPT: '1' } : {}), ...extraEnv,
   };
@@ -110,6 +112,12 @@ test('#4417: a folder agy was not made to trust sends nothing (its settings are 
   const out = await run('untrusted', { signedIn: true, extraEnv: { AGENT_WORKFORCE_AGY_HOME: dir } });
   assert.match(out.calls, /^new-session /m, 'control: the agy arm launched: ' + out.r.err);
   assert.equal(out.reports.length, 0, 'an idle was sent while agy would ask to trust the folder');
+});
+
+test('#4417: a folder where no hook could be written (inside a git project) sends nothing', async () => {
+  const out = await run('nohook', { signedIn: true, gitWork: true });
+  assert.match(out.calls, /^new-session /m, 'control: the agy arm launched: ' + out.r.err);
+  assert.equal(out.reports.length, 0, 'an idle was sent with no hook in place to ever correct it');
 });
 
 test('#4417: the adopt path sends nothing, even with every gate value set in the inherited environment', async () => {

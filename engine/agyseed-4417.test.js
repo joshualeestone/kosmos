@@ -6,9 +6,8 @@
  * message. The supervisor now sends one idle report the moment the pane is up, through the same bridge.
  *
  * The bridge half is RUN here against a local stand-in board (the report it sends is the product). The
- * supervisor half needs tmux and agy, so its order is pinned in source, as engine/agyhooks.test.js pins the
- * hook write; it was run end to end in a sandbox on #4417 (a real supervisor, a fake agy, tmux on a private
- * socket): main sent nothing, this branch sent one idle report from the new pane with its launch token.
+ * supervisor half is RUN in supervisor.agyseed-4417.test.js (a fake tmux and a fake agy); this file also pins its
+ * shape in source.
  *
  *   node --test engine/agyseed-4417.test.js
  */
