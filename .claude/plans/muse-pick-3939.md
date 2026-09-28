@@ -49,3 +49,10 @@ Connections box counts a signed-in Muse as an account thinking for agents once o
 
 ## Status
 - 2026-09-28 07:5x: plan written.
+- 2026-09-28 08:18: built (8e828c283) and checked (52ea7351e). Also, beyond the plan: providerOf reads the
+  muse runner as 'meta' (an agent on Muse showed as Anthropic on its own page); the create form's
+  "pick turned off" recovery is one function, createPickGone, shared by the account read and the Muse read,
+  with a Meta sentence; a saved Meta pick restores while Muse is ready; the switch refusal names Meta.
+  Measured: with a signed-in Muse row in the list, the old path listed that row (empty value and name), so the
+  Meta branch only shows when the list is empty; the check's arm is aimed there, and a perturbation of the
+  branch fails exactly that arm. web.* 2018/2018; render-muse-signin-3939 passes; surface gate rc 0.
