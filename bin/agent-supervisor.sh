@@ -685,7 +685,12 @@ if [ -z "$adopt" ]; then
     # measured), so no auth pre-seed file is needed. GROK_CLAUDE_HOOKS_ENABLED=0 keeps
     # the grok agent from ALSO running the fleet's ~/.claude Claude-Code hooks via
     # grok's claude-compat -- it runs only its own report hooks (measured: our
-    # ~/.grok/hooks report hook still fires with this set). The default account reads
+    # ~/.grok/hooks report hook still fires with this set). #4426: the other four
+    # claude-compat cells are off too, or the agent loads the person's own
+    # ~/.claude/CLAUDE.md, skills, rules and ~/.claude.json MCP servers on top of its
+    # AGENTS.md (measured with `grok inspect`: 84 live [claude] entries, 0 with these
+    # set). Same list as win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two
+    # equal. The default account reads
     # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
@@ -766,7 +771,9 @@ if [ -z "$adopt" ]; then
     unset _GROK_ACCT _GROK_KIND
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
+      -e "GROK_CLAUDE_HOOKS_ENABLED=0" -e "GROK_CLAUDE_AGENTS_ENABLED=false" \
+      -e "GROK_CLAUDE_RULES_ENABLED=false" -e "GROK_CLAUDE_SKILLS_ENABLED=false" \
+      -e "GROK_CLAUDE_MCPS_ENABLED=false" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps

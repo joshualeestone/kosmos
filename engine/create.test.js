@@ -4906,6 +4906,22 @@ test('#3391: the shipped supervisor launches a grok agent with bypass, always-ap
     'the grok launch must set GROK_CLAUDE_HOOKS_ENABLED=0 so the agent does not run the fleet ~/.claude hooks via claude-compat');
 });
 
+test('#4426: the Mac grok launch turns off every claude-compat cell, the same list the Windows turn env sets', () => {
+  // Without these a grok agent loads the person's own ~/.claude/CLAUDE.md, skills, rules and MCP
+  // servers on top of its AGENTS.md. Two launch sites carry the list (the supervisor's grok arm
+  // and win32keyed.js), so this pins them equal: a cell added to one and not the other goes red.
+  const script = supervisorText();
+  const arm = script.slice(script.indexOf('GROK_MODEL="${MODEL:-grok-4.6}"'));
+  const launch = arm.slice(0, arm.indexOf('"$CLAUDE" --permission-mode bypassPermissions --always-approve --trust'));
+  const onMac = {};
+  for (const m of launch.matchAll(/-e "(GROK_CLAUDE_[A-Z]+_ENABLED)=([^"]*)"/g)) onMac[m[1]] = m[2];
+  const { GROK_CLAUDE_COMPAT_OFF } = require('./win32keyed');
+  assert.deepEqual(onMac, { ...GROK_CLAUDE_COMPAT_OFF });
+  for (const cell of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) {
+    assert.ok(`GROK_CLAUDE_${cell}_ENABLED` in onMac, `the grok launch must turn off the ${cell.toLowerCase()} cell`);
+  }
+});
+
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
   recorder();
   create.setDryRun(false);

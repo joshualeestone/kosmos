@@ -22,8 +22,9 @@
  *      operator's other hook files are untouched by construction.
  *
  * ⚠️ Claude-compat is a SEPARATE concern handled at launch, not here: the supervisor
- * sets GROK_CLAUDE_HOOKS_ENABLED=0 so a grok agent does not also run the fleet's
- * ~/.claude hooks. This module only writes our own grok hook file.
+ * turns every claude-compat cell off (hooks since #3391; CLAUDE.md, rules, skills and
+ * MCP servers since #4426), so a grok agent does not also load the person's ~/.claude
+ * setup. This module only writes our own grok hook file.
  *
  * ⚠️ ZERO ENGINE DEPENDENCIES beyond node builtins, deliberately: create.js calls
  * this at birth and passes every path, so nothing here resolves a home.
