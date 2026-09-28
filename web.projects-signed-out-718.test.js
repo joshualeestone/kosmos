@@ -37,14 +37,14 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
     'paintPjNone', 'pjTilesUnknown', 'ringNewMessages', 'pjById', 'openProject', 'sortProjects',
     'SIGNED_OUT_SENTENCE', 'SIGNIN_SENTENCE', 'paintProjects', 'paintOneProject', 'paintRailPjNotice', 'paintTaskPage',
     'paintSettingsFacts', 'staleReadMsg', 'openTaskPage', 'openDocsView',
-    'deviceOffline', 'deviceOfflineHtml', 'OFFLINE_SENTENCE',
+    'deviceOffline', 'deviceOfflineHtml', 'OFFLINE_SENTENCE', 'paintConsProjects',
     page.lift(SCRIPT, 'relaySignedOut') + '\n' + page.lift(SCRIPT, 'loadProjects') + '\nreturn loadProjects;')(
     (...a) => fetchImpl(...a), document, (_node, html) => { pjList = html; },
     (what) => 'SIGNED-OUT-CARD:' + what, () => 'SIGNIN-CARD',
     () => {}, () => {}, () => {}, () => null, () => {}, (list) => list,
     'signed out sentence', 'signin sentence', () => {}, () => {}, () => {}, () => {},
     () => {}, () => '', () => {}, () => {},
-    () => offline, () => 'OFFLINE-CARD', 'offline sentence');
+    () => offline, () => 'OFFLINE-CARD', 'offline sentence', () => {} /* #4377: the full projects page */);
   try {
     const step = async (fetcher) => { fetchImpl = fetcher; await loadProjects(); };
 

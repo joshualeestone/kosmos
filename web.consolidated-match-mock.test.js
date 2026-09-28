@@ -30,8 +30,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const { effective } = require('./test-support/cascade');
-const ROW_FACES = 'html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces';
-const ROW_COUNT = 'html[data-layout="consolidated"] body.consolidated .pj-row .pjcount';
+const ROW_FACES = 'html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces';
+const ROW_COUNT = 'html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount';
 
 // #1469: re-anchoring any brace-loosened assertion below is caught mechanically by web.brace-anchor-guard-1469.test.js
 /* #1430: the assertions below no longer end at their rule's closing brace, so an
@@ -195,7 +195,7 @@ test('each project row in the rail shows its agent count as a subtitle, without 
   assert.equal(effective(PAGE, ROW_COUNT, 'margin-left'), '0',
     'the count text lost the margin reset that made sense once the face icons in front of it were hidden');
   // Not reversed accidentally: .pc-t (the description) and .pj-who stay hidden.
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj-row \.pc-t, html\[data-layout="consolidated"\] body\.consolidated \.pj-row \.pj-who \{ display: none; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated :where\(#pj-list\) \.pj-row \.pc-t, html\[data-layout="consolidated"\] body\.consolidated :where\(#pj-list\) \.pj-row \.pj-who \{ display: none; \}/,
     'the project description and status-line got un-hidden along with the agent count -- only the count was asked for');
 });
 
