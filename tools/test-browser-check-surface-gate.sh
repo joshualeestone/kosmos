@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=tools/lib/browser-check-surface-gate.sh
 . "$HERE/lib/browser-check-surface-gate.sh"
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/browser-check-surface-gate.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }

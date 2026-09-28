@@ -26,7 +26,7 @@ fails=0
 ok()  { printf 'PASS: %s\n' "$1"; }
 bad() { printf 'FAIL: %s\n' "$1"; fails=$((fails+1)); }
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/install-board-paths-2870.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # A NON-git source repo carrying a copy of the script under deploy/, so the

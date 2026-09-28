@@ -27,7 +27,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok   %s\n' "$*"; }
 [ -n "$PIN" ] || fail "could not read the PW_VERSION pin"
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/pw-version-assert.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 fake_pw() { # <version> -> prints a node_modules dir whose playwright is that version
   d="$(mktemp -d "$TMP/nm.XXXXXX")"; mkdir -p "$d/playwright"
   printf '{"name":"playwright","version":"%s"}\n' "$1" > "$d/playwright/package.json"

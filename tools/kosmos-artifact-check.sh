@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-WORK="$(mktemp -d)" || { echo "could not make a work dir"; exit 2; }
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-artifact-check.XXXXXXXXXX")" || { echo "could not make a work dir"; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
 pass=0; fail=0; unproven=0

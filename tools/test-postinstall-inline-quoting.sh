@@ -31,7 +31,7 @@ PI="$REPO/install/pkg-scripts/postinstall"
 fails=0
 # One reusable stderr-capture file for the inner `sh -n`, cleaned even on
 # interruption. mktemp keeps it out of a predictable /tmp path.
-errf="$(mktemp)"
+errf="$(mktemp "${TMPDIR:-/tmp}/postinstall-inline-quoting.XXXXXXXXXX")"
 trap 'rm -f "$errf"' EXIT INT TERM
 [ -f "$PI" ] || { echo "FAIL  postinstall not found at $PI"; exit 1; }
 

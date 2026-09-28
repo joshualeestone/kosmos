@@ -228,7 +228,7 @@ fi
 # (the invariants above pin defaults.run.shell: bash, i.e. bash -eo pipefail), with gh
 # stubbed as a shell FUNCTION (never a freshly written executable).
 if command -v ruby >/dev/null 2>&1; then
-  BT="$(mktemp -d)"
+  BT="$(mktemp -d "${TMPDIR:-/tmp}/browser-checks-workflow.XXXXXXXXXX")"
   trap 'rm -rf "$BT"' EXIT
   ruby -ryaml -e '
     j = YAML.load_file(ARGV[0])["jobs"]

@@ -23,7 +23,7 @@ has()  { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 [ -f "$SETUP" ] || { echo "FAIL  setup.sh not found at $SETUP"; exit 1; }
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/install-progress-emit-3233.XXXXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 # --- extract the real _kp_emit, verbatim, from the shipped setup.sh ----------

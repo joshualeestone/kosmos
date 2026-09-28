@@ -63,7 +63,7 @@ OUT="${1:-dist}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 PREFIX="$OUT/tmux-floor-prefix"
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/build-tmux-from-source.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # Refuse in a sentence, not a 20-line configure log, when the toolchain is

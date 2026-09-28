@@ -46,7 +46,7 @@ esac
 log() { printf '%s\n' "$*"; }
 eval "$WAIT_UP_SRC"
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/wait-up-collision-1073.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 
 # A port nothing is listening on: pick one with the OS then leave it unbound, so

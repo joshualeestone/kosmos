@@ -20,8 +20,8 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d)"
-DATA="$(mktemp -d)"
+SB="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-retrust-2808.XXXXXXXXXX")"
+DATA="$(mktemp -d "${TMPDIR:-/tmp}/supervisor-retrust-2808.XXXXXXXXXX")"
 CFG="$SB/claude.json"          # AGENT_WORKFORCE_CLAUDE_CONFIG target (default-account trust write)
 SET="$SB/settings.json"        # AGENT_WORKFORCE_CLAUDE_SETTINGS target (bypass pre-accept write)
 trap 'rm -rf "${SB:-}" "${DATA:-}"' EXIT

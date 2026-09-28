@@ -61,7 +61,7 @@ SITE=${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}
 if [ -d "$SITE/.git" ]; then
   fetched=yes
   git -C "$SITE" fetch -q origin 2>/dev/null || fetched=no
-  vtmp_s=$(mktemp); vtmp_c=$(mktemp)
+  vtmp_s=$(mktemp "${TMPDIR:-/tmp}/verify-served.XXXXXXXXXX"); vtmp_c=$(mktemp "${TMPDIR:-/tmp}/verify-served.XXXXXXXXXX")
   if curl -fsS "$HOST/setup?v=$want" -o "$vtmp_s" && git -C "$SITE" show origin/main:setup > "$vtmp_c" 2>/dev/null && [ -s "$vtmp_s" ] && [ -s "$vtmp_c" ]; then
     if cmp -s "$vtmp_s" "$vtmp_c"; then
       say "/setup (history)" "matches origin/main of the site$([ "$fetched" = yes ] || printf ' (fetch failed; compared against the last-fetched origin/main)')"
@@ -90,7 +90,7 @@ if printf '%s' "$served" | grep -q "\"$want\""; then say "/dist/$POINTER" "$serv
 echo "== what the installer downloads =="
 for a in kosmos tmux; do
   url="$HOST/dist/$a-arm64.tar.gz"
-  tmp=$(mktemp)
+  tmp=$(mktemp "${TMPDIR:-/tmp}/verify-served.XXXXXXXXXX")
   if curl -fsS "$url" -o "$tmp"; then
     real=$(shasum -a 256 "$tmp" | awk '{print $1}')
     pub=$(curl -fsS "$url.sha256" | awk '{print $1}')
@@ -106,7 +106,7 @@ done
 # cache-busted fallback, on exactly the artifact the 0.5.13 wedge was
 # about.
 vurl="$HOST/dist/kosmos-$want-arm64.tar.gz"
-vtmp=$(mktemp)
+vtmp=$(mktemp "${TMPDIR:-/tmp}/verify-served.XXXXXXXXXX")
 if curl -fsS "$vurl" -o "$vtmp"; then
   vreal=$(shasum -a 256 "$vtmp" | awk '{print $1}')
   vline=$(curl -fsS "$vurl.sha256")
@@ -129,7 +129,7 @@ echo "== what the Download button serves =="
 # person double-clicks, so each is its own line.
 . "$REPO/tools/lib/pkg-inputs.sh"
 pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
-pdir=$(mktemp -d); pvouch=
+pdir=$(mktemp -d "${TMPDIR:-/tmp}/verify-served.XXXXXXXXXX"); pvouch=
 if curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" -o "$pdir/inputs" 2>/dev/null && [ -s "$pdir/inputs" ]; then
   pside=$(pkg_sidecar_inputs "$pdir/inputs"); pvouch=$(pkg_sidecar_pkgsha "$pdir/inputs")
   if [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"

@@ -80,7 +80,7 @@ else
   SOURCE_DIRTY=false
 fi
 
-STAGE="$(mktemp -d)"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-windows.XXXXXXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/app" "$STAGE/runtime"
 
@@ -178,7 +178,7 @@ BASE="https://nodejs.org/dist/v$NODE_VERSION"
 # ⇒ Staging is now the only thing under $STAGE, so no cleanup timing, on any
 # platform, can put scratch into the artifact. A guard that depends on deletion
 # winning a race is weaker than not putting the file there.
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-windows.XXXXXXXXXX")"
 trap 'rm -rf "$STAGE" "$TMP"' EXIT
 curl -fsSL "$BASE/$ZIP" -o "$TMP/$ZIP"
 curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
@@ -217,7 +217,7 @@ WEBVIEW2_SDK_VERSION="1.0.4191.47"
 WEBVIEW2_SDK_SHA256="f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0"
 case "$ARCH" in x64|arm64|x86) ;; *) echo "the WebView2 package has no loader for win-$ARCH" >&2; exit 1 ;; esac
 echo "==> downloading the WebView2 loader (SDK $WEBVIEW2_SDK_VERSION, win-$ARCH)"
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/build-kosmos-windows.XXXXXXXXXX")"
 curl -fsSL "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$WEBVIEW2_SDK_VERSION/microsoft.web.webview2.$WEBVIEW2_SDK_VERSION.nupkg" -o "$TMP/webview2.nupkg"
 GOT="$(shasum -a 256 "$TMP/webview2.nupkg" | awk '{print $1}')"
 [ "$GOT" = "$WEBVIEW2_SDK_SHA256" ] || { echo "WebView2 package checksum mismatch: want $WEBVIEW2_SDK_SHA256 got $GOT" >&2; exit 1; }

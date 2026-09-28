@@ -72,7 +72,7 @@ expect "a persistent real job still judges REAL" \
 
 # 7. The snapshot half, through the lib's own launchctl seam: list and
 #    print answered by a stub, paths landing beside their labels.
-STUB_DIR="$(mktemp -d)"
+STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clean-witness.XXXXXXXXXX")"
 # Removed on the way out (#1151): this file kept none of its scratch and left a
 # directory in TMPDIR on every run.
 trap 'rm -rf "$STUB_DIR"' EXIT
