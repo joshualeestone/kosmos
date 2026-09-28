@@ -13330,8 +13330,8 @@ const server = http.createServer((req, res) => {
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
         const reactionNote = news.note;
-        /* #4256: the quote rides in front of the words, unless it would push a message at the length
-           limit over it; then the bracket alone still says which message is answered. */
+        /* #4256: the quote rides in front of the words unless the two together would be refused (in practice, a
+           message at the length limit pushed over it); then the bracket alone still says which message is answered. */
         const quoted = (replied.quote && !chat.messageProblem(replied.quote + body.text)) ? replied.quote : '';
         const delivery = chat.deliver(name, quoted + body.text, roster, opPrefix,
           (attachments.wireNote(files.recs) || '') + reactionNote);

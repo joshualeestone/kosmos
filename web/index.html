@@ -30436,10 +30436,7 @@ function dmReplyHead(m, name, adjacent) {
   const orig = DM_ROWS.get(m.replyTo);
   /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
      header is left out; a screen reader still hears what it answers. */
-  if (adjacent === true && orig) {
-    const gist = pjReplyGist(orig);
-    return '<span class="vh">Answers ' + esc(dmReplyWho(orig, name)) + ': ' + esc(gist) + (/[.!?\u2026]$/.test(gist) ? '' : '.') + '</span>';   // one full stop, not two
-  }
+  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
   if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER ? 'Original message is further back' : 'Original message unavailable') + '</span>';
   const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
@@ -30649,9 +30646,17 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    /* #4256: a reply right under what it answers draws no header; not while searching, which hides the rows between. */
-    const dmHtml = rows.map((m, i) => dmRow(m, name, !filtering && i > 0 && !!rows[i - 1] && typeof m.replyTo === 'string'
-      && rows[i - 1].at === m.replyTo)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
+    /* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
+       message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
+       unbroken). Not while searching, which hides the rows between. */
+    let prevHid = false;
+    const dmHtml = rows.map((m, i) => {
+      const prev = i > 0 ? rows[i - 1] : null;
+      const adjacent = !filtering && !!prev && typeof m.replyTo === 'string' && !!m.replyTo
+        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
+      prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
+      return dmRow(m, name, adjacent);
+    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
@@ -52310,6 +52315,9 @@ function pjReplyGist(m) {
   const f = pjFiles(m)[0];
   return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
 }
+/* #3745 / #4256: what a screen reader hears for a reply whose header is left out, in rooms and DMs alike: one
+   full stop, not a second after a line that already ends in one. */
+function replyHeardLine(who, gist) { return 'Answers ' + who + ': ' + gist + (/[.!?\u2026]$/.test(gist) ? '' : '.'); }
 function pjReplyWho(p, m) { return m && m.operator === true ? 'You' : (pjNameOf(p, m && m.from) || (m && m.from) || 'someone'); }
 /* The strip above the composer, for the project on screen. */
 function pjReplyPaint(projectId) {
@@ -52763,7 +52771,7 @@ function pjRoomRow(m, p, hideHeader) {
     ? PJ_ROOM_POSTS.get(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
-  if (origForSr) replyEl = '<span class="vh">Answers ' + esc(pjReplyWho(p, origForSr)) + ': ' + esc(pjReplyGist(origForSr)) + '.</span>';
+  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
     const orig = PJ_ROOM_POSTS.get(m.replyTo);

@@ -13,6 +13,7 @@
  *   R5  x stops replying
  *   R6  a reply in the thread carries a header naming what it answers, and the header jumps to it
  *   R6b right under what it answers there is no visible header (the room's rule); a screen reader still hears it
+ *   R6c ... nor under another answer to the same message whose header was left out (the room's chain rule)
  *   R11 a reaction toggled on an agent's message keeps Reply in that bar
  *   R7  a header whose original is not in the thread says so: "unavailable", or "further back" when
  *       older messages were not sent; never silence
@@ -148,6 +149,15 @@ async function openDm(page, messages, olderCount) {
     const adj = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg.you .msg-bd');
       return { visible: !!b.querySelector('.msg-replyto'), heard: (b.querySelector('.vh') || {}).textContent || null }; });
     chk(!adj.visible && adj.heard === 'Answers April: Morning. I read the brief.', 'R6b a reply right under what it answers draws no header, and says it to a screen reader', JSON.stringify(adj));
+
+    // R6c: the room's chain rule: a second answer to the same message, right under the first whose header was left
+    // out, leaves its header out too. CONTROL: the same second answer with an unrelated row between shows it.
+    await openDm(page, [agentRow(1, 'Which day works?'), youRow(2, 'Friday', { replyTo: at(1) }), youRow(3, 'or Monday', { replyTo: at(1) })], 0);
+    const chain = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg.you .msg-bd')].map((b) => !!b.querySelector('.msg-replyto')));
+    await openDm(page, [agentRow(1, 'Which day works?'), youRow(2, 'Friday', { replyTo: at(1) }), agentRow(3, 'noted'), youRow(4, 'or Monday', { replyTo: at(1) })], 0);
+    const broken = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg.you .msg-bd')].map((b) => !!b.querySelector('.msg-replyto')));
+    chk(JSON.stringify(chain) === '[false,false]' && JSON.stringify(broken) === '[false,true]',
+      'R6c a second answer right under the first (header left out) leaves its own out; with a row between it shows', JSON.stringify({ chain, broken }));
 
     // R11: a reaction toggled on an agent's message keeps Reply in that bar (the repaint of one row).
     await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
