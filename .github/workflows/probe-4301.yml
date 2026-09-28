@@ -1,0 +1,37 @@
+# TEMP (#4301): every win32apply test's duration, unfiltered, quiet and under load. Removed before the PR.
+name: probe-4301
+on:
+  push:
+    branches: ["w4-4301"]
+permissions:
+  contents: read
+jobs:
+  durations:
+    strategy:
+      fail-fast: false
+      matrix:
+        load: [0, 1, 2]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: the whole file twice, every test's time
+        run: |
+          for j in $(seq 1 ${{ matrix.load }}); do
+            ( while true; do node --test engine/win32apply.test.js < /dev/null > /dev/null 2>&1; done ) &
+          done
+          for i in 1 2; do
+            node --test engine/win32apply.test.js < /dev/null > full.txt 2>&1 && rc=0 || rc=$?
+            echo "LOAD ${{ matrix.load }} pass $i exit $rc"
+            node -e '
+              const t = require("fs").readFileSync("full.txt", "utf8").replace(/\r/g, "");
+              for (const l of t.split("\n")) { const m = l.match(/^([✔✖]) (.+) \(([\d.]+)ms\)$/); if (m) console.log(`DUR\t${process.argv[1]}\t${process.argv[2]}\t${Math.round(m[3])}\t${m[2].slice(0, 90)}`); }
+            ' "${{ matrix.load }}" "$i"
+          done
