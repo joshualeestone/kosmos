@@ -101,8 +101,8 @@
   exactly that. The control for the internet path is the tunnel's own path filter (crates/tunnel,
   not in this repo, unverified here), not remoteWriteGuard: tunnel traffic reaches the board over
   loopback with the board token. The internet path needs the Kosmos+ tunnel to admit the
-  hook path with this computer's own check (Baron's lane, crates/tunnel). No card exists yet
-  (searched 2026-09-28); Splinter asked to route one.
+  hook path with this computer's own check (Baron's lane, crates/tunnel). That is #4394
+  (Splinter filed it for Baron, 2026-09-28); #1307 ships local-only first.
 - Weakest premise: that a task is what Josh meant; if he wanted a room message, only the one line
   that acts on a call changes.
 
