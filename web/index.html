@@ -8521,6 +8521,9 @@ body.consolidated .tkcard:hover { border-color: transparent; }
   :root:not([data-theme="light"]) #fr-choice { --frc-bg: #0c0d0f; --frc-card: #17191c; --frc-border: #2a2d31;
                                              --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
 }
+/* The offsets below are the mockup's, measured at 1280x800: 47.8px under the block places it where
+   Mona's centred column sits (not the window's centre), the K sits 2.5px left of centre as drawn, and
+   27.5px / 36.7px are her gaps from the K to the heading and the heading to the cards. */
 .frc-back { position: fixed; inset: 0; z-index: 70; background: var(--frc-bg); overflow-y: auto;
             display: flex; padding: var(--space-8) var(--space-5) calc(var(--space-8) + 47.8px); }
 .frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;

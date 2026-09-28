@@ -141,7 +141,11 @@ test('#4356: on a connect computer a new window to Kosmos Plus opens in the app,
 });
 
 test('#4356: a start after the choice that fails is said, not only logged', () => {
-  assert.match(body('private func ensureBoardRunning(home: String)'), /self\?\.showStartupFailureAlert\(/);
+  const ensure = body('private func ensureBoardRunning(home: String)');
+  assert.match(ensure, /self\.showStartupFailureAlert\(/);
+  // Counted as a board start, so Reload does not run a second one alongside it.
+  assert.match(ensure, /!boardStartInFlight else \{ return \}/);
+  assert.match(ensure, /boardStartInFlight = true[\s\S]*self\.boardStartInFlight = false/);
 });
 
 test('#4356: Settings refuses on a connect computer even from its key equivalent', () => {

@@ -3731,10 +3731,11 @@ fi
 # app's reader does.
 # Decided once, here, and read again by the summary at the end, so every line this run prints
 # about the board agrees with what it did.
-# The file was read once, before the pause, for everything this run SAYS. It is read again here for
-# one thing only, declining a start: a person who picks Connect on the first screen while this update
-# runs must not have their board started by it. Declining is the safe direction; the reverse change
-# (Connect to Run agents) is the app's to start (runAgentsHere, ensureBoardRunning).
+# The file was read once, before the pause. It is read again here only to catch Connect picked on the
+# first screen while this update ran: then this run declines the start, and says so (it takes connect
+# as its reading from here on, so the step line and the summary match what it did). Only connect is
+# taken: declining is the safe direction; the reverse change (to Run agents) is the app's to start
+# (runAgentsHere, ensureBoardRunning).
 if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then _kosmos_mode_file=yes; _kosmos_mode_word=connect; fi
 _kosmos_board_off=no
 if _kosmos_mode_keeps_board_off; then

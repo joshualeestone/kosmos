@@ -1859,12 +1859,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// not start a board for an unreadable choice), leaving the answer on a dead page. `kosmos start`
     /// on a healthy board only checks it, and it clears board.stopped, which a run computer wants.
     private func ensureBoardRunning(home: String) {
-        guard let port = resolvedPort ?? modePort else { return }
+        guard let port = resolvedPort ?? modePort, !boardStartInFlight else { return }
+        // Counted as a board start, as loadBoard's is, so a Cmd-R meanwhile is ignored (reloadDecision)
+        // rather than racing a second `kosmos start` (review round 12).
+        boardStartInFlight = true
         DispatchQueue.global(qos: .utility).async {
-            if case .failed(let why) = startBoard(kosmosHome: home, port: port) {
-                logLine("#4356: start after the choice failed: \(why)")
-                DispatchQueue.main.async { [weak self] in
-                    self?.showStartupFailureAlert(detail: "Kosmos could not start its board on this computer after your choice. Click OK, then press Cmd-R (View > Reload) to try again.")
+            let result = startBoard(kosmosHome: home, port: port)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.boardStartInFlight = false
+                if case .failed(let why) = result {
+                    logLine("#4356: start after the choice failed: \(why)")
+                    self.showStartupFailureAlert(detail: "Kosmos could not start its board on this computer after your choice. Click OK, then press Cmd-R (View > Reload) to try again.")
                 }
             }
         }
@@ -1938,7 +1944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// Everything that belongs to a board here stops: the Dock badge, the Accessibility checks and
     /// the prompt watcher, then the board itself (`kosmos stop`, off the main thread). Sign-in loads
-    /// after the stop has finished either way, and a stop that failed is logged.
+    /// after the stop has finished either way, and a stop that failed is said (showBoardStillRunning).
     private func switchToConnect(home: String) {
         computerMode = .connect
         stopsInFlight += 1
