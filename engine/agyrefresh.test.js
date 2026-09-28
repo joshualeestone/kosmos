@@ -23,7 +23,7 @@ const agyhooks = require('./agyhooks');
 const create = require('./create');
 
 function fakes(jobs, hooked = []) {
-  const calls = { ensure: [], version: [] };
+  const calls = { ensure: [] };
   return {
     calls,
     deps: {
@@ -42,7 +42,7 @@ function fakes(jobs, hooked = []) {
 test('#4353 only running ANTIGRAVITY agents with no Kosmos hook get it, and never the tool hooks', async () => {
   const { calls, deps } = fakes({
     gem: { runner: 'antigravity', claude: '/x/agy' },
-    old: { runner: 'antigravity', claude: '/y/agy' },
+    old: { runner: 'antigravity', claude: '/x/agy' },
     done: { runner: 'antigravity', claude: '/x/agy' },
     cc: { runner: 'claude', claude: '/x/claude' },
     gone: null,

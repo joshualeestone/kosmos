@@ -13,7 +13,8 @@ board adopts running agents rather than restarting them, so its card said "Can't
   - The node is stableNode(), not process.execPath: a versioned Homebrew path dies at upgrade.
   - Working/Idle hooks only (withToolHooks false): the running agy may be older than the binary
     on disk, and the ask_question tool hooks are only safe on a new enough agy, so they are left
-    to the supervisor, which rewrites the entry with them at the next real launch. So there is
+    to a CURRENT supervisor, which rewrites the entry with them when it next starts (an old
+    supervisor's relaunch loop never touches hooks.json). So there is
     no version probe at all. The supervisor can still write between check and write; if this
     write lands second it replaces a tool-hooked entry with a Working/Idle one until the next
     launch (needs_you for a question lost meanwhile; board start racing an agy launch).

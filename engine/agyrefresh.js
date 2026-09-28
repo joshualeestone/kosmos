@@ -74,8 +74,9 @@ async function refreshRunningAgyHooks(deps) {
       // Working/Idle hooks only here, never the ask_question tool hooks: this writes into a process
       // that started BEFORE the update, and the agy binary on disk (the only one that could be
       // asked its version) may be newer than the running one. The tool hooks are only safe on an
-      // agy new enough for them (agyhooks MIN_TOOL_HOOKS), so they wait for the supervisor, which
-      // rewrites the entry with them at the next real launch.
+      // agy new enough for them (agyhooks MIN_TOOL_HOOKS), so they wait for a CURRENT supervisor,
+      // which rewrites the entry with them when it next starts (the old supervisor's own relaunch
+      // loop never touches hooks.json, so an agy crash alone does not bring them).
       r = deps.ensureHooks(wd, deps.nodeBin, deps.bridge, false);
     } catch (err) {
       r = { ok: false, changed: false, why: String((err && err.message) || err) };
@@ -113,8 +114,9 @@ async function refreshAtBoardStart() {
     ensureHooks: agyhooks.ensureHooks,
     // Not process.execPath: a versioned Homebrew path dies at the next upgrade, and this entry
     // outlives the board in a running agent nobody restarts (allowance.stableNode's reason).
-    // The supervisor resolves its node on its own (bin/agent-supervisor.sh); the two agree in
-    // the installed layout (runtime/bin/node) and may differ in a source checkout.
+    // The supervisor resolves its node on its own (bin/agent-supervisor.sh) and spells it
+    // differently (`$_eng/../../runtime/bin/node`, unnormalised), so the two entries never match
+    // byte for byte; that is why only an ABSENT entry is written here.
     nodeBin: require('./allowance').stableNode(),
     bridge,
     bridgeExists: () => fs.existsSync(bridge),
