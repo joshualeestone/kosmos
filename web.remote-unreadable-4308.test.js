@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
 
 /**
  * #4308 (Liu Kang's ruling): an unreadable remote-access settings file must not look like a Mac the person

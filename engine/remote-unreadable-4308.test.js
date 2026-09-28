@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
 /**
  * #4308 (Liu Kang's ruling on the card): an unreadable remote-access settings file must
  *   1. not be produced by an interrupted write (the old file stays whole),
