@@ -7,7 +7,7 @@
  *
  * Hermetic: boots its own sandboxed board, and stubs the sign-in routes with page.route
  * (start, the poll, cancel), so no Claude sign-in runs. The page's own buttons and its own
- * 1s poll do the rest. Four arms:
+ * 1s poll do the rest. Five arms:
  *   1. Stop: press "Stop this sign-in"; the next poll reads idle; focus lands on
  *      "Start the sign-in" (#acct-add).
  *   2. A stuck poll while the person is in the code field: same landing.
@@ -72,7 +72,14 @@ const focusNow = (p) => p.evaluate(() => {
     let phase = 'idle';
     let because = '';
     let startsAs = null;
-    await p.route('**/api/connect/start', (route) => route.fulfill({ json: startsAs ? Object.assign({ ok: true }, startsAs) : { ok: true } }));
+    /* The phase a start moves the engine to. It is applied WHEN the start request arrives, as
+       the real engine does: set earlier, a poll still running from an earlier arm (#4275) can
+       read it before Start is pressed and put the page into a sign-in nobody started. */
+    let startsInto = 'idle';
+    await p.route('**/api/connect/start', (route) => {
+      phase = startsInto;
+      route.fulfill({ json: startsAs ? Object.assign({ ok: true }, startsAs) : { ok: true } });
+    });
     await p.route('**/api/connect/cancel', (route) => { phase = 'idle'; route.fulfill({ json: { ok: true } }); });
     await p.route(/\/api\/connect(\?.*)?$/, (route) => route.fulfill({ json: because ? { phase, because } : { phase } }));
     /* No install is coming, so Start goes straight to the POST with no confirm box. */
@@ -89,16 +96,15 @@ const focusNow = (p) => p.evaluate(() => {
 
     /* Open the dialog on Claude's subscription step, and press Start with the stub set up. */
     async function pressStart(runningPhase, answer) {
-      phase = 'idle'; because = ''; startsAs = answer || null;
+      phase = 'idle'; because = ''; startsAs = answer || null; startsInto = runningPhase;
       if (await p.isHidden('#acct-add-modal')) { await p.click('#acct-add-open'); await p.waitForTimeout(300); }
       await p.selectOption('#acct-provider-pick', 'claude');
       await p.waitForTimeout(200);
       if (await p.isVisible('#acct-claude-pick-sub').catch(() => false)) { await p.click('#acct-claude-pick-sub'); await p.waitForTimeout(200); }
-      phase = runningPhase;
       await p.click('#acct-add');
     }
-    const flowUp = () => p.waitForFunction(() => !document.getElementById('acct-flow').hidden, null, { timeout: 5000 }).then(() => true, () => false);
-    const flowGone = () => p.waitForFunction(() => document.getElementById('acct-flow').hidden, null, { timeout: 5000 }).then(() => true, () => false);
+    const flowUp = () => p.waitForFunction(() => !document.getElementById('acct-flow').hidden, null, { timeout: 15000 }).then(() => true, () => false);
+    const flowGone = () => p.waitForFunction(() => document.getElementById('acct-flow').hidden, null, { timeout: 15000 }).then(() => true, () => false);
 
     // Arm 1: Stop.
     await pressStart('signin-browser-open');
@@ -115,7 +121,7 @@ const focusNow = (p) => p.evaluate(() => {
     // Arm 2: the sign-in gets stuck while the person is in the code field. The page itself puts
     // focus in the code field when a code is wanted; the harness only makes sure of it.
     await pressStart('signin-awaiting-code');
-    const codeUp = await p.waitForSelector('#acct-code', { state: 'visible', timeout: 5000 }).then(() => true, () => false);
+    const codeUp = await p.waitForSelector('#acct-code', { state: 'visible', timeout: 15000 }).then(() => true, () => false);
     chk(codeUp, 'arm 2: the code field shows while the stub awaits a code');
     await p.focus('#acct-code');
     const before2 = await focusNow(p);
@@ -144,8 +150,17 @@ const focusNow = (p) => p.evaluate(() => {
     await p.waitForTimeout(300);
 
     // Arm 4: the start answers with a phase that has already ended (stuck, a real engine phase).
+    // Wait on conditions, not a clock: a loaded machine can take seconds over the first-run
+    // read and the start POST, and a read before they land would see focus mid-flight.
+    const started4 = p.waitForResponse((res) => res.url().includes('/api/connect/start'), { timeout: 15000 }).then(() => true, () => false);
     await pressStart('stuck', { phase: 'stuck', because: 'Claude Code could not start.' });
     because = 'Claude Code could not start.';   // the engine's later polls read the same state
+    chk(await started4, 'arm 4: the start request was answered');
+    const settled4 = await p.waitForFunction(() => {
+      const note = document.getElementById('acct-add-note');
+      return !!(note && note.textContent && !document.getElementById('acct-add').disabled);
+    }, null, { timeout: 15000 }).then(() => true, () => false);
+    chk(settled4, 'arm 4: the page painted the ended start (note filled, Start live again)');
     await p.waitForTimeout(1500);               // past the next poll, so a repaint would show
     chk(await p.isHidden('#acct-flow'), 'arm 4: a start that answers stuck shows no running panel');
     const f4 = await focusNow(p);
@@ -169,6 +184,9 @@ const focusNow = (p) => p.evaluate(() => {
   } finally {
     await browser.close();
     server.close();
+    for (const d of [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT]) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   }
   console.log(fail.length ? `render-acct-stop-focus-4271: ${fail.length} FAILED` : 'render-acct-stop-focus-4271: 0 FAILED');
   process.exit(fail.length ? 1 : 0);

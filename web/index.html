@@ -23688,7 +23688,10 @@ async function acctAddStart(installConfirmed) {
        is hidden and say.focus() is a no-op. Connected is acctShowSuccess's; an ending with
        a reason goes to the note, as the failure paths above do; one without, to Start. */
     if (say && !document.getElementById('acct-flow').hidden) say.focus();
-    else if (!(out && out.phase === 'connected')) { if (note.textContent) note.focus(); else acctFocusAfterFlow(btn); }
+    else if (!(out && out.phase === 'connected')) {
+      if (note.textContent) note.focus();
+      else acctFocusAfterFlow(btn);
+    }
   } catch {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
