@@ -26,7 +26,9 @@
  *  - A path computed BEFORE this module runs (another require that already
  *    called os.tmpdir()). That is why it goes first.
  *  - A hard kill (SIGKILL) cannot be caught; one directory is left, named `kts-`,
- *    instead of one per fixture. SIGINT, SIGTERM and SIGHUP are caught and swept.
+ *    instead of one per fixture. SIGINT, SIGTERM and SIGHUP are swept when nothing
+ *    else in the file listens for them (otherwise the file's handler decides, and
+ *    the exit sweep covers a normal end).
  *
  * The name is short on purpose: tmux builds `$TMPDIR/tmux-<uid>/default` and a
  * macOS socket path is capped near 104 characters (see run-tests.sh).
@@ -50,10 +52,18 @@ function activate() {
     const sweep = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* exiting anyway */ } };
     process.on('exit', sweep);
     /* A signal skips 'exit' handlers, and a runner's timeout or an interrupt is how a
-       test file usually ends early. Sweep, then re-raise the same signal with this
-       listener gone, so the process still dies the normal way. */
+       test file usually ends early. When this is the ONLY listener, sweep and re-raise
+       the same signal (now with no listener) so the process dies the normal way. When
+       the file has its own handler for that signal, stand aside: that handler decides
+       whether the process ends, and sweeping here would leave it running with its
+       TMPDIR gone (measured: a later mkdtemp failed ENOENT and the file exited 0). The
+       'exit' handler still sweeps when it does end. */
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-      process.once(sig, () => { sweep(); try { process.kill(process.pid, sig); } catch { /* already going */ } });
+      process.once(sig, () => {
+        if (process.listenerCount(sig) > 0) return;
+        sweep();
+        try { process.kill(process.pid, sig); } catch { /* already going */ }
+      });
     }
   } catch {
     /* No scope is better than a red test: the file then behaves exactly as before. */

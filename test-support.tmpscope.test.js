@@ -62,3 +62,25 @@ test('the scope name is short, so a tmux socket path under it still fits', () =>
   // `kts-` plus six characters: under ten added, as run-tests.sh budgets for.
   assert.match(fs.readFileSync(SCOPE, 'utf8'), /mkdtempSync\(path\.join\(os\.tmpdir\(\), 'kts-'\)\)/);
 });
+
+test("a file's own SIGTERM handler decides: the scope stays until that handler lets the process end", { timeout: 15000 }, async (t) => {
+  const base = freshBase(t);
+  // The file's own handler does async work that needs TMPDIR, then exits 3.
+  const code = `require(${JSON.stringify(SCOPE)});
+    process.on('SIGTERM', () => setTimeout(() => {
+      try { require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'late-')); process.exit(3); }
+      catch { process.exit(9); }
+    }, 50));
+    console.log('ready'); setInterval(() => {}, 1000);`;
+  const c = spawn(process.execPath, ['-e', code], { env: { ...process.env, TMPDIR: base }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } });
+  await new Promise((res, rej) => {
+    c.stdout.on('data', (b) => { if (String(b).includes('ready')) res(); });
+    c.on('exit', () => rej(new Error('the child exited before it was ready')));
+  });
+  const ended = new Promise((res) => c.on('exit', (code2) => res(code2)));
+  c.kill('SIGTERM');
+  assert.equal(await ended, 3, 'the handler could not use TMPDIR (9) or the process did not end by its handler');
+  assert.deepEqual(entries(base), [], 'the exit sweep did not remove the scope');
+});
+
