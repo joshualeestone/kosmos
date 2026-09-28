@@ -114,7 +114,9 @@ const look = (page) => page.evaluate(() => {
       'C1 the buttons sit side by side in order, Run on the left', JSON.stringify(s.btns));
     chk(s.btns.length === 3 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
     chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen');
-    chk(s.focused === RUN, 'C1 a keyboard starts on the first button', String(s.focused));
+    chk(s.focused === null, 'C1 no button shows focus on load, as in the approved mockup', String(s.focused));
+    await page.keyboard.press('Tab');
+    chk((await look(page)).focused === RUN, 'C1 and Tab reaches Run agents first');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
 
     // C2: Run agents hands the app "run", hides the screen, first run carries on, and the address forgets ?mode=.

@@ -59,3 +59,17 @@
   update: board-run, the watchdog and KeepAlive all honour board.stopped (read, not yet
   measured on this change). Measure it on a real Mac before calling this finished.
 - The iOS link rules are ported, not shared: two copies can drift.
+
+## The approved design (Mona's mockup, Josh "perfect!", Liu m2474/m2475)
+- Built from her 2560x1600 light and dark PNGs (Splinter copied them to Mortals). Measured at
+  1280x800, device scale 2: the K 61x73.5 at (607, 179.5), heading 26px/700, three 280x225
+  cards 22 apart at y 348 with radius 16, the art 30px into each card, labels 17px/600 under it.
+- The K is the mockup's own pixels, recovered by difference matting of the light and dark
+  versions (same mark on two known grounds), and inlined as a data URI (18 KB). The art is
+  inline SVG in the mockup's 2x card coordinates (the monitor neck sits left of centre, as
+  drawn). Its own light and dark tokens; the wizard behind it stays single-look.
+- Measured match: every element's ink box within 0.5px of the mockup except the heading (1.5px
+  narrower overall) and the labels (2px wider), which is font rasterising; 1.08% of pixels
+  differ by more than 24/255 in light, 1.09% in dark, all half-pixel antialias edges.
+  docs/evidence/firstrun-choice-4356/ holds the mockups and the renders side by side.
+- No focus ring on load (the mockup has none); Tab reaches Run agents first.

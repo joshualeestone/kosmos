@@ -60,7 +60,7 @@ test('#4356: the Kosmos logo is at the top, and nothing else is an image or carr
   const html = screen().replace(/<!--[\s\S]*?-->/g, '');
   const imgs = html.match(/<img\b[^>]*>/g) || [];
   assert.equal(imgs.length, 1, 'the screen has ' + imgs.length + ' images; it has the logo and nothing else');
-  assert.match(imgs[0], /src="\/icons\/kosmos-192\.png"/, 'the image is not the Kosmos logo');
+  assert.match(imgs[0], /class="frc-logo" src="data:image\/png;base64,[A-Za-z0-9+\/=]{1000,}" alt="Kosmos"/, 'the image is not the Kosmos mark');
   assert.ok(html.indexOf('<img') < html.indexOf('<h1'), 'the logo is not above the heading');
   // Text a person cannot see still reaches a screen reader, which is "extra text" by another road.
   assert.doesNotMatch(html, /class="[^"]*\bvh\b|aria-description|title="|placeholder=/, 'the screen carries text nobody sees');
@@ -69,8 +69,13 @@ test('#4356: the Kosmos logo is at the top, and nothing else is an image or carr
 
 test('#4356: the three buttons are the only controls, and each one\'s accessible name is its label', () => {
   const html = screen().replace(/<!--[\s\S]*?-->/g, '');
-  const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)];
-  assert.deepEqual(buttons.map((b) => b[2].trim()), [RUN, CONNECT, BOTH]);
+  const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
+  assert.deepEqual(buttons.map((b) => visibleText(b[2]).join(' ')), [RUN, CONNECT, BOTH]);
+  // The art is decoration: hidden from screen readers, so each button's name is its label alone.
+  for (const [, , inner] of buttons) {
+    for (const svg of inner.match(/<svg\b[^>]*>/g) || []) assert.match(svg, /aria-hidden="true"/, 'a button\'s art would be read out as part of its name');
+    assert.doesNotMatch(inner, /<(title|desc|text)\b/, 'the art carries words');
+  }
   for (const [, attrs] of buttons) assert.doesNotMatch(attrs, /aria-label/, 'an aria-label would give a button a name that differs from its label');
   assert.deepEqual(buttons.map((b) => (b[1].match(/data-mode="([^"]*)"/) || [])[1]), ['run', 'connect', 'both']);
   assert.doesNotMatch(html, /<(a|input|select|textarea)\b/, 'the screen has a control besides the two buttons');
@@ -125,7 +130,7 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   const choice = w.ctx.frChoose();
   assert.equal(w.el.hidden, false, 'the screen did not show');
   assert.equal(w.cover.hidden, true, 'the boot cover stays over the screen');
-  assert.equal(w.btns[0].focused, true, 'nothing has focus, so a keyboard user starts nowhere');
+  assert.equal(w.btns[0].focused, false, 'the approved screen shows no focus ring on load; Tab reaches the first button');
   w.btns[0].onclick();
   assert.equal(await choice, 'run');
   assert.deepEqual(w.posted, ['run']);
