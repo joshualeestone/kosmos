@@ -36,6 +36,7 @@ the network, and the code was fine.
   - probeBoard ignoring createConnection (a real connection to port 9, refused at once): RED, "the
     every-address look did not use the stalled socket".
 - windows-latest, probe-4278 run 36374029933: 3 shards x 10 runs of the arm, 30 passed, 0 failed.
+- After review round 1 tightened the every-address half: probe run 36375734841, 30 passed, 0 failed.
 - windows job on the branch, run 36374029737: win32handoff 69/69; 99 passed, 1 known red (#4266).
 
 ## Decided
