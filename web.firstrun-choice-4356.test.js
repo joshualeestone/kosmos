@@ -94,16 +94,19 @@ function world({ search = '', bridge = true, throws = false } = {}) {
   const btns = [btn('run'), btn('connect')];
   const el = { hidden: true, querySelectorAll: () => btns };
   const cover = { hidden: false };
+  const replaced = [];
   const ctx = {
-    location: { search },
+    URL,
+    history: { state: null, replaceState(st, title, url) { replaced.push(url); } },
+    location: { search, href: 'http://127.0.0.1:16180/' + search + (search ? '&' : '?') + 'token=t' },
     URLSearchParams,
     Promise,
     document: { getElementById: (id) => (id === 'fr-choice' ? el : id === 'boot-cover' ? cover : null) },
     window: { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
-  vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoose')].join('\n'), ctx);
-  return { ctx, posted, btns, el, cover };
+  vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoose')].join('\n'), ctx);
+  return { ctx, posted, btns, el, cover, replaced };
 }
 
 test('#4356: the screen shows only in the Mac app, and only when the app says no choice is stored', () => {
@@ -125,6 +128,7 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   assert.equal(await choice, 'run');
   assert.deepEqual(w.posted, ['run']);
   assert.equal(w.el.hidden, true);
+  assert.deepEqual(w.replaced, ['/?token=t'], 'a Reload would ask again, and the app no longer listens');
 });
 
 test('#4356: Connect tells the app "connect" and leaves the screen up, buttons off, while the app switches', async () => {
@@ -144,6 +148,7 @@ test('#4356: if the app cannot be told, Connect does nothing rather than leave d
   w.btns[1].onclick();
   await new Promise((r) => setImmediate(r));
   assert.equal(settled, false, 'the page went on as if the Mac had switched');
+  assert.deepEqual(w.replaced, [], 'the address forgot a choice the app never heard');
   assert.ok(w.btns.every((b) => !b.disabled), 'the buttons are left disabled with nothing happening');
 });
 

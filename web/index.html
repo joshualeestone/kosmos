@@ -63795,6 +63795,18 @@ function frChoiceWanted(done) {
   return mode === 'unreadable' || (mode === 'unset' && !done);
 }
 
+/* #4356: take ?mode= off the address once the app has the choice. Reload keeps the address, and
+   the app no longer hears a choice it has already made, so the screen would come back with
+   buttons that do nothing. */
+function frChoiceForget() {
+  try {
+    const u = new URL(location.href);
+    if (!u.searchParams.has('mode')) return;
+    u.searchParams.delete('mode');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
+}
+
 /* #4356: show the first screen and resolve with the choice. Run agents hides it and first run
    carries on. Connect leaves it up, buttons disabled, while the app stops the board here and loads
    Kosmos Plus sign-in; if the app cannot be told, the buttons come back rather than sit dead. */
@@ -63807,6 +63819,8 @@ function frChoose() {
         const mode = b.dataset.mode;
         let told = true;
         try { frChoiceBridge().postMessage(mode); } catch { told = false; }
+        // The app has its answer and stops listening, so a Reload must not ask again.
+        if (told) frChoiceForget();
         if (mode === 'connect') {
           if (!told) return;
           btns.forEach((x) => { x.disabled = true; });
