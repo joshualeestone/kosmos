@@ -111,7 +111,7 @@ function world({ search = '', bridge = true, throws = false, windows = false, ho
   const btn = (mode) => ({ dataset: { mode }, disabled: false, onclick: null, focused: false, focus() { this.focused = true; } });
   const btns = [btn('run'), btn('connect'), btn('both')];
   const el = { hidden: true, querySelectorAll: () => btns };
-  const siblings = [{ id: 'grid', inert: false }, { id: 'firstrun', inert: false }];
+  const siblings = [{ nodeType: 1, id: 'grid', inert: false }, { nodeType: 1, id: 'firstrun', inert: false }, { nodeType: 1, id: 'held-already', inert: true }];
   const cover = { hidden: false };
   const replaced = [];
   const ctx = {
@@ -129,7 +129,7 @@ function world({ search = '', bridge = true, throws = false, windows = false, ho
       : { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
-  vm.runInContext(['var FR_CHOICE_WATCH = null;', lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
+  vm.runInContext(['var FR_CHOICE_WATCH = null; var FR_CHOICE_INERTED = []; var FR_CHOICE_CONNECTING = false;', lift('revealBoot'), lift('frChoiceHold'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
   return { ctx, posted, btns, el, cover, replaced, siblings };
 }
 
@@ -171,7 +171,8 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   assert.deepEqual(w.posted, ['run']);
   assert.equal(w.el.hidden, true);
   assert.deepEqual(w.replaced, ['/?token=t'], 'a Reload would ask again, and the app no longer listens');
-  assert.ok(w.siblings.every((n) => !n.inert), 'the page stays inert after the screen went');
+  assert.ok(w.siblings.slice(0, 2).every((n) => !n.inert), 'the page stays inert after the screen went');
+  assert.equal(w.siblings[2].inert, true, 'an element another screen (#4343\'s restart screen) held inert was let go by this one');
 });
 
 test('#4356: Run agents here and connect tells the app "both", hides the screen, and keeps ?mode=both for the end of first run', async () => {
@@ -260,7 +261,7 @@ test('#4356: tips, the Community notice, What\'s New and the setup assistant all
   assert.equal(byId, 3, 'a new first-run guard by id: check it knows the first screen, then update this count');
   assert.match(lift('asbShows'), /const frc = document\.getElementById\('fr-choice'\);\n\s+if \(frc && !frc\.hidden\) return false;/, 'asbShows does not know the first screen');
   // And anything appended to <body> while the screen is up goes inert too.
-  assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*n\.inert = true;[\s\S]*observe\(document\.body, \{ childList: true \}\)/);
+  assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*frChoiceHold\(n\)[\s\S]*observe\(document\.body, \{ childList: true \}\)/);
 });
 
 test('#4356: a layer appended to <body> while the screen is up goes inert, and the watch stops after', () => {
@@ -268,9 +269,9 @@ test('#4356: a layer appended to <body> while the screen is up goes inert, and t
   let callback = null;
   class MO { constructor(cb) { callback = cb; } observe(target, opts) { observed = { target, opts }; } disconnect() { observed = 'disconnected'; } }
   const body = { id: 'body' };
-  const ctx = { MutationObserver: MO, document: { body, querySelectorAll: () => [] }, FR_CHOICE_WATCH: null };
+  const ctx = { MutationObserver: MO, document: { body, querySelectorAll: () => [] } };
   vm.createContext(ctx);
-  vm.runInContext('var FR_CHOICE_WATCH = null;\n' + lift('frChoiceInert'), ctx);
+  vm.runInContext('var FR_CHOICE_WATCH = null; var FR_CHOICE_INERTED = [];\n' + lift('frChoiceHold') + '\n' + lift('frChoiceInert'), ctx);
   ctx.frChoiceInert(true);
   assert.equal(observed && observed.target, body, 'nothing watches <body> while the screen is up');
   assert.equal(observed.opts.childList, true);
@@ -281,6 +282,7 @@ test('#4356: a layer appended to <body> while the screen is up goes inert, and t
   assert.equal(screen.inert, false, 'the screen itself went inert');
   ctx.frChoiceInert(false);
   assert.equal(observed, 'disconnected', 'the watch outlives the screen and inerts the board');
+  assert.equal(layer.inert, false, 'a layer this screen held is not given back');
 });
 
 test('#4356: an update over the first screen hides the screen, so its overlay is seen, not dead buttons', () => {
@@ -288,6 +290,15 @@ test('#4356: an update over the first screen hides the screen, so its overlay is
   assert.notEqual(at, -1, 'the update overlay code moved');
   const before = PAGE.slice(Math.max(0, at - 1200), at);
   assert.match(before, /if \(frc && !frc\.hidden\) \{ frc\.hidden = true; if \(typeof frChoiceInert === 'function'\) frChoiceInert\(false\); \}[\s\S]*document\.body\.appendChild\(back\);/);
+});
+
+test('#4356: #4343\'s restart screen stands down while Connect stops the board, and otherwise shows over the first screen', () => {
+  const paint = lift('paintRestartScreen');
+  assert.match(paint, /\(typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING\)\) \{\n\s+BOARD_NO_ANSWER_SINCE = null;/,
+    'a person who chose Connect is told "Kosmos requires a full restart" while it stops its board on purpose');
+  assert.match(paint, /if \(frc && !frc\.hidden\) \{ frc\.hidden = true; if \(typeof frChoiceInert === 'function'\) frChoiceInert\(false\); \} \}\n\s+RESTART_SCREEN_RETURN = document\.activeElement;/,
+    'a board that is really down leaves the first screen\'s buttons dead over it');
+  assert.match(lift('frChoose'), /FR_CHOICE_CONNECTING = true;/);
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {

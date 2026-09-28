@@ -414,7 +414,7 @@ function engineToast(platform) {
 }
 function offlineNote(platform) {
   const slot = { dataset: {}, innerHTML: '' };
-  runPage(platform, ['bakedVersion', 'paintOfflineNote'], 'paintOfflineNote(true)', {
+  runPage(platform, ['bakedVersion', 'offlineRemoteView', 'paintOfflineNote'], 'paintOfflineNote(true)', {
     esc, location: { host: '127.0.0.1:16180' }, __byId: { 'uoffline-slot': slot },
   });
   return slot.innerHTML;

@@ -4727,7 +4727,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
   assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}" \|\| exit 1/);
 });
 
-/* #3939 slice 3c-3a: Meta Muse agents, behind AGENT_WORKFORCE_MUSE=1 and Mac only. */
+/* #3939 slice 3c-3a: Meta Muse agents, behind the Muse switch (musestatus.enabled) and Mac only. */
 const MUSE_ONLY_MAC = { skip: process.platform !== 'darwin' && 'Meta Muse agents are Mac only' };
 function withMuseFlag(on, fn) {
   const was = process.env.AGENT_WORKFORCE_MUSE;

@@ -3,7 +3,10 @@
 /**
  * #4043: put Kosmos's report hook into an Antigravity (agy) agent's `.agents/hooks.json`, so agy
  * tells the board what it is doing (bin/agy-report-bridge.js), instead of the card saying
- * "Can't tell". Run by bin/agent-supervisor.sh before every agy launch, beside agytrust.js:
+ * "Can't tell". Run by bin/agent-supervisor.sh before every agy launch, beside agytrust.js, and
+ * (#4353) by engine/agyrefresh.js at board start for agy agents already running without it; that
+ * caller writes the Working/Idle hooks only, except that repairing a broken entry which already
+ * had the tool hooks keeps them:
  *
  *   node agyhooks.js <workdir> <node binary> <bridge script> [agy --version output]
  *
@@ -50,6 +53,12 @@ function toolHooksSafe(versionText) {
 /** A path quoted for `sh -c`: single quotes, with any single quote closed, escaped, reopened. */
 function shQuote(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+/** The inverse, kept beside it (#4353): the words shQuote made, in order, from a handler command
+    such as `'<node>' '<bridge>' Stop`. Unquoted words are skipped. */
+function shUnquoteAll(cmd) {
+  return [...String(cmd || '').matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
 }
 
 /** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
@@ -210,4 +219,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, kosmosEntry, ensureHooks };
+module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, shUnquoteAll, kosmosEntry, ensureHooks };

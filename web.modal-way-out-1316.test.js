@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 20,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4288's Community notice
-    `${found.length} modals now, up from 20 (#4288 added cmnotice as the 20th). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 21,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4288's Community notice; 21: #4343's restart screen
+    `${found.length} modals now, up from 21 (#4343 added restart-screen as the 21st). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -100,7 +100,7 @@ const ESCAPES_VIA = {
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {
-  const found = modals().filter((id) => id !== 'fr-dots' && id !== 'firstrun');
+  const found = modals().filter((id) => id !== 'fr-dots' && id !== 'firstrun' && id !== 'restart-screen');
   const untabled = found.filter((id) => !(id in ESCAPES_VIA));
   assert.deepEqual(untabled, [],
     'these modals are not in the table, so nobody checked them: ' + untabled.join(', '));
@@ -124,6 +124,15 @@ test('first-run is excluded deliberately, and that exclusion is stated', () => {
   const found = modals();
   assert.ok(found.includes('fr-dots') || found.includes('firstrun'),
     'first-run stopped being a modal, so this exclusion may no longer be needed');
+});
+
+test('the restart screen is excluded deliberately, and that exclusion is stated', () => {
+  /* #4343: "Kosmos requires a full restart" has no Escape and no button on purpose. The board behind
+     it is not answering, so there is nothing to go back to; it leaves by itself on the first poll that
+     answers, and while it is up a window capture listener keeps every key from the page behind it. */
+  assert.ok(modals().includes('restart-screen'), 'the restart screen stopped being a modal, so this exclusion may no longer be needed');
+  assert.match(PAGE, /window\.addEventListener\('keydown', \(e\) => \{ if \(document\.querySelector\('\.restart-back'\)\) e\.stopPropagation\(\); \}, true\);/,
+    'the restart screen lost the listener that keeps keys from the page behind it');
 });
 
 test('the modal Josh got stuck in refuses Escape only while the request is in flight', () => {

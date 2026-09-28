@@ -31,10 +31,17 @@ _la_mtime() {
 # com.kosmos.agent.*.plist directly in <dir>, sorted (LC_ALL=C) so comm can diff it.
 # Empty output when <dir> has none or does not exist. A changed mtime yields a
 # different line, so a MODIFIED plist is caught as well as a new one.
+# #4392: agents named with the RESERVED live-check prefix are skipped. A post-promote live check
+# (the live-check harness, kosmos#4392) makes real agents on the operator's board, so
+# their plists land here; on 2026-09-28 three such runs reddened every full suite running at the same time
+# (Angel's and Kitty's), for a leak that was not theirs. The live check names its agents zz-livecheck-*, and no
+# TEST may use that prefix (tools/test-launchagent-leak-guard-3011.sh counts it), so a test that leaks is
+# still caught. Only the exact prefix is skipped: com.kosmos.agent.zz-test-* and every other name still count.
+LAUNCHAGENT_LIVECHECK_PREFIX='zz-livecheck-'
 launchagent_snapshot() {
   local dir="$1" f
   [ -n "$dir" ] || return 0
-  find "$dir" -maxdepth 1 -type f -name 'com.kosmos.agent.*.plist' 2>/dev/null \
+  find "$dir" -maxdepth 1 -type f -name 'com.kosmos.agent.*.plist' ! -name "com.kosmos.agent.${LAUNCHAGENT_LIVECHECK_PREFIX}*.plist" 2>/dev/null \
     | while IFS= read -r f; do printf '%s\t%s\n' "$(_la_mtime "$f")" "$f"; done \
     | LC_ALL=C sort
 }

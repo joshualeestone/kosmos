@@ -24,7 +24,7 @@ function slotAfter(calls, { baked = '0.2.87', host = '127.0.0.1:16180', hostname
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), host === null ? null : { host, hostname },
   );
   for (const down of calls) fn(down);
@@ -66,7 +66,7 @@ test('it is absent while the first poll is merely in flight', () => {
   const painted = [];
   let asked = 0;
   new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'setNavBadge',
-    `${page.lift(SCRIPT, 'tick')}\ntick();`)(
+    `const paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\ntick();`)(
     (down) => painted.push(down),
     () => { asked += 1; return new Promise(() => {}); },
     { getElementById: () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: false, closest: () => null }) },
@@ -81,6 +81,8 @@ test('it is absent while the first poll is merely in flight', () => {
   assert.equal(slot.innerHTML, '');
 });
 
+/* #4343: each harness that lifts tick() also stubs paintRestartScreen, the restart screen's own
+   painter; its behaviour is covered by render-restart-screen-4343.js, not here. */
 test('a server that ANSWERED with a refusal is not "not answering": the note paints only when nothing answered (#268)', async () => {
   /**
    * The two failures a person could not tell apart: the whole of Kosmos absent
@@ -98,7 +100,7 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
     await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
+      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
@@ -128,7 +130,7 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
   const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'DEVICE_SIGNIN_BUTTON', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), new Function(page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\nreturn DEVICE_SIGNIN_BUTTON;')(), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
@@ -178,7 +180,7 @@ function deviceSlotAfter(calls) {
     querySelector: () => ({ getAttribute: () => '0.2.87' }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), { host: 'mac.kosmosplus.com' },
   );
   for (const [down, off] of calls) fn(down, off);
@@ -202,7 +204,7 @@ test('#718 state 1: a change of which end is offline repaints the note, and reco
   const held = deviceSlotAfter([[true, true]]);
   held.innerHTML = 'MARKED';
   const again = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     { getElementById: () => held, querySelector: () => null }, (x) => String(x), { host: 'h' });
   again(true, true);
   assert.equal(held.innerHTML, 'MARKED', 'the offline note rewrote itself over an unchanged state');
@@ -225,7 +227,7 @@ test('#718 state 1: tick sets the offline flag only when nothing answered, and i
   const painted = [];
   const nav = { onLine: false };
   const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'OFFLINE_SENTENCE', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'location', 'navigator',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     (down, off) => painted.push([down, off]), (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null,
     page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), page.liftConst(SCRIPT, 'OFFLINE_SENTENCE'), (x) => String(x), () => {}, () => {}, () => {}, () => {},
     { hostname: 'mac.kosmosplus.com', search: '' }, nav,
@@ -273,7 +275,7 @@ test('it does not re-announce itself on every poll while the condition holds', (
 function slotAfterAgain(slot) {
   const doc = { getElementById: () => slot, querySelector: () => ({ getAttribute: () => '0.2.87' }) };
   new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x), { host: 'h' },
   )(true);
 }

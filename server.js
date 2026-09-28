@@ -8334,7 +8334,7 @@ const server = http.createServer((req, res) => {
     // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
-  /* #3939 slice 3: Meta's Muse Code. Behind AGENT_WORKFORCE_MUSE=1 on a Mac (engine/musestatus.enabled):
+  /* #3939 slice 3: Meta's Muse Code. Behind the Muse switch (engine/musestatus.enabled decides):
      off, /api/muse says only { enabled: false } and nothing can start. The sign-in is `muse login`
      driven out of sight (engine/musesignin.js); the screen starts it, reads the code, retries an
      expired one, and stops it. Exact addresses (#3957). With the flag off, the three sign-in routes
@@ -17674,6 +17674,34 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh the script it starts agents with: ${String(err && err.message)}\n`);
+  }
+  /* #4353: an agy agent that was already running when this board started keeps its OLD
+     supervisor, which (before #4043) wrote no report hook, and the board adopts it rather than
+     restarting it, so its card said "Can't tell" until someone restarted it. Write the hook for
+     every running agy agent now: agy picks up a hooks.json written while it runs, on its next
+     turn (measured, #4353). After the refresh above, so the bridge the hook runs is current
+     (and nothing is written if it is missing). Only agents with no WORKING Kosmos entry: none, or
+     a broken one (a half missing, or a node or bridge gone), which is repaired. It writes the
+     Working/Idle hooks only; the ask_question tool hooks wait for a current supervisor's next
+     start, except that a repair keeps them when the broken entry already had them (only a current
+     supervisor writes those). Never under the test dry run. Best effort. */
+  if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
+    // setImmediate: its work (launchctl list, file reads and writes) happens after start, not in it.
+    setImmediate(() => {
+      try {
+        require('./engine/agyrefresh').refreshAtBoardStart()
+          .then((rows) => {
+            // A folder inside a git project is refused on purpose, every start; not worth a line each time.
+            for (const r of rows) {
+              if (r.changed) process.stderr.write(`agy hooks written for ${r.name} (it was running without them)\n`);
+              else if (!r.ok && !/inside the git project/.test(r.why)) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
+            }
+          })
+          // Best effort (the supervisor still writes it at the next launch), but said, so a broken
+          // refresh leaves a trace rather than every card quietly back on "Can't tell".
+          .catch((e) => { process.stderr.write(`agy hook refresh failed: ${e && e.message}\n`); });
+      } catch (e) { process.stderr.write(`agy hook refresh failed: ${e && e.message}\n`); }
+    });
   }
   /**
    * #570 BLOCKER 4: make sure something brings the BOARD back at logon on Windows.

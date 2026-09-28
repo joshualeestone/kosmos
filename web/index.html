@@ -1352,6 +1352,18 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
    drawn at 2x and displayed at half, so it stays crisp on this screen. */
 .upd-back .upd-msg { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
 .upd-back .upd-k { width: 88px; height: 103px; display: block; }
+/* #4343 (Josh, 2026-09-28): the full-restart screen. Unlike the update overlay it is OPAQUE, on
+   the page's own ground, because his ask was that nothing else shows: no header, chips or panels. */
+.restart-back { position: fixed; inset: 0; z-index: 61; background: var(--k-bg);
+                display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
+.restart-back .restart-msg { display: flex; flex-direction: column; align-items: center; text-align: center;
+                             max-width: 26rem; color: var(--k-ink); outline: none; }
+.restart-back .restart-k { width: 88px; height: 103px; display: block; margin-bottom: 22px; }
+.restart-back h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.restart-back p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--k-ink-2); }
+/* The tab layout reserves a scrollbar gutter on <html>, which a fixed layer cannot paint over, so
+   while the screen is up the page does not scroll and reserves nothing. */
+html.restart-up { overflow: hidden; scrollbar-gutter: auto; }
 /* The pack's header: a three-column sticky grid (left group | centred nav
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
@@ -12213,7 +12225,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-grok-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
-    <!-- #3939 slice 3b: Meta Muse, behind AGENT_WORKFORCE_MUSE=1 on a Mac (GET /api/muse says enabled).
+    <!-- #3939 slice 3b: Meta Muse, behind the Muse switch (GET /api/muse says enabled).
          Muse Code's own sign-in is a device code, run out of sight (engine/musesignin.js): the page shows
          Meta's page and the code in the #3952 boxes, offers a new code when one expires, and stops it.
          Off, the Meta option stays "coming soon" exactly as before and this never shows. -->
@@ -17423,6 +17435,9 @@ function windowsCopyTable() {
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
     offlineRemedy: 'Double-click Kosmos.exe in your Kosmos folder and it will start again if it needs to.',
+    /* #4343, Homer's wording: the launcher installs to %LOCALAPPDATA%/Programs/Kosmos with a Start
+       menu entry, so there is no "Kosmos folder" a Windows person would recognise. */
+    restartHow: 'Close the Kosmos window, then open Kosmos again from the Start menu.',
   };
 }
 function windowsCopy(key) {
@@ -20323,6 +20338,11 @@ function agoWords(ms) {
   return days + (days === 1 ? ' day ago' : ' days ago');
 }
 
+/* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
+   and the full-restart screen (#4343) branch on. One function, so the two cannot drift apart. */
+function offlineRemoteView() {
+  try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
+}
 /**
  * The one thing worth saying when nothing is answering at all.
  *
@@ -20401,8 +20421,7 @@ function paintOfflineNote(down, deviceIsOffline) {
      can do. Say it is the Mac, the usual reason (asleep or off), and what to do about it from
      here; and since a phone on a captive portal also reads as online (state 1 cannot see it),
      point at its own connection too. */
-  let remote = false;
-  try { remote = !onWindows() && kplusRemote(); } catch { /* a document with no location is not remote */ }
+  const remote = offlineRemoteView();
   if (remote) {
     let at = '';
     try { if (location && location.host) at = ' Nothing answered at ' + esc(location.host) + '.'; }
@@ -20438,6 +20457,110 @@ function paintOfflineNote(down, deviceIsOffline) {
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b>'
     + (detail.length ? '<small>' + detail.join(' ') + '</small>' : '')
     + '</div></div>';
+}
+
+/* #4343 (Josh, 2026-09-28): "a nice clean centered graphic that says, 'Kosmos requires a full
+ * restart'", and nothing else on screen. It takes over from the note above once this window's own
+ * board has not answered for RESTART_SCREEN_AFTER_MS, and goes away by itself on the first poll
+ * that answers.
+ *
+ * It is a separate function from paintOfflineNote on purpose: that note names no cause and no
+ * remedy beyond reopening, and its tests hold it to that. This screen is Josh's ruling to say
+ * "restart" plainly, as the thing to do, and it still names no cause.
+ *
+ * Not shown when the note is telling a different story: the device itself is offline, the page
+ * is a Kosmos+ remote view (the Mac is somewhere else, and quitting this window restarts nothing),
+ * or an update is running (its own overlay owns the screen while the board is away on purpose).
+ * Nor on a page that no board served (file://, as the hermetic browser checks load it): there is
+ * nothing there to restart, and the poll fails on every tick.
+ * The page cannot restart the board itself, so there is no button: it says how.
+ */
+const RESTART_SCREEN_AFTER_MS = 15000;
+/* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
+   in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
+function restartHowMac() {
+  let app = false;
+  try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
+  return app ? 'Quit Kosmos with Command-Q, then open it again from your Applications folder.'
+    : 'Open Kosmos again from your Applications folder.';
+}
+/* While the restart screen is up, no key reaches the page behind it. Every dialog's Escape and Tab
+   handler (first run, updates, the notices, the modals, the pickers) listens on document, and a
+   window capture listener runs before all of them, so one guard covers the ones that exist and the
+   ones added later. It does not preventDefault, so Command-Q and the browser's own keys still work. */
+window.addEventListener('keydown', (e) => { if (document.querySelector('.restart-back')) e.stopPropagation(); }, true);
+let BOARD_NO_ANSWER_SINCE = null;
+let RESTART_SCREEN_INERTED = [];
+let RESTART_SCREEN_WATCH = null;    // inerts anything added to <body> while the screen is up
+let RESTART_SCREEN_RETURN = null;   // where focus was, to give it back on recovery
+function restartScreenInert(el) {
+  if (el.classList && el.classList.contains('restart-back')) return;
+  if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }
+}
+function paintRestartScreen(down, deviceIsOffline) {
+  const shown = document.querySelector('.restart-back');
+  const remote = offlineRemoteView();
+  let served = false;
+  try { served = location.protocol === 'http:' || location.protocol === 'https:'; } catch { /* no location: not served */ }
+  /* A world switch restarts the board on purpose and can take minutes (worldswReconnect), so it
+     stands down like an update does. Any stand-down also restarts the 15 s clock, so a board still
+     down afterwards gets a fresh wait rather than the screen on the very next poll. */
+  /* #4356: nor while Connect on the first screen stops this board on purpose (FR_CHOICE_CONNECTING). */
+  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING
+      || (typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING)) {
+    BOARD_NO_ANSWER_SINCE = null;
+    if (shown) {
+      shown.remove();
+      if (RESTART_SCREEN_WATCH) { RESTART_SCREEN_WATCH.disconnect(); RESTART_SCREEN_WATCH = null; }
+      RESTART_SCREEN_INERTED.forEach((el) => { el.inert = false; });
+      RESTART_SCREEN_INERTED = [];
+      document.documentElement.classList.remove('restart-up');
+      const back = RESTART_SCREEN_RETURN;
+      RESTART_SCREEN_RETURN = null;
+      if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+    }
+    return;
+  }
+  const now = Date.now();
+  if (BOARD_NO_ANSWER_SINCE === null) BOARD_NO_ANSWER_SINCE = now;
+  if (shown || now - BOARD_NO_ANSWER_SINCE < RESTART_SCREEN_AFTER_MS) return;
+  const detail = [];
+  const v = bakedVersion();
+  if (v) detail.push('Version ' + v);
+  try { if (location && location.host) detail.push('nothing answered at ' + location.host); }
+  catch { /* no location: the version stands alone */ }
+  /* A modal that takes the whole page: announced once, by its heading and its how-to, on focus. Built
+     as one string with the backdrop's id first, so web.modal-way-out-1316's sweep names it. */
+  const holder = document.createElement('div');
+  holder.innerHTML = '<div class="restart-back" id="restart-screen">'
+    + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
+    + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
+    + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
+    + '<p id="restart-how">' + platformCopy('restartHow', restartHowMac()) + '</p>'
+    + '</div></div>';
+  const back = holder.firstElementChild;
+  /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
+     not answer go to the log, not onto the page. */
+  if (detail.length) { try { console.info('Kosmos requires a full restart: ' + asSentence(detail.join(', '))); } catch { /* no console */ } }
+  /* #4356: a board that is really down under the first screen shows this screen, not dead buttons:
+     the first screen goes (and gives back only its own inert holds) before this one takes the page. */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
+  RESTART_SCREEN_RETURN = document.activeElement;
+  document.body.appendChild(back);
+  document.documentElement.classList.add('restart-up');
+  startKLoader(back.querySelector('.restart-k'), { still: true });
+  /* Everything behind it goes inert, and only what this screen made inert is given back when it
+     clears, so a dialog that was already inert for its own reason stays that way. A tip, toast or
+     dialog added to <body> while it is up is made inert too. */
+  document.querySelectorAll('body > *').forEach(restartScreenInert);
+  if (typeof MutationObserver === 'function') {
+    RESTART_SCREEN_WATCH = new MutationObserver((recs) => {
+      recs.forEach((r) => r.addedNodes.forEach((n) => { if (n.nodeType === 1) restartScreenInert(n); }));
+    });
+    RESTART_SCREEN_WATCH.observe(document.body, { childList: true });
+  }
+  back.querySelector('.restart-msg').focus();
 }
 
 /* #3124: the agent-status freshness stamp now ages on the OBSERVER'S clock, on
@@ -20631,6 +20754,12 @@ async function tick() {
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
+    /* #4343: a parsed 200 is the board answering, whatever a painter below then does. Without this
+       a painter that throws lands in the catch as "nothing answered", and the full-restart screen
+       would lock a person out of a board that is up. */
+    answered = true;
+    BOARD_NEEDS_SIGNIN = false;   // a 200 means this browser is authed (#2023), whatever throws below
+    BOARD_SIGNED_OUT = false;
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
@@ -21182,6 +21311,7 @@ async function tick() {
     /* The board answered, so whatever this said is no longer true. Cleared on
        the same paint that proves it. */
     paintOfflineNote(false);
+    try { paintRestartScreen(false); } catch { /* the board answered; its own paint must go on */ }
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
@@ -21260,6 +21390,7 @@ async function tick() {
        engine's sentence; painting "not answering" over it would be the screen
        contradicting itself, and the person would believe the louder half. */
     paintOfflineNote(!answered, BOARD_DEVICE_OFFLINE);
+    try { paintRestartScreen(!answered, BOARD_DEVICE_OFFLINE); } catch { /* the failure paint below must still run */ }
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
     // #3124: the failed poll owns the stamp; stop the ~1s ager repainting an age
@@ -22713,11 +22844,12 @@ function agyAsk() {
 }
 /* #3939 slice 3c-3b: Meta Muse in the Create Agent form. Muse has no Kosmos account to pick and picks its own
    model, like Gemini on a Google subscription, so its option is gated on GET /api/muse: offered only when
-   Muse is turned on here (AGENT_WORKFORCE_MUSE=1 on a Mac), installed, and signed in. null = not read yet or
+   Muse is switched on here (GET /api/muse says enabled), installed, and signed in. null = not read yet or
    the read failed: the option keeps today's "Coming soon", never a guess, so a board with the flag off
    looks exactly as before. On the agent page (#d-provider) Meta is selectable only as the agent's CURRENT
    provider: switching an agent onto Muse is not offered yet. */
-let MUSE_CREATE = null;   // { on, installed, ready } from the last good read
+let MUSE_CREATE = null;   // { on, installed, ready, at } from the last good read (at: Date.now() of that read)
+const MUSE_OFF_RECHECK_MS = 60000;   // a switched-off answer is asked again after this long
 let MUSE_CREATE_ASKING = null;
 function paintMuseOption(sel, current) {
   const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'meta') : null;
@@ -22731,17 +22863,19 @@ function paintMuseOption(sel, current) {
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function museCreateAsk() {
-  /* Asked again on every paint while Muse is turned on here (the read is a file check): a person who
-     signs in to Meta with the board open sees the option turn on without a reload. Turned off here is
-     settled for this page: the flag is read when the board starts. One read in flight at a time. */
+  /* Asked again on every paint while Muse is switched on here (the read is a file check): a person who
+     signs in to Meta with the board open sees the option turn on without a reload. Switched off is asked
+     again only after MUSE_OFF_RECHECK_MS (the preview marker can switch it on with the page open), so a
+     board that is off makes at most one read a minute. Asked when the form paints, not on a timer: an open
+     form shows the change when it is next painted or reopened. One read in flight at a time. */
   if (MUSE_CREATE_ASKING) return MUSE_CREATE_ASKING;
-  if (MUSE_CREATE && MUSE_CREATE.on === false) return Promise.resolve();
+  if (MUSE_CREATE && MUSE_CREATE.on === false && Date.now() - MUSE_CREATE.at < MUSE_OFF_RECHECK_MS) return Promise.resolve();
   MUSE_CREATE_ASKING = fetch('/api/muse', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((b) => {
       if (!b || typeof b !== 'object') return;
       const on = b.enabled === true;
-      MUSE_CREATE = { on, installed: on && b.installed === true, ready: on && b.installed === true && b.signedIn === true };
+      MUSE_CREATE = { on, installed: on && b.installed === true, ready: on && b.installed === true && b.signedIn === true, at: Date.now() };
     })
     .catch(() => { /* kept as it was: never a confident answer from a failed read */ })
     .finally(() => {
@@ -26496,7 +26630,7 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
   go.focus();
 });
 /* #3939 slice 3b: Meta Muse in Settings, AI Models, Add a provider. Only when GET /api/muse says enabled
-   (AGENT_WORKFORCE_MUSE=1 on a Mac); otherwise the Meta option stays "coming soon" as before. The sign-in
+   (GET /api/muse says enabled); otherwise the Meta option stays "coming soon" as before. The sign-in
    runs out of sight on the engine (engine/musesignin.js); this starts it, polls it, shows Meta's page and
    the code (#3952 boxes), offers a new code when one expires, and stops it. The id it keeps is the one its
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and
@@ -28305,7 +28439,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, dialog[open], #boot-cover:not([hidden])');
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -34674,8 +34808,8 @@ function wnWire(back) {
 /* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
-  // #4288 part B: and the one-time Community notice, so the two windows never stack.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice');
+  // #4288 part B: and the one-time Community notice, so the two windows never stack. #4343: and the restart screen.
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -38851,7 +38985,7 @@ let ROLES = null;          // the menu, fetched once
      least ... a single animation of the K animating into the circle"), so it lives
      here as the one source rather than a magic 4400 duplicated at the two sites. */
   const K_LOADER_CYCLE_MS = 4400;
-  function startKLoader(cv) {
+  function startKLoader(cv, opts) {
     if (!cv || !cv.getContext) return;
     var g = cv.getContext('2d');
     var W = cv.width, H = cv.height;
@@ -38978,7 +39112,8 @@ let ROLES = null;          // the menu, fetched once
       }
     }
 
-    if (slow) {
+    /* #4343: `still` draws the finished mark and nothing moves, for a screen where nothing is working. */
+    if (slow || (opts && opts.still)) {
       /* Reduced motion still gets both STATES, because they are information:
          the mark, and the mark completed. It just does not travel between them. */
       frame(1, 0);
@@ -62735,7 +62870,7 @@ function tipMenuOpen() {
 
 function tipModalOpen() {
   // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, dialog[open]');
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
 }
 
 function tipVisibleAny(sel) {
@@ -64196,12 +64331,24 @@ function frChoiceForget(mode) {
    places append to <body> (the setup assistant's layer, toasts, tips), and a layer added after the
    screen went up would take Tab and screen-reader focus from behind it (review round 4). */
 let FR_CHOICE_WATCH = null;
+let FR_CHOICE_INERTED = [];   // only what this screen made inert is given back, as the restart screen (#4343) does
+let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being stopped on purpose
+function frChoiceHold(n) {
+  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
+  n.inert = true;
+  FR_CHOICE_INERTED.push(n);
+}
 function frChoiceInert(on) {
-  document.querySelectorAll('body > *:not(#fr-choice)').forEach((n) => { n.inert = on; });
   if (FR_CHOICE_WATCH) { FR_CHOICE_WATCH.disconnect(); FR_CHOICE_WATCH = null; }
-  if (on && typeof MutationObserver === 'function') {
+  if (!on) {
+    FR_CHOICE_INERTED.forEach((n) => { n.inert = false; });
+    FR_CHOICE_INERTED = [];
+    return;
+  }
+  document.querySelectorAll('body > *:not(#fr-choice)').forEach(frChoiceHold);
+  if (typeof MutationObserver === 'function') {
     FR_CHOICE_WATCH = new MutationObserver((recs) => {
-      for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && n.id !== 'fr-choice') n.inert = true;
+      for (const r of recs) for (const n of r.addedNodes) frChoiceHold(n);
     });
     FR_CHOICE_WATCH.observe(document.body, { childList: true });
   }
@@ -64226,6 +64373,7 @@ function frChoose() {
         if (told || mode === 'both') frChoiceForget(mode);
         if (mode === 'connect') {
           if (!told) return;
+          FR_CHOICE_CONNECTING = true;   // the board goes down now on purpose: no restart screen over it
           btns.forEach((x) => { x.disabled = true; });
           resolve('connect');
           return;
