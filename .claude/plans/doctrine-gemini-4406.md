@@ -95,3 +95,11 @@ him the way back (the previous version), which is the part that matters.
   status line keeps tabIndex -1 (harmless).
 - The validation after round 2 was red only on engine/musefront.test.js "a long turn keeps saying working",
   not in this diff, the same load-sensitive test that passed alone 15/15 this morning.
+
+## Review round 4 (sonnet, 16:04)
+- DEFERRED: a file that exists but is refused (not UTF-8, over the size ceiling, a symlink) does not offer the
+  kept previous version. Read on purpose: that branch answers editable:false, so Save is refused there and a
+  restore into the box could never be kept; offering it would be the action-that-cannot-finish this screen
+  avoids everywhere. What would change it: letting Save replace a refused file, which is its own decision.
+- NIT taken: the new route wraps readPrevious in try/catch like the instructions GET beside it. Left: the
+  UTF-8 round-trip check is written twice (inspect and readPrevious); both are one line.

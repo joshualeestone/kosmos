@@ -14051,7 +14051,11 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(instrPrev[1]);
     if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
-    sendJson(res, 200, instructions.readPrevious(name));
+    try {
+      sendJson(res, 200, instructions.readPrevious(name));
+    } catch {
+      sendJson(res, 500, { error: 'the previous version could not be read' });   // as the GET beside it
+    }
     return;
   }
 
