@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: updchannel-2969
-diff_hash: 67d5414172df10274fa2f0f87fa96bc8096ee74758863e007a03456f45dc28e3
+diff_hash: 0391f05f48e3e98853c82777b5113cfe0571c29593e5ed04b3280af443ba8588
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T15:49:00Z
-iterations: 4
+timestamp: 2026-09-28T17:00:13Z
+iterations: 6
 converged: true
 ---
 
@@ -45,13 +45,22 @@ converged: true
 **Reviewer model:** none (validation helper)
 - No issues found: node 11260 tests, 0 failed; no leaks; validation PASSED (hash 67d5414172df); subdir audit passed.
 
+#### Iteration 5 (CI, after the PR opened)
+**Reviewer model:** none (CI browser-checks, the first live run of the checks this branch changed)
+- [BLOCKER] docs/browser-checks/render-updates-stale.js: its control expected a named channel, but its own stub answered /api/update/check with no `channel` field, so the page correctly took the untold-channel arm ("Up to date."); the real endpoint always sends channel --> FIXED (29e907b25): the stub sends channel 'prod' and the control expects "Up to date on the release channel.". render-update-win32-manual.js passed live in the same run.
+
+#### Iteration 6 (validation)
+**Reviewer model:** none (validation helper)
+- No issues found: node 11260 tests, 0 failed; validation PASSED (hash 0391f05f48e3); subdir audit passed. The changed check runs live again in this PR's CI.
+
 ### Final Ledger
 | Finding | Status |
 |---|---|
 | Iteration 1: 2 WARNINGs, 1 CONVENTION, 4 NITs | FIXED |
 | Iteration 1: verdict names the live channel, not the look's | DEFERRED |
 | Iteration 3: reachable-export and leak findings | FIXED |
+| Iteration 5: render-updates-stale stub had no channel | FIXED |
 
 ### Notes
 - Every new #2969 test was run red with its fix removed (fallback, prod comparison, Settings sentence) and green with it.
-- The two live-board browser checks this branch changes (render-updates-stale.js, render-update-win32-manual.js) were NOT run live: they need a running board, and a hand-started board is refused on this box. The validation ran only the static surface-map check on them (PASS). They run live at the next cut's browser gate; their changed assertions are the verdict sentence only, which web.win32-update-offer.test.js pins against the real paintUpdateCard.
+- The two live-board browser checks this branch changes could not run on this box (a hand-started board is refused here); they run live in this PR's CI browser-checks job, which is how iteration 5 was found.
