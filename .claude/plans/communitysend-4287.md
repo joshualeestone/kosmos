@@ -44,21 +44,6 @@ never holds it.
 8. **Take-downs:** at most every 30 minutes per agent, `GET /agents/me/posts`; take-down state and reason are
    stored against the local post id. Route `GET /api/community/sent` shows it. The board UI is a follow-up.
 9. **Per-install pseudonymous id: not sent.** The backend (#4282) has no field for it; the payload is pinned.
-
-## Acceptance map (card)
-
-1 published reaches a local instance with pinned keys · 2 held/quarantined never, released does ·
-3 switch OFF sends nothing · 4 no personal data even when surrounding state has it · 5 down/slow server
-blocks and throws nothing · 6 harness boards never send (#4253 exports + guard) · 7 key file 0600, not in
-any instruction file or env.
-
-## Files
-
-- engine/communitysend.js, engine/communitysend.test.js
-- server.js: sweep timer + two routes
-- tools/run-tests.sh, tools/test-install.sh, tools/build-kosmos-bundle.sh, tools/browser-checks.sh,
-  server.guide-on-connect-3660.test.js, tools.no-phone-home-4253.test.js: AGENT_WORKFORCE_COMMUNITY_URL
-
 7d. **Any status without its own rule:** a 401 whose re-login cannot be had stays pending (nothing was stored);
    any other 4xx is refused with `http_<code>`; anything else may have been stored, so it is adopted next sweep.
    `statuses()` carries `lastStatus`. Failures are logged (status and the agent's key, never a body or a token).
@@ -98,6 +83,33 @@ any instruction file or env.
 7m. **Each stage of a sweep is guarded on its own** (settling unconfirmed sends, each post's send, deletes,
    take-down reads): a save that throws in one is logged and retried next sweep without stopping the others.
    An unconfirmed post is looked up once per sweep, in the settle stage; the send and withhold paths wait on it.
+7n. **Write-ahead:** a post is marked `attempted` on disk before its POST goes out, so a board that stops mid-send
+   looks for it on the server after the restart instead of sending it again. A 429 or a 401 clears the mark (nothing
+   was stored). Every post of a refused agent is recorded, so `statuses()` shows `agentRefused` on each. A delete the
+   server does not accept is recorded as `deleteStatus` and retried.
+   **Deferred (round 7 NITs):** a sweep already in flight is joined and a new `now` is ignored (production passes
+   none). With the switch OFF the board still talks to the server for deletes, take-down reads and a re-login; that is
+   deliberate here and is flagged to #4288 in case OFF should mean no traffic at all.
+
+## Acceptance map (card)
+
+1 published reaches a local instance with pinned keys · 2 held/quarantined never, released does ·
+3 switch OFF sends nothing · 4 no personal data even when surrounding state has it · 5 down/slow server
+blocks and throws nothing · 6 harness boards never send (#4253 exports + guard) · 7 key file 0600, not in
+any instruction file or env.
+
+## Files
+
+- engine/communitysend.js, engine/communitysend.test.js, engine/communitysend.contract.test.js (skipped unless
+  KOSMOS_COMMUNITY_CONTRACT_URL names a running kosmos-community)
+- engine/communitystore.js: `releasedAt` on release, `publishedPosts()`, `postMeta()` (+ engine/communitystore.test.js)
+- engine/communitysite.js: exports `DEFAULT_AUTHOR_NAME`
+- server.js: sweep timer, boot sweep, `GET /api/community/sent`, `POST /api/community/delete`
+  (+ server.community-gate.test.js)
+- engine.reachable.test.js: three excused exports
+- CLAUDE.md: the router row
+- tools/run-tests.sh, tools/test-install.sh, tools/build-kosmos-bundle.sh, tools/browser-checks.sh,
+  server.guide-on-connect-3660.test.js, tools.no-phone-home-4253.test.js: AGENT_WORKFORCE_COMMUNITY_URL
 
 ## Known limits
 
@@ -106,6 +118,7 @@ any instruction file or env.
 - Every sweep reads the whole published list; fine at beta volume, linear in the number of posts.
 - `/agents/me/posts` lists an agent's newest 200 posts: take-downs of older posts are not read back, and a lost
   send is only recognised while it is among them (it is settled on the next sweep, so it normally is).
+- A pending post from an earlier ON period is never due again (the new `since` is later) and stays `pending`.
 - `deletes.json` is never pruned; one small entry per post the owner deleted.
 - A post published after the switch goes ON but before the next sweep notices is not sent (at most 15 s after a
   boot, else up to 5 minutes). #4288 could expose when the switch changed, and `since` could use it.

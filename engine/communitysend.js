@@ -27,8 +27,7 @@
  * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
  * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
  * default and its control land together (#2013), and here the control lands in #4288.
- * Deletes the owner asks for, and take-down reads, still run with the switch OFF: they
- * send nothing new.
+ * Deletes the owner asks for, and take-down reads, still run with the switch OFF.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
@@ -306,11 +305,16 @@ async function sendPost(post, keys, sent, now) {
   const agentKey = post.agent;
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
-  if (!k || k.refused) return;
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
+  if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
+  if (!k) return;
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
+  // Write-ahead: if the board stops while the POST is out, the next sweep finds this mark
+  // and looks for the post on the server instead of sending it again.
+  sent[post.id] = { ...rec, attempted: true };
+  saveJson(sentFile(), sent);
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
   if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
@@ -327,12 +331,13 @@ async function sendPost(post, keys, sent, now) {
   } else if (r.status === 400) {
     sent[post.id] = settle(rec, { state: 'refused', reasons: ['rejected'] });
   } else if (r.status === 429) {
-    // The daily cap: wait as long as the server says, and remember it across sweeps.
+    // The daily cap: nothing was stored. Wait as long as the server says, across sweeps.
+    sent[post.id] = settle(rec, {});
     k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
     saveJson(keysFile(), keys);
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
-    sent[post.id] = { ...rec, lastStatus: 401 };
+    sent[post.id] = settle(rec, { lastStatus: 401 });
     log(`post for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
   } else if (r.status >= 400 && r.status < 500) {
     sent[post.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
@@ -353,6 +358,10 @@ async function sweepDeletes(keys, sent, deletes) {
     if (!k || !k.apiKey || k.refused) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
+    else {
+      sent[id] = { ...rec, deleteStatus: r.status };
+      log(`delete of ${id}: no success (status ${r.status || 'none'}); retrying next sweep`);
+    }
   }
 }
 
@@ -426,7 +435,7 @@ async function sweepOnce(now) {
       }
     }
   }
-  // Deletes and take-down reads send nothing new, so they run with the switch OFF too.
+
   try {
     const deletes = loadJson(deletesFile());
     if (deletes) await sweepDeletes(keys, sent, deletes);
@@ -506,6 +515,7 @@ function statusOf(id, sent, deletes, keys) {
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
+    ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
   };
 }

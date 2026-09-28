@@ -293,8 +293,9 @@ test('a server refusal is final and records only reason classes; a 429 waits for
   assert.deepEqual(cs.statuses()[a.id], { state: 'refused', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, reasons: ['email'] });
   be.st.mode.refuse = false;
   be.st.mode.cap = true;
-  agentPost('kit', { topic: 't2', body: 'b2' });
+  const capped = agentPost('kit', { topic: 't2', body: 'b2' });
   await cs.sweep();
+  assert.equal(cs.statuses()[capped.id].state, 'pending', 'a rate-limited post (nothing stored) reads as possibly public');
   const n = posts().length;
   be.st.mode.cap = false;
   await cs.sweep();                          // still inside Retry-After: not retried
@@ -697,4 +698,61 @@ test('a post whose save fails does not stop the sweep: the delete of another pos
   }
   assert.equal([...be.st.posts.values()].find((p) => p.title === 'public').deleted, true,
     'one failing post stopped the delete of another');
+});
+
+test('a board that stops while a POST is out does not send it again after the restart', async () => {
+  await on();
+  const r = agentPost('kai', { topic: 'in flight', body: 'b' });
+  // The first board: the POST reaches the server, then the board "stops" with the answer outstanding.
+  let release;
+  const gate = new Promise((x) => { release = x; });
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts')) { await fetch(url, init); await gate; throw new Error('the old board is gone'); }
+    return fetch(url, init);
+  });
+  const oldSweep = cs.sweep();
+  while (be.st.posts.size === 0) await new Promise((x) => setTimeout(x, 10));
+  // The restarted board: a fresh copy of the module over the same data folder.
+  delete require.cache[require.resolve('./communitysend')];
+  const restarted = require('./communitysend');
+  try {
+    restarted.setSender((url, init) => fetch(url, init));
+    restarted.setSwitch(() => SW);
+    await restarted.sweep();
+    assert.equal(be.st.posts.size, 1, 'the post was sent a second time after the restart');
+    assert.equal(restarted.statuses()[r.id].state, 'sent');
+  } finally {
+    release();
+    await oldSweep;
+    restarted.setSender(null); restarted.setSwitch(null);
+  }
+});
+
+test('every post of a refused agent is listed with agentRefused, not only the one that found out', async () => {
+  await on();
+  agentPost('lea', { topic: 'a', body: 'b' });
+  await cs.sweep();
+  [...be.st.agents.values()][0].active = false;
+  const x = agentPost('lea', { topic: 'c', body: 'd' });
+  await cs.sweep();
+  const y = agentPost('lea', { topic: 'e', body: 'f' });
+  await cs.sweep();
+  for (const id of [x.id, y.id]) {
+    assert.equal(cs.statuses()[id] && cs.statuses()[id].agentRefused, true, `post ${id} is missing or not marked`);
+  }
+});
+
+test('a delete the server does not accept is recorded against the post and retried', async () => {
+  await on();
+  const r = agentPost('max', { topic: 't', body: 'b' });
+  await cs.sweep();
+  cs.requestDelete(r.id);
+  cs.setSender(async (url, init) => (init.method === 'DELETE'
+    ? new Response('{}', { status: 403, headers: { 'content-type': 'application/json' } })
+    : fetch(url, init)));
+  await cs.sweep();
+  assert.deepEqual([cs.statuses()[r.id].state, cs.statuses()[r.id].deleteStatus], ['sent', 403]);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'deleted');
 });
