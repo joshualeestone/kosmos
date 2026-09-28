@@ -13089,9 +13089,10 @@ const server = http.createServer((req, res) => {
     /* #4340: from THIS thread's own rows, not messages.owesReply. That reads the `kosmos msg` / room log, where a
        person's DM and the agent's `kosmos reply` never are: a DM never made it owe, and a colleague's message
        could make it owe under a visible answer. The stored rows (before the question/account rows are added,
-       which are Kosmos's own and not a reply), under the agent's CANONICAL name, as its replies are filed. A
+       which are Kosmos's own and not a reply), matched on `name`, the key the thread was read under: readThread
+       refuses a file whose stored agent differs, so every agent row it returns carries exactly that name. A
        thread we could not read (messages null) answers `unknown`. */
-    const owes = chat.dmOwes(messages, (card && card.sessionName) || name);
+    const owes = chat.dmOwes(messages, name);
     /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
        as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
        banner fields (asking/question/…) below are unchanged, so Mona's banner

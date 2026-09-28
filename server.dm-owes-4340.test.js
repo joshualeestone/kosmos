@@ -65,12 +65,25 @@ test('#4340: the agent\'s reply in the thread clears it', async () => {
   assert.equal((await owes()).state, 'clear');
 });
 
+test('#4340: a thread that cannot be read answers unknown, never a confident clear', async () => {
+  const file = chat.threadFile(chat.DIRECT, AGENT);
+  const kept = fs.readFileSync(file);
+  try {
+    fs.writeFileSync(file, '{"messages": [');   // cut short
+    assert.equal((await owes()).state, 'unknown');
+  } finally {
+    fs.writeFileSync(file, kept);
+  }
+  assert.equal((await owes()).state, 'clear', 'CONTROL: the restored thread reads again');
+});
+
 test('#4340: a colleague\'s kosmos msg to the agent does not put the person\'s thread back in debt', async () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   fs.appendFileSync(messages.LOG, JSON.stringify({
     id: 'm-4340', kind: 'message', from: 'colleague', to: AGENT, text: 'ping', at: new Date().toISOString(),
   }) + '\n');
-  assert.equal(messages.owesReply(AGENT).state, 'owes',
-    'fixture: the message log does not read this row as owed, so this test would pass for any code');
+  const rec = messages.record();
+  assert.ok(rec.ok && rec.rows.some((r) => r.id === 'm-4340' && r.kind === 'message' && r.to === AGENT),
+    'fixture: the colleague row is not in the message log addressed to the agent, so this test proves nothing');
   assert.equal((await owes()).state, 'clear', 'a colleague\'s message made the person\'s answered thread owe');
 });

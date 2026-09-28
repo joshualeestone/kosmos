@@ -2792,15 +2792,6 @@ function looksLikeManager(role) {
   return /manager|\bpm\b|project lead|\blead\b/.test(said);
 }
 
-/* #2863: the per-AGENT read cursor for the operator's 1:1 DM channel, the exact
-   analog of messages.js `room-seen.json` but keyed by agent rather than project,
-   because a DM thread is one person and one agent, not a room. "Unread" is every
-   REPLY the agent posted to its DIRECT thread after the moment the person last
-   opened it; the person's own messages never count (they carry no `from`, see
-   readThread). Held on disk beside room-seen.json so it survives a reload and a
-   restart. A cursor file we cannot read is UNKNOWN, never "never opened": the
-   count answers null and the badge draws nothing, the same rule readThread and
-   the room precedent both follow. */
 /**
  * #4340: does the agent owe the person an answer in their ONE-TO-ONE thread, from that thread's own rows?
  *
@@ -2809,11 +2800,14 @@ function looksLikeManager(role) {
  * rows of this DIRECT thread. So a person's DM never made it owe, and a colleague's `kosmos msg` could make it
  * owe under a thread whose answer is visible. This reads the thread the page draws.
  *
- * The two writers of a DIRECT thread: the person's message has NO `from` (see readThread), with a `delivery`;
- * the agent's reply (keepAgentReply) has `from` equal to the agent. Only a person message that REACHED the
- * agent (`delivery.state === placed`) can put it in debt: one that could not be delivered was never received,
- * the same rule dmOwesLine applies to its timing. Owes when the newest such message is newer than the agent's
- * newest reply. Never spoken to: clear.
+ * Who writes a DIRECT thread: the person's message has NO `from` (see readThread), with a `delivery`; every
+ * agent row goes through keepAgentReply with `from` equal to the agent (its `kosmos reply`, a drained reply, and
+ * Kosmos's own daily-limit notice said in the agent's name, which clears the debt too: an answer is visibly
+ * there). Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one
+ * that could not be delivered was never received, the same rule dmOwesLine applies to its timing. A MENU ANSWER
+ * (a row with a `wire`, the keystroke that answered the agent's own question) is not a message to answer: the
+ * agent carries on working and owes nothing. Owes when the newest remaining person message is newer than the
+ * agent's newest row. Never spoken to: clear.
  *
  * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Same shape as owesReply.
  */
@@ -2831,6 +2825,7 @@ function dmOwes(rows, agent) {
     if (t === null) continue;
     if (m.from === undefined || m.from === null) {
       if (!(m.delivery && m.delivery.state === DELIVERY.PLACED)) continue;
+      if (typeof m.wire === 'string' && m.wire) continue;   // a menu answer, not a message to reply to
       if (heard === null || t > heard) { heard = t; heardAt = m.at; }
     } else if (m.from === name) {
       if (sent === null || t > sent) { sent = t; sentAt = m.at; }
@@ -2840,6 +2835,15 @@ function dmOwes(rows, agent) {
   return { state: owes ? 'owes' : 'clear', lastHeardAt: heardAt, lastSentAt: sentAt, because: null };
 }
 
+/* #2863: the per-AGENT read cursor for the operator's 1:1 DM channel, the exact
+   analog of messages.js `room-seen.json` but keyed by agent rather than project,
+   because a DM thread is one person and one agent, not a room. "Unread" is every
+   REPLY the agent posted to its DIRECT thread after the moment the person last
+   opened it; the person's own messages never count (they carry no `from`, see
+   readThread). Held on disk beside room-seen.json so it survives a reload and a
+   restart. A cursor file we cannot read is UNKNOWN, never "never opened": the
+   count answers null and the badge draws nothing, the same rule readThread and
+   the room precedent both follow. */
 const DM_SEEN = path.join(store.ROOT, 'dm-seen.json');
 
 function dmSeenRead() {

@@ -38,6 +38,13 @@ test('a person message that did NOT reach the agent puts it in no debt', () => {
   assert.equal(chat.dmOwes([{ text: 'hi', at: at(5) }], A).state, 'clear', 'a row with no delivery made it owe');
 });
 
+test('a MENU ANSWER (a row with a wire: the keystroke that answered the agent\'s question) is not a message to reply to', () => {
+  const menu = { ...person(5), text: 'Yes, and don\'t ask again', wire: '2' };
+  assert.equal(chat.dmOwes([menu], A).state, 'clear', 'pressing a menu button put the agent in debt');
+  assert.equal(chat.dmOwes([person(9), menu], A).state, 'owes', 'CONTROL: a real message before it is still owed');
+  assert.equal(chat.dmOwes([{ ...person(5), wire: null }], A).state, 'owes', 'an ordinary message (wire null) stopped counting');
+});
+
 test('only the agent\'s own rows are its answer; another author (a question row for someone else) is not', () => {
   assert.equal(chat.dmOwes([person(5), reply(3, 'someone-else')], A).state, 'owes');
 });
