@@ -63899,7 +63899,7 @@ async function asbHostedSend(text) {
 }
 
 /* #4405: the switch shows what is TRUE: on only while an assistant exists to show (a guide, or the hosted one).
-   Switched on with none (Ben: the default, and no guide was ever made) it reads OFF, so the one click that
+   Switched on with none (the default, and no guide was ever made) it reads OFF, so the one click that
    turns it on is the click that makes the guide. */
 function asbSwitchShowsOn() {
   return !!ASB.setting && ASB.setting.on === true && (!!ASB.guide || asbIsHosted());

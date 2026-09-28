@@ -10606,7 +10606,7 @@ const server = http.createServer((req, res) => {
         const saved = store.writeSettings(patch);
         const reply = { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) };
         /* #4405: switching the setup assistant ON in Settings > Help is how a person GETS one when
-           none is on this computer (never made: Ben; removed after "close forever": Nacho). Create it
+           none is on this computer (never made; or switched off with "close forever" and wanted back). Create it
            now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
         if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
           const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;

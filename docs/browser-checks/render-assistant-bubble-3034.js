@@ -105,7 +105,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const none = await bubble(page);
     chk(!none.layer && !none.bubble, 'B1 with no setup guide, no bubble and no layer', JSON.stringify(none));
     /* #4405: with no guide the Settings switch is STILL there (it is how a person gets one), reading OFF
-       because no assistant exists to show. It used to hide, which left Ben with no way to the assistant. */
+       because no assistant exists to show. It used to hide, which left a person with no guide no way to the assistant. */
     await page.evaluate(() => { showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
     chk(await waitFor(page, () => !!document.getElementById('asb-row') && !document.getElementById('asb-row').hidden, 4000),
       'B1 and the Setup assistant switch IS in Settings > Help (#4405: the way to get one)',
@@ -116,7 +116,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(who.loaded && who.w > 0 && who.w <= 32 && who.title === 'Kosmos Guide', 'B1 the row shows Josh\'s small picture beside "Kosmos Guide"', JSON.stringify(who));
     chk(await page.evaluate(() => document.getElementById('asb-toggle').getAttribute('aria-checked') === 'false'),
       'B1 and it reads OFF: no assistant exists to show', await page.evaluate(() => document.getElementById('asb-toggle').getAttribute('aria-checked')));
-    // B1b (Ben's state, no model connected): one click ON tries to make the guide and says why it could not.
+    // B1b (never had a guide, no model connected): one click ON tries to make the guide and says why it could not.
     await page.click('#asb-toggle');
     chk(await waitFor(page, () => /needs a connected AI model first/.test(document.getElementById('asb-row-msg').textContent) && !document.getElementById('asb-row-msg').hidden, 6000),
       'B1b switched on with no model: it says to connect a model first', await page.evaluate(() => document.getElementById('asb-row-msg').textContent));

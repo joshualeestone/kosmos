@@ -429,7 +429,7 @@ function armSetupAssistant() {
  * - A fresh install KNOWN to be still in onboarding is left to Giddy Up, so it is unchanged.
  *   `firstRunSeen` is firstrun.seen(). #4405 (Josh 2026-09-28 14:53: "default that on so everybody gets
  *   it and has to turn it off"): a first-run flag we could not read (known: false) now ARMS too, as first
- *   run itself treats it as done; it used to leave such an install without a guide for good (Ben's state).
+ *   run itself treats it as done; it used to leave such an install without a guide for good (a real user's state on 0.7.05).
  *   The person's switch still decides (ON by default, OFF only when they turned it off).
  * - Already armed is a no-op, so this runs once per install, and a guide someone removed is not re-created
  *   (the seeded flag is once-ever; the arm file never grants a second).

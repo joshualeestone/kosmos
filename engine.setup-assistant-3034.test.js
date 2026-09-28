@@ -259,7 +259,7 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
 
 /* ---- #4405: switching the assistant ON in Settings makes a guide when none is here ---- */
 
-test('#4405 an install whose first-run flag cannot be read IS armed at board start (Ben), and then gets its guide', async () => {
+test('#4405 an install whose first-run flag cannot be read IS armed at board start (never had a guide), and then gets its guide', async () => {
   // Josh 2026-09-28 14:53: "default that on so everybody gets it and has to turn it off".
   setupAssistant.resetEnsureGuideForTests();
   armed(false);
