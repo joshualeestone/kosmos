@@ -52,3 +52,14 @@ springs nodes with no notion of whose branch they are in, so it can also carry a
 - A tangent clamp in orgStep was tried and REMOVED: it was written for a crossing that turned out to be a
   test artifact (a fixed box smaller than a big tree pinned its outer ring to the edge), and with the test's
   canvas sized as paintOrg sizes it, the sector clamp alone holds over the 300 settled trees.
+
+## Browser check (docs/browser-checks/render-org-sectors-4434.js), measured behind heavy-gate
+- Wired in tools/browser-checks.sh on its own board (P17, a 17th port from pick_ports), seeded by
+  write_fleet_org with an optional tree: fifteen agents, five managers with uneven teams and depths.
+- It counts crossings among the wires AS DRAWN, after the chart settles, animated and reduced-motion, and
+  keeps a screenshot. Non-vacuity in-check: all agents drawn, one wire each, at least three managers, and a
+  control pair for the crossing count.
+- RED on main 41e887303 (1 crossing, n4 x n5, in both modes); GREEN on this branch (0 crossings in both).
+- Found on the way: my first board (the UNEVEN tree) was GREEN on main, because main's physics untangles it
+  once it settles. A check that cannot fail on main guards nothing, so the board is a tree that crosses on
+  main even after settling (the node test's seed-8 random tree).

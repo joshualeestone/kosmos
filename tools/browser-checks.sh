@@ -616,15 +616,18 @@ boot_board_rich() {
 # 🛑 NOT write_fleet_rich with more agents: render-org-chart's fill-band
 # assertion is keyed to node count (see write_fleet_rich), so a denser shared
 # board would take that check red. This board is separate for that reason.
+# #4434: an optional second argument is the tree as JSON ([[name, reportsTo], ...]); without it, the
+# dense #1870 tree above.
 write_fleet_org() {
   local sb="$1"
   mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers"
-  SB_ORG="$sb" node -e '
+  SB_ORG="$sb" ORG_TREE="${2:-}" node -e '
     const f = require("./test-support/fleet");
     const fs = require("fs");
     const sb = process.env.SB_ORG;
-    const tree = [["boss",""],["c1","boss"],["c2","boss"],["c3","boss"],["c4","boss"],
-      ["c5","boss"],["c6","boss"],["c7","boss"],["c8","boss"],["g1","c1"],["g2","c1"]];
+    const tree = process.env.ORG_TREE ? JSON.parse(process.env.ORG_TREE)
+      : [["boss",""],["c1","boss"],["c2","boss"],["c3","boss"],["c4","boss"],
+         ["c5","boss"],["c6","boss"],["c7","boss"],["c8","boss"],["g1","c1"],["g2","c1"]];
     const lines = [];
     for (const [a, to] of tree) {
       lines.push(f.line({ session: a + "-discord" }));
@@ -637,7 +640,7 @@ write_fleet_org() {
 }
 boot_board_org() {
   local sb="$1" port="$2"
-  write_fleet_org "$sb"
+  write_fleet_org "$sb" "${3:-}"
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -815,15 +818,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 16 ]; do
+  while [ "${#picked[@]}" -lt 17 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -1496,6 +1499,19 @@ if boot_board_org "$sbo" "$P16"; then
   run_one "render-org-reduced-motion" env KOSMOS_URL="http://127.0.0.1:$P16" node docs/browser-checks/render-org-reduced-motion.js
 else
   FAILED+=("render-org-reduced-motion (dense org board did not boot)")
+fi
+
+# --- kosmos#4434: an UNEVEN org board: fifteen agents, five of them managers with different team sizes and
+# --- depths, leaves between them. render-org-sectors-4434 counts crossings among the wires as drawn,
+# --- animated and reduced-motion. It is RED on main on this board even after the chart settles (measured:
+# --- n4 x n5); a tidier tree that only crosses before settling was tried first and was green on main, so
+# --- it could not guard anything. Its own board: the dense #1870 board has one manager.
+ORG_UNEVEN_TREE='[["n0",""],["n1",""],["n2",""],["n3",""],["n4","n2"],["n5","n3"],["n6","n3"],["n7",""],["n8","n1"],["n9","n4"],["n10","n2"],["n11","n4"],["n12","n8"],["n13",""],["n14",""]]'
+sbu="$(new_sandbox)"
+if boot_board_org "$sbu" "$P17" "$ORG_UNEVEN_TREE"; then
+  run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" node docs/browser-checks/render-org-sectors-4434.js
+else
+  FAILED+=("render-org-sectors-4434 (uneven org board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.
