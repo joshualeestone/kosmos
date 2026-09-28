@@ -273,7 +273,12 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
      fi
      /bin/sleep "$_rsleep"
    done
-   exec /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
+   # kosmos#4319: RUN setup, NOT exec it. exec replaced this shell, so the EXIT trap above never
+   # fired and every install left this directory (the installer and its checksum) in the temp
+   # dir of the person. Run as a child, this shell ends when setup ends: set -e exits with the
+   # status of setup when it fails, the trap removes the directory either way, and the exit
+   # code of setup is still the one the outer rc reads.
+   /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 
 if [ "$rc" -ne 0 ]; then
