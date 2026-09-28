@@ -14035,6 +14035,10 @@ const server = http.createServer((req, res) => {
          nowhere else. A branch its own endpoint cannot trigger is not a feature
          with no users, it is a state the screen claims to handle and does not. */
       const readOut = instructions.read(name, sessionOf(name));
+      /* #4406: the page offers "Put the previous version in the box" from hasPrevious, so it must mean what the
+         button can do: read's cheap check (a regular file is there) confirmed by the same reader the restore uses
+         (not empty, readable, UTF-8). Here only, not in read(): its other callers do not need it. */
+      if (readOut && readOut.hasPrevious) readOut.hasPrevious = instructions.readPrevious(name).exists;
       sendJson(res, 200, readOut && readOut.staleness
         ? { ...readOut, staleness: projects.toldOverride(readOut.staleness, sessionOf(name) || name) }
         : readOut);

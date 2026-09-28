@@ -126,3 +126,14 @@ him the way back (the previous version), which is the part that matters.
   on. Also red there, unrelated: engine/updating-988.test.js #3626 (hung tunnel), 40/40 alone, not in this diff.
 - NITs left: a second restore press is refused as unsaved (accepted in round 5); readPrevious's catch
   passes err.message (house style, unreachable in practice).
+
+## Review round 7 (opus, 16:41)
+- The offer ("Put the previous version in the box", and the missing-file line) came from read's cheap
+  hasPrevious (a regular file is there) while the button refuses an empty or unreadable kept file, so the two
+  could disagree. The instructions GET (the page's only source for it) now confirms hasPrevious with
+  readPrevious; read() stays cheap for its other callers. server.test: an empty kept file is not offered,
+  with a control; a known agent with nothing kept answers exists:false.
+- NITs taken: the browser check gains a control (nothing kept, nothing offered), an arm feeding the poll's
+  editable===false branch (the restore goes with the editor), and drops an unused binding.
+- My own slip: I edited the worktree while the validation after round 6 was still running; it was stopped
+  (it covered a superseded head) and the next run validates this one.

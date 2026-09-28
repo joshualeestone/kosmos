@@ -1588,6 +1588,17 @@ test('#4406: GET instructions/previous answers the kept version, writes nothing,
   assert.equal(body.exists, true);
   assert.equal(body.text, 'The instructions this agent had before the #4406 test ran.');
   assert.equal(fs.readFileSync(file, 'utf8'), text, 'reading the previous version must not write');
+  const offered = JSON.parse((await req(`/api/agent/${name}/instructions?t=2`)).body);
+  assert.equal(offered.hasPrevious, true, 'CONTROL: a kept version with words is offered');
+  // An empty kept file is not offered, so the offer and the button agree.
+  fs.writeFileSync(file + '.previous', '   \n');
+  const empty = JSON.parse((await req(`/api/agent/${name}/instructions?t=3`)).body);
+  assert.equal(empty.hasPrevious, false, 'an empty kept file must not be offered as a previous version');
+  // And nothing kept at all answers a plain no.
+  fs.rmSync(file + '.previous');
+  const none = await req(`/api/agent/${name}/instructions/previous`);
+  assert.equal(none.status, 200);
+  assert.equal(JSON.parse(none.body).exists, false);
 });
 
 test('both modules resolve worker files under the SAME sandboxed root', async (t) => {

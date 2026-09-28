@@ -375,6 +375,7 @@ function chk(ok, label, extra) {
     /* The board's own poll must agree, or its 5 s tick reads the stand-in as not ours and takes the editor away
        mid-arm (measured: the arms went red depending on where a tick landed). */
     const CARD = await page.evaluate(() => JSON.parse(JSON.stringify(CURRENT)));
+    let pollSaysNotEditable = false;   // flipped by one arm below to feed the poll's editable===false branch
     await page.route('**/api/status*', async (route) => {
       const r = await route.fetch(); let j = null;
       try { j = await r.json(); } catch { return route.fulfill({ response: r }); }
@@ -385,6 +386,7 @@ function chk(ok, label, extra) {
         const at = j.agents.findIndex((a) => a && a.sessionName === SN);
         const card = { ...(at >= 0 ? j.agents[at] : CARD), isNamedOurs: true };
         delete card.instructions;
+        if (pollSaysNotEditable) card.instructions = { editable: false };
         if (at >= 0) j.agents[at] = card; else j.agents.push(card);
       }
       return route.fulfill({ response: r, json: j });
@@ -439,6 +441,14 @@ function chk(ok, label, extra) {
     const onWrite = (r) => { if (r.method() !== 'GET' && r.method() !== 'HEAD' && /\/instructions(\/|$|\?)/.test(r.url())) puts.push(r.method() + ' ' + r.url()); };
     page.on('request', onWrite);
     chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), '#4406: with a previous version kept, the tab offers to put it back');
+    // CONTROL: nothing kept, nothing offered.
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, { ...MINE, hasPrevious: false }));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    chk(await page.evaluate(() => document.getElementById('d-instr-prev').hidden), 'CONTROL: with nothing kept, the tab offers nothing');
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
     // Unsaved typing is never replaced: the button says so and leaves the box alone.
     await page.evaluate(() => { document.getElementById('d-instr').value = 'something typed and not saved yet, by the person'; });
     await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
@@ -477,12 +487,20 @@ function chk(ok, label, extra) {
     chk(!!sent && sent.text === PREV && sent.version === 'v1', '#4406: Save sends the restored text with the loaded version', JSON.stringify(sent));
     await page.unroute('**/api/agent/' + SN + '/instructions');
     await page.unroute(INSTR_URL); await page.unroute(PREV_URL);
+    // The poll finding the file no longer editable withdraws the editor and the restore link with it.
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), 'CONTROL: before the poll says so, the restore is offered');
+    pollSaysNotEditable = true; await page.waitForTimeout(6000); pollSaysNotEditable = false;
+    const gone = await page.evaluate(() => ({ prev: !document.getElementById('d-instr-prev').hidden, boxOff: document.getElementById('d-instr').disabled, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!gone.prev && gone.boxOff && gone.saveOff, '#4406: a poll finding the file not editable takes the restore away with the editor', JSON.stringify(gone));
+    await page.unroute(INSTR_URL);
     // Last, because they take the card's writes away.
     // A failed load that lands after an untied card opened leaves that card no Try again (the catch's own check).
     const heldFail = [];
     await page.route(INSTR_URL, async (route) => { await new Promise((r) => { heldFail.push(r); }); await answer(route, { error: 'x' }, 500); });
     await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(150);
-    const realCurrent = await page.evaluate(() => { const was = CURRENT; CURRENT = { ...was, sessionName: 'someone-untied', isNamedOurs: false }; setWritesOffered(CURRENT, false); return was.sessionName; });
+    await page.evaluate(() => { CURRENT = { ...CURRENT, sessionName: 'someone-untied', isNamedOurs: false }; setWritesOffered(CURRENT, false); });
     while (heldFail.length) heldFail.shift()();
     await page.waitForTimeout(300);
     const raced = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, line: !document.getElementById('d-instr-loading').hidden, ph: document.getElementById('d-instr').placeholder }));
