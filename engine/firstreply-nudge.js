@@ -18,8 +18,10 @@
  *
  * WHEN. Only when all hold (see plan):
  *  - the card reads idle, so nothing is typed over work in progress;
+ *  - it is not a switched-off swarm (#4354: its pane refuses the text, and each refusal spends a try);
  *  - its Direct Message thread with the person (chat DIRECT, keyed by sessionName) holds NO row
- *    from the agent at all: a true first contact, never a later turn;
+ *    from the agent at all: a true first contact, never a later turn (Kosmos's daily-limit notice,
+ *    written in its name, counts only while it stands: chat.noticeStands);
  *  - the thread's latest row is the PERSON's own message (no `from`), not a numbered-menu answer,
  *    and the board PLACED it in the pane (`delivery.state`), so the text "the person you work for
  *    sent you a message" is true of it;
@@ -93,8 +95,8 @@ function firstContact(thread, pause) {
   if (!thread || !Array.isArray(thread.messages)) return { state: 'unknown', heardAt: null, because: 'the conversation could not be read' };
   /* #4354: Kosmos's daily-limit notice (`kosmos: true`, written in the agent's name) is not the agent answering.
      It counts only while it stands (chat.noticeStands, the rule dmOwes uses): paused now, and written in this
-     pause. That keeps a paused swarm clear, so the sweep does not spend its tries on a pane that refuses the
-     text, and nudges it once it runs again and still has not answered. */
+     pause. Once the agent runs again it is ignored, so an unanswered first message is nudged. (The sweep itself
+     skips a paused swarm before calling this.) */
   const stands = (m) => require('./chat').noticeStands(m, pause);
   const rows = thread.messages.filter((m) => m && typeof m === 'object' && m.kind !== 'kosmos' && m.kind !== 'question'
     && !(m.kosmos === true && !stands(m)));
@@ -153,8 +155,13 @@ function sweepOnce(o) {
       const entry = book.get(session);
       // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget.
       if (nudged(entry) || spent(entry) || card.state !== 'idle') continue;
+      /* #4354: a switched-off swarm is left alone before anything is read or tried: its pane refuses the text, and
+         each refusal would spend one of MAX_TRIES, leaving it never nudged once it runs again. */
+      let pz = null;
+      try { pz = pauseFor(session); } catch { pz = null; }
+      if (pz && pz.paused === true) continue;
       let fc = null;
-      try { fc = firstContact(read(session), pauseFor(session)); } catch { fc = null; }
+      try { fc = firstContact(read(session), pz); } catch { fc = null; }
       const p = plan(card, fc, entry, now);
       if (p.act !== 'nudge') continue;
       const display = card.name || session;
@@ -180,7 +187,7 @@ function nudgeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF !== '1';
 }
 
-/* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env,
+/* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env, paused?,
    roster, deliver, DELIVERY, log, book, now, thread? }. Each call returns the sweep's result, or
    null when it did not run. Never throws. */
 function makeTick(deps) {

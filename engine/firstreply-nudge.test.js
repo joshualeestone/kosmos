@@ -283,3 +283,26 @@ test('#4354 real store: a first DM behind the daily-limit notice is left alone w
     fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
   }
 });
+
+test('#4354 real store: a swarm the PERSON switched off (no notice) is left alone, and no try is spent on it', () => {
+  const store = require('./store');
+  const swarm = require('./swarm');
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  try {
+    store.writeProfile(s, swarm.birthProfile({ dailyTokenLimit: 1000 }));
+    store.writeProfile(s, { swarm: swarm.applyPatch(store.readProfile(s), { active: false }, NOW - 60 * 1000) });
+    assert.equal(swarm.pauseOf(store.readProfile(s)).paused, true, 'fixture: the person\'s pause did not take');
+    personDm(s);
+    const book = new Map();
+    const sent = [];
+    nudge.sweepOnce({ roster, book, now: NOW, DELIVERY, deliver: (session) => { sent.push(session); return { state: DELIVERY.COULD_NOT }; } });
+    assert.equal(sent.length, 0, 'a switched-off swarm was tried');
+    assert.equal(book.get(s), undefined, 'a try was spent on a switched-off swarm, and three of them leave it never nudged');
+    store.writeProfile(s, { swarm: swarm.applyPatch(store.readProfile(s), { active: true }, NOW) });
+    assert.equal(realSweep(roster).sent.length, 1, 'CONTROL: switched back on, the same first message is nudged');
+  } finally {
+    fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
+  }
+});

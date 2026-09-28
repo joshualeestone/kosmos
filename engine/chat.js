@@ -2618,7 +2618,7 @@ function appendLocked(projectId, agent, entry, bornAt) {
          checked it names a message in this conversation; kept only as a string, and only when set. */
       ...(entry && typeof entry.replyTo === 'string' && entry.replyTo ? { replyTo: entry.replyTo } : {}),
       /* #4354: Kosmos's own words written in the agent's name (the daily-limit notice). dmOwes counts such a row as
-         the agent having said something only while it is paused. Kept only as `true`, and only when set: every
+         the agent having said something only while it stands (noticeStands: paused, and written in this pause). Kept only as `true`, and only when set: every
          row already on disk reads as the agent's own words, as it always has. */
       ...(entry && entry.kosmos === true ? { kosmos: true } : {}),
       /**
@@ -2823,13 +2823,13 @@ function noticeStands(row, pause) {
  * agent row goes through keepAgentReply with `from` equal to the agent (its `kosmos reply`, a drained reply, and
  * Kosmos's own daily-limit notice said in the agent's name). #4354: that notice is marked `kosmos: true` and clears
  * the debt only while it stands (noticeStands: paused now, and written in this pause; `opts` is swarm.pauseOf's
- * answer): it says why no answer is coming and when, so a
- * "Nothing back yet." under it would read as the agent ignoring them. Once the agent runs again it is not an
- * answer, and a question still unanswered owes again. A caller that cannot say (no opts) gets not-paused, so the
- * line comes back rather than staying hidden. Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one
- * that could not be delivered was never received (the page draws only this answer, timed from `lastHeardAt`, so the
- * rule lives here alone). A MENU ANSWER
- * (a row with a `wire`: the keystroke that picked one of the agent's own buttons, stored by appendMessage) is not a
+ * answer): it says why no answer is coming and when, so a "Nothing back yet." under it would read as the agent
+ * ignoring them. Once the agent runs again it is not an answer, and a question still unanswered owes again. A
+ * caller that cannot say (no opts) gets not-paused, so the line comes back rather than staying hidden.
+ *
+ * Only a person message that REACHED the agent (`delivery.state === placed`) can put it in debt: one that could
+ * not be delivered was never received (the page draws only this answer, timed from `lastHeardAt`, so the rule
+ * lives here alone). A MENU ANSWER (a row with a `wire`: the keystroke that picked one of the agent's own buttons, stored by appendMessage) is not a
  * message to answer: the agent carries on working and owes nothing.
  * ⚠️ A TYPED answer to a question the agent asked in prose is NOT told apart and still counts as owed: nothing
  * stored says a typed row answered a question, and NEEDS_YOU at send time is not that fact (a reported needs_you

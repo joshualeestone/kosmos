@@ -2841,7 +2841,8 @@ messages.setSenderTextFilter(guideMasked);
 
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
-   `at` is the original send time for a drained reply, now for the route. */
+   `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
+   for its notice (#4354: the clock the pause's pausedAt is written with). */
 function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
@@ -17198,7 +17199,8 @@ function start(port = PORT) {
          1 in 10 first contacts; the same session answers its second message) gets ONE typed
          reminder to answer with `kosmos reply` (engine/firstreply-nudge.js). Only when the card is
          idle, its DIRECT thread with the person (the store the DM route and keepAgentReply write)
-         holds no row from it at all, and the person's latest message there was placed a minute ago;
+         holds no row from it at all (Kosmos's daily-limit notice counts only while it stands, #4354), it is
+         not a switched-off swarm, and the person's latest message there was placed a minute ago;
          one per session per board run, at most 3 tries that reach nothing. NOT messageLog.owesReply:
          that log never holds the person's DM or the agent's `kosmos reply`. Same gating as the sweeps above: inert under `node --test` and
          before the live-execution opt-in, operator brake AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF=1,
