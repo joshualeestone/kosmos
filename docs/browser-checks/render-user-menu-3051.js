@@ -2,7 +2,7 @@
 // Browser-check-surface: userpop-btn userpop-menu userpop-settings userpop-plus userpop-plus-member userpop-go-you userpop-go-models userpop-go-usage BUTTONLESS
 // (#2518) the distinctive web/index.html tokens this check asserts: the user menu button + its
 // dropdown, the four settings deep-links inside it (Your Profile / AI Models / Token Usage /
-// View All Settings, the last keeping the #userpop-settings id), the Kosmos+ promo + dormant
+// View All Settings, the last keeping the #userpop-settings id), the Kosmos+ promo + the
 // member line, and the BUTTONLESS array that keeps showTab('settings') working with no Settings
 // tab. A change to any of them must update this check at PR time.
 /*
@@ -14,7 +14,7 @@
  * #panel-settings with no tab lit.
  *
  * kosmos#3360 (Josh, 2026-09-21): the dropdown was reworked so every line is a real clickable
- * row -- a Kosmos+ promo (dormant member line behind it), the four settings deep-links (Your
+ * row -- a Kosmos+ promo (or the member line for a member), the four settings deep-links (Your
  * Profile / AI Models / Token Usage / View All Settings, the last keeping the #userpop-settings
  * id), and the Appearance + renamed "View" toggle rows -- each taking its action AND closing the
  * menu, the Appearance pick included. This check asserts that structure and those interactions.
@@ -104,7 +104,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the menu is closed by default (aria-expanded=false, hidden)', btn.expanded === 'false' && btn.menuHidden === true, JSON.stringify(btn));
 
     // ── #3360: opening the menu reveals the reworked structure -- a Kosmos+ promo at the
-    //    top (the member line dormant/hidden until a signal exists), the four settings
+    //    top (the member line hidden while signed out), the four settings
     //    deep-links (Your Profile / AI Models / Token Usage / View All Settings), the two
     //    toggle rows (Appearance + the renamed "View"), and the agent-status line. ──
     await page.click('#userpop-btn');
@@ -145,7 +145,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the menu holds the light/dark control', open.theme === true, JSON.stringify(open));
     ok(t + ' the menu holds the view toggle', open.view === true, JSON.stringify(open));
     ok(t + ' the view toggle row is renamed "View" (not "Board view")', open.viewRenamed === true, JSON.stringify(open));
-    // Exactly 8 .userpop-ico: Kosmos+ promo + dormant member + 4 settings deep-links + the
+    // Exactly 8 .userpop-ico: Kosmos+ promo + member line + 4 settings deep-links + the
     // Appearance and View toggle rows. An exact count catches a dropped icon; a loose floor would not.
     ok(t + ' every menu line carries a leading icon (exactly 8)', open.icons === 8, JSON.stringify(open.icons));
     ok(t + ' the menu holds the agent-status line (#checked)', open.status === true, JSON.stringify(open));
@@ -158,7 +158,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // ── #3360: a Kosmos+ member sees the member line INSTEAD of the promo. Driven through the real
     //    producer, fedGateStamp() with /api/status's kosmos_plus, not by setting the attribute by
     //    hand, so the arm covers the wiring end to end. Then a lapse (kosmos_plus false) on the next
-    //    open, then the page is put back exactly as it was (no data-fed-ui, no data-fed-member). ──
+    //    open, then the two fed attributes are restored and the Agents tab shown again. ──
     const plusOpen = async () => {
       await page.click('#userpop-btn');
       await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
@@ -195,6 +195,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const h = document.documentElement;
       if (b.ui === null) h.removeAttribute('data-fed-ui'); else h.setAttribute('data-fed-ui', b.ui);
       h.toggleAttribute('data-fed-member', b.mem);
+      // The member-line click left Settings open; the deep-link loop below must start off it.
+      if (typeof showTab === 'function') showTab('agents');
     }, before);
 
     // ── #3360: each settings deep-link opens #panel-settings ON its section (aria-current on
