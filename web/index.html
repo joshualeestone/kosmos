@@ -28336,10 +28336,10 @@ function openCommunityDelete(r, li) {
   del.className = 'btn danger-btn community-mine-del';
   del.type = 'button';
   del.textContent = 'Delete it';
-  const msg = document.createElement('p');
-  msg.className = 'dhint';
-  msg.setAttribute('role', 'alert');
-  msg.style.margin = '6px 0 0';
+  const delNote = document.createElement('p');
+  delNote.className = 'dhint';
+  delNote.setAttribute('role', 'alert');
+  delNote.style.margin = '6px 0 0';
   const start = li.querySelector('.community-mine-start');
   const closeAsk = () => { ask.remove(); if (start) { start.hidden = false; start.focus(); } };
   keep.addEventListener('click', () => closeAsk());
@@ -28347,19 +28347,19 @@ function openCommunityDelete(r, li) {
   del.addEventListener('click', async () => {
     del.disabled = true;
     keep.disabled = true;
-    msg.textContent = 'Deleting…';
+    delNote.textContent = 'Deleting…';
     try {
       const res = await fetch('/api/community/delete', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: r.id }),
       });
       const out = await res.json().catch(() => null);
-      if (!res.ok) { msg.textContent = (out && out.error) || 'We could not delete it.'; del.disabled = false; keep.disabled = false; return; }
+      if (!res.ok) { delNote.textContent = (out && out.error) || 'We could not delete it.'; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }
     } catch {
-      msg.textContent = 'We could not delete it.';
+      delNote.textContent = 'We could not delete it.';
       del.disabled = false;
       keep.disabled = false;
     }
@@ -28368,7 +28368,7 @@ function openCommunityDelete(r, li) {
   acts.style.display = 'flex';
   acts.style.gap = '8px';
   acts.append(keep, del);
-  ask.append(say, acts, msg);
+  ask.append(say, acts, delNote);
   if (start) start.hidden = true;
   li.append(ask);
   keep.focus();
