@@ -33,6 +33,8 @@ function hasKosmosHook(workdir, hookName) {
     // Only an object entry counts (a null, a string or a list there is malformed, and
     // ensureHooks replaces it, so it must not read as "already hooked").
     if (!(e && typeof e === 'object' && !Array.isArray(e))) return false;
+    // Both halves ensureHooks writes: without PreInvocation, Working is never reported.
+    if (!Array.isArray(e.PreInvocation) || e.PreInvocation.length === 0) return false;
     // It counts only if its Stop command names a node and a bridge that both exist. One that
     // cannot be read that way (no Stop, no command, another shape), or whose node or bridge is gone
     // (a node an upgrade removed), fails on every turn; it counts as absent so it is written again.
@@ -94,7 +96,8 @@ async function refreshRunningAgyHooks(deps) {
 
 /** The plist's recorded launch folder (argument 3): what the supervisor was started with, unless
     the job was rewritten since without a restart. Falls back to create.workerDir(name) (what
-    plistFor writes there) when the plist cannot be read. */
+    plistFor writes there) only when argument 3 is missing; an unreadable plist has already
+    skipped the agent (readJob returns null), so in practice this is a belt, not a path. */
 function launchDir(create, name) {
   let read = null;
   try { read = create.plistArgs(name); } catch { read = null; }

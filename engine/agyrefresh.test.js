@@ -136,7 +136,7 @@ test('#4353 the launch folder is read from the plist the supervisor started with
   assert.equal(agyrefresh.launchDir(create, name), create.workerDir(name), 'no plist must fall back to workerDir');
 });
 
-test('#4353 a malformed Kosmos entry (null, a string, a list, no readable Stop command) is not "already hooked", so it gets repaired', () => {
+test('#4353 a malformed Kosmos entry (null, a string, a list, no readable Stop command, no PreInvocation) is not "already hooked", so it gets repaired', () => {
   const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyhas-'));
   try {
     fs.mkdirSync(path.join(wd, '.agents'));
@@ -150,10 +150,16 @@ test('#4353 a malformed Kosmos entry (null, a string, a list, no readable Stop c
       fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: bad }));
       assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, JSON.stringify(bad) + ' read as hooked');
     }
-    // CONTROL: a real entry, naming a node and a bridge that exist, does read as hooked.
     const bridge = path.join(wd, 'agy-report-bridge.js');
     fs.writeFileSync(bridge, '');
-    fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: { Stop: [{ command: `'${process.execPath}' '${bridge}' Stop` }] } }));
+    const hook = (ev) => [{ command: `'${process.execPath}' '${bridge}' ${ev}` }];
+    // A live Stop but no PreInvocation (a hand edit): Working would never be reported.
+    for (const bad of [{ Stop: hook('Stop') }, { Stop: hook('Stop'), PreInvocation: [] }]) {
+      fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: bad }));
+      assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, JSON.stringify(bad) + ' read as hooked');
+    }
+    // CONTROL: a real entry, both halves, naming a node and a bridge that exist, does read as hooked.
+    fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: { PreInvocation: hook('PreInvocation'), Stop: hook('Stop') } }));
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true);
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });

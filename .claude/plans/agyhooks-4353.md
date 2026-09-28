@@ -24,7 +24,10 @@ board adopts running agents rather than restarting them, so its card said "Can't
   take turns (different node spellings).
 - server.js: once at board start, after installSupervisor, not under AGENT_WORKFORCE_DRY_RUN,
   deferred with setImmediate (its reads and writes happen after start, not in it); logs each agent it hooked and each failure (not the git-project refusal).
-- readJob is NOT changed.
+- readJob is NOT changed. engine/create.js gains one export, plistArgs(name, worldId), which
+  readPlistJob now calls (same name guard, read, block match and unxml, same null cases), so the
+  refresh reads the launch folder from the same parse the supervisor's job is read from.
+- server.js logs a refresh that fails (best effort, but not silent).
 
 ## Evidence the write is enough without a restart
 Measured on the card (comment 5872366045): hooks.json written mid-session fired on the next

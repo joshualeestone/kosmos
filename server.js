@@ -17599,17 +17599,19 @@ if (require.main === module) {
   if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
     // setImmediate: its work (launchctl list, file reads and writes) happens after start, not in it.
     setImmediate(() => {
-    try {
-      require('./engine/agyrefresh').refreshAtBoardStart()
-        .then((rows) => {
-          // A folder inside a git project is refused on purpose, every start; not worth a line each time.
-          for (const r of rows) {
-            if (r.changed) process.stderr.write(`agy hooks written for ${r.name} (it was running without them)\n`);
-            else if (!r.ok && !/inside the git project/.test(r.why)) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
-          }
-        })
-        .catch(() => { /* best effort: the supervisor still writes it at the next launch */ });
-    } catch { /* best effort */ }
+      try {
+        require('./engine/agyrefresh').refreshAtBoardStart()
+          .then((rows) => {
+            // A folder inside a git project is refused on purpose, every start; not worth a line each time.
+            for (const r of rows) {
+              if (r.changed) process.stderr.write(`agy hooks written for ${r.name} (it was running without them)\n`);
+              else if (!r.ok && !/inside the git project/.test(r.why)) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
+            }
+          })
+          // Best effort (the supervisor still writes it at the next launch), but said, so a broken
+          // refresh leaves a trace rather than every card quietly back on "Can't tell".
+          .catch((e) => { process.stderr.write(`agy hook refresh failed: ${e && e.message}\n`); });
+      } catch (e) { process.stderr.write(`agy hook refresh failed: ${e && e.message}\n`); }
     });
   }
   /**
