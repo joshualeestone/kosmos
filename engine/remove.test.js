@@ -2101,6 +2101,35 @@ test('an agent Kosmos cannot restart is not promised that Kosmos will put it bac
     'it does not tell them what actually has to happen next');
 });
 
+test('#4289: a restart adds the community block while the switch is ON, and removes it after OFF', () => {
+  const sw = require('./communityswitch');
+  const communityblock = require('./communityblock');
+  const projects = require('./projects');
+  try {
+    assert.deepEqual(sw.setOn(false), { ok: true });
+    const name = madeAgent('restartcommunity');
+    const file = create.instructionFile(name);
+    assert.equal(projects.findBlock(fs.readFileSync(file, 'utf8'), communityblock.START, communityblock.END), null, 'CONTROL: made with the switch OFF, it has no block yet');
+    boardShows(name, name);
+    world();
+    assert.deepEqual(sw.setOn(true), { ok: true });
+    const on = mac.restart(name);
+    assert.equal(on.outcome, remove.OUTCOME.RESTARTED, on.because);
+    const withBlock = fs.readFileSync(file, 'utf8');
+    const found = projects.findBlock(withBlock, communityblock.START, communityblock.END);
+    assert.ok(found && !found.ambiguous, 'a restart with the switch ON did not add the community block');
+    assert.ok(!on.steps.some((st) => /community/i.test(st.label || '')), 'a restart that worked reported a community step');
+    assert.deepEqual(sw.setOn(false), { ok: true });
+    boardShows(name, name);
+    world();
+    const off = mac.restart(name);
+    assert.equal(off.outcome, remove.OUTCOME.RESTARTED, off.because);
+    assert.equal(projects.findBlock(fs.readFileSync(file, 'utf8'), communityblock.START, communityblock.END), null, 'a restart after OFF did not remove the community block');
+  } finally {
+    fs.rmSync(sw.FILE, { force: true });
+  }
+});
+
 test('restart closes the window and lets launchd bring the agent back', () => {
   /**
    * 🛑 KILLING THE WINDOW IS THE MECHANISM, NOT A SIDE EFFECT. `plistFor` sets

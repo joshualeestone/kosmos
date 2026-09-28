@@ -33,12 +33,15 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const remote = require('./remote');
 
-// 🛑 THE SHIP GATE (Liu Kang, 2026-09-24). No phone app can receive these yet, so
-// while this is false the Settings section is hidden, turning on is refused, and
-// nothing is sent even if the switch file says on. It flips to true in the same
-// release that ships a phone app able to receive. A constant, not an env var or a
-// setting, so only a release can open it. Tests use setAvailableForTests.
-const PHONE_APP_CAN_RECEIVE = false;
+// 🛑 THE SHIP GATE (Liu Kang, 2026-09-24). While this is false the Settings section is hidden, turning on is refused,
+// and nothing is sent even if the switch file says on. A constant, not an env var or a setting, so only a release can
+// change it. Tests use setAvailableForTests.
+// #4194: OPEN. A phone app that receives now exists (the Android test build, vc3 #4165: a real push under the Kosmos
+// icon #4172, the tap routes to the agent #4178), so Josh's phone can be tested end to end. The app is not in the
+// stores yet, so the Settings section says it is in testing. It stays off by default: nothing is sent until someone
+// turns it on and has an enrolled phone. The bundle refuses to ship this open with a connector that lacks
+// `mac-request` (tools/lib/connector-verbs.sh).
+const PHONE_APP_CAN_RECEIVE = true;
 let available = PHONE_APP_CAN_RECEIVE;
 function setAvailableForTests(on) { available = on === true; }
 

@@ -185,7 +185,8 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.match(SCRIPT, /if \(pendingIds\.length\) attachClear\(ATTACH_AGENT, sentName\);/, 'the talk sender clears the current composer rather than the sent agent');
   assert.match(SCRIPT, /if \(pendingIds\.length\) attachClear\(ATTACH_ROOM, sentProject\);/, 'the room sender clears the current composer rather than the sent project');
   /* The room reads its text AFTER the names are substituted in. */
-  assert.match(SCRIPT, /input\.value = attachList\(ATTACH_ROOM\)\.map\(\(r\) => r\.name\)\.join\(', '\);\n\s*const text = input\.value;/, 'the room sends the text captured before the names were put in the box');
+  // #4359: a box holding only Reply's mention keeps it in front of the names.
+  assert.match(SCRIPT, /input\.value = \(onlyMention \? replyMention : ''\) \+ attachList\(ATTACH_ROOM\)\.map\(\(r\) => r\.name\)\.join\(', '\);\n\s*const text = input\.value;/, 'the room sends the text captured before the names were put in the box');
   assert.match(PAGE, /id="pj-attach-file" type="file" multiple/, 'the room picker takes one file at a time');
   assert.match(PAGE, /id="d-attach-file" type="file" multiple/, 'the agent picker takes one file at a time');
   // The 25 MB limit is the route's; the page says so before sending.

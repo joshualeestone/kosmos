@@ -2,7 +2,7 @@
 // Browser-check-surface: userpop-btn userpop-menu userpop-settings userpop-plus userpop-plus-member userpop-go-you userpop-go-models userpop-go-usage BUTTONLESS
 // (#2518) the distinctive web/index.html tokens this check asserts: the user menu button + its
 // dropdown, the four settings deep-links inside it (Your Profile / AI Models / Token Usage /
-// View All Settings, the last keeping the #userpop-settings id), the Kosmos+ promo + dormant
+// View All Settings, the last keeping the #userpop-settings id), the Kosmos+ promo + the
 // member line, and the BUTTONLESS array that keeps showTab('settings') working with no Settings
 // tab. A change to any of them must update this check at PR time.
 /*
@@ -14,7 +14,7 @@
  * #panel-settings with no tab lit.
  *
  * kosmos#3360 (Josh, 2026-09-21): the dropdown was reworked so every line is a real clickable
- * row -- a Kosmos+ promo (dormant member line behind it), the four settings deep-links (Your
+ * row -- a Kosmos+ promo (or the member line for a member), the four settings deep-links (Your
  * Profile / AI Models / Token Usage / View All Settings, the last keeping the #userpop-settings
  * id), and the Appearance + renamed "View" toggle rows -- each taking its action AND closing the
  * menu, the Appearance pick included. This check asserts that structure and those interactions.
@@ -104,7 +104,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the menu is closed by default (aria-expanded=false, hidden)', btn.expanded === 'false' && btn.menuHidden === true, JSON.stringify(btn));
 
     // ── #3360: opening the menu reveals the reworked structure -- a Kosmos+ promo at the
-    //    top (the member line dormant/hidden until a signal exists), the four settings
+    //    top (the member line hidden while signed out), the four settings
     //    deep-links (Your Profile / AI Models / Token Usage / View All Settings), the two
     //    toggle rows (Appearance + the renamed "View"), and the agent-status line. ──
     await page.click('#userpop-btn');
@@ -116,8 +116,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return {
         expanded: document.getElementById('userpop-btn').getAttribute('aria-expanded'),
         plusPromo: shown('#userpop-menu #userpop-plus'),
-        // The member line is DORMANT (plusMember() stub returns false), so it must be hidden
-        // and the promo must show. This is the honest logged-out default, not a dead control.
+        // Over file:// no /api/status poll has run, so data-fed-member is unset: signed out. The
+        // member line must be hidden and the promo must show. The member state is its own block below.
         memberHidden: document.getElementById('userpop-plus-member').hidden === true,
         goYou: shown('#userpop-menu #userpop-go-you'),
         goModels: shown('#userpop-menu #userpop-go-models'),
@@ -137,7 +137,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' opening the menu sets aria-expanded=true', open.expanded === 'true', JSON.stringify(open));
     ok(t + ' the menu shows the Log in to Kosmos+ promo', open.plusPromo === true, JSON.stringify(open));
-    ok(t + ' the dormant Kosmos+ member line is hidden (no membership signal yet)', open.memberHidden === true, JSON.stringify(open));
+    ok(t + ' signed out (no data-fed-member), the Kosmos+ member line is hidden', open.memberHidden === true, JSON.stringify(open));
     ok(t + ' the menu holds Your Profile', open.goYou === true, JSON.stringify(open));
     ok(t + ' the menu holds AI Models', open.goModels === true, JSON.stringify(open));
     ok(t + ' the menu holds Token Usage', open.goUsage === true, JSON.stringify(open));
@@ -145,7 +145,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the menu holds the light/dark control', open.theme === true, JSON.stringify(open));
     ok(t + ' the menu holds the view toggle', open.view === true, JSON.stringify(open));
     ok(t + ' the view toggle row is renamed "View" (not "Board view")', open.viewRenamed === true, JSON.stringify(open));
-    // Exactly 8 .userpop-ico: Kosmos+ promo + dormant member + 4 settings deep-links + the
+    // Exactly 8 .userpop-ico: Kosmos+ promo + member line + 4 settings deep-links + the
     // Appearance and View toggle rows. An exact count catches a dropped icon; a loose floor would not.
     ok(t + ' every menu line carries a leading icon (exactly 8)', open.icons === 8, JSON.stringify(open.icons));
     ok(t + ' the menu holds the agent-status line (#checked)', open.status === true, JSON.stringify(open));
@@ -154,6 +154,53 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // menu open (clicking #userpop-btn on an open menu would close it and the wait would hang).
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.getElementById('userpop-menu').hidden === true, null, { timeout: 5000 });
+
+    // ── #3360: a Kosmos+ member sees the member line INSTEAD of the promo. Driven through the real
+    //    producer, fedGateStamp() with /api/status's kosmos_plus, not by setting the attribute by
+    //    hand, so the arm covers the wiring end to end. Then a lapse (kosmos_plus false) on the next
+    //    open, then the fed attributes and the two invite-button titles are restored and the Agents tab shown again. ──
+    const plusOpen = async () => {
+      await page.click('#userpop-btn');
+      await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+      await page.waitForTimeout(80);
+      const r = await page.evaluate(() => {
+        const vis = (id) => { const el = document.getElementById(id); if (!el || el.hidden) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        const mem = document.getElementById('userpop-plus-member');
+        return { promo: vis('userpop-plus'), member: vis('userpop-plus-member'), label: mem ? mem.textContent.replace(/\s+/g, ' ').trim() : null,
+          attr: document.documentElement.hasAttribute('data-fed-member') };
+      });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.getElementById('userpop-menu').hidden === true, null, { timeout: 5000 });
+      return r;
+    };
+    const before = await page.evaluate(() => ({ ui: document.documentElement.getAttribute('data-fed-ui'), mem: document.documentElement.hasAttribute('data-fed-member'),
+      titles: ['pj-add-ext-person', 'pj-add-ext-agent'].map((id) => { const el = document.getElementById(id); return el ? el.getAttribute('title') : null; }) }));
+    await page.evaluate(() => fedGateStamp({ kosmos_plus: true }));
+    const asMember = await plusOpen();
+    ok(t + ' a Kosmos+ member (kosmos_plus true on /api/status) sees "Kosmos+ member" and not the promo',
+      asMember.attr && asMember.member && !asMember.promo && /^Kosmos\+ member\b/.test(asMember.label || ''), JSON.stringify(asMember));
+    // The member line opens Settings > Kosmos Plus and closes the menu, like the promo does.
+    await page.click('#userpop-btn');
+    await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+    await page.click('#userpop-plus-member');
+    await page.waitForTimeout(120);
+    const memGo = await page.evaluate(() => ({ settings: document.getElementById('panel-settings').hidden === false,
+      onPlus: (() => { const b = document.querySelector('#s-nav button[data-go="plus"]'); return !!b && b.getAttribute('aria-current') === 'true'; })(),
+      closed: document.getElementById('userpop-menu').hidden === true }));
+    ok(t + ' the member line opens Settings > Kosmos Plus and closes the menu', memGo.settings && memGo.onPlus && memGo.closed, JSON.stringify(memGo));
+    await page.evaluate(() => fedGateStamp({ kosmos_plus: false }));
+    const lapsed = await plusOpen();
+    ok(t + ' after a lapse (kosmos_plus false on the next poll) the next open shows the promo again, not the member line',
+      !lapsed.attr && lapsed.promo && !lapsed.member, JSON.stringify(lapsed));
+    await page.evaluate((b) => {
+      const h = document.documentElement;
+      if (b.ui === null) h.removeAttribute('data-fed-ui'); else h.setAttribute('data-fed-ui', b.ui);
+      h.toggleAttribute('data-fed-member', b.mem);
+      // fedGateStamp() also retitles the two outside-invite buttons; put their titles back too.
+      ['pj-add-ext-person', 'pj-add-ext-agent'].forEach((id, i) => { const el = document.getElementById(id); if (!el) return; if (b.titles[i] === null) el.removeAttribute('title'); else el.setAttribute('title', b.titles[i]); });
+      // The member-line click left Settings open; the deep-link loop below must start off it.
+      if (typeof showTab === 'function') showTab('agents');
+    }, before);
 
     // ── #3360: each settings deep-link opens #panel-settings ON its section (aria-current on
     //    the matching #s-nav pill) AND closes the menu. Tab-view path (default layout). ──
@@ -287,6 +334,6 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-user-menu-3051: ' + pass + ' passed (the upper-right user menu: 2-tab nav, avatar+name button, the #3360 reworked dropdown -- Kosmos+ promo with a dormant member line, the four settings deep-links each landing on their section and closing the menu, the renamed "View" toggle, icons on every line, Appearance now closes the menu, Escape + outside-click close). problems: none');
+  console.log('render-user-menu-3051: ' + pass + ' passed (the upper-right user menu: 2-tab nav, avatar+name button, the #3360 reworked dropdown -- the Kosmos+ promo signed out and the member line for a member (via fedGateStamp), a lapse back to the promo, the four settings deep-links each landing on their section and closing the menu, the renamed "View" toggle, icons on every line, Appearance now closes the menu, Escape + outside-click close). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-user-menu-3051: ' + (e && e.message ? e.message.split('\n')[0] : e)); process.exit(1); });

@@ -150,11 +150,21 @@ function warnNowWith({ content, latest, channel, look = true }) {
   }
 }
 
-test('WIRING: a promoted staging build (installed staging, prod publishes our version, no channel env) still warns -- because the boot site reads the raw stamp, not the #2934 badge', () => {
+/* #2969: the updater now falls back to the install stamp, so a staging-stamped box with NO channel
+   variable polls staging and is not in the revert state at all. The only way in is an explicit
+   non-staging variable, so the revert-state arms below set channel: 'prod'. */
+test('#2969: installed from staging with NO channel variable resolves staging and does not warn (the silent revert is gone)', () => {
   const got = warnNowWith({ content: 'staging', latest: RUNNING });
+  assert.equal(got.resolved, 'staging', 'the install stamp is the subscription: the launchd job needs no channel variable');
+  assert.equal(got.warn, false);
+  assert.equal(got.fired, false);
+});
+
+test('WIRING: a promoted staging build (installed staging, prod publishes our version, channel env prod) still warns -- because the boot site reads the raw stamp, not the #2934 badge', () => {
+  const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'prod' });
   // The divergence that makes this test meaningful: the badge re-derives to 'prod' here...
   assert.equal(got.badge, 'prod', 'a promoted staging build reads prod on the #2934 badge (sourceChannelNow)');
-  assert.equal(got.resolved, 'prod', 'with no channel env the poller resolves prod (the #2969 revert)');
+  assert.equal(got.resolved, 'prod', 'an explicit prod variable wins over the stamp, so the poller resolves prod');
   // ...yet the warn MUST still fire, because it is wired to the raw install stamp. If a future
   // edit swaps recordedSourceChannel() -> sourceChannelNow(), this flips to false and fails.
   assert.equal(got.warn, true, 'the raw install stamp is still staging, so the silent revert is surfaced');
@@ -181,13 +191,15 @@ test('WIRING: a plain prod box (no source-channel stamp) does not warn', () => {
  * tradeoff; see the function's docstring.)
  */
 test('EMIT: on the promoted-staging revert, the emit fires and the message names the cause and the durable remedy', () => {
-  const got = warnNowWith({ content: 'staging', latest: RUNNING });
+  const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'prod' });
   assert.equal(got.fired, true, 'the emit fires in the revert case');
   assert.match(got.emitted, /WARNING/, 'the message is a loud WARNING');
   assert.match(got.emitted, /source-channel=staging/, 'it states the box installed from staging');
   assert.match(got.emitted, /kosmos#2969/, 'it cites the silent-revert cause');
   assert.match(got.emitted, /kosmos#2036/, 'it cites the tracking card');
   assert.doesNotMatch(got.emitted, /launchd|EnvironmentVariables/, 'the remedy stays platform-neutral (this callback runs on Windows too)');
+  assert.match(got.emitted, /environment names a channel other than staging/, '#2969: it names the override that causes it now');
+  assert.doesNotMatch(got.emitted, /not yet shipped|across login/, '#2969: the old "not carried across login" story is no longer true');
 });
 
 test('EMIT: a healthy staging subscriber emits nothing', () => {
@@ -206,7 +218,7 @@ test('EMIT: the DEFAULT sink (no argument) routes the warning to stderr, not std
   // Exercises the real `write = (s) => process.stderr.write(s)` default, not just an injected one.
   // The file's convention is informational lines -> stdout, warnings/errors -> stderr; a regression
   // swapping the default to stdout would pass every injected-sink test but fail here.
-  const got = warnNowWith({ content: 'staging', latest: RUNNING });
+  const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'prod' });
   assert.equal(got.firedDefault, true, 'the default-sink emit fires in the revert case');
   assert.match(got.defaultToStderr, /WARNING/, 'the default routes the warning to stderr');
   assert.equal(got.defaultToStdout, '', 'and nothing to stdout');
@@ -269,7 +281,7 @@ function bootStderrWith({ content, latest, channel }) {
 }
 
 test('BOOT: a real app.start() on a promoted-staging revert box writes the warning to stderr', () => {
-  const r = bootStderrWith({ content: 'staging', latest: RUNNING });
+  const r = bootStderrWith({ content: 'staging', latest: RUNNING, channel: 'prod' });
   assert.equal(r.signal, null, 'the boot did not hang/timeout');
   assert.equal(r.status, 0, 'the board booted cleanly');
   assert.match(r.stderr, /WARNING/, 'the boot path emitted the revert warning to stderr');

@@ -40,8 +40,10 @@
 # NOT COVERED (a build broken only here still passes): what happens after the first visit
 # (keepalives, the reconnect loop, a renewal on reconnect); how the APP launches the connector
 # (its flags and env, supervision across an update, the path the 2026-09-27 drop went through);
-# first enrolment (the gate reuses an enrolled identity); and a copy of the identity on ANOTHER
-# machine, which the lock and the stale check cannot see.
+# first enrolment (the gate reuses an enrolled identity); a copy of the identity on ANOTHER
+# machine, which the lock and the stale check cannot see; and a leftover connector of an earlier gate
+# that ran under ANOTHER temp root AND whose copied state can no longer be read (one whose state
+# still names this identity is seen wherever it is; kosmos#4352).
 #
 # Exit: 0 pass; 1 FAIL (the build is broken: never forceable); 2 CANNOT TELL (hold; forceable
 # only after a hand check). Same convention as the #2063 experience gate in promote-channel.sh.
@@ -202,20 +204,37 @@ echo $$ > "$LOCK/pid"; OWN_LOCK=1
 
 # Another connector already running with the gate's identity would take the address back on its
 # next reconnect and could answer the visit for THIS build: a false PASS. Two shapes: a connector
-# left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir), and one started by
+# left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir, see below), and one started by
 # hand on the enrolled state dir itself, as `--state-dir DIR` or `--state-dir=DIR` (clap takes
 # both), anywhere after `run` (anchored on the connector's name: the gate's own command line
 # carries --state-dir too). The state path is escaped for the regex. NOT seen: a relative
 # or symlinked spelling of the state path, or a copy of the identity on ANOTHER machine.
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-stale="$(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)" 2>/dev/null | tr '\n' ' ')"
-# A connector under ANOTHER gate's temp dir counts only if its state holds THIS identity (the same
-# address), so a gate for another identity, or a concurrent test's gate, does not hold this one.
-# One whose state cannot be read still counts: it could be ours.
+stale=""
+for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ]$state_re/?( |\$)" 2>/dev/null); do
+  kill -0 "$p" 2>/dev/null && stale="$stale$p "    # kosmos#4352: a pid already gone holds nothing
+done
+# A connector under ANOTHER gate's temp dir (any tunnel-gate.* copy, wherever it lives) counts when
+# its copied state names THIS identity, so a gate for another identity does not hold this one. One
+# whose state cannot be read could be ours, and counts too, but only under THIS gate's temp root
+# (${TMPDIR:-/tmp}, trailing slashes tolerated): that is where a SIGKILLed earlier gate of this user
+# leaves its copy, and it is what keeps one test run's deliberate stand-in from holding another
+# run's gate (kosmos#4352, measured with concurrent runs). A pid is skipped only when kill -0 says
+# it is GONE; a live one whose command line cannot be read counts as unreadable.
+tmproot="${TMPDIR:-/tmp}"; while [ "${tmproot%/}" != "$tmproot" ]; do tmproot="${tmproot%/}"; done
+tmproot_re="$(printf '%s' "$tmproot" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
 for p in $(pgrep -f "kosmos-tunnel run .*--state-dir[= ][^ ]*/tunnel-gate\\.[A-Za-z0-9]+/" 2>/dev/null); do
-  d="$(ps -o command= -p "$p" 2>/dev/null | sed -n 's/.*--state-dir[= ]\([^ ]*\).*/\1/p')"
-  a="$(tr -d ' \n' < "$d/address" 2>/dev/null)"
-  [ -z "$a" ] || [ "$a" = "$ADDRESS" ] && stale="$stale$p "
+  kill -0 "$p" 2>/dev/null || continue
+  cmd="$(ps -o command= -p "$p" 2>/dev/null)"
+  # No command line: it may have exited between the two reads. Gone now is skipped; alive stays in.
+  if [ -z "$cmd" ]; then kill -0 "$p" 2>/dev/null || continue; fi
+  d="$(printf '%s' "$cmd" | sed -n 's/.*--state-dir[= ]\([^ ]*\).*/\1/p')"
+  a=""; [ -n "$d" ] && a="$( { tr -d ' \n' < "$d/address"; } 2>/dev/null)"
+  if [ -n "$a" ]; then
+    [ "$a" = "$ADDRESS" ] && stale="$stale$p "
+  elif [ -z "$d" ] || printf '%s' "$d" | grep -Eq "^$tmproot_re/+tunnel-gate\\."; then
+    stale="$stale$p "    # unreadable (or no command line) and ours to worry about
+  fi
 done
 [ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
 

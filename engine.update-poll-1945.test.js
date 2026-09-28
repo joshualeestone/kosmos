@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 /**
  * kosmos#1945: A HEADLESS BOARD NEVER UPDATED. `update.poke()` is the only thing
  * that fetches latest.json and can fire an auto-install, and its only other
@@ -22,6 +23,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+/* #2969: an unstamped (prod) box, so a look is exactly one fetch. A box installed from staging
+   reads its own pointer and then prod in ONE look; this file counts looks by fetches, so it must
+   not inherit the operator's real store. Sandboxed before anything resolves store.ROOT. */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-poll1945-'));
 const updates = require('./engine/update');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

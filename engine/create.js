@@ -3627,9 +3627,26 @@ function createdLog() {
    excludes REFUSED (nothing was made) and UNKNOWN. This is the SAME "created or
    partial line is the tie" interpretation register.js uses to decide an agent
    was ever made here. It only sees births since the birth log shipped (#157);
-   agents created before that are not in the log and cannot be counted here. */
+   agents created before that are not in the log and cannot be counted here.
+   #4350: minus the setup guide Kosmos created by itself (isAutoGuideBirth, below). */
 function createdCount() {
-  return createdLog().filter((e) => e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL).length;
+  // Lazy, once per call: setup-assistant.js requires this file, so a top-level require would cycle.
+  const sa = require('./setup-assistant');
+  return createdLog().filter((e) => (e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL)
+    && !isAutoGuideBirth(e, sa)).length;
+}
+
+/* #4350 (Splinter's call on the card): the setup guide Kosmos creates by itself is not an
+   agent the PERSON created, so it is left out of the public "agents created" number. It is
+   recognised by all three things setup-assistant.js writes for it, read from its own constants:
+   GUIDE_CREATED_BY, SETUP_ROLE_KEY and a purpose starting with one of GUIDE_PURPOSE_PREFIXES
+   (the current one and 0.6.70's). (The team route lets an
+   operator set createdBy, so role alone or createdBy alone would drop real agents.)
+   ⚠️ An install that already reported a count INCLUDING its guide keeps that higher number on
+   the collector (Math.max), so its next creation does not move the public total once. */
+function isAutoGuideBirth(e, sa = require('./setup-assistant')) {
+  return e.createdBy === sa.GUIDE_CREATED_BY && e.role === sa.SETUP_ROLE_KEY
+    && sa.GUIDE_PURPOSE_PREFIXES.some((pre) => String(e.purpose || '').startsWith(pre));
 }
 
 /* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what
@@ -3971,8 +3988,9 @@ function createAgent(opts) {
        agents make roster drift the default outcome unless creation records WHY an
        agent exists). NULL when absent -- a directly operator-created agent omits
        them, so it stays FUNCTIONALLY unchanged: the two keys are present as null
-       rather than gone, and the only birth-log consumer (register.js) reads only
-       outcome/name/at, so nothing keys on their absence. (Records already ON DISK
+       rather than gone. register.js reads only outcome/name/at; createdCount
+       (#4350) reads createdBy, role and purpose to leave out the auto-created
+       setup guide, and a null there simply means "not the guide". (Records already ON DISK
        from before this are untouched; a new plain create's line simply carries
        the two null keys.) Same sanitize-and-slice posture as role/model above;
        recorded, never a gate. */
@@ -5013,6 +5031,24 @@ function createAgentInner(opts) {
         } catch { /* reported below rather than swallowed */ }
         if (!filesLanded) {
           steps.push({ label: 'could not add the files section to its instructions, so it does not know where to save what it makes for you; edit its instructions or remake it', ok: false });
+        }
+      }
+      /* #4289: the Kosmos community block, from birth, while the Community switch is ON. The same
+         non-gating posture as the files section: a block that does not fit is reported, and the agent
+         is still made. */
+      {
+        let cm = null;
+        try { cm = require('./communityswitch').participating() ? require('./communityblock') : null; } catch { cm = null; }
+        if (cm) {
+          let communityLanded = false;
+          try {
+            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            const { MAX_BYTES } = require('./instructions');
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
+          } catch { /* reported below rather than swallowed */ }
+          if (!communityLanded) {
+            steps.push({ label: 'could not add the Kosmos community section to its instructions; it will be tried again at its next restart', ok: false });
+          }
         }
       }
       /* #3564: a swarm lead is told, from birth, how many helpers it may run and how. */

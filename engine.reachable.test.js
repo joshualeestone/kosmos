@@ -79,6 +79,7 @@ const EXCUSED = {
   setWindowsRollback: 'test seam (win32-update-rollback S5, #3017): injects engine/win32update.js\'s rollbackToPrevious() so a suite drives engine/update.js\'s beginRollback without a real board swap. Production calls win32update.rollbackToPrevious() directly (beginRollback reads the windowsRollbackFn variable, so the setter has no production caller).',
   setKeptPreviousBuild: 'test seam (win32-update-rollback S5, #3017): injects the kept-previous-build lookup so rollbackOffer() runs without a real WORK folder. Production asks win32update.keptPreviousBuild().',
   setInstalledRoot: 'test seam (update root)',
+  setRecordedChannel: 'test seam (#2969): replaces engine/update.js\'s read of the install stamp (<store.ROOT>/source-channel) that the Mac update channel falls back to, so a suite states a staging or prod install without writing the real store. Production reads the stamp (recordedChannel reads the recordedChannelFn variable, so the setter has no production caller).',
   setAutoPref: 'test seam (auto-update preference file)',
   setPlatform: 'test seam (win32-update-check): engine/update.js\'s platform for the pointer, manifest and channel rules, so the Windows arm is asserted from a Mac and the Mac contract (update.test.js) is pinned to darwin on the Windows box. Production reads process.platform.',
   setWindowsBundleRoot: 'test seam (win32-update-check): engine/update.js\'s answer to "is this a Windows bundle", so the manual-offer arm runs without a real runtime\\node.exe layout. Production asks win32board.bundleRoot().',

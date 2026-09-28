@@ -11,7 +11,7 @@
  *
  *   stale    the page's version meta set behind the served version
  *   current  the meta set TO the served version (the control: the verdict
- *            must still say "Up to date.", or the stale assert proves nothing)
+ *            must still say "Up to date on the <channel> channel." (#2969), or the stale assert proves nothing)
  *
  * A source checkout bakes no version (the meta is the untouched marker), so the
  * page can never be stale on its own; the meta is set the way the toast check
@@ -75,7 +75,9 @@ function chk(ok, label, extra) {
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.route('**/api/update/check', (route) => route.fulfill({
       status: 200, contentType: 'application/json',
-      body: JSON.stringify({ running: served, latest: served, reached: true, readable: true, offer: null }),
+      // #2969: `channel` as the real /api/update/check always sends it; without it the page takes
+      // the untold-channel arm and says a bare "Up to date." (measured in CI on the first version).
+      body: JSON.stringify({ running: served, latest: served, reached: true, readable: true, offer: null, channel: 'prod' }),
     }));
     await pg.route('**/api/status', async (route) => {
       /* 🛑 EVERY await IN HERE IS GUARDED, AND THE REASON IS THE PRESS BELOW.
@@ -202,7 +204,8 @@ function chk(ok, label, extra) {
       await pg.click('#upd-btn');
       await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
       const line = await pg.$eval('#upd-line', (el) => el.textContent);
-      chk(line === 'Up to date.', 'CONTROL current: the press still says "Up to date."', JSON.stringify(line));
+      // #2969: the verdict names the channel it checked (the stubbed check answers channel 'prod').
+      chk(line === 'Up to date on the release channel.', 'CONTROL current: the press still says "Up to date", naming its channel', JSON.stringify(line));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'updates-' + state + '.png') });
       chk(errs.length === 0, state + ': no console errors', errs.join(' | '));

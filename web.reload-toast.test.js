@@ -32,7 +32,7 @@ function toast({ baked, served, offer, updating = false, later = null, engine = 
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'renderUpdateToast'])
     + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, (v) => later === v, null, offer, engine);
   return { html: slot.innerHTML, v: slot.dataset.v, listeners };
 }
@@ -138,7 +138,7 @@ test('the same page is not repainted every five seconds', () => {
     querySelector: () => ({ getAttribute: () => '0.2.75' }),
   };
   const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateSafeReload', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'renderUpdateToast'])
     + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => false, null);
   run(null);
   slot.innerHTML = 'MARKED';
@@ -157,7 +157,7 @@ function safeReload({ hidden = true, served = '0.2.76', sending = {}, drafts = {
   const win = { location: { reload: () => { reloaded += 1; } } };
   const got = new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
     'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
-    page.liftAll(SCRIPT, ['updateSafeReload']) + '\nreturn updateSafeReload(' + JSON.stringify(served) + ');')(
+    page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']) + '\nreturn updateSafeReload(' + JSON.stringify(served) + ');')(
     doc, ss, win, !!sending.talk, !!sending.pj, sending.reply || null, !!sending.term,
     drafts.talk || {}, drafts.term || {}, drafts.pj || {}, drafts.room || {}, () => modal, typedSet,
     attached || { room: {}, agent: {} });
@@ -177,7 +177,7 @@ test('#3955: it never reloads a page someone is looking at, sending from, typing
   /* Typed, not filled (review round 1): the page fills boxes itself (an agent's instructions), and
      only fields the person typed into count; the page collects those with one 'input' listener. */
   assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{\s*if \(!updateTypedBox\(e\.target\)\) return;[\s\S]{0,400}?UPDATE_TYPED\.add\(e\.target\);\s*\}, true\);/, 'typed words boxes are not remembered in the capture phase');
-  assert.doesNotMatch(page.liftAll(SCRIPT, ['updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
+  assert.doesNotMatch(page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
   assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
   assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
   assert.equal(safeReload({ sending: { reply: { project: 'p', id: 1 } } }).reloaded, 0, 'reloaded mid-reply');
@@ -190,7 +190,7 @@ test('#3955: it never reloads a page someone is looking at, sending from, typing
 });
 
 test('#3955 round 2: a field removed from the page is let go, and holds no words', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   assert.match(src, /if \(t\.isConnected === false\) UPDATE_TYPED\.delete\(t\);/, 'removed fields pile up in UPDATE_TYPED for the life of the tab');
   const gone = { value: 'typed, then the box was closed', isConnected: false };
   const typed = new Set([gone]);
@@ -233,7 +233,7 @@ test('#3955 round 3: the old-page chip runs the safe reload, and every value the
 });
 
 test('#3955 round 5: a box that is hidden but still holds typed words blocks the reload (a kept New task draft)', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   assert.doesNotMatch(src, /offsetParent|closest\('\[hidden\]'\)/, 'a hidden box is treated as saved again');
   const kept = { value: 'Rewrite the handoff checklist', isConnected: true, offsetParent: null, closest: () => ({}) };
   let reloaded = 0;
@@ -245,7 +245,7 @@ test('#3955 round 5: a box that is hidden but still holds typed words blocks the
 });
 
 test('#3955 round 7: the reload reads a rich-text box by its words (textContent)', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   const box = { isContentEditable: true, textContent: 'a rich-text draft', value: undefined, isConnected: true };
   let reloaded = 0;
   new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
@@ -256,7 +256,7 @@ test('#3955 round 7: the reload reads a rich-text box by its words (textContent)
 });
 
 test('#3955 round 9: a file still uploading, or a room post in flight, holds the automatic reload', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   const run = (uploading, posting) => {
     let reloaded = 0;
     new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
@@ -292,7 +292,7 @@ test('#3955 round 10: typing lets go of boxes that have left the page, so the se
 });
 
 test('#3955 round 12: an agent being created, one starting, or a restore running holds the automatic reload', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   const run = (creating, start, rst) => {
     let reloaded = 0;
     new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
@@ -309,7 +309,7 @@ test('#3955 round 12: an agent being created, one starting, or a restore running
 });
 
 test('#3955 round 13: a new agent still being watched for, or a photo waiting to go up, holds the automatic reload', () => {
-  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
   const run = (watching, avatar) => {
     let reloaded = 0;
     new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
@@ -325,4 +325,59 @@ test('#3955 round 13: a new agent still being watched for, or a photo waiting to
   const w = SCRIPT.slice(SCRIPT.indexOf('async function watchForAgent('), SCRIPT.indexOf('async function watchForAgentNow('));
   assert.match(w, /WATCHING_AGENTS \+= 1;\s*try \{ return await watchForAgentNow\([^)]*\); \} finally \{ WATCHING_AGENTS = Math\.max\(0, WATCHING_AGENTS - 1\); \}/,
     'the watch is not counted up before and down in a finally');
+});
+
+/* #4347: the Mac window asks the page this before it restarts itself onto a new version. Unlike the
+   background reload above it is asked while the window is in FRONT, so it must not depend on
+   document.hidden or on the once-per-version key; only on whether anything would be lost. */
+function safeToRestart({ sending = {}, drafts = {}, typed = [], attached = null, modal = false } = {}) {
+  const typedSet = new Set(typed.map((v) => ({ value: v, isConnected: true })));
+  const win = {};
+  const src = page.liftAll(SCRIPT, ['updateNothingToLose']);
+  const pub = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{\n[\s\S]*?\n\};$/m);
+  assert.ok(pub, 'the page no longer publishes kosmosSafeToRestart for the Mac window');
+  // Nothing on hold (no What's New, no recent activity): the answer is updateNothingToLose's.
+  win.kosmosLastActivity = 0;
+  win.kosmosWhatsNewPending = false;
+  new Function('window', 'document', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
+    src + '\nconst RESTART_QUIET_MS = 30000; const RESTART_WN_HOLD_MS = 65 * 60 * 1000;\n' + page.liftAll(SCRIPT, ['restartHold']) + '\n' + pub[0])(
+    win, { hidden: false, getElementById: () => null }, !!sending.talk, false, null, false,
+    drafts.talk || {}, {}, {}, drafts.room || {}, () => modal, typedSet, attached || { room: {}, agent: {} });
+  return win.kosmosSafeToRestart();
+}
+
+test('#4347: the page tells the Mac window when a restart would lose nothing, even with the window in front', () => {
+  assert.equal(safeToRestart(), true, 'a clean page in front of the person must allow the restart');
+  assert.equal(safeToRestart({ sending: { talk: true } }), false, 'restarted mid-send');
+  assert.equal(safeToRestart({ drafts: { talk: { april: 'half a thought' } } }), false, 'lost a draft');
+  assert.equal(safeToRestart({ drafts: { room: { p: { text: 'draft' } } } }), false, 'lost a room draft');
+  assert.equal(safeToRestart({ typed: ['a task comment, half typed'] }), false, 'lost typed words');
+  assert.equal(safeToRestart({ attached: { room: { p1: [{ name: 'a.png' }] }, agent: {} } }), false, 'lost a waiting file');
+  assert.equal(safeToRestart({ modal: true }), false, 'restarted under an open window');
+});
+
+test('#4347: a check that throws tells the Mac window it cannot tell, never "would lose" (which would hold the update forever)', () => {
+  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{\n[\s\S]*?\n\};$/m);
+  assert.ok(line, 'kosmosSafeToRestart is gone');
+  const win = {};
+  new Function('window', 'updateNothingToLose', 'restartHold', line[0])(win, () => { throw new Error('boom'); }, () => false);
+  assert.equal(win.kosmosSafeToRestart(), 'unknown');
+  const ok = {};
+  new Function('window', 'updateNothingToLose', 'restartHold', line[0])(ok, () => true, () => false);
+  assert.equal(ok.kosmosSafeToRestart(), true, 'CONTROL: a working check still answers');
+});
+
+test('#4347: What\'s New deciding or open, or the person active in the last 30 s, holds the restart ("hold", never a question)', () => {
+  const src = 'const RESTART_QUIET_MS = 30000; const RESTART_WN_HOLD_MS = 65 * 60 * 1000;\n' + page.liftAll(SCRIPT, ['restartHold']);
+  const hold = (win, open) => new Function('window', 'document', src + '\nreturn restartHold();')(
+    win, { getElementById: (id) => (id === 'whatsnew' && open ? {} : null) });
+  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosWhatsNewSince: Date.now() - 1000, kosmosLastActivity: 0 }, false), true, 'restarted while What\'s New was deciding: the new window would never show it');
+  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosWhatsNewSince: Date.now() - 66 * 60 * 1000, kosmosLastActivity: 0 }, false), false,
+    'a What\'s New check pending past its own hour (a fetch that never answered) held the restart forever');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: 0 }, true), true, 'restarted with What\'s New open');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 5000 }, false), true, 'restarted 5 s after the person clicked');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 60000 }, false), false, 'CONTROL: a quiet page is not held');
+  assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true; window\.kosmosWhatsNewSince = Date\.now\(\);/, 'whatsNewCheck no longer marks itself pending');
+  assert.match(SCRIPT, /\} finally \{\n\s*if \(typeof window !== 'undefined'\) window\.kosmosWhatsNewPending = false;/, 'whatsNewCheck no longer clears its pending mark');
 });

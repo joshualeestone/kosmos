@@ -2250,6 +2250,23 @@ test('every pane-2 option is validated BEFORE any write, and refusals leave no t
   }
 });
 
+test('#4289: an agent created with the Community switch OFF gets no community block', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communityblock = require('./communityblock');
+  const projects = require('./projects');
+  try {
+    assert.deepEqual(sw.setOn(false), { ok: true });
+    const made = create.createAgent({ ...BINS, name: 'no-community', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('no-community'), 'utf8');
+    assert.equal(projects.findBlock(text, communityblock.START, communityblock.END), null, 'the community block was written with the switch OFF');
+  } finally {
+    fs.rmSync(sw.FILE, { force: true });
+  }
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);
@@ -2284,12 +2301,19 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     // #3614: the direct-message files block rides from birth too, so it is taken out with its siblings.
     const dmfiles = require('./dmfiles');
     assert.ok(projects.findBlock(text, dmfiles.START, dmfiles.END), 'the person\'s own agent did not get the files block at birth');
+    // #4289 acceptance 5: the Kosmos community block rides from birth while the switch is ON (no
+    // community.json in this sandbox is the default, ON), so it is taken out with its siblings too.
+    const communityblock = require('./communityblock');
+    assert.ok(projects.findBlock(text, communityblock.START, communityblock.END), 'a new agent created with the Community switch ON did not get the community block at birth');
     const without = projects.removeBlock(
       projects.removeBlock(
-        projects.removeBlock(text, reports.START, reports.END),
-        connections.START, connections.END,
+        projects.removeBlock(
+          projects.removeBlock(text, reports.START, reports.END),
+          connections.START, connections.END,
+        ),
+        dmfiles.START, dmfiles.END,
       ),
-      dmfiles.START, dmfiles.END,
+      communityblock.START, communityblock.END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
@@ -6195,11 +6219,16 @@ test('#3038: createdCount() counts creations (created + partial), never refusals
   assert.equal(create.createdCount(), before + 1, 'a REFUSED does not grow createdCount (nothing was made)');
   assert.ok(create.createdLog().length >= logLenBefore + 2, 'both attempts (incl. the refusal) were recorded in the birth log');
 
-  // Consistency: createdCount == the created+partial entries in the birth log,
-  // the same "created or partial line is the tie" interpretation register.js uses.
+  // Consistency: createdCount == the created+partial entries in the birth log (the same "created
+  // or partial line is the tie" interpretation register.js uses), MINUS the setup guide Kosmos
+  // made by itself (#4350: createdBy 'kosmos', role 'setup', a guide purpose). Stated here in
+  // full rather than borrowed from create.js, so this test is a second statement of the rule.
+  const sa = require('./setup-assistant');
+  const autoGuide = (e) => e.createdBy === sa.GUIDE_CREATED_BY && e.role === sa.SETUP_ROLE_KEY
+    && sa.GUIDE_PURPOSE_PREFIXES.some((p) => String(e.purpose || '').startsWith(p));
   const expected = create.createdLog()
-    .filter((e) => e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL).length;
-  assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries');
+    .filter((e) => (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) && !autoGuide(e)).length;
+  assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries, less the auto guide');
 });
 
 test('#4006: a new agent never inherits a failed-restart record left under its name', () => {

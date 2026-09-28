@@ -119,8 +119,16 @@ test('#2094: the relaunch targets the FRESH installed copy, not this stale proce
      worse than before). The pure `pickFresh` core is unit-tested in the swift
      --kosmos-app-stale-selftest hatch; this pins the WIRING in source so the JS
      suite catches a regression too. */
-  assert.match(SRC, /let target = Self\.freshAppURL\(theirs:\s*theirs\)\s*\?\?\s*Bundle\.main\.bundleURL/,
-    'offerRelaunch no longer resolves a fresh target before Bundle.main (the #2094 loop is back)');
+  /* #4347: no blind fallback to Bundle.main any more. Reopening this window's own path before the update has
+     rewritten it is how Josh needed two relaunches, so the target is only ever a bundle whose plist ON DISK
+     carries the board's version; this window's own path is still a candidate, listed after the installed
+     copies, and a nil target waits instead of relaunching. */
+  assert.match(SRC, /let target = Self\.freshAppURL\(theirs:\s*theirs\)\n/,
+    'the relaunch no longer resolves its target through freshAppURL');
+  assert.doesNotMatch(SRC, /freshAppURL\(theirs:\s*theirs\)\s*\?\?/,
+    'a fallback target is back: it reopens a bundle that may still be the old version (#4347)');
+  assert.match(SRC, /"\/Applications\/Kosmos\.app"\),\s*\n\s*URL\(fileURLWithPath: NSHomeDirectory\(\) \+ "\/Applications\/Kosmos\.app"\),[\s\S]{0,300}?Bundle\.main\.bundleURL,\s*\n\s*\]/,
+    'this window\'s own path must stay a candidate, after the installed copies (#2094 order)');
   assert.match(SRC, /openApplication\(at:\s*target,/,
     'the relaunch opens Bundle.main directly again instead of the resolved fresh target');
   assert.match(SRC, /static func pickFresh\(/,
@@ -129,4 +137,18 @@ test('#2094: the relaunch targets the FRESH installed copy, not this stale proce
     'the relaunch must ALWAYS force a new instance: the fresh copy shares this stale process\'s bundle id, so dedup-by-activation (createsNewApplicationInstance=false) would activate the stale instance and quit to nothing. The pile-up is fixed by targeting a DIFFERENT fresh bundle above, not by dedup.');
   assert.doesNotMatch(SRC, /createsNewApplicationInstance = relaunchingSelf/,
     'the dangerous same-bundle-id dedup is back: activating an existing instance of the fresh path lands on THIS stale process and terminates to nothing');
+});
+
+test('#4347: the name the Mac window asks the page for is the name the page defines, and every answer is mapped', () => {
+  const WEB = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+  const asked = SRC.match(/static let relaunchPageQuestion = ([\s\S]*?)\n\s*static let/);
+  assert.ok(asked, 'relaunchPageQuestion is gone');
+  const names = [...asked[1].matchAll(/window\.(\w+)/g)].map((m) => m[1]);
+  assert.ok(names.length >= 2 && names.every((n) => n === names[0]), 'the question calls more than one name: ' + names);
+  assert.match(WEB, new RegExp('^if \\(typeof window !== \'undefined\'\\) window\\.' + names[0] + ' = ', 'm'),
+    'the page no longer defines window.' + names[0] + ': every update would fall back to the dialog');
+  for (const word of ['loading', 'unknown', 'hold']) {
+    assert.ok(asked[1].includes("'" + word + "'"), 'the question no longer answers ' + word);
+    assert.ok(SRC.includes('(result as? String) == "' + word + '"'), 'the window no longer maps the answer ' + word);
+  }
 });

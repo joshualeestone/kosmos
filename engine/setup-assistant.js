@@ -51,6 +51,13 @@ const accounts = require('./accounts');
 const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
+/* #4350: how the auto-created guide's birth is recognised (create.isAutoGuideBirth), so it is
+   left out of the public agents-created count. ONE definition, used for the create below. */
+const GUIDE_CREATED_BY = 'kosmos';
+const GUIDE_PURPOSE_PREFIX = 'default Kosmos setup guide';
+/* Every purpose a shipped guide was born with, for recognising older births: 0.6.70 (37213fca1,
+   2026-09-15 to 09-16) wrote "default Kosmos setup assistant (auto-created on first-run, #3034)". */
+const GUIDE_PURPOSE_PREFIXES = Object.freeze([GUIDE_PURPOSE_PREFIX, 'default Kosmos setup assistant (auto-created']);
 
 /* The guide's name, and its short AI tag (#3034, Josh 2026-09-24), used in the guide's purpose line below. */
 const GUIDE_NAME = 'Josh';
@@ -346,16 +353,16 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
     name = candidate;
     try {
-      /* #3894: this path sends no created-agent beacon, on purpose. The guide IS counted:
-         createAgent writes its birth to created.jsonl, and the beacon (#3038) sends
-         createdCount(), the total from that log, the next time the person creates an agent
-         with the box on (POST /api/agents). What it does not do is ping NOW, because the
-         person made no choice here; the create form's box is where that choice lives. */
+      /* #3894: this path sends no created-agent beacon, on purpose: the person made no
+         choice here, and the create form's box is where that choice lives. #4350: the guide is
+         also left OUT of the public count (create.isAutoGuideBirth), since the person did not
+         create it; what happened here reaches the collector as the install ping's `guide`
+         state instead. */
       out = createAgent({
         name,
         role: SETUP_ROLE_KEY,
-        createdBy: 'kosmos',
-        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created when a model was connected, #3034/#3660)`,
+        createdBy: GUIDE_CREATED_BY,
+        purpose: `${GUIDE_PURPOSE_PREFIX}, ${GUIDE_TAG} (auto-created when a model was connected, #3034/#3660)`,
         /* The model that was connected, so an OpenAI-only (or Gemini, Grok) person gets a
            guide that can run; absent, createAgent's own default (Claude) applies. */
         ...(model && model.provider ? { provider: model.provider } : {}),
@@ -603,7 +610,8 @@ function retryWaitMs() {
  * it has never been seeded, and a model is connected. Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
- * create at most one. Never throws. Resolves { seeded, name?, reason? }.
+ * create at most one. Never throws. Resolves { seeded, state?, name?, reason? }: `state` is one
+ * of guidestate.STATES, absent only for a retry wait (which says nothing new; #4350).
  * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
  * enabled / settings (the switches) and avatarDir. Production passes none.
  */
@@ -614,23 +622,25 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
      run it is off unless a test turns it on with AGENT_WORKFORCE_SETUP_GUIDE=on. */
   const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
   const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
-  if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
+  // 'disabled' is what a board under AGENT_WORKFORCE_DRY_RUN=1 records (the browser checks):
+  // the board's sweep is gated on FIRSTRUN_AUTOCREATE_ENABLED only, and this check stops it here.
+  if (!enabled) return Promise.resolve({ seeded: false, state: 'disabled', reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
-  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (first run is not finished)' });
-  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
-  if (namesTaken) return Promise.resolve({ seeded: false, reason: 'both guide names are taken by other agents' });
+  if (!isArmed()) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
+  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
+  if (namesTaken) return Promise.resolve({ seeded: false, state: 'names-taken', reason: 'both guide names are taken by other agents' });
   /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
-  if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
+  if (!wanted) return Promise.resolve({ seeded: false, state: 'off', reason: 'the person turned setup assistance off' });
   const listed = listedModels(deps);
-  if (!listed.rows.length) return Promise.resolve({ seeded: false, reason: 'no model connected yet' });
+  if (!listed.rows.length) return Promise.resolve({ seeded: false, state: 'no-model', reason: 'no model connected yet' });
   const changed = failedFingerprint !== null && listed.fingerprint !== failedFingerprint;
   if (changed) { lastFailedAt = 0; failures = 0; }
   if (via !== 'first-run' && lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
-    const fail = (reason) => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, reason }; };
+    const fail = (reason, state = 'refused') => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, state, reason }; };
     try {
       let last = null;
       for (const row of listed.rows) {
@@ -646,7 +656,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
           lastFailedAt = 0;
           failures = 0;
           failedFingerprint = null;
-          return seed;
+          return { ...seed, state: 'seeded' };
         }
         last = seed;
         /* Both names taken: that is about the NAME, not the model, so the next model would
@@ -654,8 +664,13 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         if (/already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
         /* Refused on this model (its runner missing, say): try the next one. */
       }
-      return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet');
+      // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
+      // not a refusal: nothing was asked to create.
+      return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet',
+        namesTaken ? 'names-taken' : last ? 'refused' : 'no-usable-model');
     } catch (err) {
+      // An internal failure reads 'refused' on /admin like a model refusal; the reason (kept
+      // locally) tells them apart.
       return fail('ensureGuide failed: ' + String((err && err.message) || err));
     } finally {
       inFlight = null;
@@ -713,6 +728,8 @@ function mergeSetting(stored, patch) {
 
 module.exports = {
   SETUP_ROLE_KEY,
+  GUIDE_CREATED_BY,
+  GUIDE_PURPOSE_PREFIXES,
   armPath,
   armSetupAssistant,
   guideDenyRules,

@@ -37,9 +37,9 @@ function capture() {
   return calls;
 }
 
-test('payload() pins the collector contract {installId, count, version, os}', () => {
+test('payload() pins the collector contract {installId, count, version, os, guide}', () => {
   const p = beacon.payload(4);
-  assert.deepEqual(Object.keys(p).sort(), ['count', 'installId', 'os', 'version']);
+  assert.deepEqual(Object.keys(p).sort(), ['count', 'guide', 'installId', 'os', 'version']);   // guide: #4350
   assert.equal(p.count, 4);
   assert.equal(typeof p.installId, 'string');
   assert.ok(p.installId.length > 0);
@@ -134,6 +134,34 @@ test('the create form carries the default-checked, hardcoded beacon checkbox', (
   assert.match(WEB, /b\.notifyCreated = document\.getElementById\('create-tell'\)\.checked/, 'the create request does not send notifyCreated from the checkbox');
 });
 
-test('cleanup the sandbox', () => {
+/* After EVERY test, not as the last test: a cleanup written as a test runs before anything appended below
+   it, and the #4253 rule C test (appended later) recreated the sandbox after it and leaked it (#4273). */
+test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+/* kosmos#4253 rule C: our own machines say so in their pings, and nobody else's ever does. */
+test('#4253 rule C: internal:true rides the payload only when the data root holds {"internal": true}', () => {
+  const root = require('./engine/store').ROOT;
+  const f = path.join(root, 'internal.json');
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    fs.rmSync(f, { force: true });
+    assert.equal('internal' in beacon.payload(1), false, 'no marker: a normal install, contract keys unchanged');
+    for (const body of ['{not json', '{"internal":"true"}', '{"internal":1}', '[true]', 'null', '{}']) {
+      fs.writeFileSync(f, body);
+      assert.equal('internal' in beacon.payload(1), false, `a marker that is not exactly {"internal": true} (${body}) marks nothing`);
+    }
+    fs.writeFileSync(f, JSON.stringify({ internal: true }));
+    const p = beacon.payload(3);
+    assert.equal(p.internal, true, 'the marked machine says it is ours');
+    assert.deepEqual(Object.keys(p).sort(), ['count', 'guide', 'installId', 'internal', 'os', 'version']);   // guide: #4350
+    const calls = capture();
+    beacon.send(3);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.internal, true, 'the flag reaches the wire, not just payload()');
+  } finally {
+    fs.rmSync(f, { force: true });
+    beacon.setSender(null);
+  }
 });

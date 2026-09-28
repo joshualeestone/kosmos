@@ -114,18 +114,185 @@ function chk(ok, label, extra) {
     });
     chk(ring.every((x) => /=2px solid /.test(x)), 'Reply, the header and the x get the bar\'s 2px keyboard focus ring', ring.join(' '));
 
+    // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
+    const bar = await p.evaluate(() => {
+      const q = document.querySelector('#pj-room .rxns .rxn-quick');
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const r = q && q.querySelector('.rxn-reply');
+      const ico = r && r.firstElementChild;
+      return { kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
+        word: r ? r.textContent.trim() : null };
+    });
+    chk(bar.kids === 'pick,pick,pick,more,reply', 'the hover bar reads the three quick emoji, the smiley, then Reply last', bar.kids);
+    chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
+    const rests = {};
+    for (const scheme of ['light', 'dark']) {
+      await p.emulateMedia({ colorScheme: scheme });
+      const post = p.locator('#pj-room .msg').filter({ has: p.locator('.rxn-reply') }).first();
+      await post.hover();
+      await p.waitForTimeout(250);
+      const btn = post.locator('.rxn-reply');
+      const rest = await btn.evaluate((b) => getComputedStyle(b).borderTopColor);
+      await btn.hover();
+      await p.waitForTimeout(250);
+      const hov = await btn.evaluate((b) => {
+        const probe = document.createElement('span'); probe.style.color = 'var(--gold-bright)'; b.appendChild(probe);
+        const gold = getComputedStyle(probe).color; probe.remove();
+        return { border: getComputedStyle(b).borderTopColor, gold };
+      });
+      rests[scheme] = rest;
+      chk(hov.border === hov.gold && hov.border !== rest, '[' + scheme + '] hovering Reply gives it the bright gold outline', JSON.stringify({ rest, hov }));
+      await p.mouse.move(5, 5);
+    }
+    await p.emulateMedia({ colorScheme: 'light' });
+    // --gold-bright is the same in both themes, so prove the dark arm really ran dark: the resting rule differs.
+    chk(rests.light && rests.dark && rests.light !== rests.dark, 'CONTROL: the dark arm really ran in dark mode (the resting outline changed)', JSON.stringify(rests));
+
     // The original, not a reply that quotes it (a reply's header and screen-reader line carry its words too).
     const firstRow = p.locator('#pj-room .msg').filter({ hasText: 'The launch moves to Friday.' }).filter({ hasNot: p.locator('.msg-replyto, .vh') }).first();
     await firstRow.hover();
     await firstRow.locator('.rxn-reply').click();
+    await p.evaluate(() => { window.PJ_REPLY_ORIGINAL_ID = PJ_REPLY[PJ_CURRENT].id; });
     const strip = (await p.locator('#pj-reply').innerText()).replace(/\s+/g, ' ').trim();
     chk(/^Replying to You: The launch moves to Friday\./.test(strip), 'Reply shows "Replying to <who>: <first line>" above the composer', strip);
     chk(await p.evaluate(() => document.activeElement && document.activeElement.id === 'pj-post'), 'focus moves to the composer');
     chk(await p.evaluate(() => document.getElementById('pj-post').getAttribute('aria-describedby') === 'pj-reply-what'), 'the composer is described by the "Replying to" strip while replying');
-    chk(await p.locator('#pj-reply .pj-replying-h').count() === 0, 'CONTROL: no "ask them" hint on a reply to your own post');
-    const hint = await p.evaluate(() => { const keep = PJ_REPLY[PJ_CURRENT]; PJ_REPLY[PJ_CURRENT] = { id: keep.id, who: 'You', words: 'x', mine: false }; pjReplyPaint(PJ_CURRENT);
-      const h = document.querySelector('#pj-reply .pj-replying-h'); PJ_REPLY[PJ_CURRENT] = keep; pjReplyPaint(PJ_CURRENT); return h ? h.textContent : null; });
-    chk(hint === 'Add @name to ask them directly', 'a reply to someone else says how to ask them directly, even an agent displayed as "You" (keyed on who wrote it, not the name)', String(hint));
+    // #4359 (Josh): Reply to an agent puts its @mention in the box; a reply to your own post puts none.
+    chk(await p.evaluate(() => document.getElementById('pj-post').value) === '', 'CONTROL: Reply to your own post leaves the box empty (no mention)');
+    chk(await p.locator('#pj-reply .pj-replying-h').count() === 0, 'the old "Add @name" hint is gone');
+    const ment = await p.evaluate(() => {
+      // An agent's post in this room, through the same pjReplyStart the Reply click calls (posting AS an
+      // agent needs its launch token, which this hermetic board does not hand out).
+      PJ_ROOM_POSTS.set('agent-4359', { id: 'agent-4359', from: 'roomer', text: 'Can you check the copy?' });
+      const box = document.getElementById('pj-post');
+      pjReplyStart('agent-4359');
+      const first = { value: box.value, caret: box.selectionStart, hint: !!document.querySelector('#pj-reply .pj-replying-h') };
+      const said = document.getElementById('pj-room-say').textContent;
+      box.value = '@roomer looks good'; box.setSelectionRange(box.value.length, box.value.length);
+      pjReplyStart('agent-4359');   // Reply again: the mention is not stacked
+      const again = box.value;
+      const againCaret = box.selectionStart;   // the cursor was in the person's words, so it stays there
+      box.setSelectionRange(2, 2);
+      pjReplyStart('agent-4359');   // ... but a cursor inside the mention goes to just after it
+      const insideCaret = box.selectionStart;
+      box.setSelectionRange(box.value.length, box.value.length);
+      pjReplyStart(PJ_REPLY_ORIGINAL_ID);   // then to your own post: the mention Reply put there is taken back out
+      const own = box.value;
+      const ownCaret = box.selectionStart;
+      // A draft, then Reply to your own post again: nothing to add, so neither the text nor the caret moves.
+      box.value = 'half a thought'; box.setSelectionRange(14, 14);
+      pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+      const kept = { value: box.value, caret: box.selectionStart };
+      // A post from someone who is not one of this project's agents gets no mention either.
+      PJ_ROOM_POSTS.set('stranger-4359', { id: 'stranger-4359', from: 'not-on-this-project', text: 'Hello?' });
+      box.value = 'draft'; box.setSelectionRange(5, 5);
+      pjReplyStart('stranger-4359');
+      const stranger = { value: box.value, caret: box.selectionStart };
+      PJ_ROOM_POSTS.delete('stranger-4359');
+      box.value = ''; pjReplyStart('agent-4359');
+      document.querySelector('#pj-reply .pj-replying-x').click();   // x with only the mention in the box empties it
+      const afterX = box.value;
+      PJ_ROOM_POSTS.delete('agent-4359');
+      box.value = '';
+      // A mention the person TYPED is theirs: Reply records none, so nothing later takes it back out.
+      delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT);
+      PJ_ROOM_POSTS.set('agent-4359', { id: 'agent-4359', from: 'roomer', text: 'Can you check the copy?' });
+      box.value = '@roomer hi'; box.setSelectionRange(10, 10);
+      pjReplyStart('agent-4359');
+      const typedRec = PJ_REPLY[PJ_CURRENT].mention;
+      pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+      const typedKept = box.value;
+      // A mention already in the words, not at the front, is not added a second time.
+      box.value = 'hi @roomer '; pjReplyStart('agent-4359');
+      const moved = box.value;
+      box.value = 'please @roomer check'; pjReplyStart('agent-4359');
+      const midSentence = box.value;
+      // The engine's own rule: a trailing full stop after the name still names the agent (engine/messages.js).
+      box.value = 'thanks @roomer.'; pjReplyStart('agent-4359');
+      const stop = box.value;
+      PJ_ROOM_POSTS.delete('agent-4359');
+      delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, stop };
+    });
+    chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
+    chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
+    chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
+    chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
+    chk(ment.stop === 'thanks @roomer.', 'a name ending a sentence ("@roomer.") counts as named, the engine\'s rule, so it is not added again', JSON.stringify(ment.stop));
+    chk(ment.moved === 'hi @roomer ' && ment.midSentence === 'please @roomer check', 'a mention already in the words (moved, or mid-sentence) is not added again', JSON.stringify({ moved: ment.moved, mid: ment.midSentence }));
+    chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
+    chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
+    chk(ment.kept.value === 'half a thought' && ment.kept.caret === 14, 'Reply to your own post with a draft in the box moves neither the draft nor the cursor', JSON.stringify(ment.kept));
+    chk(ment.stranger.value === 'draft' && ment.stranger.caret === 5, 'a post from someone not on the project gets no mention, and the cursor stays put', JSON.stringify(ment.stranger));
+    chk(ment.afterX === '', 'x on a reply whose box holds only the mention empties the box', JSON.stringify(ment.afterX));
+    // The real click: make the second post read as roomer's (its row is on screen), hover it, click its Reply.
+    // The room poll (every 5 s) rebuilds PJ_ROOM_POSTS; hold it for this arm so the edit below stays put.
+    await p.evaluate(() => { window.__loadRoom4359 = loadRoom; loadRoom = async () => {}; });
+    try {
+    const secondId = await p.evaluate(() => {
+      const box = [...document.querySelectorAll('#pj-room .rxns[data-post]')].find((b) => /Unrelated second post/.test(b.closest('.msg').textContent));
+      const id = box && box.getAttribute('data-post');
+      const m = id && PJ_ROOM_POSTS.get(id);
+      if (!m) return null;
+      window.__was4359 = { from: m.from, operator: m.operator };
+      m.from = 'roomer'; m.operator = false;
+      return id;
+    });
+    chk(!!secondId, 'CONTROL: the second post is on screen to click');
+    if (secondId) {
+      const row = p.locator('#pj-room .msg').filter({ hasText: 'Unrelated second post' }).filter({ hasNot: p.locator('.msg-replyto, .vh') }).first();
+      await row.hover();
+      await row.locator('.rxn-reply').click();
+      const clicked = await p.evaluate(() => { const b = document.getElementById('pj-post'); return { value: b.value, caret: b.selectionStart, focused: document.activeElement === b }; });
+      chk(clicked.value === '@roomer ' && clicked.caret === 8 && clicked.focused, 'a real Reply click on an agent\'s post leaves "@roomer " in the focused box with the cursor after it', JSON.stringify(clicked));
+      // Enter with only the mention in the box: nothing is said yet, so nothing is sent.
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(300);
+      const bare = await p.evaluate(() => ({ msg: document.getElementById('pj-room-msg').textContent, value: document.getElementById('pj-post').value }));
+      chk(bare.msg === 'Say something first.' && bare.value === '@roomer ', 'Enter with only the mention sends nothing and says "Say something first."', JSON.stringify(bare));
+      // With only the mention AND a file waiting, the file names go AFTER the mention (the send is captured, not made).
+      await p.evaluate(() => {
+        attachList(ATTACH_ROOM).push({ id: 'att-4359', name: 'notes.pdf' });
+        window.__sent4359 = null;
+        window.__fetch4359 = window.fetch;
+        window.fetch = (url, opts) => {
+          if (/\/room$/.test(String(url)) && opts && opts.method === 'POST') { window.__sent4359 = JSON.parse(opts.body); return Promise.reject(new Error('captured by the check')); }
+          return window.__fetch4359(url, opts);
+        };
+      });
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(300);
+      const withFile = await p.evaluate(() => {
+        window.fetch = window.__fetch4359;
+        const list = attachList(ATTACH_ROOM); list.splice(0, list.length);
+        const out = window.__sent4359;
+        document.getElementById('pj-post').value = '@roomer ';
+        document.getElementById('pj-room-msg').textContent = '';
+        return out && { text: out.text, attachments: out.attachments };
+      });
+      // A Reply while a post is on its way leaves the box alone (the words in it are the ones being sent).
+      await p.waitForFunction(() => PJ_POSTING === false, null, { timeout: 5000 });   // the captured send above has settled
+      const midSend = await p.evaluate((id) => {
+        const box = document.getElementById('pj-post');
+        box.value = '@roomer sent words';
+        PJ_POSTING = true;
+        pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+        const out = { value: box.value, rec: PJ_REPLY[PJ_CURRENT].mention };
+        PJ_POSTING = false;
+        box.value = ''; pjReplyStart(id);   // back to Reply's own mention for the arms that follow
+        return out;
+      }, secondId);
+      chk(midSend.value === '@roomer sent words' && midSend.rec === null, 'a Reply while a post is on its way leaves the box (the words being sent) alone', JSON.stringify(midSend));
+      chk(!!withFile && withFile.text === '@roomer notes.pdf' && JSON.stringify(withFile.attachments) === '["att-4359"]', 'with only the mention and a file waiting, the post reads "@roomer notes.pdf" and carries the file', JSON.stringify(withFile));
+      await p.evaluate((id) => { const m = PJ_ROOM_POSTS.get(id); if (m) Object.assign(m, window.__was4359); document.getElementById('pj-room-msg').textContent = '';
+        document.querySelector('#pj-reply .pj-replying-x').click(); }, secondId);
+      chk(await p.evaluate(() => document.getElementById('pj-post').value) === '', 'x after that empties the box again');
+    }
+    } finally {
+      await p.evaluate(() => { if (window.__fetch4359) window.fetch = window.__fetch4359; if (window.__loadRoom4359) loadRoom = window.__loadRoom4359; });
+    }
+    await firstRow.hover();
+    await firstRow.locator('.rxn-reply').click();
     // Pressing x while the post is on its way does not pretend to cancel: the reply already left.
     // A plain post on its way is not this reply: x still cancels (CONTROL for the arm below).
     const plainSend = await p.evaluate(() => { const r = PJ_REPLY[PJ_CURRENT]; PJ_POSTING = true; PJ_REPLY_SENDING = null;

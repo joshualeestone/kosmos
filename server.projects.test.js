@@ -2345,6 +2345,25 @@ test('a numbered answer records the WORDS and keeps what was typed beside them',
   });
 });
 
+test('#4340: a menu button pressed through the real route leaves nothing owed, and a typed message does', async () => {
+  reset();
+  /* THROUGH THE ROUTE, not a hand-built row: review of #4365 forced the route's `wire` to null and every
+     other #4340 test stayed green, because they all wrote the row themselves. */
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(), said()], async () => {
+    const res = json(await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes, and don’t ask again' }));
+    assert.equal(res.delivery.state, 'placed', 'CONTROL: the press reached the pane, so dmOwes would count it');
+    const body = json(await req('/api/agent/zeta/thread'));
+    assert.equal(body.messages[body.messages.length - 1].wire, '1', 'fixture: the route stored the digit');
+    assert.equal(body.owes.state, 'clear', 'a button press was counted as a message the agent owes an answer to');
+  });
+  await withAgent(fleet.agent('zeta', { state: 'idle' }), [said(), said()], async () => {
+    const res = json(await post('/api/agent/zeta/thread', { text: 'have a look at the lease' }));
+    assert.equal(res.delivery.state, 'placed', 'CONTROL: the typed message reached the pane too');
+    assert.equal(json(await req('/api/agent/zeta/thread')).owes.state, 'owes',
+      'CONTROL: the same route with a typed message owes, so the clear above is the button, not the fixture');
+  });
+});
+
 test('an ordinary message carries no wire text, because the two are the same thing', async () => {
   reset();
   await withAgent(fleet.agent('zeta', { state: 'idle' }), [said(), said()], async () => {

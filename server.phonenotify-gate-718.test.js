@@ -1,12 +1,14 @@
 'use strict';
 
 /**
- * #718: the ship gate (Liu Kang, 2026-09-24). No phone app can receive yet, so
- * phone notifications ship HIDDEN: engine/phonenotify.js's PHONE_APP_CAN_RECEIVE
- * is false, and while it is the setting reads unavailable, turning on is refused,
- * and nothing is sent even when the switch file says on with a token. The last
- * test opens the gate on the same state and shows the send happens, so the zeros
- * above are the gate's and not the harness's.
+ * #718: the ship gate (Liu Kang, 2026-09-24). While engine/phonenotify.js's gate is
+ * closed, the setting reads unavailable, turning on is refused, and nothing is sent
+ * even when the switch file says on with a token.
+ * #4194: the gate now SHIPS OPEN (a receiving Android test app exists). The first test
+ * pins that. The closed-gate tests stay, closing it explicitly with
+ * setAvailableForTests(false), because the lock is how a release would close it again
+ * and it must still hold; the last test shows the same state and actions do send with
+ * the gate open, so the zeros are the gate's and not the harness's.
  *
  *   node --test server.phonenotify-gate-718.test.js
  */
@@ -80,23 +82,35 @@ async function actAsLeo() {
   } finally { sendertoken.revoke('leo'); messages.setRunner(null); board.restore(); }
 }
 
-test('the gate ships closed in this commit', () => {
-  assert.equal(phonenotify.PHONE_APP_CAN_RECEIVE, false, 'the ship gate was opened; it opens only in the release that ships a receiving phone app');
+test('#4194: the gate ships OPEN in this commit (a receiving phone app exists)', () => {
+  assert.equal(phonenotify.PHONE_APP_CAN_RECEIVE, true, 'the ship gate is closed; #4194 opens it for the release after Josh says yes');
 });
 
-test('gate closed: the setting reads unavailable and off, whatever the file says', async () => {
+test('#4194: with the gate open as shipped, the setting reads available (the module default, nothing set by the test)', async () => {
+  const st = await call('GET', '/api/phone-notify');
+  assert.equal(st.json.available, true, JSON.stringify(st.json));
+});
+
+/* The lock itself (a release could close the gate again): closed explicitly for these tests. */
+test('gate closed: the setting reads unavailable and off, whatever the file says', async (t) => {
+  phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const st = await call('GET', '/api/phone-notify');
   assert.deepEqual(st.json, { available: false, on: false, connected: true });
 });
 
-test('gate closed: turning on is refused and the tunnel never runs', async () => {
+test('gate closed: turning on is refused and the tunnel never runs', async (t) => {
+  phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(r.code, 400);
   assert.match(r.json.error, /not available yet/);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
 
-test('gate closed: nothing is sent, even with the switch file on and a token held', async () => {
+test('gate closed: nothing is sent, even with the switch file on and a token held', async (t) => {
+  phonenotify.setAvailableForTests(false);
+  t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   sent.length = 0;
   await actAsLeo();
   assert.equal(sent.length, 0, 'a notification left the Mac while the ship gate was closed');
@@ -110,5 +124,5 @@ test('CONTROL: gate open, the same state and actions do send', async () => {
     assert.equal(sent.length, 2, 'the control sent nothing, so the zero above proves nothing');
     const st = await call('GET', '/api/phone-notify');
     assert.equal(st.json.available, true);
-  } finally { phonenotify.setAvailableForTests(false); }
+  } finally { phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE); }
 });

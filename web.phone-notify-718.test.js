@@ -152,3 +152,20 @@ test('ship gate open: the section shows (the control for the closed arm)', async
 test('the section is hidden in the page markup, before any script runs', () => {
   assert.match(PAGE, /<section class="dbox" id="phone-notify" hidden>/);
 });
+
+/* #4194: with the ship gate open, a Mac user without the phone app must not be misled: the section says the app is in
+   testing (an Android test build, not in the stores yet), inside the section so it shows exactly when the section does. */
+test('#4194: the Phone notifications section says the phone app is in testing, not in the stores yet', () => {
+  const start = PAGE.indexOf('<section class="dbox" id="phone-notify"');
+  const end = PAGE.indexOf('</section>', start);
+  assert.ok(start > 0 && end > start, 'the Phone notifications section moved');
+  const section = PAGE.slice(start, end);
+  const note = (section.match(/<p class="dhint" id="phone-notify-testing"[^>]*>([^<]*)<\/p>/) || [])[1] || '';
+  assert.match(note, /still in testing/, 'the section does not say the app is in testing: ' + note);
+  assert.match(note, /Android test build/);
+  assert.match(note, /not in the App Store or Google Play/);
+  // #4194 review (Sonya): the 30-minute needs_you email can still arrive with no phone, so the note must not say nothing does.
+  assert.match(note, /these will not reach your phone/, 'the note should say only what it means: not on your phone');
+  assert.doesNotMatch(note, /anywhere/, 'the note says nothing arrives anywhere, but the needs_you email can: ' + note);
+  assert.ok(section.indexOf('phone-notify-testing') < section.indexOf('phone-notify-toggle'), 'the note should come before the switch');
+});

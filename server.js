@@ -543,10 +543,9 @@ function importIntoWorld(base, targetId, picks, opts = {}) {
    same place the read looks. Only the two known values are honoured; any other content
    folds to 'prod' so a corrupt file can never paint a loud STAGING badge on a prod board. */
 function recordedSourceChannel() {
-  try {
-    const raw = fs.readFileSync(path.join(store.ROOT, 'source-channel'), 'utf8').trim().toLowerCase();
-    return raw === 'staging' ? 'staging' : 'prod';
-  } catch { return 'prod'; }
+  // #2969: ONE parser for the stamp, shared with the updater's channel fallback, so the badge and
+  // the pointer the box polls can never read the same file two ways.
+  return updates.readSourceChannelAt(store.ROOT);
 }
 /* #2934: A PROMOTE MOVES NO BYTES, SO THE INSTALL STAMP GOES STALE AND NOTHING CAN
    REWRITE IT. The file above records which pointer this box last FETCHED from, written
@@ -578,7 +577,13 @@ function recordedSourceChannel() {
    predicate returns null, and the box shows STAGING again. That is not a regression of
    this card so much as the honest answer for a real staging subscriber, but anyone
    closing #2969 must decide deliberately what a subscriber sitting on a promoted build
-   should display, rather than discovering it from a reopened #2934. Said on both cards. */
+   should display, rather than discovering it from a reopened #2934. Said on both cards.
+   ✅ DECIDED WHEN #2969 WAS FIXED (2026-09-28): the updater now falls back to the install
+   stamp, so a box installed from staging keeps polling the staging pointer and this badge
+   reads STAGING, even on a build prod has since published, until the next staging build. That
+   is kept on purpose: the box IS subscribed to staging and will take the next staging build
+   before prod does, so STAGING is the true answer to "which builds will this box get". The
+   prod-pointer rung above still serves a box whose environment explicitly names prod. */
 function sourceChannelNow() {
   const recorded = recordedSourceChannel();
   if (recorded !== 'staging') return 'prod';
@@ -630,10 +635,12 @@ function federationLiveNow() {
 }
 
 /* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
-   bytes). A box INSTALLED from the staging channel but RESOLVING prod has silently lost its
-   staging subscription at login (#2969): the board's launchd job carries no channel, so
-   updateChannel() falls back to prod and the box quietly stops being ahead of prod, with no
-   error -- exactly the silence Josh named as #2036's failure mode. This predicate is the boot
+   bytes). A box INSTALLED from the staging channel but RESOLVING prod is not receiving staging
+   builds. Before #2969 that was the silent loss at login (the board's launchd job carries no
+   channel, and updateChannel() read only the environment). Since #2969 updateChannel() falls
+   back to the install stamp, so the one remaining way into this state is an explicit
+   non-staging channel variable in the board's environment. Still worth a loud line: it is
+   exactly the silence Josh named as #2036's failure mode. This predicate is the boot
    diagnostic's condition, kept PURE so it is testable and so it cannot throw on the listen path.
 
    🔑 IT COMPARES THE RAW INSTALL STAMP, NOT THE BADGE. `recorded` must be recordedSourceChannel()
@@ -642,9 +649,9 @@ function federationLiveNow() {
    build and would MASK a genuine silent revert. `resolved` is updateChannel() (what the poller
    actually fetches). The signature is: installed-from-staging yet polling-prod.
 
-   ⚠️ This is OBSERVABILITY ONLY. The byte-changing fix (persist the channel across login so the
-   subscription survives) is #2969/#2934 and stays parked on real-fresh-machine verification per
-   Josh's gate; this predicate neither resolves the channel nor changes which bytes install. */
+   ⚠️ This is OBSERVABILITY ONLY: this predicate neither resolves the channel nor changes which
+   bytes install. The byte-changing fix shipped separately in #2969 (updateChannel() falls back to
+   the install stamp), which leaves an explicit non-staging channel variable as the only way here. */
 function stagingRevertWarning(recorded, resolved) {
   return recorded === 'staging' && resolved === 'prod';
 }
@@ -672,11 +679,14 @@ function stagingRevertWarningNow() {
    defaults to stderr and exists only as the test seam. */
 function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
   if (!stagingRevertWarningNow()) return false;
+  /* #2969: since the updater falls back to this same stamp, the only way left to reach this state
+     is an update-channel variable in the board's environment naming something other than staging,
+     which wins over the stamp by design. So the message names that override, not a lost login. */
   write('Kosmos update check: WARNING -- this box installed from the staging channel '
     + '(source-channel=staging) but is resolving the prod channel, so it is no longer receiving '
-    + 'staging builds (kosmos#2969). The update channel is not carried across login; a durable fix is '
-    + 'tracked in kosmos#2969 and is not yet shipped, and setting the channel only in an interactive shell '
-    + 'does not survive the next login. See kosmos#2969 and kosmos#2036 for status.\n');
+    + 'staging builds. An update-channel variable in this board\'s environment names a channel other '
+    + 'than staging, and it wins over the install stamp (kosmos#2969). Remove it to follow staging '
+    + 'again. See kosmos#2969 and kosmos#2036.\n');
   return true;
 }
 
@@ -813,13 +823,32 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
+const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
+const guidestate = require('./engine/guidestate');
+/* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
+   its STATE changes, send the install ping GUIDE_PING_DELAY_MS later (guidestate.makeRecorder
+   says why the delay, and is tested there). This covers the board-start ping only: a created
+   ping (an agent made inside the window) can still race it, as a count change always could. */
+const GUIDE_PING_DELAY_MS = 30 * 1000;
+/* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
+   early once seeded), so the sweep records this for it. `seeded: false` is ensureGuide's own shape
+   for "nothing created on this call"; the state says the guide exists. */
+const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
+// Under a test run the beacon never sends, and an armed 30 s timer could land inside another
+// test's capture window, so no timer is armed at all there (the state is still recorded).
+const recordGuideOutcome = guidestate.makeRecorder({
+  ping: () => createdbeacon.pingInstall(),
+  delayMs: GUIDE_PING_DELAY_MS,
+  setTimer: createdbeacon.underTest() ? () => null : setTimeout,
+});
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
+const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
    connection_lost agent's recovery stands (connlostHeal.reconnectPhase). In memory: a board
@@ -1013,12 +1042,6 @@ const attachments = require('./engine/attachments');
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
 const feedpublish = require('./engine/feedpublish');
-/* ⚠️ THE SAME MODULE UNDER A SECOND NAME, and it is not a convenience. The
-   thread handler builds a local `messages` array for its payload, which shadows
-   this binding for the whole of that scope, so `messages.owesReply` in there
-   would be a property of an array. Naming it once here beats a rename inside
-   the handler that would touch a payload key a screen reads. */
-const messageLog = messages;
 const os = require('node:os');
 
 /**
@@ -3886,6 +3909,16 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, { posts: communitysend.statuses() }); }
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
+    return;
+  }
+
+  /* #4313: the owner's list of what their agents put in the public community, for the
+     Community box in Settings: the send layer's records joined to the board's own posts
+     (title, agent, when), with whether Delete still applies. Board-token gated by the
+     sensitive-route check above; carries no keys or remote ids. */
+  if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, { posts: communitymine.mine() }); }
+    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts' }); }
     return;
   }
 
@@ -10992,6 +11025,7 @@ const server = http.createServer((req, res) => {
         try {
           setupAssistant.armSetupAssistant();
           setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'first-run' })
+            .then(recordGuideOutcome)
             .catch(() => { /* the setup guide is a nicety; onboarding still completed */ });
         } catch { /* the setup guide is a nicety; onboarding still completed */ }
       }
@@ -13063,6 +13097,15 @@ const server = http.createServer((req, res) => {
     const reach = chat.addressable(name, roster);
     const presence = reach.ok ? 'on' : (!Array.isArray(roster) ? 'unsure' : 'off');
     const presenceBecause = reach.ok ? null : reach.because;
+    /* #4340: from THIS thread's own rows, not messages.owesReply. That reads the `kosmos msg` / room log, where a
+       person's DM and the agent's `kosmos reply` never are: a DM never made it owe, and a colleague's message
+       could make it owe under a visible answer. The stored rows (before the question/account rows are added,
+       which are Kosmos's own and not a reply), matched on `name`, the key the thread was read under: readThread
+       refuses a file whose stored agent differs, so every agent row it returns carries exactly that name. A
+       thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
+       dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
+       it (review iteration 7). */
+    const owes = chat.dmOwes(messages, name);
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
@@ -13080,7 +13123,6 @@ const server = http.createServer((req, res) => {
      * the vocabulary the composer uses ('unsure'), so a second spelling of it
      * would be two derivations of one fact again.
      */
-    const owes = messageLog.owesReply(name);
     /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
        as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
        banner fields (asking/question/…) below are unchanged, so Mona's banner
@@ -13144,10 +13186,9 @@ const server = http.createServer((req, res) => {
          removed it, but this box (#5) is a distinct one-to-one surface Josh kept.
          ⚠️ IT RIDES HERE RATHER THAN ON THE STATUS PAYLOAD: it is a fact about
          this conversation and the board has no line to draw it on.
-         🛑 AND IT IS `owesReply` ON THE MODULE, WHICH IS SHADOWED IN THIS
-         SCOPE. `messages` here is the local array being sent; the module of
-         the same name is not reachable by that identifier inside this handler,
-         so it is captured under its own name at the top of the file. */
+         🛑 #4340: computed from THIS thread's rows (chat.dmOwes), not from the
+         `kosmos msg` / room log (messages.owesReply), which never holds a
+         person's DM or the agent's `kosmos reply`. */
       owes,
       presence,
       presenceBecause,
@@ -17015,14 +17056,21 @@ function start(port = PORT) {
          way enrolment or the switch can land without one of those (measured
          on Josh's fresh Mac, 2026-08-26 08:50: "The board has not started the
          tunnel" after sign-in, every precondition true, no child) rests
-         forever. ensure() is idempotent (a running child or a pending
-         restart returns at once), so a tick costs one settings read and
-         four stat() calls every fifteen seconds, and the resting state can
-         last at most that long. unref'd so it never holds the process open. */
+         forever. ensure() is idempotent (a pending restart returns at once; a
+         running child is only sampled: status() reads the settings and the
+         tunnel's status file, which keeps its last failure for the remote
+         report and resets a healthy board's backoff), so a tick costs
+         up to four settings reads (RELAY() reads them too), a few stat() calls and one small file read every
+         fifteen seconds, and the resting state can last at most that long.
+         unref'd so it never holds the process open. */
       const ensureTick = setInterval(() => {
         try { remote.ensure(); } catch { /* status says what happened */ }
       }, Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) : 15 * 1000);  // the env is the test seam only
       if (typeof ensureTick.unref === 'function') ensureTick.unref();
+      /* kosmos#4277: the remote report must not wait for a browser tab to poll /api/status (its
+         only other caller): a board nobody is watching is the one whose status we most need.
+         engine/remote.js startReportTimer() says how often, and is tested there. */
+      try { remote.startReportTimer(); } catch { /* best-effort: never let it touch boot */ }
       /* #185: the nudge sweep. Its own timer, never the status GET (a
          read must stay a read); once a minute is far inside the
          ten-minute constant it serves. unref'd so it never holds the
@@ -17139,6 +17187,26 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #3226: a brand-new agent that read its first message and never ran `kosmos reply` (about
+         1 in 10 first contacts; the same session answers its second message) gets ONE typed
+         reminder to answer with `kosmos reply` (engine/firstreply-nudge.js). Only when the card is
+         idle, its DIRECT thread with the person (the store the DM route and keepAgentReply write)
+         holds no row from it at all, and the person's latest message there was placed a minute ago;
+         one per session per board run, at most 3 tries that reach nothing. NOT messageLog.owesReply:
+         that log never holds the person's DM or the agent's `kosmos reply`. Same gating as the sweeps above: inert under `node --test` and
+         before the live-execution opt-in, operator brake AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF=1,
+         own ~1-min timer, unref'd, best-effort. */
+      const FIRSTREPLY_BOOK = new Map();
+      const firstreplyTick = firstreplyNudge.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: FIRSTREPLY_BOOK,
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
+      if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
       /* #4004: a Gemini agent frozen on its usage-limit question (Keep trying / Stop) is answered Stop
          (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
          the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
@@ -17320,8 +17388,9 @@ function start(port = PORT) {
         const guideTick = () => {
           try {
             /* Once a guide exists there is nothing left to do: stop the timer. */
-            if (setupAssistant.setupAssistantSeeded()) { if (guideSweep) clearInterval(guideSweep); return; }
+            if (setupAssistant.setupAssistantSeeded()) { recordGuideOutcome(GUIDE_SEEDED); if (guideSweep) clearInterval(guideSweep); return; }
             setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
+              .then(recordGuideOutcome)
               .catch(() => { /* best-effort */ });
           } catch { /* best-effort */ }
         };
@@ -17332,7 +17401,8 @@ function start(port = PORT) {
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it
-         carries no agent information, only that an install exists -- and
+         carries no agent count, only that an install exists plus its setup guide
+         state word (#4350, see createdbeacon.js) -- and
          fire-and-forget, once on board start. The server is idempotent (Math.max
          on count 0), so a re-fire on every launch never inflates anything; that
          is also how an install that predates this beacon gets counted, on its
@@ -17367,8 +17437,9 @@ function start(port = PORT) {
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
       /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
-         resolving prod -- the #2969 silent revert. Observability only: it changes nothing about which
-         channel resolves or which bytes install (that fix is parked on real-machine verification).
+         resolving prod. Observability only: it changes nothing about which channel resolves or which
+         bytes install. Since #2969 the updater follows the stamp, so this fires only when the board's
+         environment explicitly names a non-staging channel.
          stagingRevertWarningNow() cannot throw on the listen path (both its reads are non-throwing), and
          it wires the RAW install stamp rather than the #2934 badge (see its docstring). */
       emitStagingRevertWarning();
