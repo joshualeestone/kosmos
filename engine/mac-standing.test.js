@@ -105,7 +105,9 @@ function keyOnly(on) {
   unenroll();
   for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(STATE, f), 'x');
   fs.mkdirSync(path.dirname(remote.FILE), { recursive: true });
-  fs.writeFileSync(remote.FILE, JSON.stringify({ on: on !== false, standing: '' }) + '\n');
+  // The email is set, as setupStart() leaves it while the code is awaited: the state this
+  // report exists for, and the one whose status() sentence names the email.
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: on !== false, standing: '', email: 'her@example.com' }) + '\n');
 }
 
 test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then none within five minutes', async () => {
@@ -128,6 +130,8 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
     assert.equal(body.remote.macKey, true);
     assert.equal(body.remote.tunnel, 'starting', 'ON and not enrolled is status() "connecting", reported as starting');
     assert.ok(body.remote.error && /sign-in|code sent/.test(body.remote.error), 'the report did not say why: ' + body.remote.error);
+    assert.ok(!c.stdin.includes('her@example.com'), 'the sign-in email left the Mac in the report');
+    assert.match(body.remote.error, /<email>/, 'the email was not written as <email>');
     assert.deepEqual(wire.dialled, [], 'the report went out unsigned');
     // Within the five minutes: no second report.
     await remote.refreshStandingIfStale({ now: t0 + 60 * 1000, ttlMs: 0 });
@@ -140,6 +144,22 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
     wire.restore();
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
+});
+
+test('#4277: key-only signing opens the report route and nothing else', async () => {
+  remote.resetForTests();
+  keyOnly(true);
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    for (const [method, route] of [['POST', '/v1/mac/updating'], ['POST', '/v1/mac/federation/room-ticket'], ['GET', '/v1/mac/standing']]) {
+      const r = await remote.macRequest(method, route, {}, { keyOnly: true });
+      assert.equal(r.ok, false, method + ' ' + route + ' was signed without enrolment');
+    }
+    assert.equal(fake.calls().length, 0, 'the tunnel was asked to sign a route key-only signing does not open');
+    const ok = await remote.macRequest('POST', remote.KEY_ONLY_ROUTE, { remote: {} }, { keyOnly: true });
+    assert.equal(ok.ok, true, 'the report route itself was refused');
+  } finally { delete process.env.FAKE_MAC_REQUEST_MODE; }
 });
 
 test('#4277: no not-enrolled report when the switch is OFF, or when there is no key to sign with', async () => {

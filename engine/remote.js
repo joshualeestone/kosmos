@@ -279,20 +279,23 @@ const NOT_ENROLLED_REPORT_MS = 5 * 60 * 1000;
 let notEnrolledReportAt = 0;
 let notEnrolledReportInFlight = false;
 function reportNotEnrolledIfDue(now) {
-  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
-  if (notEnrolledReportInFlight || now - notEnrolledReportAt < NOT_ENROLLED_REPORT_MS) return;
-  const s = read();
-  if (s.ok !== true || s.on !== true || !hasKey()) return;
-  const report = require('./remote-report').build();
-  if (!report) return;
-  notEnrolledReportAt = now;
-  notEnrolledReportInFlight = true;
-  macRequest('POST', '/v1/mac/standing', { remote: report }, { keyOnly: true })
-    .then((r) => {
-      if (!r || !r.ok) process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
-    })
-    .catch(() => {})
-    .finally(() => { notEnrolledReportInFlight = false; });
+  // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
+  try {
+    if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
+    if (notEnrolledReportInFlight || now - notEnrolledReportAt < NOT_ENROLLED_REPORT_MS) return;
+    const s = read();
+    if (s.ok !== true || s.on !== true || !holdsKey()) return;
+    const report = require('./remote-report').build();
+    if (!report) return;
+    notEnrolledReportAt = now;
+    notEnrolledReportInFlight = true;
+    macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
+      .then((r) => {
+        if (!r || !r.ok) process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
+      })
+      .catch(() => {})
+      .finally(() => { notEnrolledReportInFlight = false; });
+  } catch { notEnrolledReportInFlight = false; }
 }
 
 /* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
@@ -785,12 +788,19 @@ const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
    for the one call that must still go out when the board believes it is NOT enrolled:
    the remote report, which is how we learn WHY. The tunnel's mac-request verb needs no
    more than those two files. Every other caller keeps the enrolled() gate. */
-function hasKey() {
+/* ONE derivation of "this Mac holds its key and id" (halfRegistered() below builds on it). */
+function holdsKey() {
   const dir = STATE_DIR();
   return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
 }
+const KEY_ONLY_ROUTE = '/v1/mac/standing';
 async function macRequest(method, routePath, body, opts) {
-  const identityThere = opts && opts.keyOnly ? hasKey() : enrolled();
+  const keyOnly = !!(opts && opts.keyOnly);
+  // keyOnly opens ONE route, the report's, and nothing else, whatever a future caller passes.
+  if (keyOnly && !(method === 'POST' && routePath === KEY_ONLY_ROUTE)) {
+    return { ok: false, because: 'only the remote report may be signed without enrolment' };
+  }
+  const identityThere = keyOnly ? holdsKey() : enrolled();
   if (!identityThere) return { ok: false, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
@@ -1631,7 +1641,7 @@ const retireTimeoutMs = () => {
 // Exactly that: key and id, and no certificate. A Mac with its certificate is not
 // half anything (a missing address file alone must never retire and wipe it).
 const halfRegistered = () => !enrolled()
-  && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)))
+  && holdsKey()
   // The certificate is tls.crt; the tunnel writes tls.key first, so a kill between
   // the two leaves a key and no certificate, which is still half registered.
   && !fs.existsSync(path.join(STATE_DIR(), 'tls.crt'));
@@ -1846,6 +1856,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   stateDir: STATE_DIR,
   /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
   restartCount: () => restarts,
+  KEY_ONLY_ROUTE,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge

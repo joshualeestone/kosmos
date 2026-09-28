@@ -63,6 +63,21 @@ test('the error is status()\'s sentence, with the home directory written as ~ an
   assert.ok(!r.error.includes('somebody'), 'the user name left the Mac');
 });
 
+test('an email in the sentence is never sent: status() names the sign-in email while it waits for the code', () => {
+  report.resetForTests();
+  const dir = stateDir([]);
+  const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {}, home: HOME });
+  assert.equal(r.error, 'waiting for the code sent to <email>');
+  assert.ok(!JSON.stringify(r).includes('@'), 'an email left the Mac');
+  assert.equal(report.scrub('a.b+c@d-e.co.uk said no', HOME), '<email> said no');
+});
+
+test('the home directory is matched in any letter case (macOS paths are case-insensitive)', () => {
+  const home = '/Users/Somebody';
+  assert.equal(report.scrub('/users/somebody/Library/x and /USERS/SOMEBODY/y', home), '~/Library/x and ~/y');
+  assert.ok(!report.scrub('/users/somebody/x', home).toLowerCase().includes('somebody'), 'the user name left the Mac');
+});
+
 test('the error is cut to its bound, never mid-character, and loses control characters', () => {
   report.resetForTests();
   const dir = stateDir([]);

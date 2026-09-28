@@ -15,7 +15,9 @@
  *   on        the remote-access switch
  *   tunnel    running | starting | crashed | stopped | off, from remote.status()
  *   error     remote.status()'s own sentence when not up, cut to ERROR_MAX_CHARS, with
- *             this person's home directory written as `~`, so no user name leaves the Mac
+ *             this person's home directory written as `~` (any letter case) and every
+ *             email address written as `<email>`: status() names the sign-in email while
+ *             the board waits for its code, exactly the state this report is for
  *   stateDir  default | custom (AGENT_WORKFORCE_TUNNEL_STATE is set) | missing
  *   macId     whether the state dir holds mac_id; macKey whether it holds mac_key
  *   app       this build's version
@@ -24,7 +26,8 @@
  *             up), or none. The supervisor itself is remote.js's ensure()/scheduleRestart,
  *             which already relaunches a dead tunnel every 15 s with backoff; this
  *             reports it rather than adding a second relauncher.
- * Never a path, an address, an email or a key.
+ * Never a home path, an email or a key. The Mac's own address may appear in a sentence;
+ * the coordinator already holds it.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -49,7 +52,10 @@ function scrub(text, home) {
   const homes = [home, home && fs.realpathSync.native ? safeRealpath(home) : null]
     .filter((h) => typeof h === 'string' && h.length > 1)
     .sort((a, b) => b.length - a.length);
-  for (const h of homes) s = s.split(h).join('~');
+  // Any letter case: macOS paths are case-insensitive, so /users/somebody names the same home.
+  for (const h of homes) s = s.replace(new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '~');
+  // An email anywhere in the sentence (status() names the sign-in email while waiting for the code).
+  s = s.replace(/[^\s<>()"',;:]+@[^\s<>()"',;:]+\.[^\s<>()"',;:]+/g, '<email>');
   s = Array.from(s).filter((c) => c >= ' ' && c !== '\u007f').join('').trim();
   if (!s) return null;
   return Array.from(s).slice(0, ERROR_MAX_CHARS).join('');
