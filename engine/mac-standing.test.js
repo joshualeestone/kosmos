@@ -88,7 +88,7 @@ test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing 
   assert.equal(body.remote.macId, true, 'enrolled writes mac_id');
   assert.equal(body.remote.macKey, false, 'this fixture writes no mac_key');
   assert.equal(body.remote.stateDir, 'custom', 'AGENT_WORKFORCE_TUNNEL_STATE is set in this suite');
-  assert.ok(!c.stdin.includes(os.homedir()), 'the home directory (a user name) left the Mac');
+  assert.ok(!c.stdin.includes(STATE) && !c.stdin.includes(path.basename(STATE)), 'the state dir path left the Mac');
   assert.ok(!c.args.join(' ').includes('"remote"'), 'the report went on argv');
   assert.equal(r.stderr, '', 'a success logs nothing');
 });
@@ -138,7 +138,7 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
     assert.equal(fake.calls().length, 1, 'a second report went out inside five minutes');
     // Past them: another.
     await remote.refreshStandingIfStale({ now: t0 + 6 * 60 * 1000, ttlMs: 0 });
-    assert.equal((await waitForCalls(2)).length, 2, 'no report after five minutes');
+    assert.equal((await waitForCalls(2)).length, 2, 'past five minutes, the second report did not go out');
   } finally {
     wire.restore();
     delete process.env.FAKE_MAC_REQUEST_MODE;
@@ -174,6 +174,9 @@ test('#4277: the enrolled standing call commits the heal baseline only when the 
   const real = rr.commitHeal;
   const committed = [];
   rr.commitHeal = (report) => { committed.push(report); };
+  // The refused send logs a line; keep it out of the test output, as the sibling tests do.
+  const realWrite = process.stderr.write;
+  process.stderr.write = () => true;
   try {
     enroll();
     await run('refused', () => macStanding.fetchStanding());
@@ -181,7 +184,7 @@ test('#4277: the enrolled standing call commits the heal baseline only when the 
     await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
     assert.equal(committed.length, 1, 'a successful send did not commit the heal baseline');
     assert.equal(typeof committed[0].healBaseline, 'number', 'the committed report is not the one that was built');
-  } finally { rr.commitHeal = real; }
+  } finally { rr.commitHeal = real; process.stderr.write = realWrite; }
 });
 
 test('#4277: the not-enrolled report commits its heal baseline only when it went out, and never overlaps itself', async () => {

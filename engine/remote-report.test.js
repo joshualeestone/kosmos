@@ -15,7 +15,6 @@ const os = require('node:os');
 const path = require('node:path');
 const report = require('./remote-report');
 
-const HOME = '/Users/somebody';
 
 function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0 }) {
   return {
@@ -34,7 +33,7 @@ function stateDir(files) {
 test('an up tunnel: running, no error, the identity files seen, the app version', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
-  const r = report.build({ remote: fakeRemote({ dir }), env: {}, home: HOME, appVersion: '0.7.05' });
+  const r = report.build({ remote: fakeRemote({ dir }), env: {}, appVersion: '0.7.05' });
   assert.deepEqual(r, { on: true, tunnel: 'running', error: null, stateDir: 'default', macId: true, macKey: true, app: '0.7.05', heal: 'none' });
 });
 
@@ -49,7 +48,7 @@ test('every status maps to the coordinator vocabulary, and off follows the switc
   ];
   for (const [st, want] of cases) {
     report.resetForTests();
-    const r = report.build({ remote: fakeRemote({ dir, ...st }), env: {}, home: HOME });
+    const r = report.build({ remote: fakeRemote({ dir, ...st }), env: {} });
     assert.equal(r.tunnel, want, JSON.stringify(st));
   }
 });
@@ -58,7 +57,7 @@ test('the error is a CODE classified from status()\'s sentence; the sentence nev
   report.resetForTests();
   const dir = stateDir([]);
   const because = '/Users/somebody/Library/x does not look like a Mac state dir (no mac_id); run setup first';
-  const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {}, home: HOME });
+  const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {} });
   assert.equal(r.error, 'state-dir-invalid');
   assert.ok(!JSON.stringify(r).includes('somebody'), 'text from the sentence left the Mac');
 });
@@ -84,6 +83,8 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['unexpected Ping frame from the relay', 'relay-dropped'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: busy', 'coordinator-unreachable'],
     ['Kosmos+ answered 409 for /v1/mac/relay-ticket: taken', 'coordinator-refused'],
+    // A 5xx whose body parses as a refusal is still an outage (review 9).
+    ['Kosmos+ refused this Mac: busy (HTTP 503 on /v1/mac/relay-ticket)', 'coordinator-unreachable'],
     ['status unreadable: ENOENT: no such file', 'status-unreadable'],
     ['mac_key is not 32 bytes', 'state-file-unreadable'],
     ['the Kosmos+ ticket does not verify against the pinned key', 'ticket-mismatch'],
@@ -96,6 +97,14 @@ test('classify: each known failure kind gets its code, anything else is other, n
   for (const code of report.CODES.map(([c]) => c)) assert.match(code, /^[a-z-]+$/, 'a code is not a fixed token: ' + code);
 });
 
+test('classify: each healthy dialling sentence matches `starting` and no failure pattern', () => {
+  // The order of CODES must not be what keeps a healthy board from reading as failed (review 9).
+  for (const s of ['connecting to the relay', 'starting the connection']) {
+    const hits = report.CODES.filter(([, re]) => re.test(s)).map(([c]) => c);
+    assert.deepEqual(hits, ['starting'], s);
+  }
+});
+
 test('classify is bounded: a 100k-character hostile line classifies fast', () => {
   const t0 = Date.now();
   assert.equal(report.classify('a1'.repeat(50000)), 'other');
@@ -105,7 +114,7 @@ test('classify is bounded: a 100k-character hostile line classifies fast', () =>
 test('switch on, key held, not enrolled: the error names the missing enrolment files, not the sign-in sentence', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
-  const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {}, home: HOME });
+  const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {} });
   assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key');
   assert.ok(!JSON.stringify(r).includes('@'), 'the email left the Mac');
 });
@@ -113,16 +122,16 @@ test('switch on, key held, not enrolled: the error names the missing enrolment f
 test('stateDir: custom when AGENT_WORKFORCE_TUNNEL_STATE is set, missing when the directory is not there', () => {
   report.resetForTests();
   const dir = stateDir([]);
-  assert.equal(report.build({ remote: fakeRemote({ dir }), env: { AGENT_WORKFORCE_TUNNEL_STATE: dir }, home: HOME }).stateDir, 'custom');
+  assert.equal(report.build({ remote: fakeRemote({ dir }), env: { AGENT_WORKFORCE_TUNNEL_STATE: dir } }).stateDir, 'custom');
   const gone = path.join(dir, 'not-here');
-  assert.equal(report.build({ remote: fakeRemote({ dir: gone }), env: {}, home: HOME }).stateDir, 'missing');
+  assert.equal(report.build({ remote: fakeRemote({ dir: gone }), env: {} }).stateDir, 'missing');
 });
 
 test('heal: counted only once a report is SENT; a tunnel still starting is not yet a result', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
   let last = null;
-  const at = (restarts, state) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {}, home: HOME }); return last.heal; };
+  const at = (restarts, state) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {} }); return last.heal; };
   const commit = () => report.commitHeal(last);
   // The baseline is 0 (restarts counts from process start), so relaunches before the first
   // successful send are not lost.
@@ -144,13 +153,13 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
 test('a remote that throws gives no report, never an exception', () => {
   report.resetForTests();
   const broken = { read: () => { throw new Error('boom'); }, status: () => ({}), stateDir: () => '/x' };
-  assert.equal(report.build({ remote: broken, env: {}, home: HOME }), null);
+  assert.equal(report.build({ remote: broken, env: {} }), null);
 });
 
 test('the report carries only the known fields, each a fixed value', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id']);
-  const r = report.build({ remote: fakeRemote({ dir }), env: {}, home: HOME, appVersion: '0.7.05' });
+  const r = report.build({ remote: fakeRemote({ dir }), env: {}, appVersion: '0.7.05' });
   assert.deepEqual(Object.keys(r).sort(), ['app', 'error', 'heal', 'macId', 'macKey', 'on', 'stateDir', 'tunnel']);
   assert.ok(!JSON.stringify(r).includes(dir), 'the state dir path was sent');
 });
@@ -158,7 +167,7 @@ test('the report carries only the known fields, each a fixed value', () => {
 test('commitHeal only moves forward: a slow send committing an older baseline does not roll it back', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
-  const mk = (restarts) => report.build({ remote: fakeRemote({ dir, restarts, state: 'up' }), env: {}, home: HOME });
+  const mk = (restarts) => report.build({ remote: fakeRemote({ dir, restarts, state: 'up' }), env: {} });
   const older = mk(2);
   const newer = mk(5);
   report.commitHeal(newer);

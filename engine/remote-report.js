@@ -46,8 +46,10 @@ function tunnelState(state, on) {
    pattern is a short literal, so nothing here can run long on a hostile line. */
 const CLASSIFY_MAX_CHARS = 2000;
 const CODES = [
-  // FIRST: the board's own healthy "still dialling" sentences (remote.js status()), which must
-  // never read as a failure (review 7: "connecting to the relay" matched relay-unreachable).
+  // The first pattern that matches wins. The board's own healthy "still dialling" sentences
+  // (remote.js status()) are matched exactly, so no failure pattern may also match them (review 7:
+  // "connecting to the relay" once read as relay-unreachable); remote-report.test.js asserts that
+  // each healthy sentence matches `starting` alone, whatever the order here.
   ['starting', /^(starting the connection|connecting to the relay)$/i],
   ['switch-off', /the switch is off/i],
   ['settings-unreadable', /settings could not be read/i],
@@ -65,7 +67,10 @@ const CODES = [
   ['relay-unreachable', /^connecting to \S+: |relay TLS handshake/i],
   ['relay-refused', /relay refused|relay answered AUTH|relay did not answer AUTH/i],
   ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
-  // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable.
+  // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable. The tunnel
+  // (coordinator.rs) writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for ANY status
+  // whose body parses as a refusal, 5xx included, so a 5xx is taken out first (review 9).
+  ['coordinator-unreachable', /\bHTTP 5\d\d\b|Kosmos\+ answered 5\d\d/i],
   ['coordinator-refused', /Kosmos\+ refused|Kosmos\+ answered 4\d\d|said no|\bHTTP 4\d\d\b/i],
   ['coordinator-unreachable', /unreachable|Kosmos\+ answered 5\d\d|connect(ion)? refused|timed out|timeout/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful

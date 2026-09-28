@@ -29,6 +29,12 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 9
+- A 5xx whose body parses as a refusal (coordinator.rs writes `Kosmos+ refused this Mac: ... (HTTP 503 on ...)`) read coordinator-refused; a 5xx is now taken out first as coordinator-unreachable, with a test.
+- CODES order no longer carries the healthy sentences: a test asserts each healthy dialling sentence matches `starting` and no other pattern (a loosened relay-unreachable mutant fails it).
+- mac-standing's home-directory assertion could not fail (the fixtures live under tmpdir); it now asserts the state dir path and its basename are absent (a path-leak mutant fails it).
+- Nits: the unused `home` test parameter removed, a backwards assertion message fixed, a stray stderr line in one test silenced.
+
 ## Deferred (review 8)
 - The ten-minute report timer in server.js has no behavioural test (server.js boot is not unit-tested here). What it calls, refreshStandingIfStale, is covered, and the timer is two lines beside the ensure tick.
 
