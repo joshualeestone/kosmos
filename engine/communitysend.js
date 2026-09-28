@@ -76,11 +76,33 @@ function saveJson(file, data) {
   fs.renameSync(tmp, file);
 }
 
+function log(msg) {
+  try { console.error('communitysend: ' + msg); } catch { /* logging must not throw either */ }
+}
+
+// A missing file is an empty record. A file that is present but unreadable returns null:
+// treating it as empty would make every post already sent look unsent (and re-sent), or
+// orphan every agent's key, so the caller refuses to act on it instead.
+const reportedCorrupt = new Set();
 function loadJson(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); }
+  catch (err) {
+    if (err && err.code === 'ENOENT') return {};
+    return corrupt(file, err && err.code);
+  }
   try {
-    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
-  } catch { return {}; }
+    const v = JSON.parse(raw);
+    if (v && typeof v === 'object' && !Array.isArray(v)) { reportedCorrupt.delete(file); return v; }
+  } catch { /* falls through */ }
+  return corrupt(file, 'not a JSON object');
+}
+function corrupt(file, why) {
+  if (!reportedCorrupt.has(file)) {
+    reportedCorrupt.add(file);
+    log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is repaired or removed`);
+  }
+  return null;
 }
 
 /**
@@ -98,7 +120,7 @@ function switchOn() {
 
 // `since` for this ON period: recorded by the first sweep that finds the switch ON.
 function sinceForOnPeriod() {
-  const st = loadJson(stateFile());
+  const st = loadJson(stateFile()) || {};
   if (typeof st.since === 'string') return st.since;
   const now = new Date().toISOString();
   try { saveJson(stateFile(), { ...st, since: now }); } catch { return null; }
@@ -108,7 +130,7 @@ function sinceForOnPeriod() {
 // A sweep that finds the switch OFF ends the ON period, so posts published while OFF
 // are not due when it comes back ON.
 function endOnPeriod() {
-  const st = loadJson(stateFile());
+  const st = loadJson(stateFile()) || {};
   if (typeof st.since !== 'string') return;
   delete st.since;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
@@ -286,8 +308,18 @@ async function sendPost(post, keys, sent, now) {
     // The daily cap: wait as long as the server says, and remember it across sweeps.
     k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
     saveJson(keysFile(), keys);
-  } else if (r.status === 0 || r.status >= 500) {
-    sent[post.id] = { ...rec, attempted: true };      // the server may have stored it
+  } else if (r.status === 401) {
+    // The token was refused and a fresh login could not be had this sweep: nothing was stored.
+    sent[post.id] = { ...rec, lastStatus: 401 };
+    log(`post for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
+  } else if (r.status >= 400 && r.status < 500) {
+    sent[post.id] = { ...rec, state: 'refused', reasons: ['http_' + r.status] };
+    log(`post for ${agentKey}: refused with ${r.status}`);
+  } else {
+    // No answer, a 5xx, or anything unexpected: the server may have stored it, so the next
+    // sweep looks for it before sending again.
+    sent[post.id] = { ...rec, attempted: true, lastStatus: r.status };
+    log(`post for ${agentKey}: no usable answer (status ${r.status || 'none'}); checking the server next sweep`);
   }
 }
 
@@ -332,7 +364,9 @@ async function sweepOnce(now) {
   const from = sinceForOnPeriod();
   const keys = loadJson(keysFile());
   const sent = loadJson(sentFile());
-  await sweepDeletes(keys, sent, loadJson(deletesFile()));
+  const deletes = loadJson(deletesFile());
+  if (!keys || !sent || !deletes) return { skipped: 'unreadable' };
+  await sweepDeletes(keys, sent, deletes);
   saveJson(sentFile(), sent);
   const due = communitystore.publishedPosts()
     .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
@@ -341,7 +375,9 @@ async function sweepOnce(now) {
   for (const post of due) {
     if (!switchOn()) break;                           // switched off mid-sweep: stop
     // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
-    if (Object.prototype.hasOwnProperty.call(loadJson(deletesFile()), post.id)) {
+    const nowDeletes = loadJson(deletesFile());
+    if (!nowDeletes) break;                           // cannot see the owner's deletes: send nothing more
+    if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) {
       sent[post.id] = { ...(sent[post.id] || { agent: post.agent }), state: 'withheld' };
     } else {
       await sendPost(post, keys, sent, now);
@@ -374,11 +410,12 @@ function requestDelete(localId) {
   try {
     if (!communitystore.hasPost(id)) return { ok: false, missing: true, because: 'there is no such post' };
     const deletes = loadJson(deletesFile());
+    if (!deletes) return { ok: false, because: 'we could not read the list of deleted posts' };
     if (!deletes[id]) {
       deletes[id] = new Date().toISOString();
       saveJson(deletesFile(), deletes);
     }
-    return { ok: true, state: statusOf(id, loadJson(sentFile()), deletes, loadJson(keysFile())).state };
+    return { ok: true, state: statusOf(id, loadJson(sentFile()) || {}, deletes, loadJson(keysFile()) || {}).state };
   } catch {
     return { ok: false, because: 'we could not save that' };
   }
@@ -394,6 +431,7 @@ function statusOf(id, sent, deletes, keys) {
     state, deleteRequested,
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
+    ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
   };
 }
@@ -404,9 +442,9 @@ function statusOf(id, sent, deletes, keys) {
  * it as text.
  */
 function statuses() {
-  const sent = loadJson(sentFile());
-  const deletes = loadJson(deletesFile());
-  const keys = loadJson(keysFile());
+  const sent = loadJson(sentFile()) || {};
+  const deletes = loadJson(deletesFile()) || {};
+  const keys = loadJson(keysFile()) || {};
   const out = {};
   for (const id of new Set([...Object.keys(sent), ...Object.keys(deletes)])) out[id] = statusOf(id, sent, deletes, keys);
   return out;

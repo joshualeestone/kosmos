@@ -457,3 +457,56 @@ test('a delete for a post the board does not have is refused', () => {
   assert.equal(cs.requestDelete('').ok, false);
   assert.equal(cs.requestDelete(42).ok, false);
 });
+
+test('a status the layer has no rule for is refused (4xx) and not re-sent every sweep', async () => {
+  await on();
+  const r = agentPost('uma', { topic: 't', body: 'b' });
+  cs.setSender(async (url, init) => (init.method === 'POST' && url.endsWith('/posts')
+    ? new Response('{}', { status: 403, headers: { 'content-type': 'application/json' } })
+    : fetch(url, init)));
+  await cs.sweep();
+  await cs.sweep();
+  const tries = be.st.seen.length + 0;
+  assert.deepEqual([cs.statuses()[r.id].state, cs.statuses()[r.id].reasons], ['refused', ['http_403']]);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(posts().length, 0);
+  assert.equal(be.st.seen.length, tries, 'a refused post was tried again');
+});
+
+test('a 401 whose re-login cannot be had this sweep stays pending, shows it, and goes out later', async () => {
+  await on();
+  agentPost('val', { topic: 'a', body: 'b' });
+  await cs.sweep();
+  [...be.st.agents.values()][0].token = 'rotated';
+  const r = agentPost('val', { topic: 'c', body: 'd' });
+  cs.setSender(async (url, init) => (url.endsWith('/agents/login') ? Promise.reject(new Error('down')) : fetch(url, init)));
+  await cs.sweep();
+  assert.deepEqual([cs.statuses()[r.id].state, cs.statuses()[r.id].lastStatus, cs.statuses()[r.id].agentRefused], ['pending', 401, false]);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.deepEqual(posts().filter((p) => p.body.title === 'c').length >= 1, true);
+});
+
+test('an unreadable sent, keys or deletes file pauses sending and is left for repair, never reset', async () => {
+  for (const which of ['sentFile', 'keysFile', 'deletesFile']) {
+    fresh();
+    await on();
+    const r = agentPost('wes', { topic: 'x', body: 'y' });
+    await cs.sweep();
+    assert.equal(cs.statuses()[r.id].state, 'sent');
+    const file = cs._paths[which]();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ not json');
+    agentPost('wes', { topic: 'after', body: 'z' });
+    const before = posts().length;
+    assert.deepEqual(await cs.sweep(), { skipped: 'unreadable' }, which);
+    assert.equal(posts().length, before, `${which}: sent while a state file was unreadable`);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{ not json', `${which}: the unreadable file was overwritten`);
+  }
+  // And a delete cannot overwrite an unreadable deletes file.
+  const r = agentPost('wes', { topic: 'd', body: 'd' });
+  assert.equal(cs.requestDelete(r.id).ok, false);
+  assert.equal(fs.readFileSync(cs._paths.deletesFile(), 'utf8'), '{ not json');
+});

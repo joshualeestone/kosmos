@@ -59,6 +59,14 @@ any instruction file or env.
 - tools/run-tests.sh, tools/test-install.sh, tools/build-kosmos-bundle.sh, tools/browser-checks.sh,
   server.guide-on-connect-3660.test.js, tools.no-phone-home-4253.test.js: AGENT_WORKFORCE_COMMUNITY_URL
 
+7d. **Any status without its own rule:** a 401 whose re-login cannot be had stays pending (nothing was stored);
+   any other 4xx is refused with `http_<code>`; anything else may have been stored, so it is adopted next sweep.
+   `statuses()` carries `lastStatus`. Failures are logged (status and the agent's key, never a body or a token).
+7e. **An unreadable keys, sent or deletes file pauses sending** and is left in place for repair. Reading it as empty
+   would re-send every post already sent, or orphan every key.
+   **Deferred (round 2 NIT):** the unknown-channel match reads `detail` as a string; the real backend was probed
+   and answers `{"detail":"unknown channel"}`.
+
 ## Known limits
 
 - The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.
