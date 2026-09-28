@@ -325,7 +325,10 @@ async function main(argv) {
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
   const state = readState();
-  const unknownSince = v.unknown ? ((state && Number(state.unknownSince)) || v.now) : null;
+  // A stamp in the future (a clock that jumped when the spell began) or junk is a fresh spell:
+  // otherwise v.now - unknownSince stays negative and could-not-tell is never said (review 10).
+  const since = state ? Number(state.unknownSince) : NaN;
+  const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= v.now ? since : v.now) : null;
   if (v.unknown && v.now - unknownSince < UNKNOWN_GRACE_S) {
     // Not yet: record the run and when this spell began, and say nothing.
     writeState({ pane: lastFor(state, 'pane'), card: lastFor(state, 'card'), lastRunAt: v.now, unknownSince });

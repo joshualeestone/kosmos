@@ -184,6 +184,18 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
+test('review 10: a could-not-tell spell stamped in the future (a clock jump) is treated as starting now, so it is still said', () => {
+  const { dir } = repoWith([['a', NOW - H]]);
+  const s = stubs();
+  fs.writeFileSync(s.state, JSON.stringify({ pane: null, card: null, lastRunAt: NOW - H, unknownSince: NOW + 30 * 24 * H }) + '\n');
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW) };
+  run([], env);
+  assert.equal(JSON.parse(fs.readFileSync(s.state, 'utf8')).unknownSince, NOW, 'a future stamp was kept');
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 3 * H) }));
+  assert.match(s.msg.read(), /could not tell/, 'a future-stamped spell was never said');
+});
+
 test('review 9: a could-not-tell that comes and goes posts nothing; one that lasts is said once', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H]]);
   const s = stubs();
