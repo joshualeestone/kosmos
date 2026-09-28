@@ -1121,9 +1121,9 @@ async function deviceDeny(id) {
     /* Bounded: the newest 50, so a file cannot grow without limit. */
     const keep = Object.entries(denied).sort((a, b) => b[1] - a[1]).slice(0, 50);
     const saved = write({ denied: Object.fromEntries(keep) });
-    /* #4308: the coordinator has the answer either way; only this Mac's own note of it (used to word a re-ask) is
+    /* #4308: the coordinator has the answer either way; only this computer's own note of it (used to word a re-ask) is
        lost when the settings file is damaged. Say so rather than drop it silently. */
-    if (!saved.ok) process.stderr.write('remote: the device was refused, but this Mac could not note it: ' + saved.because + '\n');
+    if (!saved.ok) process.stderr.write('remote: the device was refused, but this computer could not note it: ' + saved.because + '\n');
   }
   return r;
 }
