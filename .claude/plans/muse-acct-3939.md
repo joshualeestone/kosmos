@@ -183,3 +183,13 @@ stopped over later polls.
 - N3 CARDED (older code, not in this diff): after Stop on a running Claude sign-in, the
   flow-ended repaint hides Stop's panel and focus drops to the page. Filed #4271.
 - N4 FIXED: the markup comment names both writers of the line.
+
+## Review round 12 (sonnet): 1 blocker, 0 warnings, 1 nit
+- BLOCKER FIXED: round 11's delayed write in the picker's change handler repeated the
+  round-8 bug class (no re-checks), so a sign-in ending or another provider picked before
+  it spoke left a stale line that nothing would clear (reproduced). Structural fix: ONE
+  guarded function, museBusySayLater(delay), re-checks the visit, a running sign-in and the
+  picker on Claude, then speaks and places focus; Sign in again (60 ms) and the picker (next
+  task) both use it, so the two paths cannot drift again. Arms for both races on the picker
+  path; each re-check, removed, fails one arm on EACH path.
+- NIT FIXED: the redundant acctAddPickSay('') is gone (acctPick already empties the line).

@@ -504,6 +504,17 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 50)); mo.disconnect(); return seen;
   });
   chk(changes.includes('') && /Claude sign-in first/.test(changes[changes.length - 1]), 'picking Meta again is announced again (emptied, then said)', JSON.stringify(changes));
+  // Round 12: the picker path's delayed line checks again too: another provider picked, or the sign-in ended,
+  // before it speaks, leaves nothing stale.
+  for (const [how, act] of [['another provider picked', "const s2 = document.getElementById('acct-provider-pick'); s2.value = 'openai'; s2.dispatchEvent(new Event('change'));"], ['the sign-in ended', "acctFlowPaint({ phase: 'failed', because: 'Claude closed before the sign-in finished' });"]]) {
+    await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
+    await q(() => { openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+    await q((a) => { const s = document.getElementById('acct-provider-pick'); s.value = 'meta'; s.dispatchEvent(new Event('change')); (0, eval)(a); }, act);
+    await page.waitForTimeout(200);
+    const stale = await q(() => document.getElementById('acct-add-pick-say').textContent);
+    chk(stale === '', 'Meta picked, then ' + how + ' before the line speaks: nothing stale is written', JSON.stringify(stale));
+  }
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
   await q(() => acctFlowPaint({ phase: 'signin-browser-open' })); await settle();
   chk(await q((n) => window.__posts.length === n, museCallsBefore), 'and no Muse sign-in is started or stopped around it, even as the Claude sign-in moves on');
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
