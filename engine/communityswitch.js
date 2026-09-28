@@ -21,8 +21,10 @@ const FILE = path.join(store.ROOT, 'community.json');
 
 /**
  * No file is a never-asked machine, fresh or existing, and reads ON (Josh's default).
- * That is also the migration for existing installs: nothing is written, so nothing can
- * run twice. A present file that cannot be read or parsed reads OFF with ok:false: it
+ * No file also owes no notice (noticeSeen true): only migrate() decides the one-time
+ * notice is owed, and it records that in the file. A board that never ran migrate (a
+ * server required in-process by a check or a test) must not open it over every page
+ * (#4288 part B: it covered the agent page in 22 browser checks). A present file that cannot be read or parsed reads OFF with ok:false: it
  * could be hiding an OFF we cannot see, and what it gates is posts leaving the machine
  * (the feedbacksend split, #2037).
  */
@@ -30,7 +32,7 @@ function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return { on: true, ok: true, noticeSeen: false };
+    if (err && err.code === 'ENOENT') return { on: true, ok: true, noticeSeen: true };
     return { on: false, ok: false, noticeSeen: false };
   }
   let parsed;
