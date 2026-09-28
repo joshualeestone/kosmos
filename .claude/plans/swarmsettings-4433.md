@@ -50,3 +50,11 @@ That removing Stop now from the phone chat header costs nothing important. A per
 - **NIT** The card's line was read twice. Fixed: aria-labelledby names it by its name only.
 - **NIT** A poll reset the tab stop under the person's focus. Fixed: a focused card keeps the tab stop.
 - **NIT** A stop reply could move focus into another swarm, and the question stayed open across sections. Fixed: focus only for the same agent, and leaving the view closes the question.
+
+## Validation (first run): 1 red, mine
+- server.test.js pinned the nav pill order and the section order at nine. Updated to ten, with Swarm Settings last and its label pinned, plus an assertion that it sits below the four-pack.
+- Negative control: the same markup with the box moved above the pack fails that assertion.
+
+## Review round 2 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- WARNING Stop now did not check SWARM_BUSY, unlike swarmPick. It was not reachable twice in practice (the first click hides the question), but it is now guarded the same way.
+- NIT A click on a card during a change moves focus but picks nothing, with no signal. KEPT: the change in flight answers within a second, and its message line then speaks.

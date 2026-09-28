@@ -45260,6 +45260,7 @@ document.body.addEventListener('input', (e) => {
 });
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
+  if (SWARM_BUSY) return;   // one change at a time, as swarmPick (review round 2)
   swarmConfirmShow(false);
   swarmCardsPaint('stopped');   // shown at once; a refused stop repaints the saved state
   const who = CURRENT.sessionName;

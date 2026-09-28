@@ -8728,7 +8728,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is nine sections behind a nav, in the ruled order', () => {
+test('the agent detail page is ten sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -8748,8 +8748,11 @@ test('the agent detail page is nine sections behind a nav, in the ruled order', 
   // Advanced. Memory still folds under the AI Settings pill and Skills under Instructions (#2916).
   // "Remove agent" now folds INTO Advanced (DETAIL_SECTION_PILL remove->term), so there is no
   // top-level Remove pill. The pill order a person sees:
-  assert.deepEqual(gos, ['talk', 'profile', 'instr', 'model', 'term'],
-    'the nav pill order moved; #3500 reads Direct Message, then the four-pack Profile, Instructions, AI Settings, Advanced (no Remove pill - it folded into Advanced)');
+  // #4433 (#3946 item 14): a swarm's Swarm Settings box comes last, below the four-pack (shown only for a swarm).
+  assert.deepEqual(gos, ['talk', 'profile', 'instr', 'model', 'term', 'swarm'],
+    'the nav pill order moved; #3500 reads Direct Message, then the four-pack Profile, Instructions, AI Settings, Advanced (no Remove pill - it folded into Advanced), then #4433 Swarm Settings');
+  assert.match(nav, /data-go="swarm"[\s\S]*?>Swarm Settings</, 'the Swarm Settings box is mislabelled');
+  assert.match(nav, /<\/div>\s*(<!--[\s\S]*?-->\s*)?<button type="button" data-go="swarm"/, 'Swarm Settings is no longer below the four-pack');
   // The pill LABELS now live in a .dnav-lab span beside the icon; model is relabelled "AI Settings".
   assert.match(nav, /data-go="model"[\s\S]*?>AI Settings</, 'the AI Settings pill (was Model and Memory) is mislabelled');
   assert.match(nav, /data-go="term"[\s\S]*?>Advanced</, 'the Advanced pill is mislabelled');
@@ -8760,7 +8763,8 @@ test('the agent detail page is nine sections behind a nav, in the ruled order', 
   // The eight sections are unchanged and still in reading order; the folded pair sits right after
   // the section it folds under (memory after model, skills after instr).
   // #3757: the Files screen, reached from View All beside the sidebar's list, comes last.
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'],
+  // #4433: Swarm Settings, reached from its own box, after Files.
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'],
     'the section order moved');
   // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
