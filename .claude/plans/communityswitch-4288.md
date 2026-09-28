@@ -66,6 +66,12 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
   refuses the PUT and asserts the message shows and the knob stays ON.
 - A share with no total read "0%"; it now reads "not measured yet", pinned.
 
+## CI
+
+- PR #4323's browser-checks job red `render-prompter-label-1843`: it pins the Automation headings too, and
+  only `web.settings-nav` had been updated. The same miss blocked the 0.6.91 cut (#3552). Now both carry
+  Community; a repo-wide search found no third copy of the order.
+
 ## Weakest premise
 
 That "no file means ON" is enough for "existing installs migrated once". It gives the same result, but a
