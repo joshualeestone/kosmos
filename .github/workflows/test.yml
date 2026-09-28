@@ -46,7 +46,7 @@ on:
     # push on every branch and called the double-run "harmless"; #3499 is the evidence
     # it was not. A branch pushed but never PR'd is now untested until its PR opens --
     # accepted, because such a branch never merges, so its CI would be moot anyway.
-    branches: ["main"]
+    branches: ["main", "shard-4317"]
   pull_request:
 
 # Least privilege: this job only reads the repo and runs the suite; it needs no
