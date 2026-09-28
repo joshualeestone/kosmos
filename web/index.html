@@ -10283,6 +10283,7 @@ window.kosmosMeasureScrollbarWidth();
 
   var canvas = null, sim = null, dead = false;   // dead: WebGL is unavailable here, so the CSS hover is all there is
   var host = null, hostPos = null, last = null, pend = null, raf = 0, prev = 0, lastPush = 0;
+  var ptX = -1, ptY = -1;   // where the pointer last was, for a repaint that swaps the host out from under it
   var reduceQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
   /* A GOLD primary: .uprime, enabled, and not repainted by its surface (the blue ask card and
@@ -10333,10 +10334,30 @@ window.kosmosMeasureScrollbarWidth();
     lastPush = performance.now();
     return true;
   }
+  /* A repaint rebuilt the lit button under a pointer that has not moved (the empty board's "Create your
+     first agent" is repainted on every poll): carry the light to the new copy instead of dropping it.
+     At the same size the canvas simply moves and the light goes on as it was; otherwise it restarts. */
+  function rehost() {
+    var nb = ptX < 0 ? null : goldOf(document.elementFromPoint(ptX, ptY));
+    if (!nb || nb === host || !nb.isConnected) return false;
+    var r = nb.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1), was = last, keep = lastPush;
+    if (Math.max(1, Math.round(r.width * dpr)) === canvas.width && Math.max(1, Math.round(r.height * dpr)) === canvas.height) {
+      hostPos = getComputedStyle(nb).position === 'static' ? nb.style.position : null;
+      if (hostPos !== null) nb.style.position = 'relative';
+      nb.classList.add('gold-lit');
+      nb.insertBefore(canvas, nb.firstChild);
+      host = nb;
+      return true;
+    }
+    if (!attach(nb)) return false;
+    last = was; lastPush = keep;
+    return true;
+  }
   function frame(now) {
     raf = 0;
     /* Nothing visible, nothing drawn: the host left the page or was hidden, the canvas was
        taken out by a repaint of the button, or the light has faded with the pointer gone. */
+    if (host && last && (!host.isConnected || canvas.parentNode !== host)) rehost();
     if (!host || !host.isConnected || !host.getClientRects().length || canvas.parentNode !== host
         || (reduceQ && reduceQ.matches) || now - lastPush > LINGER_MS) { detach(); return; }
     var dt = Math.min(0.033, Math.max(0, (now - prev) / 1000)); prev = now;
@@ -10356,11 +10377,13 @@ window.kosmosMeasureScrollbarWidth();
   function run() { if (!raf && host) { prev = performance.now(); raf = requestAnimationFrame(frame); } }
 
   document.addEventListener('pointerover', function (e) {
+    ptX = e.clientX; ptY = e.clientY;
     var b = goldOf(e.target);
     if (!b || b === host) return;
     if (attach(b)) { last = at(b, e); run(); }
   }, true);
   document.addEventListener('pointermove', function (e) {
+    ptX = e.clientX; ptY = e.clientY;
     var b = goldOf(e.target);
     if (!b) return;
     if (b !== host) { if (!attach(b)) return; last = at(b, e); run(); return; }

@@ -1,4 +1,4 @@
-// Browser-check-surface: gold-light gold-lit gold-polished gold-polished-hover goldLightState
+// Browser-check-surface: gold-light gold-lit goldLightState
 'use strict';
 
 /**
@@ -23,6 +23,10 @@
  *   G8  no WebGL (context creation returns null, or throws): no canvas, no loop, the hover still darkens
  *   G9  the keyboard ring on the pill is the app's 2px ink ring
  *   G10 no page errors anywhere
+ *   G11 a repaint that rebuilds the lit button under a still pointer (the empty board's Create button, every poll)
+ *       carries the light to the new copy: it is not dropped until the pointer next moves
+ *
+ * It also fails if it ran any number of checks other than EXPECTED, so a skipped arm cannot read as green.
  *
  * Harness: loaded over file:// with fetch answered here and the polls off (render-unread-edge-3743.js's posture).
  * The hover arms use a strip of gold buttons fixed over the page, drawn by the page's own CSS and served by the
@@ -37,6 +41,7 @@ const ENGINES = ['chromium', 'webkit'];
 let ENGINE = '';   // the engine the loop below is on, for chk's labels
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+const EXPECTED = 72;   // 36 per engine
 const fail = [];
 let passed = 0;
 function chk(ok, label, extra) {
@@ -224,6 +229,32 @@ async function fillContrast(page, sel) {
       await page.mouse.move(await page.evaluate(() => { const r = document.querySelector('[data-gx=gdis]').getBoundingClientRect(); return r.x + r.width / 2; }), 50, { steps: 4 });
       const dis = await page.evaluate(() => !!document.querySelector('[data-gx=gdis] canvas'));
       chk(!blue && !dis, 'G3b the blue primary and a disabled gold button never host the light', JSON.stringify({ blue, dis }));
+      // G3b's control: the same button enabled DOES host the light, so the disabled reading above is the guard's work
+      // and not an engine that sends no pointer events to a disabled button.
+      await page.evaluate(() => { document.querySelector('[data-gx=gdis]').disabled = false; });
+      await page.mouse.move(1150, 780);
+      await swipe(page, '[data-gx=gdis]', 1);
+      await page.waitForTimeout(100);
+      const en = await page.evaluate(() => !!document.querySelector('[data-gx=gdis] canvas.gold-light'));
+      await page.evaluate(() => { document.querySelector('[data-gx=gdis]').disabled = true; });
+      chk(en, 'G3b control: the same button, enabled, does host the light', String(en));
+
+      // G11: a repaint rebuilds the lit button under a pointer that has not moved.
+      await swipe(page, '[data-gx=g1]', 1);   // ends still, in the middle
+      await page.waitForTimeout(100);
+      const r0 = await state(page);
+      await page.evaluate(() => {
+        const old = document.querySelector('[data-gx=g1]');
+        const t = document.createElement('template');
+        t.innerHTML = '<button class="btn uprime" data-gx="g1" type="button">Post</button>';
+        old.replaceWith(t.content.firstChild);
+      });
+      await settle(page); await settle(page);
+      const r1 = await state(page);
+      const fresh = await page.evaluate(() => { const b = document.querySelector('[data-gx=g1]'); return !!b.querySelector('canvas.gold-light') && b.classList.contains('gold-lit'); });
+      chk(r0.running && r0.host === 'g1' && r1.running && r1.host === 'g1' && fresh && (await litCount(page)) === 1, 'G11 a repaint under a still pointer carries the light to the new copy of the button', JSON.stringify({ r0, r1, fresh }));
+      await page.mouse.move(1150, 780);
+
 
       // G6: a hidden host stops the loop and takes the canvas out.
       await swipe(page, '[data-gx=g3]', 1);
@@ -327,6 +358,7 @@ async function fillContrast(page, sel) {
       await browser.close();
     }
   }
+  if (passed + fail.length !== EXPECTED) fail.push('ran ' + (passed + fail.length) + ' checks, expected ' + EXPECTED + ': an arm was skipped or added without updating EXPECTED');
   if (fail.length) { console.log('\n' + fail.length + ' FAILED, ' + passed + ' PASS'); process.exit(1); }
   console.log('\n' + passed + ' PASS, all gold-button checks passed');
 })().catch((e) => { console.error(e); process.exit(1); });
