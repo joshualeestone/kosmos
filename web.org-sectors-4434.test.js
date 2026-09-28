@@ -384,6 +384,22 @@ test('the rest-time repair is wired where every settle ends: the reduced-motion 
   assert.match(body('orgLiveRun'), /orgPlanarRepair\(\[\.\.\.L\.nodes\.values\(\)\], L\.hub\)/, 'the animation no longer repairs a crossing when it stops');
 });
 
+test('the repair never moves a held node or hub, so a drag held still keeps what the person holds (#4434, review it3)', () => {
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const a = { key: 'a', x: 400, y: 300, parent: null, fixed: false, home: { dx: 100, dy: 0 } };
+  const b = { key: 'b', x: 420, y: 420, parent: null, fixed: false, home: { dx: 0, dy: 100 } };
+  /* c is held where a's line to it (400,300 to 350,450) crosses the hub's line to b (300,300 to 420,420) at
+     375,375, inside both. With c held, nothing may move. */
+  const c = { key: 'c', x: 350, y: 450, parent: a, fixed: true, home: { dx: 150, dy: 50 } };
+  const d = { key: 'd', x: 500, y: 400, parent: a, fixed: false, home: { dx: 150, dy: -50 } };
+  assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), false, 'the repair ran while a node was held');
+  assert.deepEqual([c.x, c.y, d.x, d.y], [350, 450, 500, 400], 'a held drag was moved');
+  c.fixed = false;
+  assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), true, 'CONTROL: released, the same crossing is repaired');
+  const src = SCRIPT.slice(SCRIPT.indexOf('function orgLiveRun('), SCRIPT.indexOf('\n}', SCRIPT.indexOf('function orgLiveRun(')));
+  assert.match(src, /!L\.dragging && orgPlanarRepair/, 'the animation\'s stop no longer skips the repair mid-drag');
+});
+
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
   const agentsOnce = cards(UNEVEN);
   const one = place.orgPlace(place.orgTreeOf(agentsOnce)).placed;
