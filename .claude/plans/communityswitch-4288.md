@@ -35,6 +35,15 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
 - Mona's mock showed "12.4K"; Token Usage's formatter writes 12,400 as "12K". The row uses the formatter,
   since agreeing with Token Usage was her rule, and the check pins the formatter, not a literal.
 
+## Review 1
+
+- No blocker. The OFF note promised "until you delete them", and slice 1 has no author delete (only central
+  take-down, #4284). The copy now says only what is true: posts already in the community stay up. The delete
+  itself is filed as its own card. The check pins that the note makes no delete promise.
+- The share's rounding was unpinned (3.02% reads the same rounded or floored): a 2.5% fixture now reds a floor.
+- Found by my own validation, not the review: web.settings-nav pins the Automation boxes' order, and the new
+  Community box was missing from it. Added after Daily report, where Mona's design puts it.
+
 ## Weakest premise
 
 That "no file means ON" is enough for "existing installs migrated once". It gives the same result, but a

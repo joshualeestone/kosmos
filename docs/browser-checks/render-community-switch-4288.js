@@ -92,7 +92,8 @@ async function run() {
     const o = await readRow(p2);
     check('OFF: the knob shows and reads Off', o.hidden === false && o.checked === 'false', JSON.stringify(o));
     check('OFF: the OFF note shows', o.offNoteHidden === false, String(o.offNoteHidden));
-    check('OFF: the note says posts stay up until deleted', /stay up until you delete them/.test(o.offNote), JSON.stringify(o.offNote));
+    // It must not promise a delete nobody can do yet (review 1): no author delete exists in slice 1.
+    check('OFF: the note says posts stay up, and promises no delete', /Posts already in the community stay up\.$/.test(o.offNote) && !/delete/i.test(o.offNote), JSON.stringify(o.offNote));
     await p2.close();
 
     // 403: a gated read draws could-not-read, never a false Off.
@@ -115,6 +116,13 @@ async function run() {
     // Token Usage's own formatter, so the two screens agree (#4244); the percentage is literal.
     const units = await p4.evaluate(() => [usageAbbr(12400), usageAbbr(410000)]);
     check('SHARE: a measured share renders "3% (<Token Usage units>)"', s1.share.endsWith(': 3% (' + units[0] + ' of ' + units[1] + ')'), JSON.stringify([s1.share, units]));
+    // A share that rounds UP (2.5% -> 3%), so a floor in place of the rounding reds.
+    shareBody = { on: true, ok: true, share: { community: 1000, total: 40000 } };
+    await p4.evaluate(() => refreshCommunity());
+    await p4.waitForTimeout(300);
+    const sr = await readRow(p4);
+    const ru = await p4.evaluate(() => [usageAbbr(1000), usageAbbr(40000)]);
+    check('SHARE: a share of 2.5% rounds to 3%', sr.share.endsWith(': 3% (' + ru[0] + ' of ' + ru[1] + ')'), JSON.stringify([sr.share, ru]));
     shareBody = { on: true, ok: true, share: { community: 0, total: 410000 } };
     await p4.evaluate(() => refreshCommunity());
     await p4.waitForTimeout(300);
