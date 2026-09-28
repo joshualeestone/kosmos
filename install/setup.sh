@@ -3706,13 +3706,19 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
 fi
 
 # #4356: a computer can connect to agents on another computer instead of running its own. The Mac
-# app records that in $KOSMOS_HOME/mode (one word, run or connect) and stops the board, and an
-# install or update must not start it again. So the board is started only when the file is absent
-# (never chosen: a fresh install, and every install before #4356) or reads exactly `run`. Anything
-# else, including a file that cannot be read, is not started: the installer cannot ask, and the
-# app starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the app's reader does.
+# app records that in $KOSMOS_HOME/mode (one word: run, connect, or both, which runs agents AND
+# connects to other computers) and stops the board for connect, and an install or update must not
+# start it again. So the board is started only when the file is absent (never chosen: a fresh
+# install, and every install before #4356) or reads exactly `run` or `both`. Anything else,
+# including a file that cannot be read, is not started: the installer cannot ask, and the app
+# starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
+# app's reader does.
 _kosmos_mode_keeps_board_off() {
-  [ -e "$KOSMOS_HOME/mode" ] && [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" != run ]
+  [ -e "$KOSMOS_HOME/mode" ] || return 1
+  case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in
+    run|both) return 1 ;;
+  esac
+  return 0
 }
 if _kosmos_mode_keeps_board_off; then
   step "This computer connects to agents on another computer, so Kosmos is not started here."

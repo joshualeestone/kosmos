@@ -5,10 +5,11 @@
  * computer.
  *
  * Josh's copy rule (on the card, 2026-09-28): the screen is the Kosmos logo, the heading "How would
- * you like to set up Kosmos on this computer?" and two buttons, "Run agents on this computer" and
- * "Connect to agents on another computer". Nothing else: no subtitle, disclaimer, helper line or
- * footer. So the first tests pin the screen's visible text as exactly those three strings, and the
- * logo as present. The rest lift the page's own functions and run them: when the screen shows, and
+ * you like to set up Kosmos on this computer?" and the buttons, nothing else: no subtitle,
+ * disclaimer, helper line or footer. Three buttons since Josh's 10:31 ruling: "Run agents on this
+ * computer", "Connect to agents on another computer" and "Run agents here and connect to other
+ * computers" (the third one's words are Splinter's proposal). So the first tests pin the screen's
+ * visible text as exactly the heading and those three labels, and the logo as present. The rest lift the page's own functions and run them: when the screen shows, and
  * what each button tells the Mac app.
  *
  *   node --test web.firstrun-choice-4356.test.js
@@ -24,6 +25,7 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const HEADING = 'How would you like to set up Kosmos on this computer?';
 const RUN = 'Run agents on this computer';
 const CONNECT = 'Connect to agents on another computer';
+const BOTH = 'Run agents here and connect to other computers';
 
 /* The screen's markup: from its opening tag to the matching close, counted by <div> depth, so a
    line added anywhere inside it is inside what the tests read. */
@@ -50,8 +52,8 @@ test('#4356: the instrument is reading the page', () => {
   assert.ok(screen().length > 200, 'the first screen read back almost empty');
 });
 
-test('#4356: the first screen\'s visible text is exactly the heading and the two button labels', () => {
-  assert.deepEqual(visibleText(screen()), [HEADING, RUN, CONNECT]);
+test('#4356: the first screen\'s visible text is exactly the heading and the three button labels', () => {
+  assert.deepEqual(visibleText(screen()), [HEADING, RUN, CONNECT, BOTH]);
 });
 
 test('#4356: the Kosmos logo is at the top, and nothing else is an image or carries hidden text', () => {
@@ -65,12 +67,12 @@ test('#4356: the Kosmos logo is at the top, and nothing else is an image or carr
   assert.match(html, /<h1 class="frc-title" id="frc-title">/);
 });
 
-test('#4356: the two buttons are the only controls, and each one\'s accessible name is its label', () => {
+test('#4356: the three buttons are the only controls, and each one\'s accessible name is its label', () => {
   const html = screen().replace(/<!--[\s\S]*?-->/g, '');
   const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)];
-  assert.deepEqual(buttons.map((b) => b[2].trim()), [RUN, CONNECT]);
+  assert.deepEqual(buttons.map((b) => b[2].trim()), [RUN, CONNECT, BOTH]);
   for (const [, attrs] of buttons) assert.doesNotMatch(attrs, /aria-label/, 'an aria-label would give a button a name that differs from its label');
-  assert.deepEqual(buttons.map((b) => (b[1].match(/data-mode="([^"]*)"/) || [])[1]), ['run', 'connect']);
+  assert.deepEqual(buttons.map((b) => (b[1].match(/data-mode="([^"]*)"/) || [])[1]), ['run', 'connect', 'both']);
   assert.doesNotMatch(html, /<(a|input|select|textarea)\b/, 'the screen has a control besides the two buttons');
 });
 
@@ -91,7 +93,7 @@ function lift(name) {
 function world({ search = '', bridge = true, throws = false } = {}) {
   const posted = [];
   const btn = (mode) => ({ dataset: { mode }, disabled: false, onclick: null, focused: false, focus() { this.focused = true; } });
-  const btns = [btn('run'), btn('connect')];
+  const btns = [btn('run'), btn('connect'), btn('both')];
   const el = { hidden: true, querySelectorAll: () => btns };
   const cover = { hidden: false };
   const replaced = [];
@@ -131,6 +133,16 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   assert.deepEqual(w.replaced, ['/?token=t'], 'a Reload would ask again, and the app no longer listens');
 });
 
+test('#4356: Run agents here and connect tells the app "both", hides the screen, and keeps ?mode=both for the end of first run', async () => {
+  const w = world({ search: '?mode=unset' });
+  const choice = w.ctx.frChoose();
+  w.btns[2].onclick();
+  assert.equal(await choice, 'both');
+  assert.deepEqual(w.posted, ['both']);
+  assert.equal(w.el.hidden, true);
+  assert.deepEqual(w.replaced, ['/?mode=both&token=t'], 'a relaunch-free first run would not know to end at Kosmos Plus sign-in');
+});
+
 test('#4356: Connect tells the app "connect" and leaves the screen up, buttons off, while the app switches', async () => {
   const w = world({ search: '?mode=unset' });
   const choice = w.ctx.frChoose();
@@ -150,6 +162,22 @@ test('#4356: if the app cannot be told, Connect does nothing rather than leave d
   assert.equal(settled, false, 'the page went on as if the Mac had switched');
   assert.deepEqual(w.replaced, [], 'the address forgot a choice the app never heard');
   assert.ok(w.btns.every((b) => !b.disabled), 'the buttons are left disabled with nothing happening');
+});
+
+test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"', () => {
+  const ctx = { location: { search: '' }, URLSearchParams, calls: [] };
+  vm.createContext(ctx);
+  vm.runInContext(lift('frPlusLast') + '\n' + lift('frPlusSignIn')
+    + '\nfunction showTab(t) { calls.push("tab:" + t); } function settingsGo(s) { calls.push("sec:" + s); } function plusSiEnter() { calls.push("signin"); }', ctx);
+  for (const [search, want] of [['?mode=both', true], ['?mode=both&token=t', true], ['', false], ['?mode=run', false], ['?mode=unset', false], ['?mode=connect', false]]) {
+    ctx.location.search = search;
+    assert.equal(ctx.frPlusLast(), want, search || '(no query)');
+  }
+  ctx.frPlusSignIn();
+  assert.deepEqual(ctx.calls, ['tab:settings', 'sec:plus', 'signin'], 'not the Settings sign-in that already exists');
+  const finish = lift('frFinish');
+  assert.match(finish, /if \(ok \|\| FR_FORGOT\) \{ frClose\(\); if \(frPlusLast\(\)\) frPlusSignIn\(\); else then\(\); return; \}/,
+    'first run does not end at the sign-in, or ends there for every choice');
 });
 
 test('#4356: first run asks for the choice before the wizard, and a Connect ends it there', () => {

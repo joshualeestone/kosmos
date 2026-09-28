@@ -196,11 +196,13 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
 //   (no file)  never chosen: every install before #4356, and a fresh one. Behaves as today.
 //   run        this computer runs agents.
 //   connect    this computer opens Kosmos Plus sign-in, and never starts its own board.
+//   both       runs agents, as run does (the app, the installer and updates treat it as run), and
+//              first run ends at Kosmos Plus sign-in (Josh's third button, 10:31 on the card).
 //   anything else, or a file that cannot be read: UNREADABLE. The app asks again (the first screen);
 //   it never quietly becomes one of the two. The installer, which cannot ask, leaves the board as
 //   it was.
 enum ComputerMode: String {
-    case unset, run, connect, unreadable
+    case unset, run, connect, both, unreadable
 }
 
 func computerModePath(kosmosHome: String) -> String { kosmosHome + "/mode" }
@@ -215,6 +217,7 @@ func computerMode(fromFile data: Data?) -> ComputerMode {
     switch text {
     case "run": return .run
     case "connect": return .connect
+    case "both": return .both
     default: return .unreadable
     }
 }
@@ -230,9 +233,9 @@ func readComputerMode(kosmosHome: String) -> ComputerMode {
     }
 }
 
-/// Only the two real choices can be written. Atomic, so a reader never sees half a word.
+/// Only the three real choices can be written. Atomic, so a reader never sees half a word.
 func writeComputerMode(_ mode: ComputerMode, kosmosHome: String) -> Bool {
-    guard mode == .run || mode == .connect else { return false }
+    guard mode == .run || mode == .connect || mode == .both else { return false }
     do {
         try Data((mode.rawValue + "\n").utf8).write(to: URL(fileURLWithPath: computerModePath(kosmosHome: kosmosHome)), options: .atomic)
         return true
@@ -1783,10 +1786,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         logLine("#4356: this computer's mode is \(computerMode.rawValue)")
     }
 
-    /// The board's address, plus whether the page must ask for the choice: `unset` shows the first
-    /// screen before first run, `unreadable` shows it even after first run (web frChoiceWanted).
+    /// The board's address, plus what the page must know: `unset` shows the first screen before
+    /// first run, `unreadable` shows it even after first run (web frChoiceWanted), and `both` ends
+    /// first run at Kosmos Plus sign-in (web frPlusLast).
     func withModeQuery(_ url: URL?) -> URL? {
-        guard let url, computerMode == .unset || computerMode == .unreadable,
+        guard let url, computerMode == .unset || computerMode == .unreadable || computerMode == .both,
               var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { return url }
         var items = comps.queryItems ?? []
@@ -1813,6 +1817,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             _ = writeComputerMode(.run, kosmosHome: home)
             computerMode = .run
             logLine("#4356: this computer runs agents")
+        case "both":
+            // Runs agents like run; first run ends at Kosmos Plus sign-in, which the page does itself.
+            _ = writeComputerMode(.both, kosmosHome: home)
+            computerMode = .both
+            logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
                 showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it is still set up to run agents here. Check that you can write to \(home), then open Kosmos again.", title: "Kosmos could not switch")
@@ -4221,6 +4230,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     mode(Array("run\n".utf8), .run, "run with the newline the app writes")
     mode(Array("run\n\n".utf8), .run, "trailing newlines dropped, as the installer's $(cat) does")
     mode(Array("connect\n".utf8), .connect, "connect")
+    mode(Array("both\n".utf8), .both, "both (runs agents, and connects to other computers)")
     mode(Array(" run".utf8), .unreadable, "a space is not dropped (the installer would not match it either)")
     mode(Array("run\r\n".utf8), .unreadable, "a CR is not dropped either")
     mode(Array("RUN".utf8), .unreadable, "case matters, as in the installer")
@@ -4263,11 +4273,12 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(readComputerMode(kosmosHome: dir.path) == .unset, "no file reads unset")
     disk(writeComputerMode(.connect, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .connect, "connect written reads back connect")
     disk(writeComputerMode(.run, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .run, "run written reads back run")
-    disk(!writeComputerMode(.unreadable, kosmosHome: dir.path) && !writeComputerMode(.unset, kosmosHome: dir.path), "only the two choices can be written")
+    disk(writeComputerMode(.both, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .both, "both written reads back both")
+    disk(!writeComputerMode(.unreadable, kosmosHome: dir.path) && !writeComputerMode(.unset, kosmosHome: dir.path), "only the three choices can be written")
     try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
-    let expected = 34
+    let expected = 36
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

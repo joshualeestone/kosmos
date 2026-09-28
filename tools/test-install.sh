@@ -793,8 +793,8 @@ chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# 
 echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
 # The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
 # on another computer". An install or update must not start that board again, whether it finishes
-# or fails, and an unreadable choice must not become "run" either. The last pair is the control: the
-# same update with `run` in the file DOES start the board, so the stopped checks above it can fail.
+# or fails, and an unreadable choice must not become "run" either. The controls: the same update with
+# `run` or `both` in the file DOES start the board, so the stopped checks above them can fail.
 printf 'connect\n' > "$SB/home/mode"
 "$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "CONTROL: the connect computer's board is down before the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
@@ -815,6 +815,12 @@ printf 'run\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
 chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+# `both` runs agents too (it also signs in to Kosmos Plus at the end of first run), so it starts.
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+printf 'both\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
+chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
+chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "the launchd bootstrap's restart is held by the same check" "grep -q '_kosmos_mode_keeps_board_off || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"

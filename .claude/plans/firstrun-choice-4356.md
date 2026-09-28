@@ -2,9 +2,14 @@
 
 ## Finished means (Liu Kang's plan on the card, and m2433/m2435/m2442)
 - On a fresh Mac, the app's first screen is exactly: the Kosmos logo, the heading
-  "How would you like to set up Kosmos on this computer?", and two buttons,
-  "Run agents on this computer" and "Connect to agents on another computer". Nothing else.
-  A test pins the visible text as exactly those three strings and the logo as present.
+  "How would you like to set up Kosmos on this computer?", and three buttons,
+  "Run agents on this computer", "Connect to agents on another computer" and
+  "Run agents here and connect to other computers" (Josh 10:31, m2463; the third label is
+  Splinter's proposal and lives in the markup only). Nothing else. A test pins the visible
+  text as exactly the heading and the three labels, and the logo as present.
+- Run agents here and connect: today's first run, then the existing Settings Kosmos Plus
+  sign-in (plusSiEnter) as its last step. Board and installer treat it as run.
+- The choice is recorded locally only (the mode file). No new outbound report (#4253).
 - Run agents leads to today's first-run, unchanged.
 - Connect stops the board the installer already started (and its launchd jobs, through
   board.stopped), and loads Kosmos Plus sign-in (https://login.kosmosplus.com/) in the
@@ -18,12 +23,13 @@
 - Proven on a real signed-in account, not only in tests.
 
 ## Design (decided; Liu m2442 confirmed 1 and 2)
-- The mode file: `$KOSMOS_HOME/mode`, one word, `run` or `connect`. Per computer (the
+- The mode file: `$KOSMOS_HOME/mode`, one word, `run`, `connect` or `both`. Per computer (the
   install), not per Kosmos instance (#1852 instances share one install). Written by the Mac
   app, which knows KOSMOS_HOME (the board is not told it, server.js:48).
   - absent: never chosen (a fresh install, or every install before this change). Treated as
     run by the app, the installer and updates, exactly as today.
-  - `run` / `connect`: chosen.
+  - `run` / `connect` / `both`: chosen. `both` is run for the app and the installer; the app
+    passes ?mode=both so the page ends first run at Kosmos Plus sign-in (frPlusLast).
   - anything else, or unreadable: the app starts the board and shows the choice screen
     again; the installer does not start the board (it cannot ask; an update's own pause has
     stopped it, and the app's next launch starts it and asks).
@@ -45,7 +51,7 @@
   was never done.
 - The installer: the two places an install or update starts the board (setup.sh
   `kosmos start` at "Starting Kosmos.", and `kosmos restart` after the launchd bootstrap)
-  are skipped when the mode file exists and does not read exactly `run`. Raiden's #4342
+  are skipped when the mode file exists and does not read exactly `run` or `both`. Raiden's #4342
   `_kosmos_resume_on_fail=no` stays outside that check (m2448).
 
 ## Weakest part

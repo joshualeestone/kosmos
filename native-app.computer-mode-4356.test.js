@@ -4,7 +4,7 @@
  * #4356: a computer either runs agents or connects to agents on another computer.
  *
  * Reading the choice and deciding a connect computer's links are pure Swift functions that
- * --kosmos-app-mode-selftest drives at bundle build (34 rows). What no selftest can reach is the
+ * --kosmos-app-mode-selftest drives at bundle build (36 rows). What no selftest can reach is the
  * wiring in the AppKit delegate, so that is read here from source: a connect computer never starts
  * its board, not at launch, not on Reload, not after an unreadable choice; switching stops what
  * belongs to a board before sign-in loads; only the board's own page, and only while the app is
@@ -50,7 +50,7 @@ test('#4356: the choice comes from $KOSMOS_HOME/mode, the file the installer rea
 test('#4356: the board\'s page is told when it must ask, and only then', () => {
   assert.match(SRC, /guard let url = self\.withModeQuery\(tokenizedBoardURL\(urlString\)\) else \{/, 'the board URL does not say whether to ask');
   const q = body('func withModeQuery(_ url: URL?) -> URL?');
-  assert.match(q, /computerMode == \.unset \|\| computerMode == \.unreadable/);
+  assert.match(q, /computerMode == \.unset \|\| computerMode == \.unreadable \|\| computerMode == \.both/, 'a both computer\'s first run would not end at Kosmos Plus sign-in');
   assert.match(q, /URLQueryItem\(name: "mode", value: computerMode\.rawValue\)/);
 });
 
@@ -115,5 +115,5 @@ test('#4356: quitting a connect computer does not say its agents keep running', 
 test('#4356: the bundle build runs the mode selftest and fails on a wrong row or a hollow run', () => {
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
-  assert.match(SRC, /let expected = 34\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+  assert.match(SRC, /let expected = 36\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
 });
