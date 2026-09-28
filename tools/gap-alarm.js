@@ -290,7 +290,8 @@ function stateProblem() {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     const probe = p + '.probe.' + process.pid;
     fs.writeFileSync(probe, '');
-    fs.unlinkSync(probe);
+    // Only a failed WRITE means the state cannot be kept; a failed cleanup is not that (review 12).
+    try { fs.unlinkSync(probe); } catch { /* removed already, or locked for a moment */ }
     return null;
   } catch (err) { return String((err && err.message) || err); }
 }
@@ -350,7 +351,11 @@ async function main(argv) {
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
   /* No state to keep: say it at most once a day, in one fixed hour of the UTC day, and name the
-     problem, rather than every hour (and rather than never, for a could-not-tell). */
+     problem, rather than every hour (and rather than never, for a could-not-tell). With no state a
+     wall-clock gate is the only memory left. The job runs every 3600 s from when it loaded, so
+     exactly one run falls in any one-hour window while the Mac is awake; a Mac asleep through that
+     hour misses that day, and a wake that runs a missed interval at once can land two runs in it.
+     Accepted: this is a degraded mode that exists to be noticed and fixed (review 12). */
   const noState = stateProblem();
   if (noState && v.now % 86400 >= 3600) {
     process.stderr.write('gap-alarm: cannot keep state (' + noState + '); posting only in the first hour of the UTC day\n');

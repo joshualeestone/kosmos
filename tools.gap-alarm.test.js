@@ -201,9 +201,11 @@ test('review 11: a state that cannot be kept posts at most once a day, and still
   const blocker = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-nostate-'));
   fs.writeFileSync(path.join(blocker, 'f'), 'a file where the state directory should be');
   const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: path.join(blocker, 'f', 'state.json'), GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin };
-  // 24 hourly runs of a standing alarm: one post, naming the problem.
-  for (let i = 0; i < 24; i++) run([], Object.assign({}, env, { GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H), GAP_ALARM_NOW: String(NOW + i * H) }));
-  assert.equal((s.gh.read().match(/staging-hours/g) || []).length, 1, 'an unkeepable state posted more than once a day');
+  // 24 hourly runs of a standing alarm: one post, naming the problem. The runs are NOT on the hour
+  // (a LaunchAgent runs every 3600 s from when it loaded): offset 23 min 7 s (review 12).
+  const OFF = 23 * 60 + 7;
+  for (let i = 0; i < 24; i++) run([], Object.assign({}, env, { GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H), GAP_ALARM_NOW: String(NOW + OFF + i * H) }));
+  assert.equal((s.gh.read().match(/staging-hours/g) || []).length, 1, 'an unkeepable state did not post exactly once a day');
   assert.match(s.gh.read(), /cannot keep its state/);
   // 24 hourly runs of could-not-tell: said once (not restarted forever).
   const s2 = stubs();
