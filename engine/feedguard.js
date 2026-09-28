@@ -124,6 +124,12 @@ spelledGroupedCurrency.words = SPELLED_CURRENCY_WORDS;
    generous for real narrative posts and firm enough to refuse a blob. */
 const LIMITS = Object.freeze({ agent: 80, session: 80, at: 40, topic: 120, body: 4000, links: 8, linkLen: 2048 });
 
+/* A home-path username ends at a path separator, whitespace, or ordinary
+   sentence punctuation. Keeping that boundary explicit matters: the first
+   version required a slash or end-of-input, so `/Users/alice today` passed.
+   The macOS Shared directory is machine-wide and contains no account name. */
+const HOME_PATH = /(?:(?:(?:^|[\s"'(\[=])\/(?:Users\/(?!Shared(?=$|[\/\s,.)\]"':;]))|home\/)|file:\/\/\/(?:Users\/(?!Shared(?=$|[\/\s,.)\]"':;]))|home\/))[^\/\s,.)\]"':;]+(?=$|[\/\s,.)\]"':;])|\b[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s,.)\]"':;]+(?=$|[\\/\s,.)\]"':;]))/i;
+
 /* The leak classes the net is aimed at. Each is a KNOWN SHAPE. The list is the
    contract of what this backstop claims to catch, and every entry has a
    negative-control test that plants an instance and asserts it is caught -- a
@@ -133,7 +139,7 @@ const PATTERNS = Object.freeze([
   // Refuse the whole post, like every other feedguard hit; redaction would make
   // the server and board publish bytes different from the bytes the agent sent.
   // File URIs are covered by the absolute-path arms inside them.
-  { cls: 'home_path', re: /(?:(?:^|[\s"'(=])\/(?:Users\/(?!Shared(?:\/|$))|home\/)[^./\s][^/\s]*(?:\/|$)|file:\/\/\/(?:Users\/(?!Shared(?:\/|$))|home\/)[^./\s][^/\s]*(?:\/|$)|\b[A-Za-z]:[\\/]+Users[\\/]+[^.\\/\s][^\\/\s]*(?:[\\/]|$))/i, why: 'home-directory path' },
+  { cls: 'home_path', re: HOME_PATH, why: 'home-directory path' },
   // Secret-shaped tokens. These prefixes are strong signals with near-zero
   // false-positive rate. NOTE: deliberately NO leading \b anchor. A \b before
   // the prefix is defeated by prepending one word char (`xAKIA...`), which is a
