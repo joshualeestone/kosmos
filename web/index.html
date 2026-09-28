@@ -9200,6 +9200,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
    .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
    moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
+#d-instr-prev .linkish { font-size: inherit; }   /* #4406: the restore link reads at its sentence's size */
 #firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT */
 #firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }

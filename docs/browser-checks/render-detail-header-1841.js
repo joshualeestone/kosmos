@@ -381,6 +381,7 @@ function chk(ok, label, extra) {
       return { line: !document.getElementById('d-instr-loading').hidden, spin: !!document.querySelector('#d-instr-loading .spin'),
         ph: box.placeholder, value: box.value, boxOff: box.disabled, saveOff: document.getElementById('d-instr-save').disabled };
     });
+    await page.locator('#d-sec-instr').screenshot({ path: path.join(OUT, 'instr-loading-4406.png') });
     chk(loading.line && loading.spin && loading.ph === 'Loading instructions...' && loading.value === '' && loading.boxOff && loading.saveOff,
       '#4406: while the box loads it says so with the loading mark, and neither the box nor Save can be used', JSON.stringify(loading));
     release(); await page.waitForTimeout(300); await page.unroute(INSTR_URL);
@@ -406,6 +407,7 @@ function chk(ok, label, extra) {
     chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), '#4406: with a previous version kept, the tab offers to put it back');
     await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
     const restored = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
+    await page.locator('#d-sec-instr').screenshot({ path: path.join(OUT, 'instr-previous-4406.png') });
     chk(restored.value === PREV && /Nothing is saved until you press Save/.test(restored.msg) && !restored.saveOff,
       '#4406: the button puts the previous version in the box, says nothing is saved yet, and Save can keep it', JSON.stringify(restored));
     chk(puts.length === 0, '#4406: and nothing was written (no save sent)', String(puts.length));
