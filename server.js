@@ -13473,10 +13473,12 @@ const server = http.createServer((req, res) => {
           /* #4256: stored only on a reply, so an ordinary message's row is unchanged. `wire` stays null on a reply:
              the '(answering: "...")' in front of the words is Kosmos's framing, like the envelope, not the person's. */
           ...(answered ? { replyTo: answered.at } : {}),
-          /* #4340: sent while the agent was asking something (NEEDS_YOU), so it answers the agent's own question,
-             typed or pressed. Like a menu answer, the agent carries on working and owes no reply to it; chat.dmOwes
-             and the page's "Nothing back yet." timing both skip it. Stored only then, so other rows are unchanged. */
-          ...(askingCard && askingCard.state === STATE.NEEDS_YOU ? { toQuestion: true } : {}),
+          /* #4340: sent while the agent was asking something, so it answers the agent's own question, typed or
+             pressed. Like a menu answer, the agent carries on working and owes no reply to it; chat.dmOwes and the
+             page's "Nothing back yet." timing both skip it. chat.answersQuestion decides it from BOTH the card read
+             before the send and the one deliver read just before typing (its docblock names the residual). Stored
+             only then, so other rows are unchanged. */
+          ...(chat.answersQuestion(askingCard, delivery) ? { toQuestion: true } : {}),
         });
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.

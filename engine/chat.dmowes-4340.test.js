@@ -66,3 +66,16 @@ test('a row whose time does not parse is skipped, not read as long ago', () => {
   assert.equal(chat.dmOwes([person(5), { text: 'x', at: 12345, from: A }], A).state, 'owes',
     'a reply with no real timestamp cleared the debt');
 });
+
+test('answersQuestion: only when BOTH the route\'s card and deliver\'s own read say the agent was asking, and it landed', () => {
+  const ASK = require('./status').STATE.NEEDS_YOU;
+  const card = { state: ASK };
+  const placed = { state: chat.DELIVERY.PLACED, paneState: ASK };
+  assert.equal(chat.answersQuestion(card, placed), true);
+  assert.equal(chat.answersQuestion({ state: 'working' }, placed), false, 'the route card was not asking');
+  assert.equal(chat.answersQuestion(card, { ...placed, paneState: 'working' }), false,
+    'the question resolved before deliver read the pane: this is an ordinary message');
+  assert.equal(chat.answersQuestion(card, { ...placed, state: chat.DELIVERY.COULD_NOT }), false, 'nothing landed');
+  assert.equal(chat.answersQuestion(null, placed), false);
+  assert.equal(chat.answersQuestion(card, null), false);
+});

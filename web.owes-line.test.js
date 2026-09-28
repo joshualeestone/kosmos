@@ -140,6 +140,6 @@ test('#4340: the unknown sentence speaks of this conversation, not the kosmos ms
 
 test('#4340: the DM POST marks a message sent while the agent was asking, and only then', () => {
   const srv = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  assert.match(srv, /\.\.\.\(askingCard && askingCard\.state === STATE\.NEEDS_YOU \? \{ toQuestion: true \} : \{\}\),/,
+  assert.match(srv, /\.\.\.\(chat\.answersQuestion\(askingCard, delivery\) \? \{ toQuestion: true \} : \{\}\),/,
     'the DM POST no longer marks an answer to the agent\'s question, so a typed answer would put it in debt');
 });

@@ -2812,6 +2812,23 @@ function looksLikeManager(role) {
  *
  * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Same shape as owesReply.
  */
+/**
+ * #4340: was this person message an answer to the agent's OWN question? The DM POST stores `toQuestion: true`
+ * when this says so, and dmOwes then owes nothing for it (a typed answer, like a menu answer, is not a message
+ * the agent must reply to).
+ *
+ * BOTH reads must say the agent was asking: the route's card, read before the send (`askingCard`), and the card
+ * `deliver` itself read just before typing (`delivery.paneState`). The second is the freshest this process has:
+ * no read can see the pane after the keystrokes land. So a question that resolves in the moment between that read
+ * and the typing can still mark a row that landed as an ordinary message. That residual fails toward SILENCE
+ * (one missed "Nothing back yet."), never toward accusing the agent of ignoring an answer it was never owed.
+ * Only a message that was placed can be an answer at all.
+ */
+function answersQuestion(card, delivery) {
+  return Boolean(card) && card.state === status.STATE.NEEDS_YOU
+    && Boolean(delivery) && delivery.state === DELIVERY.PLACED && delivery.paneState === status.STATE.NEEDS_YOU;
+}
+
 function dmOwes(rows, agent) {
   const name = String(agent == null ? '' : agent);
   if (rows === null || rows === undefined || !Array.isArray(rows)) {
@@ -3132,7 +3149,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, dmOwes, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
+  DELIVERY, DIRECT, dmOwes, answersQuestion, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
