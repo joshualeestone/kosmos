@@ -116,10 +116,8 @@ test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re
   const all = [...src.matchAll(/setupAssistant\.ensureGuide\(/g)];
   assert.equal(all.length, 2, 'expected exactly two ensureGuide call sites; re-read this test if that changed');
   assert.equal(calls.length, all.length, 'an ensureGuide call site drops its outcome');
-  const fn = src.slice(src.indexOf('function recordGuideOutcome(r)'), src.indexOf('function recordGuideOutcome(r)') + 600);
-  assert.match(fn, /guidestate\.record\(r\)\.changed/, 'recordGuideOutcome must act on a state change');
-  assert.match(fn, /setTimeout\([\s\S]*createdbeacon\.pingInstall\(\)[\s\S]*GUIDE_PING_DELAY_MS\)/,
-    'the change ping must be DELAYED, or it races the board-start ping into two collector records');
+  assert.match(src, /const recordGuideOutcome = guidestate\.makeRecorder\(\{ ping: \(\) => createdbeacon\.pingInstall\(\), delayMs: GUIDE_PING_DELAY_MS \}\)/,
+    'the board must record through makeRecorder, pinging the install after GUIDE_PING_DELAY_MS');
   assert.match(src, /const GUIDE_SEEDED = Object\.freeze\(\{[^}]*state: 'seeded'/, 'the seeded outcome is not defined');
   assert.match(src, /setupAssistantSeeded\(\)\)\s*\{\s*recordGuideOutcome\(GUIDE_SEEDED\)/,
     'an install seeded before the guide state existed must record seeded at the sweep\'s early return');
@@ -142,4 +140,32 @@ test('#4350 the birth the REAL seed path would record is recognised as the auto 
   try {
     assert.equal(create.createdCount(), 0, 'the real seed path\'s birth was counted as a person-made agent');
   } finally { fs.rmSync(create.createdLogFile(), { force: true }); unseed(); }
+});
+
+test('#4350 makeRecorder: one ping, after the delay, per state change; nothing for no change or a failed write', () => {
+  const timers = [];
+  const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
+  let pings = 0;
+  let next = { changed: true };
+  const rec = guidestate.makeRecorder({ ping: () => { pings += 1; }, delayMs: 30000, setTimer, recordFn: () => next });
+  const r = { state: 'no-model' };
+  assert.equal(rec(r), r, 'the outcome must pass through (it sits in a promise chain)');
+  assert.equal(pings, 0, 'the ping went at once, racing the board-start ping');
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 30000);
+  rec({ state: 'seeded' });                     // a second change inside the window
+  assert.equal(timers.length, 1, 'a second change inside the window started a second ping');
+  timers[0].fn();
+  assert.equal(pings, 1);
+  next = { changed: false };                    // no change, or a write that failed
+  rec({ state: 'seeded' });
+  assert.equal(timers.length, 1, 'an unchanged (or unwritten) state scheduled a ping');
+  next = { changed: true };                     // after the first ping, a new change pings again
+  rec({ state: 'off' });
+  assert.equal(timers.length, 2);
+  timers[1].fn();
+  assert.equal(pings, 2);
+  // Never throws, even when recording or pinging does.
+  const bad = guidestate.makeRecorder({ ping: () => { throw new Error('x'); }, delayMs: 1, setTimer, recordFn: () => { throw new Error('y'); } });
+  assert.doesNotThrow(() => bad({ state: 'off' }));
 });

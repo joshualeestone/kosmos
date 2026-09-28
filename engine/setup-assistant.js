@@ -622,8 +622,8 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
      run it is off unless a test turns it on with AGENT_WORKFORCE_SETUP_GUIDE=on. */
   const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
   const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
-  // 'disabled' is what a dry-run board (browser checks, dev boards) records: the board's sweep
-  // is gated on FIRSTRUN_AUTOCREATE_ENABLED only, and this dry-run check is what stops it here.
+  // 'disabled' is what a board under AGENT_WORKFORCE_DRY_RUN=1 records (the browser checks):
+  // the board's sweep is gated on FIRSTRUN_AUTOCREATE_ENABLED only, and this check stops it here.
   if (!enabled) return Promise.resolve({ seeded: false, state: 'disabled', reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */

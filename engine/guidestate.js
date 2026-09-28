@@ -64,4 +64,29 @@ function record(outcome) {
   return { changed: !before || before.state !== state };
 }
 
-module.exports = { STATES, read, current, record, file };
+/**
+ * kosmos#4350: the board's recorder. Records an outcome and, when its STATE changes, sends the
+ * install ping `delayMs` later rather than at once: the first outcome lands within milliseconds
+ * of the board-start ping, and two pings in flight together with different states could each
+ * leave a record on the collector. One timer at a time: a later change inside the delay rides
+ * the same ping, which reads the newest state when it goes. A write that fails reports no change,
+ * so it sends nothing. `ping` and `setTimer` are injected (production: createdbeacon.pingInstall
+ * and setTimeout). Returns the outcome, so it can sit in a promise chain. Never throws.
+ */
+function makeRecorder({ ping, delayMs, setTimer = setTimeout, recordFn = record } = {}) {
+  let pending = null;
+  return function recordOutcome(r) {
+    try {
+      if (recordFn(r).changed && !pending) {
+        pending = setTimer(() => {
+          pending = null;
+          try { ping(); } catch { /* best-effort */ }
+        }, delayMs);
+        if (pending && typeof pending.unref === 'function') pending.unref();
+      }
+    } catch { /* best-effort */ }
+    return r;
+  };
+}
+
+module.exports = { STATES, read, current, record, file, makeRecorder };

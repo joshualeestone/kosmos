@@ -13,10 +13,12 @@ reason locally, and do not count the auto-created guide as a person-created agen
   install ping on a change (idempotent server-side: count 0 never lowers a count).
 - createdbeacon payload gains `guide: <state>|'unknown'`.
 - `create.createdCount` leaves out births with createdBy GUIDE_CREATED_BY ('kosmos'), role
-  SETUP_ROLE_KEY ('setup') AND a purpose starting GUIDE_PURPOSE_PREFIX, all read from
+  SETUP_ROLE_KEY ('setup') AND a purpose starting with one of GUIDE_PURPOSE_PREFIXES (the
+  current one and 0.6.70's), all read from
   setup-assistant.js (lazy require: it requires create.js).
 - Seeded before this shipped: the sweep's early return records 'seeded'.
-- The change ping waits 30 s, one timer, so it cannot race the board-start ping on the collector.
+- The change ping waits 30 s, one timer (guidestate.makeRecorder, tested with an injected
+  timer), so it cannot race the board-start ping on the collector.
 - The state file is written only when something changed; `at` is when the state first appeared.
 
 ## Rejected

@@ -818,32 +818,14 @@ const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmo
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const guidestate = require('./engine/guidestate');
 /* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
-   its STATE changes, send the install ping again so the collector learns it before the next
-   board start. The install ping is idempotent on the server (count 0 never lowers a count),
-   so the extra ping moves no number. It is sent GUIDE_PING_DELAY_MS later, not at once:
-   the first outcome lands within milliseconds of the board-start ping, and two pings in
-   flight together with different states could each leave a record on the collector (it
-   lists, then writes, then deletes the other names), counting the install twice until its
-   next ping. This covers the board-start ping only: a created ping (an agent made inside the
-   window) can still race it, as a count change always could. One timer at a time: a later
-   change inside the delay rides the same ping, which reads the newest. */
+   its STATE changes, send the install ping GUIDE_PING_DELAY_MS later (guidestate.makeRecorder
+   says why the delay, and is tested there). This covers the board-start ping only: a created
+   ping (an agent made inside the window) can still race it, as a count change always could. */
 const GUIDE_PING_DELAY_MS = 30 * 1000;
 /* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
    early once seeded), so the sweep records this for it. */
 const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
-let guidePingTimer = null;
-function recordGuideOutcome(r) {
-  try {
-    if (guidestate.record(r).changed && !guidePingTimer) {
-      guidePingTimer = setTimeout(() => {
-        guidePingTimer = null;
-        try { createdbeacon.pingInstall(); } catch { /* best-effort */ }
-      }, GUIDE_PING_DELAY_MS);
-      if (typeof guidePingTimer.unref === 'function') guidePingTimer.unref();
-    }
-  } catch { /* best-effort */ }
-  return r;
-}
+const recordGuideOutcome = guidestate.makeRecorder({ ping: () => createdbeacon.pingInstall(), delayMs: GUIDE_PING_DELAY_MS });
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle

@@ -23,9 +23,9 @@
  *
  * BOTH pings also carry ONE word about this install's setup guide (#4350; they share
  * payload()): created, not armed, turned off by the person, no model connected,
- * refused, names taken, or disabled (guidestate.STATES; 'disabled' is what a dry-run
- * or dev board records: a real build with the guide switched off records nothing and
- * sends 'unknown'). A 'seeded' or 'names-taken' also says the install has agents. It says
+ * refused, names taken, or disabled (guidestate.STATES; 'disabled' is recorded only under
+ * AGENT_WORKFORCE_DRY_RUN=1 without AGENT_WORKFORCE_SETUP_GUIDE=on: a real build with the
+ * guide switched off records nothing new and sends its last recorded state, or 'unknown'). A 'seeded' or 'names-taken' also says the install has agents. It says
  * something about the person's setup and choices; Splinter ruled it inside Josh's
  * 09-14 telemetry ruling (#4350).
  *
