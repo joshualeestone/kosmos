@@ -13,7 +13,9 @@
  *
  * What it carries (fixed values only; no free text ever leaves the Mac, review 4):
  *   on        the remote-access switch
- *   tunnel    running | starting | crashed | stopped | off, from remote.status()
+ *   tunnel    running | starting | crashed | stopped | off, from remote.status(). `starting`
+ *             with an error code is a tunnel process that is up but whose own retries keep
+ *             failing (stuck), not one coming up: read the two together (review 20)
  *   error     a CODE from the fixed list in CODES, classified on the Mac from status()'s own
  *             sentence (the sentence itself is never sent); or, for a board whose switch is
  *             on and which holds a key but is not enrolled, `not-enrolled; missing: <files>`

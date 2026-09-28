@@ -280,7 +280,10 @@ async function refreshStandingIfStale(opts) {
   }
   const s = read();
   if (s.ok !== true) return;
-  if (now - (s.standing_at || 0) < ttl) return;   // still fresh
+  // Math.abs (kosmos#4277 review 20): a wall clock stepped backwards (a wrong Mac clock being
+  // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
+  // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
+  if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
   standingRefreshInFlight = true;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,

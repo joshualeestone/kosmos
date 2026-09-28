@@ -21,6 +21,7 @@ Rejected:
 ## Evidence
 - `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
+- `engine/remote-standing-refresh.test.js`: 9 of 9, including a future standing_at (a clock stepped back) read as stale.
 - `engine/remote.test.js`: 108 of 108, including seven #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2), since resolved
@@ -28,6 +29,11 @@ Rejected:
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 20
+- An enrolled board's refresh read a standing_at in the FUTURE (a wrong Mac clock being corrected) as fresh, which silenced the report, the early tick's TTL 0 included, until the clock caught up. The freshness check is now `Math.abs`, like the not-enrolled throttle; remote-standing-refresh.test.js pins it (a mutant without it fails). That suite's null-backoff test had asked with a synthetic `now` near 1000 against a real Date.now() stamp; it now asks on the real clock, as production does.
+- The module header says `starting` with an error code means stuck, not coming up.
+- Deferred: an early EOF or a write error during the relay's AUTH carries no `relay` context in session.rs and reads `other`. The fix belongs in the tunnel's wording; nothing leaks.
 
 ## Review 19
 - Kept, stated at the code: the not-enrolled report's test-runner guard is NODE_TEST_CONTEXT, not live-execution.js's execArgv. Convention 3's execArgv exists so a server a test spawns may still ACT; this guard exists so nothing a test spawns phones the production coordinator, which wants the inheritance (as createdbeacon.js and feedbacksend.js, and create.js's launch guard).
