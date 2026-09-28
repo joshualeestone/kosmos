@@ -5507,13 +5507,30 @@ const MODEL_NAMES = {
   'claude-haiku-4-5': 'Claude Haiku 4.5',
 };
 
+/* #4416 (Josh, 2026-09-28 15:17: "instead of having it all lowercase that says gemini-3.8-flash, could we have
+   this in a little more natural language"): an id the table does not know is READ, not shown raw, when reading it
+   cannot mis-say a version. The hazard the table exists for is a version written with a dash (claude-haiku-4-5,
+   "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
+   write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
+   "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano' };
+function readableModelId(id) {
+  const parts = String(id || '').split('-');
+  if (!parts.length || parts.some((p) => !/^[A-Za-z0-9.]+$/.test(p))) return null;   // anything but plain words and numbers
+  for (let i = 1; i < parts.length; i++) if (/^\d+$/.test(parts[i]) && /^\d+$/.test(parts[i - 1])) return null;   // a dashed version
+  if (parts.some((p) => /^\d{6,}$/.test(p))) return null;   // a date or snapshot number
+  if (!/^[a-z]/i.test(parts[0])) return null;
+  return parts.map((p) => MODEL_WORDS[p.toLowerCase()]
+    || (/^[a-z]+$/i.test(p) ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : p)).join(' ');
+}
+
 function modelDisplayName(id) {
   if (!id) return null;
   if (MODEL_NAMES[id]) return MODEL_NAMES[id];
   // Dated IDs (…-20251001) are the same model with a snapshot suffix.
   const undated = id.replace(/-\d{8}$/, '');
   if (MODEL_NAMES[undated]) return MODEL_NAMES[undated];
-  return id;
+  return readableModelId(id) || id;   // #4416: raw only when reading it could mis-say the version
 }
 
 function readModel(agentName, exactSession) {
@@ -7405,8 +7422,18 @@ function snapshot() {
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
     // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
     // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only.
-    const { model } = (tied && !isAgyPane && !isMusePane) ? readModel(pane.name, pane.session)
-      : { model: (tied && agySess && agySess.found && agySess.model) || null };
+    /* #4416 (Josh 15:18: "it'd be the same as the Claude Sonnet ones just saying Claude"): every runner's ACTUAL
+       model, read from the record its own CLI keeps, never asked of the agent: Gemini's session names the model per
+       message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
+       names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
+    const sessModel = (x) => (x && x.found !== false && typeof x.model === 'string' && x.model) || null;
+    const { model } = !tied ? { model: null }
+      : isAgyPane ? { model: sessModel(agySess) }
+      : isMusePane ? { model: null }
+      : isGeminiPane ? { model: sessModel(geminiSess) }
+      : isGrokPane ? { model: sessModel(grokSess) }
+      : isCodexPane ? { model: sessModel(codexSess) }
+      : readModel(pane.name, pane.session);
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7939,6 +7966,7 @@ module.exports = {
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
+  readableModelId, // #4416
   isAntigravityCommand, // #3568
   isGrokCommand, // #3953
   /* #570: exported so the two job gates can be asserted for BOTH platforms from

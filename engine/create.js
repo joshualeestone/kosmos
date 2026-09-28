@@ -1042,6 +1042,12 @@ function parseServiceLabel(label) {
  * existed), or when the file cannot be read. ⚠️ Null means WE DO NOT KNOW. It
  * never means "the default".
  */
+/* #4416: the model the supervisor pins when a Gemini or Grok job records none (bin/agent-supervisor.sh:
+   GEMINI_MODEL="${MODEL:-gemini-2.5-flash}", GROK_MODEL="${MODEL:-grok-4.6}"). Stated once here so the board can
+   name what such an agent starts on; create.launch-default-4416.test.js holds it equal to the script, because two
+   copies of one fact drift. Codex and Antigravity choose their own, so they have none. */
+const LAUNCH_DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
+
 function plannedModelArg(name) {
   /* ⚠️ THE ONLY CALLER THAT RECEIVES AN UNVALIDATED NAME. Every other use of
      `plistPath` is downstream of `NAME_RE`; this one is handed `a.sessionName`
@@ -5636,7 +5642,7 @@ function createAgentInner(opts) {
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
-module.exports = {
+module.exports = { LAUNCH_DEFAULT_MODEL,
   MODELS,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,

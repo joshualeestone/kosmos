@@ -17944,9 +17944,11 @@ function modelLine(a) {
      profile on stopped ones) and its model is codex's own choice, which we
      deliberately do not scrape a name for -- naming the provider is the
      truth we hold, and it is what the switch changed. */
-  if (a.runner === 'codex') return 'OpenAI Codex';
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
+  /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
+     codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
+  if (a.runner === 'codex') return name || 'OpenAI Codex';
   /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
      it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
@@ -41698,8 +41700,8 @@ let OPENAI_DETAIL_GEN = 0;
    the account's models with "Let OpenAI choose" first and the agent's CURRENT model
    pre-selected, or a single "OpenAI picks its own model for now" option when the
    account cannot list models -- NEVER a Claude model. The current model KEY comes
-   from a.plannedModelName, which for OpenAI is the raw model id (modelDisplayName
-   falls through to the id for non-Claude models).
+   from a.plannedModelId, the job's RAW model id (#4416: plannedModelName is now a readable name, "GPT 5.6 Sol",
+   which no option's value matches).
    🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
    account list (server.js). A codex agent WITH its own configDir gets
    {dir: <that codex dir>, isDefault:null} -- a real OpenAI account the route
@@ -41741,7 +41743,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const refusal = !ours
     ? 'Kosmos did not start this agent, so it cannot change its model.'
     : 'Kosmos did not record how this agent starts, so there is no model to change here.';
-  const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
+  const currentKey = (a && typeof a.plannedModelId === 'string') ? a.plannedModelId : '';   // #4416: the raw id, not the readable name
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';

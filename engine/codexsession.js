@@ -143,12 +143,15 @@ function read(dir, home) {
   let lastAt = null;
   let messages = 0;
   let lastAgentMessage = null;
+  let model = null;   // #4416
   for (const line of lines) {
     if (!line.trim()) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     if (row.timestamp) lastAt = row.timestamp;
     if (row.type === 'response_item') messages += 1;
+    /* #4416: codex names the model on every turn_context; the last one is what it runs now. */
+    if (row.type === 'turn_context' && row.payload && typeof row.payload.model === 'string' && row.payload.model) model = row.payload.model;
     if (row.type === 'event_msg' && row.payload) {
       const p = row.payload;
       /* The tool states its own limit here. Taken only from `task_started`,
@@ -200,6 +203,7 @@ function read(dir, home) {
     file: found.file,
     sessionId: found.meta.session_id || null,
     provider: found.meta.model_provider || null,
+    model,   // #4416: null until a turn_context names one
     cliVersion: found.meta.cli_version || null,
     contextWindow,
     /* #2257: no longer deliberately null -- the last `token_count` event's

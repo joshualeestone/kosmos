@@ -4296,7 +4296,14 @@ const server = http.createServer((req, res) => {
         // "Will start on" would silently stop appearing.
         if (a.modelName && a.state !== STATE.STOPPED) return null;
         const arg = create.plannedModelArg(a.sessionName);
-        return arg ? modelDisplayName(arg) : null;
+        if (arg) return modelDisplayName(arg);
+        /* #4416: a Gemini or Grok job with no model starts on the one the supervisor pins, so name it, marked as the
+           default rather than a choice. Only these two: Codex and Antigravity pick their own, which we cannot name
+           before they have run. */
+        let runner = null;
+        try { const job = create.readJob(a.sessionName); runner = job && job.runner; } catch { runner = null; }
+        const pinned = runner && create.LAUNCH_DEFAULT_MODEL[runner];
+        return pinned ? modelDisplayName(pinned) + ' (default)' : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -4403,6 +4410,11 @@ const server = http.createServer((req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
+        /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
+           plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
+           plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
+           Codex only: that is the one picker keyed on it, and the read costs a launch-file read per poll. */
+        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelArg(a.sessionName) : null,
         /* Which Claude account this agent runs on, read from its startup file
            and resolved to something a person recognises. `null` means the
            default account, which is what an absent key has always meant.
@@ -4699,6 +4711,7 @@ const server = http.createServer((req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
+                plannedModelId: create.plannedModelArg(k.name),   // #4416: the raw id, for the OpenAI picker
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
