@@ -117,3 +117,12 @@ him the way back (the previous version), which is the part that matters.
   check closes first run for sure before its first click (an existing flake: Escape raced the overlay).
 - The 6g validation after round 4 was stopped before it finished: this round's blocker needed code changes.
 - Measured after the fix: web.made-before.test.js pins openDetail's model-message clear within its first 4000 characters; round 5's three reset lines pushed it to 3971. Compacted to one line (3812) rather than widening that test's window. render-fields.js needs the full runner's board on :4399 and was not run alone.
+
+## Review round 6 (sonnet, 16:35)
+- The poll's editable===false branch withdrew the editor but left the restore link up: it hides it too.
+- The validation after round 5 was red on server.test "the detail panel withdraws the writes it cannot
+  perform": it pinned the old rule (a tied card turns the box on at once). Updated to the new one, both
+  sides: tied and still loading keeps the box and Save off (everything else on); tied and loaded turns them
+  on. Also red there, unrelated: engine/updating-988.test.js #3626 (hung tunnel), 40/40 alone, not in this diff.
+- NITs left: a second restore press is refused as unsaved (accepted in round 5); readPrevious's catch
+  passes err.message (house style, unreachable in practice).

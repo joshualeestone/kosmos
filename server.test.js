@@ -2234,7 +2234,7 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // eslint-disable-next-line no-new-func
   const run = new Function('document', `let INSTR_READY = true; let INSTR_VERSION = 'v1';
     ${script.slice(start, end)}
-    return (a, tied) => { setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
+    return (a, tied, ready) => { if (ready !== undefined) INSTR_READY = ready; setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
 
   // ⚠️ REAL CARDS, from the route the page actually reads. These were object
   // literals, and an object literal is free to carry fields `/api/status` does
@@ -2328,10 +2328,18 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
     'the poll never re-applies the tie check, so an agent that dies while its '
     + 'panel is open keeps offering writes for a card that is now a stranger’s');
 
-  // And a tied card gets everything back.
-  run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  // And a tied card gets everything back. #4406: the instructions box and Save only once their content has
+  // loaded (INSTR_READY); before that, a poll tick turning them on gave an empty, editable box mid-restart.
+  run(tiedCard, tiedCard.isNamedOurs, false);
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
+  }
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, true, `${id} was turned on for a tied agent before its content loaded`);
+  }
+  run(tiedCard, tiedCard.isNamedOurs, true);
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent whose content has loaded`);
   }
   // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
   assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');

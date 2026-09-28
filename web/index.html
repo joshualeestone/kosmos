@@ -21027,6 +21027,7 @@ async function tick() {
           document.getElementById('d-instr').disabled = true;
           document.getElementById('d-instr-save').disabled = true;
           document.getElementById('d-instr-foot').hidden = true;
+          document.getElementById('d-instr-prev').hidden = true;   // #4406: its restore could not finish either
         }
         // If the poll cannot see a version (the file became unreadable), say
         // nothing new rather than RETRACTING a notice that was true. Hiding it
