@@ -111,6 +111,11 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['relay TLS handshake did not finish within 10s', 'relay-unreachable'],
     ['relay did not take AUTH within 10s', 'relay-unreachable'],
     ['writing AUTH to the relay: Broken pipe (os error 32)', 'relay-dropped'],
+    // session.rs, verbatim: the relay connection ending mid-session.
+    ['tunnel reader stopped', 'relay-dropped'],
+    ['relay connection lost: Connection reset by peer (os error 54)', 'relay-dropped'],
+    ['relay stopped answering keepalives', 'relay-dropped'],
+    ['writer gone', 'relay-dropped'],
     // coordinator.rs, verbatim: an answer that is not the coordinator's.
     ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
     ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],

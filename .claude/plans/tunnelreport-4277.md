@@ -30,6 +30,10 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 25
+- resetForTests() clears the remembered tunnel failure too, so no test can inherit one.
+- The session.rs relay-drop sentences (`tunnel reader stopped`, `relay connection lost`, `relay stopped answering keepalives`, `writer gone`) each have a verbatim test.
+
 ## Review 24
 - The two rules that clear the remembered tunnel failure are pinned: a remote.test.js test runs a tunnel that fails and then comes up (the failure is cleared), and one whose process is killed and relaunched as a new process that has written nothing yet (no inherited failure; the report reads `starting`). Mutants deleting either clear fail it. The fake `retry-loop` now writes `connecting` first, as run_forever does.
 - ticket-expired is only the MAC's own check (`the Kosmos+ ticket does not verify ... ticket expired`). The relay refusing an expired ticket the Mac had just accepted (`relay refused the tunnel: ticket refused: ticket expired ...`) points at the relay's clock and reads relay-refused, keeping the relay and the Mac apart. Tested both ways.
