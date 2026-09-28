@@ -41,18 +41,19 @@ function standInBoard() {
 
 function runBridge(event, env) {
   return new Promise((resolve) => {
-    const started = Date.now();
-    const child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [BRIDGE_FILE, event], { env, stdio: ['ignore', 'pipe', 'pipe'] });   // </dev/null, as the supervisor runs it
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
-    child.on('close', (code) => resolve({ code, out, ms: Date.now() - started }));
+    child.on('close', (code) => resolve({ code, out }));
   });
 }
 
-test('#4417: the launch event reports idle from the new pane, with its launch token, and waits for no payload', async () => {
+test('#4417: the launch event reports idle from the new pane, with its launch token', async () => {
   const board = await standInBoard();
   const pane = '%seed-' + process.pid;
-  const env = { ...process.env, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
+  /* An empty store root, so the child finds no board token of this Mac's to send to the stand-in (review 1). */
+  const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-data-'));
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
     const r = await runBridge(bridge.LAUNCH_EVENT, env);
     assert.equal(r.code, 0);
@@ -63,7 +64,7 @@ test('#4417: the launch event reports idle from the new pane, with its launch to
     assert.equal(body.auto, true, 'a launch report without auto could erase a blocked the agent filed');
     assert.equal(body.from_pane, pane, 'the report is not identified as the new pane');
     assert.equal(reports[0].headers['x-kosmos-agent-token'], 'abc123', 'the launch token did not travel, so an enforcing board refuses it');
-    assert.ok(r.ms < 1900, 'the launch report waited for a payload the supervisor never sends (' + r.ms + ' ms)');
+    assert.equal(reports[0].headers['x-kosmos-board-token'], undefined, 'the test sent this Mac\'s real board token');
   } finally {
     try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
     board.server.close();
@@ -77,7 +78,7 @@ test('#4417: agy\'s own hook map is unchanged: the launch event is Kosmos\'s, an
   assert.equal(bridge.reportFor('SessionStart', null), null, 'control: an event nobody wired is still ignored, not guessed at');
 });
 
-test('#4417: the supervisor seeds idle right after it starts the agy pane, as that pane, and never fails the launch (SOURCE pin)', () => {
+test('#4417: the supervisor seeds idle only for a hook that is in place and on, and an agy last found signed in (SOURCE pin)', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
   assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
@@ -88,10 +89,33 @@ test('#4417: the supervisor seeds idle right after it starts the agy pane, as th
   const seed = branch.indexOf('"$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true');
   assert.ok(seed > -1, 'the supervisor no longer tells the board an agy agent is up');
   assert.ok(launch > -1 && seed > launch, 'the seed must follow the launch: before it there is no pane to report as');
-  assert.match(branch.slice(launch, seed), /_AGY_PANE="\$\("\$TMUX_BIN" display-message -p -t "\$SESSION" '#\{pane_id\}'/, 'the report is not sent as the new pane');
-  assert.match(branch.slice(launch, seed), /for _x in \$\{PANE_ENV\[@\]\+"\$\{PANE_ENV\[@\]\}"\}; do \[ "\$_x" = "-e" \] \|\| _AGY_SEED_ENV\+=\("\$_x"\); done/,
-    'the seed does not carry the pane\'s env (token, port, world), so an enforcing board refuses it');
+  const gate = branch.slice(launch, seed);
+  assert.match(gate, /\[ "\$\{_AGY_HOOKED:-\}" = hooked \]/, 'the seed is sent with no hook in place: an idle that never decays and nothing corrects');
+  assert.match(gate, /require\(process\.argv\[1\] \+ "\/agystatus"\)\.lastKnown\(\); if \(r && r\.signedIn === true\)/, 'the seed is sent for an agy that may be waiting on sign-in');
+  assert.match(gate, /if \[ "\$_AGY_SIGNED" = signed-in \] && \[ -n "\$_AGY_PANE" \]; then/);
+  assert.match(gate, /_AGY_PANE="\$\("\$TMUX_BIN" display-message -p -t "\$SESSION" '#\{pane_id\}'/, 'the report is not sent as the new pane');
+  assert.match(gate, /case "\$_x" in KOSMOS_\*=\*\|AGENT_WORKFORCE_\*=\*\|HOME=\*\) _AGY_SEED_ENV\+=\("\$_x"\) ;; esac/,
+    'the seed forwards more than the bridge reads (the pane also carries API keys)');
   assert.ok(branch.indexOf('unset _AGY_BRIDGE') > seed, 'the bridge path is unset before the seed can use it');
+});
+
+test('#4417: agyhooks says `hooked` only for a hook in place and on; a git project or the person\'s off switch says nothing', () => {
+  const { spawnSync } = require('node:child_process');
+  const os = require('node:os');
+  const hooks = require('./agyhooks');
+  const run = (dir) => spawnSync(process.execPath, [path.join(__dirname, 'agyhooks.js'), dir, '/opt/node', '/b.js', '1.2.12'], { encoding: 'utf8' });
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-plain-'));
+  assert.equal(run(plain).stdout.trim(), 'hooked', 'control: a plain folder gets the hook and says so');
+  const f = path.join(plain, '.agents', 'hooks.json');
+  const h = JSON.parse(fs.readFileSync(f, 'utf8'));
+  h[hooks.HOOK_NAME].enabled = false;
+  fs.writeFileSync(f, JSON.stringify(h));
+  assert.equal(run(plain).stdout.trim(), '', 'the person switched the hook off and the supervisor would still seed idle');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-repo-'));
+  fs.mkdirSync(path.join(repo, '.git'));
+  const r = run(repo);
+  assert.equal(r.status, 0, 'a hook we could not write must never stop the launch');
+  assert.equal(r.stdout.trim(), '', 'a folder inside a git project has no hook, and the supervisor would still seed idle');
 });
 
 test('#4417: the instrument is reading the real files', () => {

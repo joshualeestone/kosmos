@@ -28,7 +28,7 @@ const readHooks = (d) => JSON.parse(fs.readFileSync(path.join(d, '.agents', 'hoo
 test('#4043: a fresh workdir gets the kosmos-report hook: working before each model call, idle at stop', () => {
   const d = workdir();
   const r = hooks.ensureHooks(d, '/opt/node', '/support/bin/agy-report-bridge.js');
-  assert.deepEqual(r, { ok: true, changed: true, why: null });
+  assert.deepEqual(r, { ok: true, changed: true, why: null, enabled: true });
   const h = readHooks(d)[hooks.HOOK_NAME];
   assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
   assert.match(h.PreInvocation[0].command, / PreInvocation$/);
@@ -49,7 +49,7 @@ test('#4043: the person\'s own hooks are kept, and a second run changes nothing'
   assert.deepEqual(after['lint-checker'], mine['lint-checker'], 'the person\'s hook changed');
   assert.ok(after[hooks.HOOK_NAME]);
   const mtime = fs.statSync(path.join(d, '.agents', 'hooks.json')).mtimeMs;
-  assert.deepEqual(hooks.ensureHooks(d, '/opt/node', '/b.js'), { ok: true, changed: false, why: null });
+  assert.deepEqual(hooks.ensureHooks(d, '/opt/node', '/b.js'), { ok: true, changed: false, why: null, enabled: true });
   assert.equal(fs.statSync(path.join(d, '.agents', 'hooks.json')).mtimeMs, mtime, 'an unchanged entry was rewritten');
   assert.equal(hooks.ensureHooks(d, '/opt/node', '/moved/b.js').changed, true, 'a moved bridge must update the entry');
 });
@@ -159,7 +159,7 @@ test('#4043: the supervisor writes the hook before every agy launch, and cannot 
   const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
   assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
   const branch = sh.slice(at);
-  const call = branch.indexOf('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true');
+  const call = branch.indexOf('_AGY_HOOKED="$("$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" || true)"');
   const launch = branch.indexOf('new-session');
   assert.ok(call > -1, 'the supervisor no longer runs agyhooks for an agy agent');
   assert.ok(launch > -1 && call < launch, 'agyhooks must run BEFORE agy is launched, or the first turn reports nothing');
@@ -296,7 +296,7 @@ test('#4043: the CLI takes agy\'s version as its 4th argument, and says on stder
 test('#4043: the supervisor hands agy\'s own --version to agyhooks (SOURCE pin)', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   assert.ok(sh.includes('_AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"'), 'the supervisor no longer reads agy\'s version');
-  assert.ok(sh.includes('"$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true'), 'agyhooks no longer gets the version');
+  assert.ok(sh.includes('_AGY_HOOKED="$("$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" || true)"'), 'agyhooks no longer gets the version');
 });
 
 test('#4043: a folder inside a git project is left alone (its hooks.json would be committed with this Mac\'s paths)', () => {

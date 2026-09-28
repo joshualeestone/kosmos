@@ -790,7 +790,9 @@ if [ -z "$adopt" ]; then
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agyhooks.js" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_AGY_BRIDGE" ]; then
       # agy's version decides whether the ask_question hooks are safe to write (agyhooks MIN_TOOL_HOOKS).
       _AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"
-      "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true
+      # #4417: its stdout is `hooked` only when the hook is in place and on (the seed below depends on it); stderr, the
+      # reason it could not, still goes to the agent log.
+      _AGY_HOOKED="$("$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" || true)"
       unset _AGY_VERSION
     fi
     _AGY_ARGS=(--dangerously-skip-permissions)
@@ -799,21 +801,30 @@ if [ -z "$adopt" ]; then
       "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
     unset _AGY_ARGS
     # #4417: agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
-    # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board it is up and idle, once,
-    # now: through the same bridge, as the new pane (its pane id and the env the pane was given: the launch token,
-    # the port, the world), so the report is identified and authorised exactly as agy's own hooks are. Sent before
-    # agy can have started a turn, so it never overwrites a real "working"; `auto`, so it never erases a deliberate
-    # blocked. Best-effort and bounded by the bridge's own timeout: a board that is down costs this line, not the launch.
-    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ]; then
+    # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
+    # ONLY when both hold, because an idle report never decays and nothing else would ever correct it:
+    #   - the hook is in place and on (_AGY_HOOKED, from agyhooks above): with no hook (a folder inside a git project,
+    #     a hooks.json left alone, the person's switch off) a seeded idle would stay on the card while agy works;
+    #   - the board's last Antigravity check found it signed in (agystatus.lastKnown): a signed-out agy sits on
+    #     Google's sign-in in this pane, waiting on the person, which is not idle.
+    # Sent as the new pane (its pane id) with only the env the bridge reads (KOSMOS_*, AGENT_WORKFORCE_*, HOME: the
+    # launch token, port, world and store root), never the API keys the pane was also given. It is not guaranteed to
+    # land before agy's first hook: if a turn has already begun, the next Stop replaces this idle. `auto`, so it never
+    # erases a deliberate blocked. Best-effort and bounded by the bridge's own timeout.
+    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "${_AGY_HOOKED:-}" = hooked ]; then
+      _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
       _AGY_PANE="$("$TMUX_BIN" display-message -p -t "$SESSION" '#{pane_id}' 2>/dev/null || true)"
-      if [ -n "$_AGY_PANE" ]; then
+      if [ "$_AGY_SIGNED" = signed-in ] && [ -n "$_AGY_PANE" ]; then
         _AGY_SEED_ENV=()
-        for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do [ "$_x" = "-e" ] || _AGY_SEED_ENV+=("$_x"); done
+        for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
+          case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
+        done
         env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
         unset _AGY_SEED_ENV _x
       fi
-      unset _AGY_PANE
+      unset _AGY_PANE _AGY_SIGNED
     fi
+    unset _AGY_HOOKED
     unset _AGY_BRIDGE
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's

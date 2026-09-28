@@ -225,7 +225,7 @@ async function main() {
   const eventName = process.argv[2] || '';
   if (eventName !== 'PreToolUse') answer(answerFor(eventName));
   if (!STATE_FOR_EVENT[eventName] && eventName !== LAUNCH_EVENT) return;
-  const raw = eventName === LAUNCH_EVENT ? '' : await readStdin();   // #4417: the supervisor sends no payload
+  const raw = await readStdin();
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
