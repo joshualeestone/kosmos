@@ -134,6 +134,7 @@ let backoffMs = 1000;
 /* kosmos#4277: how many times the supervisor has relaunched the tunnel, so the remote
    report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
 let restarts = 0;
+let restartPending = false;
 let localPort = null;
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
@@ -541,6 +542,7 @@ function spawnFedSeat(edgeId) {
 }
 
 function startChild() {
+  if (restartPending) { restarts += 1; restartPending = false; }
   const args = [
     'run',
     '--relay', RELAY(),
@@ -614,7 +616,7 @@ function scheduleRestart() {
   restartTimer = setTimeout(() => {
     restartTimer = null;
     backoffMs = Math.min(backoffMs * 2, 60000);
-    restarts += 1;
+    restartPending = true;   // counted in startChild, only if a tunnel really is started again
     ensure(localPort);
   }, backoffMs);
   /* A pending restart must not hold the board open on shutdown. */

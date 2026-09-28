@@ -226,6 +226,33 @@ test('#4277: key-only signing still needs the key and id on disk', async () => {
   } finally { delete process.env.FAKE_MAC_REQUEST_MODE; }
 });
 
+test('#4277: a clock stepped backwards does not re-send inside the window; a failure is logged once per reason', async () => {
+  const real = remote.macRequest;
+  let calls = 0;
+  remote.macRequest = async () => { calls++; return { ok: false, because: 'the coordinator said no (401)' }; };
+  const realWrite = process.stderr.write;
+  let stderr = '';
+  process.stderr.write = (chunk) => { stderr += String(chunk); return true; };
+  try {
+    remote.resetForTests();
+    keyOnly(true);
+    const t0 = Date.now() + 3 * 60 * 60 * 1000;
+    await remote.refreshStandingIfStale({ now: t0, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    // The clock steps back two minutes: still inside the window, so no second send.
+    await remote.refreshStandingIfStale({ now: t0 - 2 * 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(calls, 1, 'a backwards clock step re-sent inside the five minutes');
+    // A LARGE step back (20 minutes) must not silence the report until the clock catches up:
+    // it sends again. It fails with the SAME reason, so it is logged once in all.
+    await remote.refreshStandingIfStale({ now: t0 - 20 * 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(calls, 2);
+    const lines = stderr.split('\n').filter((l) => /the remote report did not go/.test(l));
+    assert.equal(lines.length, 1, 'the same failure was logged ' + lines.length + ' times');
+  } finally { remote.macRequest = real; process.stderr.write = realWrite; }
+});
+
 test('#4277: key-only signing opens the report route and nothing else', async () => {
   remote.resetForTests();
   keyOnly(true);

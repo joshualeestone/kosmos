@@ -26,7 +26,6 @@
  *             ensure()/scheduleRestart, which already relaunches a dead tunnel
  */
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 
@@ -50,14 +49,19 @@ const CODES = [
   ['switch-off', /the switch is off/i],
   ['settings-unreadable', /settings could not be read/i],
   ['no-relay-address', /no relay address/i],
+  ['status-unreadable', /status unreadable/i],
   ['binary-missing', /could not be started|ENOENT|EACCES|unrecognized subcommand/i],
   ['state-dir-invalid', /does not look like a Mac state dir/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key/i],
   ['cert-renewal', /renewal/i],
+  // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
+  // which is the whole question when a Mac never gets a ticket (review 6).
+  ['relay-unreachable', /^connecting to |relay TLS handshake/i],
   ['relay-refused', /relay refused|relay answered AUTH|relay did not answer AUTH/i],
-  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone/i],
-  ['coordinator-refused', /Kosmos\+ (refused|answered)|said no|\bHTTP 4\d\d\b/i],
-  ['coordinator-unreachable', /unreachable|connect(ion)? refused|timed out|timeout/i],
+  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
+  // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable.
+  ['coordinator-refused', /Kosmos\+ refused|Kosmos\+ answered 4\d\d|said no|\bHTTP 4\d\d\b/i],
+  ['coordinator-unreachable', /unreachable|Kosmos\+ answered 5\d\d|connect(ion)? refused|timed out|timeout/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
   // close): routine, not a failure (review 5).
   ['reconnecting', /the connection closed/i],
