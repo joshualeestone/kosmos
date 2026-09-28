@@ -53,15 +53,19 @@ test('#4408: a current board is not restarted, and the page is told no button', 
   assert.deepEqual(spawned, [], 'a current board restarted itself');
 });
 
-test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart`', async () => {
-  const target = require.resolve('./engine/roles');
-  const before = fs.statSync(target);
-  const future = new Date(Date.now() + 10000);
-  fs.utimesSync(target, future, future);
+test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once', async () => {
+  /* A throwaway module under engine/, never a real source file (server.test.js edits its own beside this). */
+  const probe = path.join(__dirname, 'engine', `.restart-probe-${process.pid}.js`);
+  fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
-    await wait(5200);   // the freshness sweep is cached for five seconds
+    require(probe);
+    await wait(5200);        // a sweep remembers it as loaded
+    await status();
+    fs.writeFileSync(probe, 'module.exports = 2;\n');
+    await wait(5200);
     const e = await status();
-    assert.ok(e.staleSince, 'CONTROL: the moved file made the board stale');
+    assert.ok(e.staleSince, 'CONTROL: the edited module made the board stale');
+    assert.deepEqual(e.changed, ['engine/' + path.basename(probe)], 'the edited file is not named');
     assert.equal(e.canRestart, true, 'a stale board that can restart itself did not offer the button');
 
     // CONTROL first: with no way to bring itself back, it refuses and spawns nothing.
@@ -75,9 +79,12 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     const yes = await post();
     assert.equal(yes.status, 202);
     assert.equal(yes.body.restarting, true);
+    const twice = await post();   // a second open page pressing too
+    assert.equal(twice.status, 202);
     await wait(900);   // the restart runs after the response has flushed
-    assert.deepEqual(spawned, [['/fake/home/bin/kosmos', 'restart']], 'the restart did not go through `kosmos restart`');
+    assert.deepEqual(spawned, [['/fake/home/bin/kosmos', 'restart']], 'not exactly one `kosmos restart` for two presses');
   } finally {
-    fs.utimesSync(target, before.atime, before.mtime);
+    delete require.cache[probe];
+    fs.rmSync(probe, { force: true });
   }
 });

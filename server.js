@@ -247,7 +247,24 @@ const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, requir
  */
 const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
-let engineLook = { at: 0, staleSince: null, canRestart: false };
+let engineLook = { at: 0, staleSince: null, changed: [], canRestart: false };
+let engineRestartAsked = false;   // #4408: a restart from the button is already on its way
+/* #4408 (Ben on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
+   installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
+   and the board told a real person it was running old code. So each loaded file's content is hashed when
+   first seen (the startup sweep below covers everything loaded at boot), a moved mtime only triggers a
+   re-hash, and a file counts as changed only when its content differs from what the board loaded. */
+const engineSeen = new Map();   // absolute path -> { mtimeMs, sha }
+function engineFileSha(file) {
+  return require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+function engineLoadedFiles() {
+  return Object.keys(require.cache).filter((f) => f.startsWith(ENGINE_ROOT) && !f.includes(path.sep + 'node_modules' + path.sep));
+}
+function engineRemember(file) {
+  if (engineSeen.has(file)) return;
+  try { engineSeen.set(file, { mtimeMs: fs.statSync(file).mtimeMs, sha: engineFileSha(file) }); } catch { /* unreadable: not evidence */ }
+}
 /* #761's valve for the part routes (below, near heardBy): unlike a task,
    a part carries no `addedVia`/`createdAt` of its own, so counting
    process-made PARTS the way taskMake counts process-made tasks would need
@@ -442,23 +459,31 @@ function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
     let newest = 0;
-    for (const file of Object.keys(require.cache)) {
-      if (!file.startsWith(ENGINE_ROOT) || file.includes(path.sep + 'node_modules' + path.sep)) continue;
+    const changed = [];
+    for (const file of engineLoadedFiles()) {
+      const seen = engineSeen.get(file);
+      if (!seen) { engineRemember(file); continue; }   // loaded since the last look: its content now is what it loaded
       try {
         const m = fs.statSync(file).mtimeMs;
+        if (m === seen.mtimeMs) continue;
+        if (engineFileSha(file) === seen.sha) { seen.mtimeMs = m; continue; }   // touched, or restored byte-for-byte
+        changed.push(path.relative(__dirname, file).split(path.sep).join('/'));
         if (m > newest) newest = m;
       } catch { /* gone or unreadable: not evidence of staleness */ }
     }
-    const staleSince = Math.floor(newest / 1000) > Math.floor(ENGINE_STARTED_AT.getTime() / 1000) ? new Date(newest).toISOString() : null;
+    changed.sort();
+    const staleSince = changed.length ? new Date(newest || now).toISOString() : null;
     /* #4408: whether the page may offer one Restart Kosmos button. Asked only while stale, so a
        current board never pays for the launchctl read behind it. */
     let canRestart = false;
     if (staleSince) {
       try { canRestart = require('./engine/boardrestart').canSelfRestart().canRestart === true; } catch { canRestart = false; }
     }
-    engineLook = { at: now, staleSince, canRestart };
+    engineLook = { at: now, staleSince, changed, canRestart };
   }
-  return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince, canRestart: engineLook.canRestart };
+  /* `changed`: the loaded files whose content differs from what this board is running, relative to the app
+     folder, so the page can name them. */
+  return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince, changed: engineLook.changed, canRestart: engineLook.canRestart };
 }
 const store = require('./engine/store');
 const communitysite = require('./engine/communitysite'); // #3485: community SITE layer — read + moderation over communitystore
@@ -4008,12 +4033,21 @@ const server = http.createServer((req, res) => {
     let can;
     try { can = require('./engine/boardrestart').canSelfRestart(); } catch (e) { can = { canRestart: false, because: String((e && e.message) || e) }; }
     if (!can.canRestart) { sendJson(res, 409, { ok: false, because: can.because || 'this board cannot restart itself' }); return; }
+    /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
+       racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer. */
+    if (engineRestartAsked) { sendJson(res, 202, { ok: true, restarting: true }); return; }
+    engineRestartAsked = true;
     sendJson(res, 202, { ok: true, restarting: true });
     /* After the response has flushed: the restart ends this process, the connection that asked with it. */
     setTimeout(() => {
       let r;
       try { r = require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); } catch (e) { r = { ok: false, because: String((e && e.message) || e) }; }
-      if (!r || !r.ok) console.error('FAIL /api/engine/restart: ' + ((r && r.because) || 'unknown'));
+      if (!r || !r.ok) { engineRestartAsked = false; console.error('FAIL /api/engine/restart: ' + ((r && r.because) || 'unknown')); return; }
+      /* The restart runs detached with no output of its own; if this process is still here later, it failed. */
+      setTimeout(() => {
+        engineRestartAsked = false;
+        console.error('FAIL /api/engine/restart: this board is still running 90 s after its restart was started');
+      }, 90 * 1000).unref();
     }, 500);
     return;
   }
@@ -16987,6 +17021,8 @@ function federateOut(projectId, delivery, operator) {
 }
 
 function start(port = PORT) {
+  /* #4408: what this board is running, taken now, before anything can edit the app folder under it. */
+  for (const f of engineLoadedFiles()) engineRemember(f);
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
      start() runs after every top-level require, which is too late for the ~27 modules

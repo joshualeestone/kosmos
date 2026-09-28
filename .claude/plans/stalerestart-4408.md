@@ -1,40 +1,38 @@
-# stalerestart-4408: a board running stale code restarts with one button; an update never leaves one (kosmos#4408)
+# stalerestart-4408: the board's "changed on disk" check reads content, names the file, and offers one Restart Kosmos button (kosmos#4408)
 
-Ben on prod (Josh, #admin 15:01): "Kosmos changed on disk ... Only a restart picks it up: kosmos restart", and reopening
-the app did not clear it (the window restart does not restart the board process).
+Ben on prod (Josh, #admin 15:01): "Kosmos changed on disk ... Only a restart picks it up: kosmos restart", and
+reopening the app did not clear it.
 
-## Why the update left his board stale (read from code)
-- install/setup.sh pauses the board (`kosmos stop`, which writes the stop marker), swaps the files, then runs
-  `kosmos start`.
-- `kosmos start` (install/kosmos cmd_start) clears the stop marker and, if ANY healthy board answers, says
-  "already running" and returns.
-- So a board started again BEFORE the swap boots the OLD code and survives the final start. One source is the app
-  window's reload running `kosmos start` during the pause (#4347's trace); any other start in that gap does the same.
-- The board then reports staleSince (loaded modules newer than its start), which is the toast Ben saw.
+## Root cause (found by Ben's own agent, on the card)
+No update. One agent edited an installed app file and another restored it byte-for-byte. engineFreshness() compared
+only mtimes, so the moved time read as "running old code": a false positive. Reopening the window never restarts the
+board process, so it never cleared.
 
 ## What changes
-1. install/setup.sh: on an UPDATE the start step runs `kosmos restart` (stop then start), so the board that answers
-   is the one on the new files. A fresh install still runs `kosmos start`. In a marked block,
-   start_board_after_install, run by tools/test-start-after-install-4408.sh against a fake CLI that reproduces the
-   bug (control arm), wired into test:shell. Red on the old `start`.
-2. server.js: `engine` gains `canRestart` (asked only while stale), and POST /api/engine/restart restarts through
-   engine/boardrestart (the world-switch path: a detached `kosmos restart`, or the launchd/logon job). Refused (409,
-   with why) when the board is current or cannot bring itself back. Tested in server.engine-restart-4408.test.js
-   with boardrestart stubbed (no launchd, fake CLI, recording spawner), including a CONTROL.
-3. web/index.html: the toast reads "Kosmos needs a quick restart", "To finish updating. Your agents keep running."
-   with one Restart Kosmos button when canRestart; otherwise "To finish updating, restart your computer." (Windows
-   keeps its own copy). No Terminal wording (#996). The button POSTs, shows Restarting, keeps the did-not-answer
-   screen down while the board bounces, and reloads when a board with a new start time answers (2 minutes, then says
-   so and offers the button again). Browser check render-engine-restart-4408.
+1. server.js engineFreshness: each loaded file's content is hashed when the board starts (and when a later-loaded
+   module is first seen). A moved mtime only triggers a re-hash; a file counts as changed only when its content
+   differs, and `engine.changed` names those files (relative to the app folder). Tested in server.test.js with a
+   throwaway module under engine/: touched (not stale, Ben's case) then edited (stale, named). Mutation to the old
+   time-only rule turns it red.
+2. server.js POST /api/engine/restart: restarts through engine/boardrestart (the world-switch path). 409 when current
+   or when the board cannot bring itself back. One restart at a time (a second press, e.g. another open page, gets 202
+   without a second spawn). If the process is still here 90 s after the restart started, that is logged.
+   server.engine-restart-4408.test.js (boardrestart stubbed; CONTROL; double press). Mutation removing the latch: red.
+3. web/index.html: "Kosmos needs a quick restart" / "A Kosmos file was changed on this computer (<file> and N more),
+   and Kosmos is still running the old copy." With canRestart: "A restart picks it up. Your agents keep running." and
+   one Restart Kosmos button; without, on a Mac: "Restarting your computer picks it up." (Windows keeps its own copy).
+   No Terminal wording (#996). The button POSTs, says Restarting, keeps the did-not-answer screen down, reloads when
+   a board with a new start time answers; an already-current 409 reloads; other refusals are plain words, the detail
+   to the console. Browser check render-engine-restart-4408.
 
-## Rejected
-- Restarting the board automatically: a board restart interrupts every open page and any in-flight request; one
-  button is what the card allows and keeps the person in charge of when.
-- Stopping the window's reload from running `kosmos start` mid-update: the restart in (1) makes any early start
-  harmless, whoever caused it.
+## Rejected / moved out
+- The installer change (restart instead of start on update) from the first cut: the update path was not the cause,
+  and review found ways `restart` can fail where `start` did not. Follow-up card if wanted.
+- Guarding the installed app folder against agent edits: the right next step (it would stop the edit itself), but it
+  needs sandbox/permission rules for every runner; a separate card.
+- An automatic restart: it interrupts every open page; one button keeps the person in charge of when.
 
 ## Weakest premises
-- The cause is inferred from code; Ben's own log was not read. The fix in (1) does not depend on which process
-  started the board early.
-- canSelfRestart says yes on an installed Mac (the kosmos CLI arm); a board where it says no gets the plain-words
-  fallback, not a button.
+- A file changed on disk may be one the board never re-reads (e.g. a web asset); only loaded modules are compared,
+  as before.
+- canSelfRestart decides the button; a board where it says no gets words, not a button.

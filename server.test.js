@@ -536,20 +536,30 @@ test('the board reports when its own engine is behind the disk, and says nothing
   assert.ok('staleSince' in first, 'staleSince is absent rather than null');
   assert.equal(first.staleSince, null, 'a freshly started server reports itself stale');
 
-  /* POSITIVE CONTROL: a loaded module whose file moves on. The sweep is cached
-     for the poll's five seconds, so wait it out once; mtime is restored after,
-     and nothing in the file changes. */
-  const target = require.resolve('./engine/roles');
-  const before = fs.statSync(target);
-  const future = new Date(Date.now() + 10000);
-  fs.utimesSync(target, future, future);
+  /* #4408 (Ben on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
+     is, and the changed file is named. A throwaway module under engine/ (never a real source file:
+     another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
+  const probe = nodePath.join(__dirname, 'engine', `.freshness-probe-${process.pid}.js`);
+  const rel = 'engine/' + nodePath.basename(probe);
+  fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
+    require(probe);
+    await new Promise((r) => setTimeout(r, 5200));   // the sweep is cached for five seconds; this one remembers it
+    await req('/api/status');
+    const future = new Date(Date.now() + 10000);
+    fs.utimesSync(probe, future, future);
+    await new Promise((r) => setTimeout(r, 5200));
+    const touched = JSON.parse((await req('/api/status')).body).engine;
+    assert.equal(touched.staleSince, null, 'a file whose time moved but whose content did not was reported as stale (#4408)');
+    fs.writeFileSync(probe, 'module.exports = 2;\n');
     await new Promise((r) => setTimeout(r, 5200));
     const again = JSON.parse((await req('/api/status')).body).engine;
-    assert.ok(again.staleSince, 'a changed engine file went unreported');
+    assert.ok(again.staleSince, 'CONTROL: a file whose content changed went unreported');
+    assert.deepEqual(again.changed, [rel], 'the changed file is not named');
     assert.equal(again.startedAt, first.startedAt, 'startedAt moved, so it is not the process start');
   } finally {
-    fs.utimesSync(target, before.atime, before.mtime);
+    delete require.cache[probe];
+    fs.rmSync(probe, { force: true });
   }
 });
 

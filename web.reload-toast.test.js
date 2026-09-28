@@ -45,7 +45,8 @@ test('a board running older engine code than the disk says so, and outranks both
   assert.equal(t.v, 'engine');
   // #4408: plain words, no Terminal command (#996), no "running code from 9:59".
   assert.match(t.html, /Kosmos needs a quick restart/);
-  assert.match(t.html, /Your agents keep running/);
+  assert.match(t.html, /A Kosmos file was changed on this computer, and Kosmos is still running the old copy\./);
+  assert.match(t.html, /Restarting your computer picks it up\./);
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal|changed on disk|running code from/i);
   assert.doesNotMatch(t.html, /ut-engine-restart/, 'a board that cannot restart itself offered a button that would fail');
   assert.doesNotMatch(t.html, /previous version|ut-reload|0\.2\.77/, 'a lower state rendered beside the one that settles it');
@@ -57,11 +58,14 @@ test('a board running older engine code than the disk says so, and outranks both
 });
 
 test('#4408: a stale board that can restart itself offers ONE Restart Kosmos button, no Terminal wording', () => {
-  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', canRestart: true };
+  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js', 'server.js'], canRestart: true };
   const t = toast({ baked: '0.2.75', served: '0.2.75', engine });
   assert.equal(t.v, 'engine-btn');
   assert.match(t.html, /<button type="button" id="ut-engine-restart">Restart Kosmos<\/button>/);
-  assert.match(t.html, /To finish updating\. Your agents keep running\./);
+  // #4408: it names what changed and says it changed here (Ben's was an agent's edit, not an update).
+  assert.match(t.html, /A Kosmos file was changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
+  assert.match(t.html, /A restart picks it up\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /finish updating/, 'it said "updating" about a file an agent edited');
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal/i);
   assert.equal(t.listeners.length, 1, 'the button is not wired');
   // CONTROL: the same board without canRestart gets no button (the arm above can fail).

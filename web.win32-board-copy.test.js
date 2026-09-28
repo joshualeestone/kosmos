@@ -449,8 +449,8 @@ test('MAC UNCHANGED: the three recovery toasts and the world-switch sentence', (
   assert.equal(engineToast('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
     /* #4408: no Terminal command on the Mac either; a board that cannot restart itself names the one
        step that always works. (One that can gets a Restart Kosmos button: web.reload-toast.test.js.) */
-    + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>To finish updating, restart your computer. '
-    + 'Your agents keep running.</small></div></div>');
+    + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed on this computer, '
+    + 'and Kosmos is still running the old copy. Restarting your computer picks it up.</small></div></div>');
   assert.equal(offlineNote('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b><small>Nothing answered at 127.0.0.1:16180. '
     + 'Open Kosmos from your Applications folder and it will start again if it needs to.</small></div></div>');

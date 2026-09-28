@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * #4408 (Ben on prod, 2026-09-28): a board running older code than is on disk. The toast says
- * "Kosmos needs a quick restart" with no Terminal command, and a board that can restart itself
+ * #4408 (Ben on prod, 2026-09-28): a board running older code than is on disk (a loaded file whose CONTENT
+ * changed; Ben's was an agent's edit). The toast says "Kosmos needs a quick restart", names the file and
+ * says it changed on this computer, with no Terminal command, and a board that can restart itself
  * offers ONE Restart Kosmos button; pressing it POSTs /api/engine/restart and, once a board with a
  * new start time answers, reloads the page onto it.
  *
@@ -43,7 +44,7 @@ function chk(ok, label, extra) {
       const body = await res.json();
       body.engine = restarted
         ? { startedAt: '2026-09-28T16:00:00Z', staleSince: null, canRestart: false }
-        : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', canRestart: can };
+        : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: can };
       return route.fulfill({ response: res, body: JSON.stringify(body) });
     });
     await page.route('**/api/engine/restart', (route) => { posts += 1; restarted = true; return route.fulfill({ status: 202, contentType: 'application/json', body: '{"ok":true,"restarting":true}' }); });
@@ -63,6 +64,7 @@ function chk(ok, label, extra) {
     chk(/Kosmos needs a quick restart/.test(no.text), 'the stale toast says Kosmos needs a quick restart', no.text);
     chk(!/kosmos restart|Terminal|changed on disk/i.test(no.text) && !/<code>/.test(no.html), 'no Terminal wording (#996)', no.text);
     chk(!no.button, 'CONTROL: a board that cannot restart itself shows no button');
+    chk(/A Kosmos file was changed on this computer \(engine\/roles\.js\)/.test(no.text), 'it names the file that changed and says it changed here', no.text);
 
     can = true;
     await page.waitForSelector('#ut-engine-restart', { timeout: 20000 }).catch(() => {});
