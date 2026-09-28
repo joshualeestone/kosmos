@@ -31001,6 +31001,10 @@ function restoreThreadAnchor(el, a) {
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
    `backlog` the count the thread opened with, taken from the newest. The rows are marked after they are painted, by
    their data-mid, so no renderer changes and a repaint puts the edge back until it has been read. */
+/* #4418 (Josh, 2026-09-28): "not yet". The gold unread edge is OFF everywhere (DMs, project rooms, the setup
+   guide): no bubble is marked data-unread, so nothing draws it. The bookkeeping below stays so it can come back by
+   setting this to true; web.unread-edge-off-4418.test.js holds it off. */
+const UNREAD_EDGE_ON = false;
 const UNREAD_EDGE = new Map();
 const UNREAD_EDGE_DWELL = 1200;
 let UNREAD_IO = null;
@@ -31019,7 +31023,7 @@ function unreadEdgeFresh(key, ids) {
   UNREAD_EDGE.set(key, st);
 }
 function unreadEdgeApply(root, key, { row = '.msg:not(.you)[data-mid]', bd: bdSel = '.msg-bd' } = {}) {
-  if (!root) return;
+  if (!root || !UNREAD_EDGE_ON) return;   // #4418: off, so no message is ever marked
   const bubbleOf = (r) => (bdSel ? r.querySelector(bdSel) : r);
   /* Rows with a bubble only: a bodyless post has nothing to edge, and would sit unread forever. */
   const rows = [...root.querySelectorAll(row)].filter((r) => r.dataset.mid && bubbleOf(r) && (bdSel || r.textContent.trim()));
