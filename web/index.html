@@ -26232,10 +26232,22 @@ async function acctMuseSignInAgain(ev) {
      Meta's step is not laid over it; the line beside the picker says what to do instead. */
   if (pickAtOpen !== '') {
     /* Round 5: the person may have moved the picker off Claude mid-sign-in, which hid its step and Stop.
-       Put it back on screen as acctFlowPaint does while a sign-in runs, then speak (acctPick clears the line). */
+       Put it back on screen as acctFlowPaint does while a sign-in runs, then speak (acctPick clears the line).
+       Only a Claude sign-in outlives a close (closeAcctAdd stops every other flow), so a non-empty picker
+       here means Claude's sign-in, whatever the picker was moved to. */
     if (pickAtOpen !== 'claude') acctPick('claude', { focus: false });
     acctClaudeShowSub();
     acctAddPickSay(MUSE_BUSY);
+    /* Round 6: openAcctAdd tried to focus Stop while its step was still hidden, so focus stayed on the page
+       behind the dialog (#1918). Place it now, by openAcctAdd's own rule: the code field if it shows, else Stop. */
+    const codeRow = document.getElementById('acct-code-row');
+    const target = codeRow && !codeRow.hidden ? document.getElementById('acct-code') : document.getElementById('acct-cancel');
+    if (target) target.focus();
+    // Never on the page behind: if that control cannot take focus (its panel not painted yet), the picker can.
+    if (document.activeElement !== target) {
+      const trig = document.querySelector('#acct-provider-field .pcombo-trigger') || document.getElementById('acct-provider-pick');
+      if (trig) trig.focus();
+    }
     return;
   }
   const asking = ACCT_MUSE_ASKING || museAsk();

@@ -107,3 +107,17 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
 - N1 FIXED: with the picker moved off a running Claude sign-in (its step and Stop hidden),
   Sign in again now puts Claude's step back on screen before the "under way" line speaks.
 - N2 FIXED: going back to "Choose a provider" clears the line too.
+
+## Review round 6 (sonnet): 0 blockers, 1 warning, 2 nits
+- WARNING FIXED: with the picker moved off a running Claude sign-in, Sign in again put its
+  step back but left focus on the page behind the dialog (#1918): openAcctAdd had tried to
+  focus Stop while it was still hidden. Focus is now placed after the step shows, by
+  openAcctAdd's own rule (the code field if it shows, else Stop), and falls back to the
+  provider picker if that control cannot take focus (its panel not painted yet).
+  The check now reaches the state as a person does (a flow painted as running, the picker
+  moved by its own change event, the dialog closed) and asserts focus inside the dialog in
+  both cases. Debugging note: an early version of the unpainted arm failed only because it
+  ran its cleanup and its press in one step right after the previous arm; separating them
+  made it pass 3/3 (traced with focus events, the fallback itself was correct).
+- N1: commented why a non-empty picker here always means Claude's sign-in. N2 ACCEPTED:
+  role=status with aria-live=polite is redundant but matches the page's pattern.

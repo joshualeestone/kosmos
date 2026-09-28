@@ -416,10 +416,22 @@ const chk = (ok, label, extra) => {
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
   // Round 5, N1: the picker moved off Claude mid-sign-in (its step and Stop hidden): Sign in again puts Claude's
   // step back on screen, so the line never points at a Stop that cannot be seen.
-  await q(() => { closeAcctAdd(); window.__museOn = true; ACCT_FLOW_LAST = 'downloading|probe'; document.getElementById('acct-provider-pick').value = 'openai'; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  // As a person gets there: a Claude sign-in painted as running, the picker moved to OpenAI by its own change
+  // event, the dialog closed, then the row's Sign in again.
+  await q(() => { closeAcctAdd(); openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+  await q(() => { const sel = document.getElementById('acct-provider-pick'); sel.value = 'openai'; sel.dispatchEvent(new Event('change')); });
+  await q(() => { closeAcctAdd(); window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
   await page.waitForTimeout(300);
-  const moved = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, claudeShown: !document.getElementById('acct-claude-flow').hidden, openaiShown: !document.getElementById('acct-openai-flow').hidden }));
+  const moved = await q(() => ({ say: document.getElementById('acct-add-pick-say').textContent, pick: document.getElementById('acct-provider-pick').value, claudeShown: !document.getElementById('acct-claude-flow').hidden, openaiShown: !document.getElementById('acct-openai-flow').hidden, focus: document.activeElement && document.activeElement.id, inDialog: !!(document.activeElement && document.activeElement.closest('#acct-add-modal')) }));
   chk(/under way/.test(moved.say) && moved.pick === 'claude' && moved.claudeShown && !moved.openaiShown, 'with the picker moved off a running Claude sign-in, Sign in again puts that sign-in back on screen beside the line', JSON.stringify(moved));
+  // Round 6: and focus lands inside the dialog, on that sign-in's Stop (never left on the page behind it, #1918).
+  chk(moved.inDialog && (moved.focus === 'acct-cancel' || moved.focus === 'acct-code'), 'focus lands on the running sign-in\'s Stop, inside the dialog', JSON.stringify({ focus: moved.focus, inDialog: moved.inDialog }));
+  // And with that panel not painted (no poll has run yet), focus still stays inside the dialog, on the picker.
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();   // the previous arm's flow fully put away first
+  await q(() => { document.getElementById('acct-flow').hidden = true; ACCT_FLOW_LAST = 'downloading|probe'; document.getElementById('acct-provider-pick').value = 'openai'; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
+  await page.waitForTimeout(300);
+  const unpainted = await q(() => ({ inDialog: !!(document.activeElement && document.activeElement.closest('#acct-add-modal')), body: document.activeElement === document.body, active: document.activeElement && (document.activeElement.id || document.activeElement.className), modal: !document.getElementById('acct-add-modal').hidden, say: document.getElementById('acct-add-pick-say').textContent }));
+  chk(unpainted.inDialog && !unpainted.body, 'with the running sign-in\'s panel not painted yet, focus still stays inside the dialog', JSON.stringify(unpainted));
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); });
   // Round 5, N2: going back to "Choose a provider" clears the line too.
   await q(() => { openAcctAdd(); acctAddPickSay('stale words'); const sel = document.getElementById('acct-provider-pick'); sel.value = ''; sel.dispatchEvent(new Event('change')); });
