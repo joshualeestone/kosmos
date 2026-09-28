@@ -467,3 +467,11 @@ test('#4043: the bridge\'s REAL PreToolUse answer lets agy run ask_question (so 
   assert.equal(agyPreToolOutcome(firstLine), 'run',
     `agy would ${agyPreToolOutcome(firstLine)} ask_question on this answer (${JSON.stringify(firstLine)}): the agent could not ask its person anything`);
 });
+
+test('#4353 shUnquoteAll inverts shQuote, including a quote and a space in a path', () => {
+  const agyhooks = require('./agyhooks');
+  const paths = ["/Users/a/Library/Application Support/Kosmos/node", "/tmp/it's here/bridge.js"];
+  const cmd = paths.map(agyhooks.shQuote).join(' ') + ' Stop';
+  assert.deepEqual(agyhooks.shUnquoteAll(cmd), paths);
+  assert.deepEqual(agyhooks.shUnquoteAll('node bridge Stop'), [], 'unquoted words are not paths');
+});
