@@ -324,13 +324,16 @@ function federationLive() {
    background write (the standing cache, the device id, the denied list) would silently rewrite it as "off" and
    the page would never say anything went wrong. So only a person's own action repairs: the switch, the relay,
    sign-in and Forget pass { repair: true }. Everything else leaves a damaged file exactly as it is. */
-const UNREADABLE = 'remote access settings could not be read';
+const UNREADABLE = 'your remote-access settings could not be read';
 /* A write killed between opening its temporary file and the rename leaves remote.json.<pid>.<random>.tmp behind, and
    each holds a copy of the settings. After a successful save, remove those whose writer is GONE and that are older
    than ten minutes. The pid is in the name: a writer that is still running keeps its file however old it is (a
    process stalled on a hung volume would otherwise lose its save to our sweep). This process's own writes are
-   synchronous, so any of its temporaries is finished. The age bound covers a pid reused by an unrelated process. */
+   synchronous, so any of its temporaries is finished. A pid can be reused by an unrelated long-lived process, which
+   would shelter a dead writer's file forever, so past a day a temporary file goes whatever its pid: no save stalls
+   that long. */
 const STALE_TEMP_MS = 10 * 60 * 1000;
+const ABANDONED_TEMP_MS = 24 * 60 * 60 * 1000;
 function writerAlive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (err) { return !!(err && err.code === 'EPERM'); }   // EPERM: it exists, it is just not ours to signal
@@ -342,8 +345,13 @@ function sweepStaleTemps() {
       if (!name.startsWith(base) || !name.endsWith('.tmp')) continue;
       const p = path.join(dir, name);
       const pid = Number(name.slice(base.length).split('.')[0]);
-      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && writerAlive(pid)) continue;
-      try { if (Date.now() - fs.statSync(p).mtimeMs > STALE_TEMP_MS) fs.unlinkSync(p); } catch { /* gone, or not ours to remove */ }
+      try {
+        const age = Date.now() - fs.statSync(p).mtimeMs;
+        if (age <= STALE_TEMP_MS) continue;
+        const live = Number.isInteger(pid) && pid > 0 && pid !== process.pid && writerAlive(pid);
+        if (live && age <= ABANDONED_TEMP_MS) continue;
+        fs.unlinkSync(p);
+      } catch { /* gone, or not ours to remove */ }
     }
   } catch { /* best-effort housekeeping */ }
 }
@@ -617,8 +625,9 @@ function status() {
         state: 'off',
         address: null,
         /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
-           repair instruction has one source. Only the person's own switch rewrites a damaged file (see write()). */
-        because: 'your remote-access settings could not be read. Turn remote access on again to repair them',
+           repair instruction has one source. Only a person's own action (the switch among them) rewrites a damaged
+           file (see write()). "Kosmos Plus" is what the pane calls the switch. */
+        because: 'your remote-access settings could not be read. Turn Kosmos Plus on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };

@@ -20,7 +20,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-tunnel-here');  
 const remote = require('./engine/remote');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-const SHOWN = 'Your remote-access settings could not be read. Turn remote access on again to repair them.';
+const SHOWN = 'Your remote-access settings could not be read. Turn Kosmos Plus on again to repair them.';
 
 function pageFnSource(name) {
   const script = PAGE.slice(PAGE.lastIndexOf('<script>'));
@@ -78,6 +78,10 @@ test('#4308 control: a readable file that is simply off says nothing about repai
   assert.doesNotMatch(els['plus-status'].textContent, /could not be read|repair/);
 });
 
-test('#4308: the sentence has no em dash', () => {
-  assert.doesNotMatch(SHOWN, /—/);
+test('#4308: the ENGINE sentence (the one source) has no em dash and names what the pane calls the switch', () => {
+  fs.writeFileSync(remote.FILE, '{"on": tr');
+  const because = remote.status().because;
+  assert.doesNotMatch(because, /\u2014/);
+  assert.match(because, /Kosmos Plus/);
+  assert.match(PAGE, /aria-label="Let your devices reach this computer through Kosmos Plus"/, 'the switch is no longer called Kosmos Plus');
 });

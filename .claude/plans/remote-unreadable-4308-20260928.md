@@ -6,7 +6,7 @@ writes, tested), and make it visible locally (a message on the board; turning re
 
 ## Finished means
 1. An interrupted write cannot produce an unreadable file: the previous file stays whole (test).
-2. A damaged file shows "Your remote-access settings could not be read. Turn remote access on again to repair
+2. A damaged file shows "Your remote-access settings could not be read. Turn Kosmos Plus on again to repair
    them." on the Plus pane of a real board, and turning remote access on rewrites it.
 3. No signed call goes out while the file is unreadable (test, with a control that does call).
 
