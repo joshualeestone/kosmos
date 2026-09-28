@@ -258,6 +258,9 @@ if [ "$FAMILY" = mac ]; then
   TUNNEL_GATE_CMD="${KOSMOS_PROMOTE_TUNNEL_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/tunnel-handshake-gate.sh}"
   TUNNEL_CONTROL=()
   SERVED_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
+  # A bare filename only, as for every pointer field here. A path-like one does not refuse the
+  # promote (it is the CONTROL, not the bytes being promoted); it only means no control.
+  case "$SERVED_ART" in *"/"*|*".."*) echo "promote-channel: NOTE $PROD_NAME's $ARTIFACT_FIELD ('$SERVED_ART') is not a bare filename; not using it as the tunnel gate's control" >&2; SERVED_ART="" ;; esac
   if [ -n "$SERVED_ART" ] && [ -f "$SITE/dist/$SERVED_ART" ]; then
     TUNNEL_CONTROL=(--control-tarball "$SITE/dist/$SERVED_ART")
   else

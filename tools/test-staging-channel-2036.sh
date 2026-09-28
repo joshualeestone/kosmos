@@ -196,6 +196,10 @@ St3="$(make_site)"; bash "$PUBLISH" "$St3" >/dev/null 2>&1
 echo served-bytes > "$St3/dist/kosmos-served-arm64.tar.gz"; printf '{"artifact":"kosmos-served-arm64.tar.gz"}\n' > "$St3/dist/latest.json"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St3" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "--control-tarball $St3/dist/kosmos-served-arm64.tar.gz" && pass "promote: the served build's tarball is the tunnel gate's control" || bad "promote tunnel control (rc=$rc, out=$out)"
+St4="$(make_site)"; bash "$PUBLISH" "$St4" >/dev/null 2>&1
+echo served-bytes > "$St4/kosmos-outside.tar.gz"; printf '{"artifact":"../kosmos-outside.tar.gz"}\n' > "$St4/dist/latest.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St4" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "is not a bare filename; not using it" && ! has "$out" "--control-tarball" && pass "promote: a path-like served artifact is not used as the control" || bad "promote tunnel pathy control (rc=$rc, out=$out)"
 
 # ---- the SECOND (agent-spawn) gate, #2036/#2129 ----
 # experience gate PASSES but the agent gate says WEDGED (1) -> refuse, latest.json NOT written.

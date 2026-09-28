@@ -50,7 +50,10 @@ COORD="https://login.kosmosplus.com"
 RELAY="relay.kosmosplus.com:8443"
 RELAY_CA=""; RESOLVE=""; VISITOR_CA=""; TIMEOUT=45
 
+# Every flag takes a value. A flag given LAST with none must refuse, not loop: a failed
+# `shift 2` shifts nothing, so the loop would spin on the same word forever.
 while [ $# -gt 0 ]; do
+  case "$1" in --*) [ $# -ge 2 ] || { echo "tunnel-gate: $1 needs a value" >&2; exit 2; } ;; esac
   case "$1" in
     --tunnel) TUNNEL="${2:-}"; shift 2 ;;
     --tarball) TARBALL="${2:-}"; shift 2 ;;
@@ -123,25 +126,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Another connector already running with the gate's identity would take the address back on its
-# next reconnect and could answer the visit for THIS build: a false PASS. Two shapes: a connector
-# left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir), and one started by
-# hand on the enrolled state dir itself. The state path is escaped for the regex.
-state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-stale="$(pgrep -f "run --state-dir ([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
-[ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
-
-# A fast hold when the coordinator or relay is plainly down. The coordinator counts only on a 2xx
-# from /v1/meta: its Caddy answers 502 while the coordinator is down or mid-deploy. (-k: this asks
-# only whether it ANSWERS; the connector does the trusted TLS itself.) The control, not this
-# probe, is what decides fault; this only saves a run that could not tell anything.
-code="$(curl -s -k -o /dev/null -w '%{http_code}' --max-time 10 "$COORD/v1/meta" 2>/dev/null)"
-case "$code" in 2??) ;; *) cannot "the coordinator ($COORD) is not answering (/v1/meta gave '${code:-nothing}'), so this run says nothing about the build" ;; esac
-nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 \
-  || cannot "the relay ($RELAY) is not reachable from here, so this run says nothing about the build"
-
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
 
+# The connectors first, before the reachability probe: a staged build with NO connector is a FAIL
+# whatever the network is doing, and must not be reported as an outage.
 # Only the connector, into the gate's own temp dir: the bytes being judged, nothing else.
 # Prints the path; returns 1 when the file does not exist, 3 when it has no connector.
 from_tarball() {
@@ -163,6 +151,24 @@ if [ -n "$CTARBALL" ]; then
 elif [ -n "$CTUNNEL" ] && [ ! -x "$CTUNNEL" ]; then
   CONTROL_NOTE="the control connector is not an executable file: $CTUNNEL"; CTUNNEL=""
 fi
+
+# Another connector already running with the gate's identity would take the address back on its
+# next reconnect and could answer the visit for THIS build: a false PASS. Two shapes: a connector
+# left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir), and one started by
+# hand on the enrolled state dir itself, as `--state-dir DIR` or `--state-dir=DIR` (clap takes
+# both). The state path is escaped for the regex.
+state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+stale="$(pgrep -f "run --state-dir[= ]([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
+[ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
+
+# A fast hold when the coordinator or relay is plainly down. The coordinator counts only on a 2xx
+# from /v1/meta: its Caddy answers 502 while the coordinator is down or mid-deploy. (-k: this asks
+# only whether it ANSWERS; the connector does the trusted TLS itself.) The control, not this
+# probe, is what decides fault; this only saves a run that could not tell anything.
+code="$(curl -s -k -o /dev/null -w '%{http_code}' --max-time 10 "$COORD/v1/meta" 2>/dev/null)"
+case "$code" in 2??) ;; *) cannot "the coordinator ($COORD) is not answering (/v1/meta gave '${code:-nothing}'), so this run says nothing about the build" ;; esac
+nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 \
+  || cannot "the relay ($RELAY) is not reachable from here, so this run says nothing about the build"
 
 # attempt <connector> <label>: one ticket, dial-auth, serve. Sets STEP and WHY on failure; returns
 # 0 pass, 1 fail. Each attempt gets its OWN copy of the state dir (a run rewrites files in it:

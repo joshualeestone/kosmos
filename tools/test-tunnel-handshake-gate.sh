@@ -142,6 +142,12 @@ out=$(bash "$GATE" --state-dir "$W/state" 2>&1); rc=$?
 if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'no --tarball or --tunnel'; then pass=$((pass + 1)); echo "  ok    no --tarball or --tunnel -> CANNOT TELL"
 else fail=$((fail + 1)); echo "  FAIL  no --tarball or --tunnel: exit $rc: $out"; fi
 
+# A flag given last with no value refuses at once (it used to spin forever). Under an alarm, so
+# a regression reads as a timeout (exit 142), not a hung suite.
+out=$(perl -e 'alarm 10; exec @ARGV' bash "$GATE" --tunnel "$W/cand-tunnel" --state-dir 2>&1); rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q -- '--state-dir needs a value'; then pass=$((pass + 1)); echo "  ok    a flag with no value -> refuses at once"
+else fail=$((fail + 1)); echo "  FAIL  a flag with no value: exit $rc: $out"; fi
+
 # --tarball / --control-tarball (how promote-channel.sh calls it): connectors come from tarballs.
 mkdir -p "$W/tb/app/bin" "$W/tb-empty/app/web" "$W/tbc/app/bin"
 cp "$W/cand-tunnel" "$W/tb/app/bin/kosmos-tunnel"; cp "$W/control-tunnel" "$W/tbc/app/bin/kosmos-tunnel"
@@ -159,18 +165,21 @@ tarball_case() {
 tarball_case "--tarball with a connector -> PASS"                     0 "tunnel-gate: PASS"            up   "$W/with.tar.gz"
 tarball_case "--tarball WITHOUT a connector -> FAIL (a build defect)" 1 "FAIL at build"                up   "$W/without.tar.gz"
 tarball_case "--tarball that does not exist -> CANNOT TELL"           2 "no such tarball"              up   "$W/nope.tar.gz"
+tarball_case "no connector during an outage is still FAIL, not an outage" 1 "FAIL at build"          up   "$W/without.tar.gz" --coordinator http://127.0.0.1:9
 tarball_case "--control-tarball arbitrates a broken candidate -> FAIL" 1 "FAIL at dial-auth"           auth "$W/with.tar.gz" --control-tarball "$W/ctl.tar.gz"
 tarball_case "--control-tarball with no connector -> CANNOT TELL, says why" 2 "gave no connector"      auth "$W/with.tar.gz" --control-tarball "$W/without.tar.gz"
 
 # Another connector with the gate's identity -> CANNOT TELL. Stand-ins carry the command line a
 # connector has: first a SIGKILLed earlier gate's (a tunnel-gate.* temp dir), then one started by
 # hand on the enrolled state dir, then (control) another Mac's.
-standin() { bash -c "exec -a 'kosmos-tunnel run --state-dir $1 --coordinator x' sleep 30" & STALE=$!; sleep 0.3; }
+standin() { bash -c "exec -a 'kosmos-tunnel run --state-dir${2:- }$1 --coordinator x' sleep 30" & STALE=$!; sleep 0.3; }
 unstand() { { kill "$STALE"; wait "$STALE"; } 2>/dev/null; }
 standin "/nowhere/tunnel-gate.Stale1/a1/state"
 run "an earlier gate's connector still running -> CANNOT TELL"       2 "gate's identity is still running"   "up" "up"; unstand
 standin "$W/state"
 run "a hand-started connector on the gate's state -> CANNOT TELL"    2 "gate's identity is still running"   "up" "up"; unstand
+standin "$W/state" "="
+run "the same, started as --state-dir=DIR -> CANNOT TELL"          2 "gate's identity is still running"   "up" "up"; unstand
 standin "$W/state-other"
 run "control: another Mac's connector does not hold the gate"        0 "tunnel-gate: PASS"                  "up" "up"; unstand
 # The state path is ESCAPED for the regex: '+' would otherwise be a quantifier, and "st+ate"
@@ -206,5 +215,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 36 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 36 ]
+# 39 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 39 ]
