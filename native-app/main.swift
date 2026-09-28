@@ -2600,8 +2600,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let waited = now.timeIntervalSince(since)
         let freshAt = target == nil ? nil : (freshSince ?? now)
         let freshFor = freshAt.map { now.timeIntervalSince($0) } ?? 0
+        var decided = false
         let decide = { [weak self] (page: PageSays) in
-            guard let self else { return }
+            guard !decided, let self else { return }
+            decided = true
             switch Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page) {
             case .wait:
                 let again: TimeInterval = target == nil ? 3 : 15
@@ -2624,6 +2626,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let web = webView else { decide(.cannotTell); return }
         let ask = "(function(){ if (typeof window.kosmosSafeToRestart !== 'function') return 'unknown';"
             + " var v = window.kosmosSafeToRestart(); return v === true ? true : v === false ? false : 'unknown'; })()"
+        /* A completion WebKit never calls (a crashed page process) would otherwise stop the wait for
+           good; this re-asks instead. `decided` makes whichever comes first the only one acted on. */
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { decide(.noReply) }
         web.evaluateJavaScript(ask) { result, error in
             let page: PageSays
             if error != nil { page = .noReply }

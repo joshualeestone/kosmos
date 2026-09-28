@@ -19463,31 +19463,29 @@ if (typeof document !== 'undefined' && document.addEventListener) {
    restarts itself onto a new version (kosmosSafeToRestart, below). True only when a reload or restart right
    now would drop nothing the person has on the way or has typed. */
 function updateNothingToLose() {
-  {
-    const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
-      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
-      typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
-      /* Round 12: an agent being created or started, or a restore running: a reload would drop the
-         answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
-         board on load, so those are not held for.) */
-      typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
-      typeof RST_BUSY !== 'undefined' && RST_BUSY,
-      // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
-      typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
-      typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
-    if (busy.some(Boolean)) return false;
-    const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
-    if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
-      typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
-    for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
-    /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
-       words when closed, #766), so any typed box with words waits for the person's Reload. */
-    if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
-    const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
-    if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
-    if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
-    return true;
-  }
+  const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
+    typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
+    typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+    /* Round 12: an agent being created or started, or a restore running: a reload would drop the
+       answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
+       board on load, so those are not held for.) */
+    typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
+    typeof RST_BUSY !== 'undefined' && RST_BUSY,
+    // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
+    typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
+    typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
+  if (busy.some(Boolean)) return false;
+  const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+  if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
+    typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+  for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
+  /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
+     words when closed, #766), so any typed box with words waits for the person's Reload. */
+  if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
+  const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
+  if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
+  if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+  return true;
 }
 function updateSafeReload(servedVersion) {
   try {
