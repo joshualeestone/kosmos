@@ -72,3 +72,11 @@ condition (one update, no second prompt) is first observable on the update after
   Restart keeps Return (the blue default) only when the page cannot tell.
 - A dialog or sheet of the app's own (Cmd-Q, a file picker) counts as "would lose": never restart under it.
 - A test ties the function name the window asks for to the one the page defines.
+
+## Review iterations 5 and 6 (changes)
+- The person is asked at most once per window. After Not Now the window keeps watching and restarts with no
+  question as soon as the page says nothing would be lost.
+- While a dialog, sheet or file picker of the app's own is open, the window does nothing and looks again later,
+  so no restart closes it and no second dialog lands on it.
+- The ask says "anything unfinished in this window, such as words not sent yet", because What's New being open
+  or a send in flight also hold the restart.

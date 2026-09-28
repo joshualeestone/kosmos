@@ -2580,9 +2580,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard freshFound else { return (waited >= relaunchWaitLimit && !toldGaveUp) ? .giveUp : .wait }
         switch page {
         case .safe: return .relaunchNow
-        // After a Not Now, even a page that cannot tell waits the ask-after time before the next question.
-        case .cannotTell: return (askedBefore && freshFor < relaunchAskAfter) ? .wait : .askPerson
-        case .wouldLose, .noReply: return freshFor >= relaunchAskAfter ? .askPerson : .wait
+        // The person is asked at most once: after a Not Now, only the silent restart remains.
+        case .cannotTell: return askedBefore ? .wait : .askPerson
+        case .wouldLose, .noReply: return (!askedBefore && freshFor >= relaunchAskAfter) ? .askPerson : .wait
         }
     }
 
@@ -2612,6 +2612,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
     private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?, toldGaveUp: Bool,
                               askedBefore: Bool = false) {
+        /* A dialog, sheet or file picker of the app's own is open: do nothing now and look again later,
+           without deciding anything, so no second dialog lands on top of it and no restart closes it. */
+        if NSApp.modalWindow != nil || window?.attachedSheet != nil || openPanelOutstanding {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
+                self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: freshSince,
+                                   toldGaveUp: toldGaveUp, askedBefore: askedBefore)
+            }
+            return
+        }
         let target = Self.freshAppURL(theirs: theirs)
         let now = Date()
         let waited = now.timeIntervalSince(since)
@@ -2636,8 +2645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let restarted = self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
                                                   wordsWaiting: page == .wouldLose)
                 if !restarted {
-                    /* Not Now: keep watching. Once the words are sent the page says safe and the restart
-                       happens with no question; the ask-after clock starts again from now. */
+                    // Not Now: no more questions; the silent restart still happens once the page says safe.
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
                         self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: Date(), toldGaveUp: toldGaveUp,
                                            askedBefore: true)
@@ -2652,8 +2660,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         }
         guard target != nil else { decide(.noReply); return }
-        // A dialog or sheet of the app's own (Cmd-Q's, a file picker) is open: never restart under it.
-        if NSApp.modalWindow != nil || window?.attachedSheet != nil { decide(.wouldLose); return }
         guard let web = webView else { decide(.cannotTell); return }
         let ask = Self.relaunchPageQuestion
         /* A completion WebKit never calls (a crashed page process) would otherwise stop the wait for
@@ -2678,7 +2684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let alert = NSAlert()
         alert.messageText = "Restart Kosmos to finish updating"
         alert.informativeText = wordsWaiting
-            ? "Your agents keep running. Words you have typed and not sent yet will be lost, so send them first if you need them."
+            ? "Your agents keep running. Anything unfinished in this window, such as words not sent yet, will be lost, so finish it first if you need it."
             : "Your agents keep running."
         alert.alertStyle = .informational
         let spec = AppDelegate.relaunchButtons
@@ -2716,7 +2722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            instance instead of launching the fresh copy, the completion handler
            would read that as "replacement started" and terminate -- quitting to
            NOTHING. The pile-up Josh saw came from relaunching the SAME stale
-           bundle over and over; targeting the FRESH copy above already fixes that,
+           bundle over and over; targeting the FRESH copy (the target stepRelaunch found) already fixes that,
            and the old instance still exits below once the new one is confirmed, so
            this settles to a fresh window (two momentarily if a fresh one was already
            open, and the stale one then exits -- never zero) without the dedup that
@@ -3919,9 +3925,9 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
               "a page that never answers is asked about after the same time")
     stepCheck(step(true, 5, 0, .cannotTell), .askPerson, "the page cannot tell: ask, with Restart as the default")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .cannotTell, askedBefore: true), .wait,
-              "after Not Now, a page that cannot tell is not asked again at once (no nag every 15 s)")
-    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: AppDelegate.relaunchAskAfter, page: .cannotTell,
-                                       askedBefore: true), .askPerson, "after Not Now, asked again only after the ask-after time")
+              "after Not Now, a page that cannot tell is not asked again")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 9999, page: .wouldLose, askedBefore: true), .wait,
+              "after Not Now, words left for any length of time never bring the dialog back (asked at most once)")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .safe, askedBefore: true), .relaunchNow,
               "after Not Now, once the words are sent the restart happens with no question")
     stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .wait,
