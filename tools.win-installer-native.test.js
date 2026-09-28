@@ -88,7 +88,7 @@ test('🛑 --uninstall is decided before the launch, asks in words that say what
     'the launcher tries to delete its own folder, or anything at all (an absence: nothing to run)');
 });
 
-test('the engine helpers are armed by --yes, and speak the flags and report tags the launcher uses', () => {
+test('the engine helpers are armed by --yes, and speak the flags and report tags the launcher uses', async () => {
   const helper = method('RunEngineHelper');
   assert.equal(constant('ConfirmedFlag'), '--yes');
   assert.match(helper, /" --report " \+ QuoteArgument\(report\) \+ " " \+ ConfirmedFlag\)/);
@@ -101,7 +101,10 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
   assert.equal(constant('RelocateHelperScript'), 'win32relocate.js');
   const report = path.join(os.tmpdir(), 'kosmos-flags-' + process.pid + '.txt');
   try {
-    assert.notEqual(uninstaller.cliMain(['--uninstall', '--delete-data', '--root', 'C:\\K', '--report', report, '--yes'],
+    /* AWAITED (kosmos#4273): cliMain is async, so the bare call compared a Promise with 64
+       (always unequal, so it could not fail) and returned before writing the report, which
+       the finally then missed and every run leaked. */
+    assert.notEqual(await uninstaller.cliMain(['--uninstall', '--delete-data', '--root', 'C:\\K', '--report', report, '--yes'],
       { uninstall: () => ({ ok: true, done: [], left: [], notes: [] }), write: () => {} }), 64);
   } finally { fs.rmSync(report, { force: true }); }
   const offer = method('CompareWithInstalledCopy') + method('InstallFromTemporaryPlace') + method('UpdateInstalledCopy');
