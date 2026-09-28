@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 
 /* kosmos#1050: tools/gap-alarm.js, the scheduled read-only check that tells the release owner when
  * main has run too far past staging, or staging past prod. The verdict and the post rule are pure;
@@ -93,10 +94,10 @@ function stubs() {
     const log = path.join(dir, name + '.log');
     const bin = path.join(dir, name);
     fs.writeFileSync(bin, '#!/bin/sh\n{ printf "%s\\n" "$*"; printf "TMUX=%s\\n" "$TMUX"; cat 2>/dev/null; printf "\\n--\\n"; } >> "' + log + '"\n'
-      + (fail ? 'echo "claude-msg: no tmux here" >&2\nexit 3\n' : ''), { mode: 0o755 });
+      + (fail === 8 ? 'exit 8\n' : fail ? 'echo "claude-msg: no tmux here" >&2\nexit 3\n' : ''), { mode: 0o755 });
     return { bin, read: () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } } };
   };
-  return { msg: mk('msg'), failMsg: mk('failmsg', true), gh: mk('gh'), state: path.join(dir, 'state.json') };
+  return { msg: mk('msg'), failMsg: mk('failmsg', true), busyMsg: mk('busymsg', 8), gh: mk('gh'), failGh: mk('failgh', true), state: path.join(dir, 'state.json') };
 }
 
 const ptrs = (prodSha, stagingSha, builtAt, pv = '0.6.99', sv = '0.7.05') => JSON.stringify({
@@ -167,6 +168,42 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
+test('main\'s hours run from when work LANDED on main: a merge commit\'s older side-branch commits do not alarm', () => {
+  const { dir, shas, g } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
+  // A side branch with commits 40 h old, merged into main an hour ago with a merge commit.
+  g(['checkout', '-q', '-b', 'side']);
+  for (const [name, at] of [['s1', NOW - 40 * H], ['s2', NOW - 39 * H]]) {
+    fs.writeFileSync(path.join(dir, name), name); g(['add', name]);
+    g(['commit', '-q', '-m', name], { GIT_AUTHOR_DATE: '@' + at + ' +0000', GIT_COMMITTER_DATE: '@' + at + ' +0000' });
+  }
+  g(['checkout', '-q', 'main']);
+  g(['merge', '-q', '--no-ff', '-m', 'Merge side', 'side'], { GIT_AUTHOR_DATE: '@' + (NOW - H) + ' +0000', GIT_COMMITTER_DATE: '@' + (NOW - H) + ' +0000' });
+  g(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  const v = JSON.parse(run(['--check'], { KOSMOS_REPO_DIR: dir, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - H) }).out);
+  assert.equal(v.main.ahead, 3, 'fixture: the count is every commit, as shipped-gap.sh counts');
+  assert.equal(v.main.hours, 1, 'main\'s waiting time must run from the merge landing, not a side-branch commit');
+  assert.ok(!v.reasons.includes('main-hours'), 'a merge that landed an hour ago alarmed on its side branch\'s age: ' + JSON.stringify(v));
+});
+
+test('claude-msg exit 8 (#1909) is told-but-uncertain: it counts as posted and the card says "may not have gone", never "did not go"', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.failGh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) };
+  const r = run([], env);
+  assert.match(r.err, /may not have gone: claude-msg exit 8/);
+  assert.doesNotMatch(r.err, /pane message .* did not go/);
+  assert.match(r.err, /the #1050 comment did not go: claude-msg: no tmux here/, 'gh\'s own stderr line is what the log says');
+  // Counted as told: the next hour does not post the same thing again.
+  const before = s.busyMsg.read();
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));
+  assert.equal(s.busyMsg.read(), before, 'an exit-8 post was treated as not told and repeated an hour later');
+  // With a working gh, the card carries the uncertainty.
+  const s2 = stubs();
+  run([], Object.assign({}, env, { GAP_ALARM_STATE: s2.state, GAP_ALARM_GH_CMD: s2.gh.bin }));
+  assert.match(s2.gh.read(), /may not have gone: claude-msg exit 8/);
+});
+
 test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH that hangs on fetch and is the real git for everything else.
@@ -179,7 +216,7 @@ test('a fetch that hangs is could-not-tell with the reason, not a run that never
   });
   assert.ok(Date.now() - started < 20000, 'the run waited out the hung fetch instead of bounding it');
   assert.equal(r.code, 2, 'a hung fetch must exit 2 (could not tell): ' + r.out + r.err);
-  assert.match(JSON.parse(r.out).why, /git fetch did not finish in 2s/);
+  assert.match(JSON.parse(r.out).why, /git fetch did not finish in \d+s/);
 });
 
 test('each run fetches origin main, so a moved origin is counted, not a stale local ref', () => {

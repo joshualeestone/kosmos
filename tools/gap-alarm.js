@@ -10,9 +10,10 @@
  *
  * Cuts and promotes stay manual. This never cuts, promotes, or touches a pointer: it reads the two
  * served pointers (latest-staging.json, latest.json) and their manifests' app.commit and built.at,
- * counts with git, and posts. Main's hours run from the OLDEST commit not yet in staging (its
- * committer time, which under squash merges is when it merged): how long merged work has waited for
- * a cut. Staging's hours run from when the staging build was CUT (its manifest's built.at), while it
+ * counts with git, and posts. Main's hours run from the OLDEST commit not yet in staging, read on
+ * main's FIRST-PARENT line only: its committer time there is when the work landed on main, whether it
+ * was squashed or merged with a merge commit (a side branch's own commits can be days older than their
+ * merge, and would alarm the hour they land): how long merged work has waited for a cut. Staging's hours run from when the staging build was CUT (its manifest's built.at), while it
  * holds anything prod does not: how long a build has waited for a promote, which is gated on walks
  * and so is the step a person must take.
  *
@@ -117,12 +118,13 @@ function git(repo, args) {
   }
 }
 
-/* Commits in `to` not in `from`, and the committer time of the oldest. */
+/* Commits in `to` not in `from`, and the committer time of the oldest on `to`'s first-parent line
+ * (when it landed there). The count stays all commits, as tools/shipped-gap.sh counts them. */
 function waiting(repo, from, to) {
   const ahead = Number(git(repo, ['rev-list', '--count', from + '..' + to]));
   if (!Number.isFinite(ahead)) throw new Error('could not count ' + from + '..' + to);
   if (ahead === 0) return { ahead, oldestAt: null };
-  const times = git(repo, ['log', '--format=%ct', from + '..' + to]).split('\n').map(Number).filter(Number.isFinite);
+  const times = git(repo, ['log', '--first-parent', '--format=%ct', from + '..' + to]).split('\n').map(Number).filter(Number.isFinite);
   return { ahead, oldestAt: times.length ? Math.min(...times) : null };
 }
 
@@ -166,6 +168,7 @@ function post(text) {
   let sent = false;
   const to = env.GAP_ALARM_TO || 'barondraxum-discord:0.0';
   let paneFailed = null;
+  let paneUnsure = null;
   const msgCmd = env.GAP_ALARM_MSG_CMD || (underTest ? null : path.join(os.homedir(), '.claude', 'scripts', 'claude-msg'));
   if (msgCmd) {
     try {
@@ -179,20 +182,34 @@ function post(text) {
       });
       sent = true;
     } catch (err) {
-      paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
-      process.stderr.write('gap-alarm: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
+      // Exit 8 is claude-msg's known false negative (#1909): the recipient was busy and the message
+      // usually did land. Counted as told, and said on the card as uncertain, never as "did not go",
+      // so a busy pane plus a failed comment cannot repost the same message every hour.
+      if (err && err.status === 8) {
+        sent = true;
+        paneUnsure = 'claude-msg exit 8, which usually means the pane was busy and the message landed (#1909)';
+        process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
+      } else {
+        paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
+        process.stderr.write('gap-alarm: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
+      }
     }
   }
   const ghCmd = env.GAP_ALARM_GH_CMD || (underTest ? null : 'gh');
   if (ghCmd) {
     try {
       // A pane message that did not go is said on the card, so the one channel is never silently lost.
-      const body = paneFailed ? text + '\n\n(The pane message to ' + to + ' did not go: ' + paneFailed + ')' : text;
+      const body = paneFailed ? text + '\n\n(The pane message to ' + to + ' did not go: ' + paneFailed + ')'
+        : paneUnsure ? text + '\n\n(The pane message to ' + to + ' may not have gone: ' + paneUnsure + ')' : text;
       execFileSync(ghCmd, ['issue', 'comment', env.GAP_ALARM_ISSUE || '1050', '--repo', 'joshualeestone/kosmos', '--body', body], {
-        stdio: ['ignore', 'ignore', 'ignore'], timeout: 30000,
+        stdio: ['ignore', 'ignore', 'pipe'], timeout: 30000,
       });
       sent = true;
-    } catch (err) { process.stderr.write('gap-alarm: the #1050 comment did not go: ' + (err && err.message) + '\n'); }
+    } catch (err) {
+      // gh's own first stderr line says why (auth, keychain, network); err.message would echo the body.
+      const why = String((err && err.stderr && String(err.stderr).trim()) || (err && err.code) || 'exit ' + (err && err.status)).split('\n')[0];
+      process.stderr.write('gap-alarm: the #1050 comment did not go: ' + why + '\n');
+    }
   }
   return sent;
 }
