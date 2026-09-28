@@ -24,10 +24,6 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
-
-/* How long `<agy> --version` may take before it is killed and read as unknown (tool hooks off). */
-const VERSION_TIMEOUT_MS = 5000;
 
 /** Does `<workdir>/.agents/hooks.json` already carry an entry named `hookName`? Unreadable = no. */
 function hasKosmosHook(workdir, hookName) {
@@ -47,8 +43,6 @@ function hasKosmosHook(workdir, hookName) {
  *   workdir(name)     -> the folder the supervisor launches it in
  *   hasHook(workdir)  -> whether a Kosmos entry is already there
  *   ensureHooks(workdir, nodeBin, bridge, withToolHooks) -> { ok, changed, why }
- *   toolHooksSafe(versionText) -> boolean
- *   versionOf(bin)    -> Promise of the binary's `--version` text, or '' (once per binary)
  *   nodeBin, bridge   -> what the hook runs; bridgeExists() -> boolean
  * Resolves one row per antigravity agent visited: { name, ok, changed, why }.
  */
@@ -57,7 +51,6 @@ async function refreshRunningAgyHooks(deps) {
   let bridgeThere = false;
   try { bridgeThere = !!deps.bridgeExists(); } catch { bridgeThere = false; }
   if (!bridgeThere) return rows;
-  const versions = new Map();
   let names;
   try { names = [...deps.names()]; } catch { return rows; }
   for (const name of names) {
@@ -71,21 +64,16 @@ async function refreshRunningAgyHooks(deps) {
     let has = false;
     try { has = !!deps.hasHook(wd); } catch { has = false; }
     if (has) { rows.push({ name, ok: true, changed: false, why: 'already hooked' }); continue; }
-    if (!versions.has(job.claude)) {
-      let v = '';
-      try { v = String((await deps.versionOf(job.claude)) || ''); } catch { v = ''; }
-      versions.set(job.claude, v);
-      // The await is the widest window in which the supervisor could have launched it and written
-      // its own entry, so look again. This narrows the race, it does not close it: the supervisor
-      // is another process and can still write between this check and the write below. Both
-      // writes produce a working Kosmos entry (only the node spelling differs), so the loser
-      // costs nothing.
-      try { has = !!deps.hasHook(wd); } catch { has = false; }
-      if (has) { rows.push({ name, ok: true, changed: false, why: 'already hooked' }); continue; }
-    }
+    // The supervisor is another process and can write between this check and the write below;
+    // both produce a working Kosmos entry, so whichever lands last costs nothing.
     let r;
     try {
-      r = deps.ensureHooks(wd, deps.nodeBin, deps.bridge, deps.toolHooksSafe(versions.get(job.claude)));
+      // Working/Idle hooks only here, never the ask_question tool hooks: this writes into a process
+      // that started BEFORE the update, and the agy binary on disk (the only one that could be
+      // asked its version) may be newer than the running one. The tool hooks are only safe on an
+      // agy new enough for them (agyhooks MIN_TOOL_HOOKS), so they wait for the supervisor, which
+      // rewrites the entry with them at the next real launch.
+      r = deps.ensureHooks(wd, deps.nodeBin, deps.bridge, false);
     } catch (err) {
       r = { ok: false, changed: false, why: String((err && err.message) || err) };
     }
@@ -94,24 +82,9 @@ async function refreshRunningAgyHooks(deps) {
   return rows;
 }
 
-/** `<bin> --version`, the first line of what it printed whatever its exit status (as the
-    supervisor reads it: `head -n 1`), or ''. Asynchronous, and killed after 5 s; that timeout
-    settles the call even when a grandchild of the binary still holds its output open (the
-    grandchild test pins it). */
-function versionOf(bin) {
-  return new Promise((resolve) => {
-    if (!bin) { resolve(''); return; }
-    try {
-      execFile(bin, ['--version'], { timeout: VERSION_TIMEOUT_MS, killSignal: 'SIGKILL', encoding: 'utf8' }, (_err, stdout) => {
-        resolve(String(stdout || '').split('\n')[0]);
-      });
-    } catch { resolve(''); }
-  });
-}
-
-/** The folder the running supervisor was STARTED in: argument 3 of the agent's own plist, which
-    is what it launched with, even if the agent's recorded folder has changed since. Falls back to
-    create.workerDir(name) (what plistFor writes there) when the plist cannot be read. */
+/** The plist's recorded launch folder (argument 3): what the supervisor was started with, unless
+    the job was rewritten since without a restart. Falls back to create.workerDir(name) (what
+    plistFor writes there) when the plist cannot be read. */
 function launchDir(create, name) {
   try {
     const text = fs.readFileSync(create.plistPath(name), 'utf8');
@@ -123,9 +96,9 @@ function launchDir(create, name) {
 }
 
 /** The production wiring: create.js for the agents and bridge, agyhooks for the write. */
-function refreshAtBoardStart() {
+async function refreshAtBoardStart() {
   // agy hooks are Unix only (agyhooks' sh -c quoting) and Kosmos runs no agy agent on Windows.
-  if (process.platform === 'win32') return Promise.resolve([]);
+  if (process.platform === 'win32') return [];
   const create = require('./create');
   const agyhooks = require('./agyhooks');
   const bridge = create.agyBridgePath();
@@ -135,8 +108,6 @@ function refreshAtBoardStart() {
     workdir: (name) => launchDir(create, name),
     hasHook: (wd) => hasKosmosHook(wd, agyhooks.HOOK_NAME),
     ensureHooks: agyhooks.ensureHooks,
-    toolHooksSafe: agyhooks.toolHooksSafe,
-    versionOf,
     // Not process.execPath: a versioned Homebrew path dies at the next upgrade, and this entry
     // outlives the board in a running agent nobody restarts (allowance.stableNode's reason).
     nodeBin: require('./allowance').stableNode(),
@@ -145,4 +116,4 @@ function refreshAtBoardStart() {
   });
 }
 
-module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, versionOf, hasKosmosHook, launchDir };
+module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, hasKosmosHook, launchDir };

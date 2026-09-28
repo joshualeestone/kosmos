@@ -22,7 +22,7 @@ const agyrefresh = require('./agyrefresh');
 const agyhooks = require('./agyhooks');
 const create = require('./create');
 
-function fakes(jobs, versions = {}, hooked = []) {
+function fakes(jobs, hooked = []) {
   const calls = { ensure: [], version: [] };
   return {
     calls,
@@ -32,8 +32,6 @@ function fakes(jobs, versions = {}, hooked = []) {
       workdir: (n) => '/w/' + n,
       hasHook: (wd) => hooked.includes(wd),
       ensureHooks: (...a) => { calls.ensure.push(a); return { ok: true, changed: true, why: '' }; },
-      toolHooksSafe: (v) => v === 'agy 1.2.12',
-      versionOf: async (bin) => { calls.version.push(bin); return versions[bin] || ''; },
       nodeBin: '/n/node',
       bridge: '/b/agy-report-bridge.js',
       bridgeExists: () => true,
@@ -41,22 +39,22 @@ function fakes(jobs, versions = {}, hooked = []) {
   };
 }
 
-test('#4353 only running ANTIGRAVITY agents with no Kosmos hook get it, with the right tool-hook choice', async () => {
+test('#4353 only running ANTIGRAVITY agents with no Kosmos hook get it, and never the tool hooks', async () => {
   const { calls, deps } = fakes({
     gem: { runner: 'antigravity', claude: '/x/agy' },
     old: { runner: 'antigravity', claude: '/y/agy' },
     done: { runner: 'antigravity', claude: '/x/agy' },
     cc: { runner: 'claude', claude: '/x/claude' },
     gone: null,
-  }, { '/x/agy': 'agy 1.2.12', '/y/agy': 'agy 1.1.0' }, ['/w/done']);
+  }, ['/w/done']);
   const rows = await agyrefresh.refreshRunningAgyHooks(deps);
   assert.deepEqual(rows.map((r) => r.name).sort(), ['done', 'gem', 'old'], 'a non-antigravity or jobless agent was touched');
   assert.deepEqual(calls.ensure.map((a) => a[0]).sort(), ['/w/gem', '/w/old'], 'an already-hooked agent was rewritten');
   assert.equal(rows.find((r) => r.name === 'done').why, 'already hooked');
   for (const a of calls.ensure) { assert.equal(a[1], '/n/node'); assert.equal(a[2], '/b/agy-report-bridge.js'); }
-  const byDir = Object.fromEntries(calls.ensure.map((a) => [a[0], a[3]]));
-  assert.equal(byDir['/w/gem'], true, 'a new-enough agy did not get the tool hooks');
-  assert.equal(byDir['/w/old'], false, 'an old agy got tool hooks it cannot take');
+  // The running process may be older than the agy on disk, so the ask_question tool hooks are
+  // left to the supervisor's next launch: every write here is Working/Idle only.
+  assert.ok(calls.ensure.every((a) => a[3] === false), 'tool hooks were hot-written into a running agy');
 });
 
 test('#4353 nothing is written when the bridge the hook would run is missing', async () => {
@@ -64,16 +62,6 @@ test('#4353 nothing is written when the bridge the hook would run is missing', a
   deps.bridgeExists = () => false;
   assert.deepEqual(await agyrefresh.refreshRunningAgyHooks(deps), []);
   assert.equal(calls.ensure.length, 0, 'a hook was written pointing at a missing bridge (agy reads that as a DENY)');
-});
-
-test('#4353 each agy binary is asked its version once, however many agents share it', async () => {
-  const { calls, deps } = fakes({
-    a: { runner: 'antigravity', claude: '/x/agy' },
-    b: { runner: 'antigravity', claude: '/x/agy' },
-  });
-  await agyrefresh.refreshRunningAgyHooks(deps);
-  assert.deepEqual(calls.version, ['/x/agy']);
-  assert.equal(calls.ensure.length, 2);
 });
 
 test('#4353 nothing here throws: a missing folder, a throwing write and an unreadable list are rows or empty', async () => {
@@ -95,8 +83,6 @@ test('#4353 with the REAL ensureHooks and hasKosmosHook: written once, then left
       workdir: () => wd,
       hasHook: (d) => agyrefresh.hasKosmosHook(d, agyhooks.HOOK_NAME),
       ensureHooks: agyhooks.ensureHooks,
-      toolHooksSafe: agyhooks.toolHooksSafe,
-      versionOf: async () => 'agy 1.2.12',
       nodeBin: '/n/node',
       bridge: '/b/agy-report-bridge.js',
       bridgeExists: () => true,
@@ -107,6 +93,7 @@ test('#4353 with the REAL ensureHooks and hasKosmosHook: written once, then left
     const hooks = JSON.parse(fs.readFileSync(path.join(wd, '.agents', 'hooks.json'), 'utf8'));
     const entry = hooks[agyhooks.HOOK_NAME];
     assert.ok(entry && entry.Stop && entry.PreInvocation, 'the Kosmos entry was not written');
+    assert.equal(entry.PreToolUse, undefined, 'tool hooks were hot-written');
     assert.match(entry.Stop[0].command, /agy-report-bridge\.js' Stop$/);
     const again = await agyrefresh.refreshRunningAgyHooks({ ...deps, nodeBin: '/other/node' });
     assert.equal(again[0].changed, false, 'a second start rewrote an entry that was already there');
@@ -144,32 +131,6 @@ test('#4353 the launch folder is read from the plist the supervisor started with
     assert.equal(agyrefresh.launchDir(create, name), '/Users/p/their & folder', 'not the folder the supervisor was started in');
   } finally { fs.rmSync(create.plistPath(name), { force: true }); }
   assert.equal(agyrefresh.launchDir(create, name), create.workerDir(name), 'no plist must fall back to workerDir');
-});
-
-test('#4353 a hook the supervisor wrote while the version was being asked is not overwritten', async () => {
-  const { calls, deps } = fakes({ gem: { runner: 'antigravity', claude: '/x/agy' } });
-  let asked = false;
-  deps.versionOf = async () => { asked = true; return 'agy 1.2.12'; };
-  deps.hasHook = () => asked;   // absent before the await, present after it
-  const rows = await agyrefresh.refreshRunningAgyHooks(deps);
-  assert.equal(calls.ensure.length, 0, 'an entry written during the await was overwritten');
-  assert.equal(rows[0].why, 'already hooked');
-});
-
-test('#4353 a version probe whose grandchild holds the pipe still settles (a hang would stall every agent after it)', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyver-'));
-  const tag = 'aw-agyver-grandchild-' + process.pid;
-  const bin = path.join(dir, 'agy');
-  fs.writeFileSync(bin, `#!/bin/bash\necho "agy 1.2.12"\n(exec -a ${tag} sleep 30) &\nexit 0\n`, { mode: 0o755 });
-  try {
-    const t0 = Date.now();
-    const v = await agyrefresh.versionOf(bin);
-    assert.ok(Date.now() - t0 < 9000, 'the probe did not settle');
-    assert.ok(v === '' || v === 'agy 1.2.12', v);
-  } finally {
-    require('node:child_process').spawnSync('pkill', ['-f', tag]);
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('#4353 a malformed Kosmos entry (null, a string, a list) is not "already hooked", so it gets repaired', () => {
