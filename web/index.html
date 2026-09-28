@@ -8511,6 +8511,21 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    review rounds. Removed rather than commented, per this codebase's own rule
    about `.pjthread`: a rule that parses green and renders never is worse than
    no rule. With it gone, the same defect renders transparent and is obvious. */
+/* #4356: the first screen. Above the boot cover and the first-run overlay; the two buttons sit side
+   by side and stack on a narrow window. */
+.frc-back { position: fixed; inset: 0; z-index: 70; background: var(--bg); overflow-y: auto;
+            display: flex; padding: var(--space-8) var(--space-5); }
+.frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;
+           gap: var(--space-6); max-width: 720px; width: 100%; text-align: center; }
+.frc-logo { width: 72px; height: 72px; border-radius: 16px; display: block; }
+.frc-title { font: 700 1.875rem/1.2 var(--font-ui); letter-spacing: -0.025em; margin: 0; color: var(--label); }
+.frc-buttons { display: flex; flex-wrap: wrap; gap: var(--space-5); justify-content: center; width: 100%; }
+.frc-btn { flex: 1 1 260px; min-height: 160px; padding: var(--space-6); border-radius: 14px;
+           border: 0.5px solid var(--separator); background: var(--bg-elevated); color: var(--label);
+           box-shadow: var(--shadow-card); font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
+.frc-btn:hover:not(:disabled) { border-color: var(--gold-edge); }
+.frc-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.frc-btn:disabled { opacity: 0.6; cursor: default; }
 .fr-back { position: fixed; inset: 0; z-index: 60;
            overflow-y: auto; display: flex; justify-content: center;
            padding: var(--space-8) var(--space-5); }
@@ -12573,6 +12588,21 @@ window.kosmosMeasureScrollbarWidth();
 
      Deep-linkable as /?first-run=1 (and &fr-step=N), which is the only way to
      screenshot it on a machine that has already been through it. -->
+<!-- #4356: the first screen, before first run. Shown only in the Mac app, and only when the app
+     says this computer has not chosen yet (?mode=unset, first run not done) or its choice could not be
+     read (?mode=unreadable). Josh's copy rule (#4356, 2026-09-28): the logo, this heading and the two
+     buttons, NOTHING else on the screen; Mona's artwork goes on the buttons when it is ready.
+     web.firstrun-choice-4356.test.js pins the visible text. -->
+<div class="frc-back" id="fr-choice" hidden>
+  <div class="frc-box">
+    <img class="frc-logo" src="/icons/kosmos-192.png" alt="Kosmos" width="72" height="72">
+    <h1 class="frc-title" id="frc-title">How would you like to set up Kosmos on this computer?</h1>
+    <div class="frc-buttons" role="group" aria-labelledby="frc-title">
+      <button type="button" class="frc-btn" data-mode="run">Run agents on this computer</button>
+      <button type="button" class="frc-btn" data-mode="connect">Connect to agents on another computer</button>
+    </div>
+  </div>
+</div>
 <div class="fr-back" id="firstrun" hidden>
   <!-- The pack's dot field (#44, Josh's clean-install catch): the setup
        backdrop animates the same slow pale drift the pack draws behind its
@@ -63749,6 +63779,50 @@ function asbStart() {
    win32-board-copy: a platform copy layer is back, for Windows rather than for the
    Success screen alone: onWindows() and windowsCopyTable() at the top of this script. */
 
+/* #4356: the Mac app's own handler for this computer's choice. Absent in a browser, and on a
+   board opened any other way, so the choice screen never shows there. */
+function frChoiceBridge() {
+  const h = window.webkit && window.webkit.messageHandlers;
+  return h && h.kosmosMode ? h.kosmosMode : null;
+}
+
+/* #4356: the app puts ?mode=unset on a computer that has not chosen, and ?mode=unreadable when its
+   stored choice could not be read. An unread choice asks again even after first run, rather than
+   quietly becoming one of the two. */
+function frChoiceWanted(done) {
+  if (!frChoiceBridge()) return false;
+  const mode = new URLSearchParams(location.search).get('mode');
+  return mode === 'unreadable' || (mode === 'unset' && !done);
+}
+
+/* #4356: show the first screen and resolve with the choice. Run agents hides it and first run
+   carries on. Connect leaves it up, buttons disabled, while the app stops the board here and loads
+   Kosmos Plus sign-in; if the app cannot be told, the buttons come back rather than sit dead. */
+function frChoose() {
+  const el = document.getElementById('fr-choice');
+  const btns = [...el.querySelectorAll('.frc-btn')];
+  return new Promise((resolve) => {
+    btns.forEach((b) => {
+      b.onclick = () => {
+        const mode = b.dataset.mode;
+        let told = true;
+        try { frChoiceBridge().postMessage(mode); } catch { told = false; }
+        if (mode === 'connect') {
+          if (!told) return;
+          btns.forEach((x) => { x.disabled = true; });
+          resolve('connect');
+          return;
+        }
+        el.hidden = true;
+        resolve('run');
+      };
+    });
+    el.hidden = false;
+    revealBoot();
+    btns[0].focus();
+  });
+}
+
 async function firstRunBoot(force, step) {
   try {
     let state;
@@ -63762,6 +63836,8 @@ async function firstRunBoot(force, step) {
     // The net effect was still "no overlay", but by accident rather than by the
     // rule three lines up, and an accident is not a fail-closed guarantee.
     if (!state || typeof state !== 'object') return;
+    // #4356: this computer's choice comes first. Connect hands the window to the app.
+    if (frChoiceWanted(state.done) && (await frChoose()) === 'connect') return;
     if (state.done && !force) return;
     FR = state;
     frOpen();
