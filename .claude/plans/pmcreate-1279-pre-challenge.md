@@ -21,12 +21,12 @@ converged: true
 
 #### Iteration 1
 **Reviewer model:** unknown (not preserved across the reboot)
-**New findings:** severities not preserved (see Summary). Fixed in a37e9e74d:
-- [WARNING] the PM caution understated its reach; it and the opening now say it can make agents (house rule: a caution never understates reach). Severity as recorded in my handoff's wording, not the original table.
-- [NIT] the new lines fold into the existing briefing bullet, keeping three bullets.
-- [NIT] brief the new agent by the name Kosmos prints, not the name asked for.
-- [NIT] on a create timeout, look at the board before retrying (no double create).
-- [CONVENTION] `install/kosmos` comment and the CLAUDE.md row updated to name the PM as well as the guide.
+**New findings:** severities not preserved (see Summary). Fixed in a37e9e74d (listed without severity tags, because none were preserved):
+- the PM caution understated its reach; it and the opening now say it can make agents (house rule: a caution never understates reach).
+- the new lines fold into the existing briefing bullet, keeping three bullets.
+- brief the new agent by the name Kosmos prints, not the name asked for.
+- on a create timeout, look at the board before retrying (no double create).
+- `install/kosmos` comment and the CLAUDE.md row updated to name the PM as well as the guide.
 **Self-generated:** 0 (no loop commit existed before this pass)
 
 #### Iteration 2
