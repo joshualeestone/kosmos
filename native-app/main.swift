@@ -2910,6 +2910,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // #4356: a connect computer runs no board of its own, so there is nothing here to be behind;
         // a board answering on this port is another install's, and its "restart to update, your
         // agents keep running" would be about agents this computer does not have (review round 18).
+        // Belt and braces: switchToConnect clears resolvedPort, which is what keeps this from being
+        // called on a connect computer today; this makes a future caller safe too (review round 24).
         guard computerMode != .connect else {
             sayQuietStaleReason("this computer connects to agents on another computer, so there is no board of its own to compare")
             return

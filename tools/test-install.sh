@@ -835,6 +835,23 @@ chk "an unreadable choice does not become run: the board stays down" "! curl -s 
 chk "and board.stopped is there for launchd and the watchdog" "[ -e \"$SB/home/board.stopped\" ]"
 chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
 chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board runs on this computer, on purpose' \"$SB/update-unreadable.log\""
+# The migration, measured by running it (the grep above only finds its lines): an update of an install
+# from before #4356 with no choice records run when first run is done, records nothing when it is not,
+# and never overwrites a choice that exists.
+rm -f "$SB/home/mode" "$SB/data/Kosmos/first-run.json"
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate-none.log" 2>&1 || RC=$?
+chk "CONTROL: an update with no choice and first run NOT done exits 0" "rc_ok $RC"
+chk "CONTROL: and records nothing (a fresh computer is still asked)" "[ ! -e \"$SB/home/mode\" ]"
+mkdir -p "$SB/data/Kosmos" && printf '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate.log" 2>&1 || RC=$?
+chk "an update of a set-up install with no choice exits 0" "rc_ok $RC"
+chk "and records run, so it is never asked" "[ \"\$(cat \"$SB/home/mode\" 2>/dev/null)\" = run ]"
+chk "and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+printf 'connect\n' > "$SB/home/mode"
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate-keep.log" 2>&1 || RC=$?
+chk "with first run done, an existing connect choice is not overwritten" "[ \"\$(cat \"$SB/home/mode\" 2>/dev/null)\" = connect ]"
+rm -f "$SB/data/Kosmos/first-run.json"
 printf 'run\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
 chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
