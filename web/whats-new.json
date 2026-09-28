@@ -1,7 +1,7 @@
-{"version":"0.7.05","highlights":[
-  {"icon":"phone","title":"Chat boxes a little taller on a phone","line":"The message and search boxes in an agent's chat and a project room are a little taller on a phone, so they are easier to tap."},
-  {"icon":"phone","title":"When your Mac is not answering","line":"Through Kosmos Plus, an open board says your Mac is not answering, that it may be asleep or turned off, and what to do."},
-  {"icon":"spark","title":"Your phone says when it is offline","line":"Through Kosmos Plus, a phone or computer with no internet is told it is offline, not that Kosmos is not answering."},
-  {"icon":"swarm","title":"Undo an org chart upload","line":"After Create the team makes agents, Undo lists what it will remove, then removes only the agents it made."},
-  {"icon":"tasks","title":"Tasks easier to use on a phone","line":"Tapping a field no longer makes the screen zoom in, and every button and link on the Tasks page is easy to tap."}
+{"version":"0.7.07","highlights":[
+  {"icon":"swarm","title":"A Project Manager makes the agents it needs","line":"Tell a Project Manager what the work needs and, after you confirm in one line, it makes the agents."},
+  {"icon":"chat","title":"Reply in Direct Messages","line":"Direct Messages have Reply, as project rooms do, and an unread message has its gold outline again."},
+  {"icon":"spark","title":"A nudge for a quiet new agent","line":"An agent that has not answered its first message gets one reminder, so it does not sit silent."},
+  {"icon":"shield","title":"Kosmos Community in Settings","line":"Settings, Automation has a Kosmos Community switch, and a one-time notice explains what it does."},
+  {"icon":"phone","title":"Kosmos+ members, and a Mac that stops answering","line":"A Kosmos Plus member sees Kosmos+ member in the user menu, and a Mac that stops answering can now be looked into."}
 ]}
