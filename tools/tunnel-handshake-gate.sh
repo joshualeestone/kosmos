@@ -7,7 +7,8 @@
 # 0.7.05 update and no tool could say whether the build was at fault. This gate runs the
 # connector FROM THE BUILD against the live relay, as a Mac would, with one reserved identity.
 #
-#   tools/tunnel-handshake-gate.sh --tunnel <app/bin/kosmos-tunnel from the staged build>
+#   tools/tunnel-handshake-gate.sh --tarball <the staged kosmos-<v>-arm64.tar.gz>   (promote-channel.sh)
+#   tools/tunnel-handshake-gate.sh --tunnel <an app/bin/kosmos-tunnel already extracted>
 #
 # The identity: the reserved release-gate account (release-gate@gate.invalid), enrolled ONCE
 # into --state-dir (default ~/.config/kosmos-release-gate/state). Its code comes from
@@ -32,6 +33,7 @@
 set -u
 
 TUNNEL=""
+TARBALL=""
 STATE="${KOSMOS_RELEASE_GATE_STATE:-$HOME/.config/kosmos-release-gate/state}"
 COORD="https://login.kosmosplus.com"
 RELAY="relay.kosmosplus.com:8443"
@@ -43,6 +45,7 @@ TIMEOUT=45
 while [ $# -gt 0 ]; do
   case "$1" in
     --tunnel) TUNNEL="${2:-}"; shift 2 ;;
+    --tarball) TARBALL="${2:-}"; shift 2 ;;
     --state-dir) STATE="${2:-}"; shift 2 ;;
     --coordinator) COORD="${2:-}"; shift 2 ;;
     --relay) RELAY="${2:-}"; shift 2 ;;
@@ -58,8 +61,8 @@ say() { echo "tunnel-gate: $*"; }
 cannot() { say "CANNOT TELL: $*"; exit 2; }
 fail() { say "FAIL at $1: $2"; [ -n "${LOG:-}" ] && [ -f "$LOG" ] && { say "the connector's last lines:"; sed 's/\x1b\[[0-9;]*m//g' "$LOG" | tail -8 | sed 's/^/    /'; }; exit 1; }
 
-[ -n "$TUNNEL" ] || cannot "no --tunnel (pass the staged build's app/bin/kosmos-tunnel)"
-[ -x "$TUNNEL" ] || cannot "the connector is not an executable file: $TUNNEL"
+[ -n "$TUNNEL" ] || [ -n "$TARBALL" ] || cannot "no --tarball or --tunnel (pass the staged build)"
+[ -n "$TUNNEL" ] && [ -n "$TARBALL" ] && cannot "pass --tarball OR --tunnel, not both"
 for f in mac_id mac_key address tls.crt tls.key coordinator_pubkey; do
   [ -s "$STATE/$f" ] || cannot "no enrolled gate identity in $STATE (missing $f). Enrol it once: kosmos-relay deploy/release-gate.md"
 done
@@ -68,6 +71,14 @@ case "$ADDRESS" in *[!A-Za-z0-9.-]*|'') cannot "the gate's address is not a host
 case "$TIMEOUT" in *[!0-9]*|'') cannot "--timeout is not a number of seconds: $TIMEOUT" ;; esac
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
+if [ -n "$TARBALL" ]; then
+  [ -f "$TARBALL" ] || { rm -rf "$WORK"; cannot "no such tarball: $TARBALL"; }
+  # Only the connector, into the gate's own temp dir: the bytes being promoted, nothing else.
+  tar -xzf "$TARBALL" -C "$WORK" app/bin/kosmos-tunnel 2>/dev/null || true
+  TUNNEL="$WORK/app/bin/kosmos-tunnel"
+  [ -x "$TUNNEL" ] || { rm -rf "$WORK"; cannot "$TARBALL has no app/bin/kosmos-tunnel"; }
+fi
+[ -x "$TUNNEL" ] || { rm -rf "$WORK"; cannot "the connector is not an executable file: $TUNNEL"; }
 LOG="$WORK/connector.log"
 PID=""
 # Bounded stop (TERM, 5 s, KILL), then the temp dir. Kill only a PID that is set.

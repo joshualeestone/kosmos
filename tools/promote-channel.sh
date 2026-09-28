@@ -244,6 +244,29 @@ if [ "$FAMILY" = mac ]; then
       [ -n "$PLUS_REASON" ] || PLUS_REASON="(the gate printed nothing)" ;;
     *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
+
+  # THE TUNNEL HANDSHAKE GATE (#4270). None of the gates above touch remote access: a build whose
+  # connector cannot fetch a ticket, authenticate at the relay or serve would pass them all and
+  # reach every Kosmos+ Mac. This runs the connector FROM THE STAGED TARBALL (the exact bytes being
+  # promoted) against the live relay with the reserved gate identity. Same contract: 0 promote;
+  # 1 a step broke -> refuse, never forceable; 2 cannot-tell (no gate identity enrolled on this
+  # machine, or the tarball has no connector) -> HOLD, forceable only after a HAND check.
+  # Override via KOSMOS_PROMOTE_TUNNEL_GATE_CMD (it receives --tarball <the staged artifact>).
+  TUNNEL_GATE_CMD="${KOSMOS_PROMOTE_TUNNEL_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/tunnel-handshake-gate.sh}"
+  echo "promote-channel: running the tunnel handshake gate on $ARTIFACT's connector: $TUNNEL_GATE_CMD"
+  $TUNNEL_GATE_CMD --tarball "$SITE/dist/$ARTIFACT"; TUNNEL_RC=$?
+  case "$TUNNEL_RC" in
+    0) echo "promote-channel: tunnel handshake gate PASSED - $V's connector fetched a ticket, authenticated at the live relay and served." ;;
+    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the step is named above). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
+    2)
+      if [ "$FORCE" = 1 ]; then
+        echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
+      else
+        echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) - no gate identity enrolled on this machine (kosmos-relay deploy/release-gate.md) or no connector in the tarball. HOLDING. Enrol the gate identity, or pass --force after verifying remote access by hand." >&2
+        exit 2
+      fi ;;
+    *) echo "promote-channel: tunnel handshake gate returned an unexpected code ($TUNNEL_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
+  esac
 else
   # WINDOWS: derive the alias BEFORE anything is written, so a name that cannot be derived is a
   # refusal with prod untouched (the Mac derives it after the pointer write, below). The pointer's
