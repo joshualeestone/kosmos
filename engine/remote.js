@@ -553,7 +553,9 @@ function ensure(port) {
     // tunnel started in the retire wait would run on the key being deleted.
     const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
-    if (child) { status(); return; }   // samples the tunnel's last failure (kosmos#4277 review 22)
+    // Samples the tunnel's last failure (kosmos#4277 review 22). It also means a healthy board's
+    // backoff is reset every tick (status() does that on `up`), not only when a page asks.
+    if (child) { status(); return; }
     if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
@@ -665,6 +667,15 @@ function scheduleRestart() {
   }, backoffMs);
   /* A pending restart must not hold the board open on shutdown. */
   if (typeof restartTimer.unref === 'function') restartTimer.unref();
+}
+
+/* kosmos#4277 (reviews 12 and 23): a register that succeeded starts the tunnel itself, so a
+   relaunch the supervisor had pending (its flag AND its timer, which can outlive the register when
+   the identity is kept and nothing stopped the tunnel) is dropped: the register's start is not a
+   relaunch, and it must not wait for an old backoff to fire. */
+function registerTakesOver() {
+  restartPending = false;
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
 }
 
 function stopChild() {
@@ -1115,7 +1126,7 @@ async function setupComplete(code, name) {
   if (result.ok && macIdHere() !== before) fedSetStanding('');
   // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
   // while it was out; a register that fails leaves the pending relaunch for the next tick (review 12).
-  if (result.ok) { restartPending = false; ensure(localPort); }
+  if (result.ok) { registerTakesOver(); ensure(localPort); }
   /* #3889: cache this account's standing now. `setup complete` prints no JSON (setupRun never sets .data, so the
      branch that read result.data here never ran), and a new identity was just cleared to '' with a FRESH
      standing_at, so the poll would not re-ask for a whole TTL: the member-only federation UI read "not a member"
@@ -1869,7 +1880,7 @@ async function signinRegister(name) {
   if (macIdHere() !== before) stopChild();
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
-  restartPending = false;   // kosmos#4277: the register's start is not a relaunch (see setupComplete)
+  registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register

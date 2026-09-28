@@ -674,6 +674,30 @@ test('#4277: a restart timer firing during a register does not count the registe
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });
 
+test('#4277: a register that succeeds while a relaunch is still pending starts the tunnel now, and it is not counted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9451';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();   // backoff 1 s
+  remote.ensure(4360);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  // A quick rename (same Mac id, nothing stops the tunnel) returns while the relaunch is still pending.
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  process.env.FAKE_REGISTER_MS = '50';
+  const before = remote.restartCount();
+  try {
+    assert.equal(remote.supervisorState(), 'waiting', 'fixture: a relaunch must be pending when the register goes out');
+    const r = await remote.setupComplete('123456', 'theirs');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(remote.supervisorState(), 'alive', 'the register waited for the old backoff instead of starting the tunnel');
+    await until(() => remote.status().state === 'up', 'the tunnel to come up', 15000);
+    await new Promise((res) => setTimeout(res, 1500));   // past where the old 1 s timer would have fired
+    assert.equal(remote.restartCount(), before, 'the old relaunch timer fired after the register and was counted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
 test('#4277: the same, through the in-app sign-in register when it keeps this Mac\'s identity', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9448';
   remote.setOn(true);
