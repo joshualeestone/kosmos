@@ -237,6 +237,27 @@ function chk(ok, label, extra) {
       await p.waitForTimeout(300);
       const bare = await p.evaluate(() => ({ msg: document.getElementById('pj-room-msg').textContent, value: document.getElementById('pj-post').value }));
       chk(bare.msg === 'Say something first.' && bare.value === '@roomer ', 'Enter with only the mention sends nothing and says "Say something first."', JSON.stringify(bare));
+      // With only the mention AND a file waiting, the file names go AFTER the mention (the send is captured, not made).
+      await p.evaluate(() => {
+        attachList(ATTACH_ROOM).push({ id: 'att-4359', name: 'notes.pdf' });
+        window.__sent4359 = null;
+        window.__fetch4359 = window.fetch;
+        window.fetch = (url, opts) => {
+          if (/\/room$/.test(String(url)) && opts && opts.method === 'POST') { window.__sent4359 = JSON.parse(opts.body); return Promise.reject(new Error('captured by the check')); }
+          return window.__fetch4359(url, opts);
+        };
+      });
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(300);
+      const withFile = await p.evaluate(() => {
+        window.fetch = window.__fetch4359;
+        const list = attachList(ATTACH_ROOM); list.splice(0, list.length);
+        const out = window.__sent4359;
+        document.getElementById('pj-post').value = '@roomer ';
+        document.getElementById('pj-room-msg').textContent = '';
+        return out && { text: out.text, attachments: out.attachments };
+      });
+      chk(!!withFile && withFile.text === '@roomer notes.pdf' && JSON.stringify(withFile.attachments) === '["att-4359"]', 'with only the mention and a file waiting, the post reads "@roomer notes.pdf" and carries the file', JSON.stringify(withFile));
       await p.evaluate((id) => { const m = PJ_ROOM_POSTS.get(id); Object.assign(m, window.__was4359); document.getElementById('pj-room-msg').textContent = '';
         document.querySelector('#pj-reply .pj-replying-x').click(); }, secondId);
       chk(await p.evaluate(() => document.getElementById('pj-post').value) === '', 'x after that empties the box again');
