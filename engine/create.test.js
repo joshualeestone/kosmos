@@ -794,7 +794,12 @@ test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-temp.plist');
   fs.writeFileSync(leaked, '<plist/>');
   const calls = leftoverRunner(leaked);
-  const r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' });
+  const logged = [];
+  const origLog = console.log;
+  console.log = (...a) => { logged.push(a.join(' ')); };
+  let r;
+  try { r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' }); } finally { console.log = origLog; }
+  assert.ok(logged.some((l) => l.includes('removed a leftover startup job for leftover-temp') && l.includes(leaked)), 'the removal was not logged with its file');
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(bootedOut(calls), 'the leftover job was not booted out');
   // The one destructive call must target THIS agent's own label, and so must the verify.
@@ -815,6 +820,7 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   const calls = leftoverRunner(create.plistPath('leftover-ours'));
   const r = create.createAgent({ ...BINS, name: 'leftover-ours', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.doesNotMatch(r.because, /did not make/, 'our own plist was called a file Kosmos did not make');
   assert.match(r.because, /already set to start on this computer/);
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
 });
@@ -838,6 +844,22 @@ test('#4279: a bootout that does not take is still a refusal, not a creation', W
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it loaded a second job over one that would not leave');
   assert.ok(r.steps.some((s) => /would not leave/.test(s.label) && s.ok === false), 'the failed removal is not reported');
   assert.match(r.because, /removing it did not work/, 'the refusal does not say the cleanup was tried');
+});
+
+test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmos did not make', WIN_LAUNCHD, () => {
+  const own = create.plistPath('leftover-ownlocked');
+  fs.mkdirSync(nodePath.dirname(own), { recursive: true });
+  fs.writeFileSync(own, '<plist/>');
+  const dir = nodePath.dirname(own);
+  const mode = fs.statSync(dir).mode & 0o777;
+  leftoverRunner(own);
+  fs.chmodSync(dir, 0o000);
+  let r;
+  try { r = create.createAgent({ ...BINS, name: 'leftover-ownlocked', role: 'pm' }); }
+  finally { fs.chmodSync(dir, mode); fs.rmSync(own, { force: true }); }
+  if (process.getuid && process.getuid() === 0) return; // root reads through 000
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.doesNotMatch(r.because, /did not make/, 'our own unreadable plist was called a file Kosmos did not make');
 });
 
 test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {

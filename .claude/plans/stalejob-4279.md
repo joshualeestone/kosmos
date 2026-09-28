@@ -83,6 +83,15 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - The named-file refusal treats a stat error other than ENOENT as "a file is there" (it was read as none).
 - The gone branch's own weak premise is now stated below.
 
+## Review 6
+
+- An unreadable plist at OUR OWN path could get the "a startup file Kosmos did not make here" refusal,
+  which could lead someone to delete their own agent's plist; that message now excludes our own path
+  (pinned on the own-path test).
+- The verify comment claimed an exit-code check the code does not make; it now says only the message
+  text is checked.
+- The removal log line is pinned (console spy on the temp-plist test).
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

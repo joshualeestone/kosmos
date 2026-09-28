@@ -4379,10 +4379,11 @@ function createAgentInner(opts) {
     if (leftover) {
       let gone = false;
       try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); } catch { /* verify below either way */ }
-      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync):
-         exit 113, stderr `Could not find service "<label>" in domain for ...` (measured,
-         macOS 26, 2026-09-27). ONLY that throw means the bootout worked; any other throw
-         (a timeout, a failed exec) is "could not confirm", which refuses. */
+      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync);
+         measured on macOS 26, 2026-09-27: exit 113 with stderr `Could not find service
+         "<label>" in domain for ...`. Only the message text is checked (the exit code is
+         not): a throw carrying it means the bootout worked; any other throw (a timeout,
+         a failed exec) is "could not confirm", which refuses. */
       try {
         const again = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
         gone = !(again && again.ok !== false && String(again.stdout || '').trim());
@@ -4404,7 +4405,8 @@ function createAgentInner(opts) {
     const namedPath = named ? named[1].trim() : '';
     let namedExists = false;
     try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
-    if (!tried && namedExists) {
+    const namedIsOurs = Boolean(namedPath) && path.resolve(namedPath) === path.resolve(plistPath(name));
+    if (!tried && namedExists && !namedIsOurs) {
       return {
         outcome: OUTCOME.REFUSED,
         because: `something called ${shown} is already set to start on this computer, from a startup file Kosmos did not make here (${namedPath}). Pick another name, or remove that entry first.`,
