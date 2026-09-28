@@ -949,6 +949,9 @@ function leftoverJob(printed, ours) {
      naming a live plist elsewhere. A file that exists is also realpath'd, so a
      symlink in temp that points at a live plist outside it is judged by its target. */
   const resolved = path.resolve(loadedFrom);
+  /* Both spellings of `ours` are compared (resolved and realpath'd) on purpose: create reaches
+     this only when our plist is absent, where the two agree, but leftoverJob is exported and a
+     caller may pass an `ours` that exists. */
   let oursReal = path.resolve(ours);
   try { oursReal = fs.realpathSync.native(oursReal); } catch { /* ours may not exist yet */ }
   if (resolved === path.resolve(ours) || resolved === oursReal) return null;

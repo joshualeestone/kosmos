@@ -114,6 +114,15 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   and the step.
 - Anything present at the named path (not only a regular file) gets the refusal that names it.
 
+## Review 10
+
+- No blocker. A RELATIVE printed path's refusal message was untested; pinned (the isAbsolute guard's
+  removal reds).
+- The $HOME fixtures (needed because the SANDBOX is in temp) had only per-test cleanup; a `homeFixture`
+  helper also registers each for an exit-time cleanup that unlocks a chmod 000 folder first.
+- Not changed: the redundant own-path disjuncts in leftoverJob stay, since it is exported and a caller may
+  pass an `ours` that exists; a comment says so.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

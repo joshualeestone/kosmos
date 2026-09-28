@@ -766,6 +766,22 @@ test('a name a live session already answers to is refused, even with no folder',
 /* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
    The runner is stateful: `print` describes the job until `bootout` runs, then
    describes nothing, which is what launchctl does. */
+/* #4279: fixtures that must be OUTSIDE every temp root live under $HOME (this file's SANDBOX
+   is in temp). Each test removes its own in a finally; this exit hook is the backstop for a
+   hard-killed run, and it unlocks a chmod 000 folder before removing it. */
+const HOME_FIXTURES = [];
+function homeFixture(prefix) {
+  const d = fs.mkdtempSync(nodePath.join(os.homedir(), prefix));
+  HOME_FIXTURES.push(d);
+  return d;
+}
+process.on('exit', () => {
+  for (const d of HOME_FIXTURES) {
+    try { fs.chmodSync(d, 0o700); } catch { /* already gone */ }
+    try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
 function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null } = {}) {
   const calls = [];
   let loaded = true;
@@ -864,7 +880,7 @@ test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmo
 });
 
 test('#4279: a NON-own plist that exists but cannot be read is refused, and named, never called gone', WIN_LAUNCHD, () => {
-  const locked = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-foreign-'));
+  const locked = homeFixture('.kosmos-4279-foreign-');
   const foreign = nodePath.join(locked, 'com.kosmos.agent.leftover-foreign.plist');
   fs.writeFileSync(foreign, '<plist/>');
   const calls = leftoverRunner(foreign);
@@ -877,6 +893,21 @@ test('#4279: a NON-own plist that exists but cannot be read is refused, and name
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootout'), 'an unreadable plist was booted out');
   assert.match(r.because, /did not make/, 'an unreadable foreign plist got the "nothing else left of it" message');
   assert.ok(r.because.includes(foreign), 'the refusal does not name the file');
+});
+
+test('#4279: a RELATIVE printed path is refused with the generic message and never booted out', WIN_LAUNCHD, () => {
+  // A relative path that DOES resolve against the cwd, so only the isAbsolute guard keeps it from
+  // being stat'd and named as a file Kosmos did not make.
+  const real = nodePath.join(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rel-4279-')), 'com.kosmos.agent.leftover-relative.plist');
+  fs.writeFileSync(real, '<plist/>');
+  const rel = nodePath.relative(process.cwd(), real);
+  assert.ok(!nodePath.isAbsolute(rel) && fs.existsSync(rel), 'the fixture is not a live relative path');
+  const calls = leftoverRunner(rel);
+  let r;
+  try { r = create.createAgent({ ...BINS, name: 'leftover-relative', role: 'pm' }); } finally { fs.rmSync(nodePath.dirname(real), { recursive: true, force: true }); }
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'bootout'));
+  assert.match(r.because, /nothing else left of it/, 'a relative path was named as a file Kosmos did not make');
 });
 
 test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
@@ -914,7 +945,7 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   } finally { fs.rmSync(t, { force: true }); }
   assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
   // A `..` spelling that starts with a temp root but names a live plist elsewhere is NOT temp.
-  const live = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-live-'));
+  const live = homeFixture('.kosmos-4279-live-');
   try {
     const lp = nodePath.join(live, 'com.kosmos.agent.a.plist'); fs.writeFileSync(lp, '');
     const dotdot = '/tmp/..' + fs.realpathSync.native(lp);
@@ -935,7 +966,7 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
     assert.equal(create.leftoverJob(`\tpath = ${tmpLink}\n`, realOurs), null, 'a temp symlink to our own plist was treated as a leftover');
   } finally { fs.rmSync(tmpLink, { force: true }); fs.rmSync(oursDir, { recursive: true, force: true }); }
   // A plist we cannot STAT (a permission error, not a deletion) is not "gone".
-  const locked = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-locked-'));
+  const locked = homeFixture('.kosmos-4279-locked-');
   try {
     const inside = nodePath.join(locked, 'com.kosmos.agent.a.plist'); fs.writeFileSync(inside, '');
     fs.chmodSync(locked, 0o000);
@@ -944,7 +975,7 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
     }
   } finally { fs.chmodSync(locked, 0o700); fs.rmSync(locked, { recursive: true, force: true }); }
   // TMPDIR is not trusted: a present plist in a folder TMPDIR merely POINTS at is not a leftover.
-  const persistent = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-'));
+  const persistent = homeFixture('.kosmos-4279-');
   const saved = process.env.TMPDIR;
   try {
     const p = nodePath.join(persistent, 'com.kosmos.agent.a.plist'); fs.writeFileSync(p, '');
