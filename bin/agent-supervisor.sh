@@ -769,6 +769,7 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
+    _AGY_TRUSTED=""; _AGY_HOOKED=""   # #4417: set below only by this run's own checks, never inherited
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps
     # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
     #   --dangerously-skip-permissions : auto-approve tool requests (the claude/gemini/grok analog)
@@ -780,7 +781,8 @@ if [ -z "$adopt" ]; then
     # 2026-09-25), so pre-answer it here, before every launch. Best-effort, like
     # ensure-launch-trust.js below for Claude: if it cannot write, the prompt shows instead.
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agytrust.js" ] && [ -n "${NODE_BIN:-}" ]; then
-      "$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" >/dev/null || true  # stderr (why, if it could not) goes to the agent log
+      # stderr (why, if it could not) goes to the agent log; stdout is `trusted` only when it did (#4417's seed below).
+      _AGY_TRUSTED="$("$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" || true)"
     fi
     # #4043: agy's own hooks tell the board what it is doing (working / idle), in place of "Can't
     # tell". Before every launch, make the workdir's .agents/hooks.json carry Kosmos's one entry
@@ -797,23 +799,22 @@ if [ -z "$adopt" ]; then
     fi
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
+    # #4417: -P -F prints the new pane's id, taken at creation rather than looked up by session name afterwards.
+    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     unset _AGY_ARGS
     # #4417: agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
     # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
-    # ONLY when both hold, because an idle report never decays and nothing else would ever correct it:
-    #   - the hook is in place and on (_AGY_HOOKED, from agyhooks above): with no hook (a folder inside a git project,
-    #     a hooks.json left alone, the person's switch off) a seeded idle would stay on the card while agy works;
-    #   - the board's last Antigravity check found it signed in (agystatus.lastKnown): a signed-out agy sits on
-    #     Google's sign-in in this pane, waiting on the person, which is not idle.
-    # Sent as the new pane (its pane id). Of the pane's own env list, only the KOSMOS_*, AGENT_WORKFORCE_* and HOME
-    # entries are added (the launch token, port, world and store root the bridge reads). `auto`, so it never erases a
-    # deliberate blocked. Best-effort and bounded by the bridge's own timeout.
-    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "${_AGY_HOOKED:-}" = hooked ]; then
+    # ONLY when all three hold, because an idle report never decays and nothing else would ever correct it:
+    #   - the hook is in place and on (_AGY_HOOKED, from agyhooks above);
+    #   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust above);
+    #   - agystatus.lastKnown() has signedIn true.
+    # Sent as the new pane (its id from new-session). Of the pane's own env list, only the KOSMOS_*,
+    # AGENT_WORKFORCE_* and HOME entries are added (the launch token, port, world and store root the bridge reads).
+    # `auto`, so it never erases a deliberate blocked. Best-effort and bounded by the bridge's own timeout.
+    if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "$_AGY_HOOKED" = hooked ] && [ "$_AGY_TRUSTED" = trusted ] && [ -n "$_AGY_PANE" ]; then
       _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
-      _AGY_PANE="$("$TMUX_BIN" display-message -p -t "$SESSION" '#{pane_id}' 2>/dev/null || true)"
-      if [ "$_AGY_SIGNED" = signed-in ] && [ -n "$_AGY_PANE" ]; then
+      if [ "$_AGY_SIGNED" = signed-in ]; then
         _AGY_SEED_ENV=()
         for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
           case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
@@ -821,9 +822,9 @@ if [ -z "$adopt" ]; then
         env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
         unset _AGY_SEED_ENV _x
       fi
-      unset _AGY_PANE _AGY_SIGNED
+      unset _AGY_SIGNED
     fi
-    unset _AGY_HOOKED
+    unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
     unset _AGY_BRIDGE
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's

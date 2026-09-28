@@ -156,7 +156,7 @@ function writeKeepingMode(target, body) {
  * ONLY key of theirs that survives there; anything else they add to `kosmos-report` is replaced on the
  * next launch (their own hooks belong under their own names, which are never touched).
  * A symlinked hooks.json is written through to its target, keeping the link and the file's mode. Returns
- * { ok, changed, why } and never throws.
+ * { ok, changed, why } plus, when ok, `enabled` (the entry is on); never throws.
  */
 function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   if (!workdir || !nodeBin || !bridge) return { ok: false, changed: false, why: 'missing workdir, node or bridge' };
@@ -219,9 +219,9 @@ if (require.main === module) {
   }
   const r = ensureHooks(workdir, nodeBin, bridge, tools);
   if (!r.ok) process.stderr.write('agyhooks: ' + r.why + '\n');
-  /* #4417: stdout says `hooked` only when the hook is in place and on; the supervisor reads it to decide whether a
-     launch-time idle can be trusted. Anything else (a git project, a file left alone, the entry off) prints nothing. */
-  if (r.ok && r.enabled) process.stdout.write('hooked\n');
+  /* #4417: stdout says `hooked` only when the hook is in place and on; the supervisor reads it to decide whether to send
+     a launch-time idle. Anything else (a git project, a file left alone, the entry off) prints nothing. */
+  if (r.ok && r.enabled) fs.writeSync(1, 'hooked\n');   // sync: process.exit next could drop an async pipe write
   process.exit(0);
 }
 

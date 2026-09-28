@@ -78,7 +78,7 @@ test('#4417: agy\'s own hook map is unchanged: the launch event is Kosmos\'s, an
   assert.equal(bridge.reportFor('SessionStart', null), null, 'control: an event nobody wired is still ignored, not guessed at');
 });
 
-test('#4417: the supervisor seeds idle only for a hook that is in place and on, and an agy last found signed in (SOURCE pin)', () => {
+test('#4417: the supervisor seeds idle only with the hook on, the folder trusted and a confirmed sign-in, as the new pane (SOURCE pin)', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const at = sh.indexOf('elif [ "$RUNNER" = antigravity ]; then');
   assert.ok(at > -1, 'the antigravity branch moved: re-anchor this pin');
@@ -90,12 +90,16 @@ test('#4417: the supervisor seeds idle only for a hook that is in place and on, 
   assert.ok(seed > -1, 'the supervisor no longer tells the board an agy agent is up');
   assert.ok(launch > -1 && seed > launch, 'the seed must follow the launch: before it there is no pane to report as');
   const gate = branch.slice(launch, seed);
-  assert.match(gate, /\[ "\$\{_AGY_HOOKED:-\}" = hooked \]/, 'the seed is sent with no hook in place: an idle that never decays and nothing corrects');
-  assert.match(gate, /require\(process\.argv\[1\] \+ "\/agystatus"\)\.lastKnown\(\); if \(r && r\.signedIn === true\)/, 'the seed is sent for an agy that may be waiting on sign-in');
-  assert.match(gate, /if \[ "\$_AGY_SIGNED" = signed-in \] && \[ -n "\$_AGY_PANE" \]; then/);
-  assert.match(gate, /_AGY_PANE="\$\("\$TMUX_BIN" display-message -p -t "\$SESSION" '#\{pane_id\}'/, 'the report is not sent as the new pane');
+  assert.match(branch, /_AGY_TRUSTED=""; _AGY_HOOKED=""/, 'a gate value could be inherited from the environment rather than this run');
+  assert.match(branch, /_AGY_PANE="\$\("\$TMUX_BIN" new-session -d -s "\$SESSION" -P -F '#\{pane_id\}' -c "\$WORKDIR"/,
+    'the pane id is not taken from new-session itself (a lookup by name can resolve another agent\'s session)');
+  assert.match(gate, /\[ "\$_AGY_HOOKED" = hooked \] && \[ "\$_AGY_TRUSTED" = trusted \] && \[ -n "\$_AGY_PANE" \]; then/,
+    'the seed is sent with no hook in place, or while agy asks to trust the folder: an idle that never decays');
+  assert.match(gate, /require\(process\.argv\[1\] \+ "\/agystatus"\)\.lastKnown\(\); if \(r && r\.signedIn === true\)/, 'the seed is sent for an agy never signed in on this Mac');
+  assert.match(gate, /if \[ "\$_AGY_SIGNED" = signed-in \]; then/);
   assert.match(gate, /case "\$_x" in KOSMOS_\*=\*\|AGENT_WORKFORCE_\*=\*\|HOME=\*\) _AGY_SEED_ENV\+=\("\$_x"\) ;; esac/,
-    'the seed forwards more than the bridge reads (the pane also carries API keys)');
+    'the seed adds more of the pane\'s env list than the bridge reads (the list also carries API keys)');
+  assert.match(branch, /_AGY_TRUSTED="\$\("\$NODE_BIN" "\$_eng\/agytrust\.js" "\$WORKDIR" \|\| true\)"/);
   assert.ok(branch.indexOf('unset _AGY_BRIDGE') > seed, 'the bridge path is unset before the seed can use it');
 });
 
@@ -116,6 +120,20 @@ test('#4417: agyhooks says `hooked` only for a hook in place and on; a git proje
   const r = run(repo);
   assert.equal(r.status, 0, 'a hook we could not write must never stop the launch');
   assert.equal(r.stdout.trim(), '', 'a folder inside a git project has no hook, and the supervisor would still seed idle');
+});
+
+test('#4417: agytrust says `trusted` only when the folder is in agy\'s trusted list', () => {
+  const { spawnSync } = require('node:child_process');
+  const os = require('node:os');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-agyhome-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-trust-'));
+  const run = (d) => spawnSync(process.execPath, [path.join(__dirname, 'agytrust.js'), d], { encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_AGY_HOME: home } });
+  const ok = run(dir);
+  assert.equal(ok.status, 0);
+  assert.equal(ok.stdout.trim(), 'trusted', 'control: a folder it could trust says so');
+  const missing = run(path.join(dir, 'no-such-folder'));
+  assert.equal(missing.status, 0, 'a folder it cannot trust must never stop the launch');
+  assert.equal(missing.stdout.trim(), '', 'a folder agy will ask about says `trusted`, and the supervisor would seed idle over the prompt');
 });
 
 test('#4417: the instrument is reading the real files', () => {
