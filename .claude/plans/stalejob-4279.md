@@ -92,6 +92,14 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
   text is checked.
 - The removal log line is pinned (console spy on the temp-plist test).
 
+## Review 7
+
+- No blocker or warning; every earlier fix re-verified by mutation.
+- The `\tpath = ` regex was written twice (leftoverJob and the named-file refusal); it is one helper,
+  `printedPath`, now.
+- Not changed: tempRoots' one-push-per-line shape is deliberate, since the #1732 inventory counts one
+  literal per row; a comment says so.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

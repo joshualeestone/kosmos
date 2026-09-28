@@ -923,7 +923,7 @@ function tempRoots() {
   const roots = [];
   roots.push('/private/tmp');
   roots.push('/private/var/folders');
-  return roots;
+  return roots; // one literal per line: the #1732 inventory counts one match per row
 }
 
 /* #4279: whether a LOADED job for a name is a leftover we may boot out, from
@@ -932,12 +932,17 @@ function tempRoots() {
 /* #4279: whether p is the root or inside it, by whole segments: /tmpfoo is not under /tmp. */
 function underRoot(p, root) { return p === root || p.startsWith(root + '/'); }
 
-function leftoverJob(printed, ours) {
-  // The first-level `\tpath = ` line, checked against real `launchctl print` output
-  // on macOS 26 (2026-09-27); nested lines carry two tabs.
+/* #4279: the plist a `launchctl print` names: its first-level `\tpath = ` line, checked
+   against real output on macOS 26 (2026-09-27); nested lines carry two tabs. The ONE
+   reader of that format, used by leftoverJob and by the refusal that names the file. */
+function printedPath(printed) {
   const m = /^\tpath = (.+)$/m.exec(String(printed || ''));
-  if (!m) return null;
-  const loadedFrom = m[1].trim();
+  return m ? m[1].trim() : '';
+}
+
+function leftoverJob(printed, ours) {
+  const loadedFrom = printedPath(printed);
+  if (!loadedFrom) return null;
   if (!path.isAbsolute(loadedFrom)) return null;
   /* Both checks use the NORMALIZED path, never the raw string launchd reports: a
      `/tmp/../Users/...` spelling would otherwise pass the temp-root prefix test while
@@ -4401,8 +4406,7 @@ function createAgentInner(opts) {
   }
   if (loaded) {
     const tried = steps.find((s) => s.ok === false && /would not leave/.test(s.label || ''));
-    const named = /^\tpath = (.+)$/m.exec(printed);
-    const namedPath = named ? named[1].trim() : '';
+    const namedPath = printedPath(printed);
     let namedExists = false;
     try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
     const namedIsOurs = Boolean(namedPath) && path.resolve(namedPath) === path.resolve(plistPath(name));
