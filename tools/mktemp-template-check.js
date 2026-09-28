@@ -23,12 +23,13 @@
 const fs = require('node:fs');
 
 /* A command position: `$(`, a backtick, line start, after ; & | ! { ( ) (a `case` arm), or
-   after a shell keyword. Then any wrappers (`command`, `env`, `exec`, `sudo`, `nice`, `time`,
-   `nohup`, `xargs`, with their options) and `VAR=value` assignments, then the binary, by
+   after a shell keyword, or at the start of a quoted string (which counts only where that string is
+   a script: see codeMask). Then any wrappers (`command`, `env`, `exec`, `sudo`, `nice`, `time`,
+   `nohup`, `xargs`, `timeout`, `stdbuf`, with their options) and `VAR=value` assignments, then the binary, by
    name or by path (`/usr/bin/mktemp`). */
-const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b)`;
+const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b|["'])`;
 const OPT = String.raw`(?:\s+-[\w-]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
-const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs)` + OPT + String.raw`\s+)*`
+const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs|stdbuf)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
   + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
 /* The name may be quoted (`"mktemp" -d` runs mktemp all the same). */
 const BIN = String.raw`(["']?)(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])`;
@@ -154,9 +155,16 @@ function bareCalls(text) {
       if (/\bcommand\s+-[A-Za-z]*[vV]/.test(m[0])) continue;
       // The word itself must be code: a mention in a string or a comment is not a call. A quoted
       // name is judged by what precedes its opening quote.
-      let at = m.index + m[0].search(/["']?(?:\/[\w./-]*\/)?mktemp(?![\w.-])/);
-      if (line[at] === '"' || line[at] === "'") { if (at > 0 && !mask[at - 1] && !/\s/.test(line[at - 1])) continue; at = -1; }
-      if (at >= 0 && !mask[at]) continue;
+      const qn = m[0].search(/(["'])(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])/);
+      let at;
+      if (qn >= 0) {
+        // A quoted NAME ("mktemp" -d): it is code when what comes right before the quote is code.
+        at = m.index + qn;
+        if (at > 0 && !mask[at - 1] && !/\s/.test(line[at - 1])) continue;
+      } else {
+        at = m.index + m[0].search(/mktemp(?![\w.-])/);
+        if (!mask[at]) continue;
+      }
       if (!hasTemplate(argsAt(line, m.index + m[0].length))) hits.push({ line: start + 1, text: line.trim() });
     }
   }

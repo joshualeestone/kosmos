@@ -196,8 +196,8 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # `curl | sh` would have to fetch the thing to check the thing, over the same
    # channel, so it has no independent anchor. Only the pkg does.
    set -e
-   # kosmos#4298: a path template, because mktemp with none ignores TMPDIR. sudo -H
-   # strips TMPDIR here, so a real install falls back to getconf, the same per-user
+   # kosmos#4298: a path template, because mktemp with none ignores TMPDIR. sudo resets
+   # the environment here (env_reset), which strips TMPDIR, so a real install falls back to getconf, the same per-user
    # temp dir a bare mktemp used; the test harness sets TMPDIR and keeps it contained.
    # The || true keeps set -e from aborting when getconf fails, so /tmp is the fallback.
    _vt="${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)}"

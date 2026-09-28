@@ -28,7 +28,10 @@ lands under TMPDIR, and the name says which script left it.
   script already clean up where they did before; a leftover in the run root is named by script.
 - Include non-test scripts the suite runs (release.sh, verify-served.sh, build scripts, the pkg
   postinstall): the measurement showed they leak during tests. The change is the location/name of a
-  temp file only; in production these land in the same real temp root as before (TMPDIR is set there).
+  temp file only. With TMPDIR set (a terminal) they land in the same real temp root as before. With it
+  unset (ssh, launchd, cron) they now land in the shared /tmp rather than the per-user dir a bare mktemp
+  used; mktemp still makes files 0600 and dirs 0700, so nothing becomes readable by others. Only the
+  postinstall, which always runs with TMPDIR stripped, gets the getconf fallback.
 - postinstall: template only. Its real leak (EXIT trap skipped by `exec /bin/sh`) is installer
   behaviour and a separate card; the block is a single-quoted sh -c arg, so no apostrophes added.
   `sudo -u -H` strips TMPDIR in a real install, so the template falls back to
@@ -49,9 +52,10 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 24 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  of 28 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
   `command`/`env`/`sudo`/`nice`/`VAR=` prefixes, `if`/`{`/a `case` arm, `-dt`, a continued line,
-  `bash -c`/`sh -ec`/`eval`/`trap` strings, `-t "$(basename "$0")"`), templated calls, messages,
+  `bash -c`/`sh -ec`/`eval`/`trap` strings, including one that starts with mktemp, `timeout`,
+  a quoted `"mktemp"`, `-t "$(basename "$0")"`), templated calls, messages,
   comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
   getconf dir; getconf failing under set -e: falls back, no abort).
 - Leftovers in the per-run root, by name, fixed at the test: test-cut-parallel-region.sh (7

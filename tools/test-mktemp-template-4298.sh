@@ -66,10 +66,13 @@ eval 'u=$(mktemp -d)'
 trap 'v=$(mktemp)' EXIT
 w="$(mktemp -d -t "$(basename "$0")")"
 "mktemp" -d >/dev/null
+bash -c 'mktemp -d >/dev/null'
+eval "mktemp -d"
+timeout 5 mktemp -d >/dev/null
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 "
-[ "$got" = "$want" ] && ok "CONTROL: all 25 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 "
+[ "$got" = "$want" ] && ok "CONTROL: all 28 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.
@@ -86,6 +89,8 @@ echo 'if mktemp -d' # while mktemp -t x
 bash -c 'q=$(mktemp -d "${TMPDIR:-/tmp}/z.XXXXXXXXXX")'
 grep -c 'mktemp -d' /dev/null
 if command -v mktemp >/dev/null 2>&1; then :; fi
+echo "mktemp -d failed" >&2
+x='mktemp'
 y="$(mktemp -d "${TMPDIR:-/tmp}/$(basename "$0").XXXXXXXXXX")"
 p="$(mktemp -d \
   "${TMPDIR:-/tmp}/y.XXXXXXXXXX")"
@@ -107,7 +112,7 @@ if [ -n "$vt_line" ]; then
   got="$(TMPDIR= /bin/sh -ec "$vt_line"'; printf %s "$_vt"')"
   [ "$got" = "$want_dir" ] && ok "installer arm: with TMPDIR stripped the verify dir is the per-user temp dir ($want_dir)" \
     || bad "installer arm: with TMPDIR stripped _vt is [$got], want [$want_dir]"
-  # A getconf that fails: shadow the absolute path with a function is impossible, so run the
+  # A getconf that fails: shadowing the absolute path with a function is impossible, so run the
   # same line with the path swapped for /usr/bin/false. It must not abort under set -e.
   fail_line="$(printf '%s' "$vt_line" | sed 's#/usr/bin/getconf#/usr/bin/false#')"
   got="$(TMPDIR= /bin/sh -ec "$fail_line"'; printf "ok[%s]" "$_vt"' 2>/dev/null)"
