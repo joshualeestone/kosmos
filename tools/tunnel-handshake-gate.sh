@@ -90,8 +90,12 @@ reachable || cannot "$UNREACH is not reachable from here, so this run says nothi
 # An earlier gate's connector still running (its run was SIGKILLed, so its EXIT trap never ran)
 # would take the gate's address back on its next reconnect, and a visit would be answered by
 # THAT binary: a false PASS for this one. Refuse to judge while one is alive.
-stale="$(pgrep -f 'run --state-dir [^ ]*/tunnel-gate\.[A-Za-z0-9]+/state' 2>/dev/null | tr '\n' ' ')"
-[ -n "$stale" ] && cannot "an earlier gate connector is still running (pid ${stale% }); stop it first"
+# Two shapes: an earlier GATE run's connector (its copy under a tunnel-gate.* temp dir), and a
+# connector somebody started by hand on the enrolled state dir itself (the same identity, so it
+# would contend for the address just the same). The state path is escaped for the regex.
+state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+stale="$(pgrep -f "run --state-dir ([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/state|$state_re/?)( |\$)" 2>/dev/null | tr '\n' ' ')"
+[ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
 if [ -n "$TARBALL" ]; then

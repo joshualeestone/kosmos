@@ -133,7 +133,19 @@ tarball_case "--tarball that does not exist -> CANNOT TELL" 2 "no such tarball" 
 bash -c 'exec -a "kosmos-tunnel run --state-dir /nowhere/tunnel-gate.Stale1/state --coordinator x" sleep 30' &
 STALE=$!
 sleep 0.3
-run "an earlier gate connector still running -> CANNOT TELL" 2 "an earlier gate connector is still running" up ok
+run "an earlier gate connector still running -> CANNOT TELL" 2 "gate's identity is still running" up ok
+{ kill "$STALE"; wait "$STALE"; } 2>/dev/null
+# A connector started by hand on the enrolled state dir itself holds the same identity.
+bash -c "exec -a 'kosmos-tunnel run --state-dir $W/state --coordinator x' sleep 30" &
+STALE=$!
+sleep 0.3
+run "a hand-started connector on the gate's state -> CANNOT TELL" 2 "gate's identity is still running" up ok
+{ kill "$STALE"; wait "$STALE"; } 2>/dev/null
+# Control: a connector on a DIFFERENT state dir (a prefix of the gate's name) is not the gate's.
+bash -c "exec -a 'kosmos-tunnel run --state-dir $W/state-other --coordinator x' sleep 30" &
+STALE=$!
+sleep 0.3
+run "control: another Mac's connector does not hold the gate" 0 "tunnel-gate: PASS" up ok
 { kill "$STALE"; wait "$STALE"; } 2>/dev/null
 
 # A renewed certificate is carried back into the enrolled state dir (the connector runs on a
@@ -152,5 +164,5 @@ if [ "$left" = 0 ]; then pass=$((pass + 1)); echo "  ok    no connector left run
 else fail=$((fail + 1)); echo "  FAIL  $left stub connector(s) left running"; pkill -f "kosmos-gate-stub-$TAG"; fi
 
 echo "test-tunnel-handshake-gate: $pass passed, $fail failed"
-# 21 = every row above; equal to the count so a dropped row cannot pass.
-[ "$fail" -eq 0 ] && [ "$pass" -eq 21 ]
+# 23 = every row above; equal to the count so a dropped row cannot pass.
+[ "$fail" -eq 0 ] && [ "$pass" -eq 23 ]
