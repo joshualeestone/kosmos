@@ -65,6 +65,51 @@ const ALL_SKIP_OK = {
 // in it. Every entry names the card that owns it. Names are as node's spec reporter prints them;
 // a failing SUBTEST also marks its parent failing, so list the parent's name as well.
 const KNOWN_RED = {
+  'engine/create.test.js': { card: '#4269', tests: [
+    '#740: a two-word capitalised name is shown as typed and is one hyphenated machine name; nothing is stripped',
+    'creating an agent writes its folder, its instructions and its startup job',
+    'the session is claimed for Kosmos, and claimed as ITSELF, at every start',
+    'the agent is started the same way it will be started every time after',
+    'no COMMAND is handed to a shell to reinterpret',
+    'an agent that will not start is reported as PARTIAL, not as created',
+    'an existing agent is never quietly overwritten',
+    'a name a live session already answers to is refused, even with no folder',
+    'a machine we cannot ask about running agents is refused, not risked',
+    'the board can read the identity the creation writes, for every role',
+    'an agent is refused when the programs it is made of are not on this machine',
+    'a write that fails stops the creation instead of loading a job that cannot work',
+    'the refusals that protect a name are each reachable and each tested',
+    'the startup script, actually run, never kills a session that is not ours',
+    'the startup script, actually run, adopts a healthy agent instead of restarting it',
+    'the startup script, actually run, hands the pane its account and its board, and nothing when they are unset (#587)',
+    'a creation that fails leaves nothing behind, so the same name can be tried again',
+    'a name whose startup job is loaded with nothing on disk is refused by name',
+    'a name that shares a KEY with a live session is refused, not just an identical one',
+    'the supervisor is installed once and shared, not copied per agent',
+    'a supervisor that cannot be installed stops the creation',
+    'a supervisor missing from the app says so, instead of inviting a retry',
+    'the supervisor trims its own log rather than growing it forever',
+    'a capitalised name makes its folder, job and session under the LOWER-CASE name',
+    'and it is CALLED Casey: the instruction file and the stored record both say so',
+    'the board reads the typed name back, and keeps reading it after the file is edited',
+    'two spellings of one name are ONE agent, not two',
+    'custom instructions are written verbatim with a trailing newline, and the role template is not',
+    '#591: an agent made from pasted instructions carries the working rules under their own heading, and the words come first',
+    'an agent made from a role is taught how to work, not only what it is',
+    'nothing in an agent boot file breaks the rule that boot file states',
+    'the defaults follow a person\'s own words, after them and under their own heading (#591)',
+    'a role-made boot file is nowhere near the size its reader refuses',
+    'a chosen label lands in the profile only on a completed creation',
+    'the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs',
+    'creating own without a label is a gating refusal, never a default',
+    'describe-it-yourself carries the operating defaults in its own body, once, edited or not',
+    'an agent made onto a project is born with the block, so the later sync writes nothing (#323)',
+    'every agent is born knowing who it reports to, identically on both paths, and the file follows the record (#336)',
+    '#3564: a swarm is born with its settings and its block; an ordinary agent gets neither',
+  ] },
+  'engine/remove.test.js': { card: '#4269', tests: [
+    'a creation that did not record drops a stale record for its name (#169)',
+  ] },
   'engine/projects.win32-reveal.test.js': { card: '#4257', tests: [
     'openFile on Windows hands a document to File Explorer as one quoted path, after its own gates',
     'SAFETY 1 through the project route: an agent-written .bat is SHOWN, never run, and the answer says why',
@@ -216,8 +261,10 @@ function main() {
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
     const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
-      const lines = output.split('\n').filter((l) => /^\s*✖|Error/.test(l));
-      for (const l of lines.slice(0, 40)) console.log('    ' + l.trim());
+      // Every failing name (a KNOWN_RED entry is copied from these), then the first errors.
+      for (const n of failing) console.log('    ✖ ' + n);
+      const errors = output.split('\n').filter((l) => /Error/.test(l));
+      for (const l of errors.slice(0, 20)) console.log('    ' + l.trim());
     }
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
