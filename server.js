@@ -1025,12 +1025,6 @@ const attachments = require('./engine/attachments');
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
 const feedpublish = require('./engine/feedpublish');
-/* ⚠️ THE SAME MODULE UNDER A SECOND NAME, and it is not a convenience. The
-   thread handler builds a local `messages` array for its payload, which shadows
-   this binding for the whole of that scope, so `messages.owesReply` in there
-   would be a property of an array. Naming it once here beats a rename inside
-   the handler that would touch a payload key a screen reads. */
-const messageLog = messages;
 const os = require('node:os');
 
 /**
@@ -13085,6 +13079,15 @@ const server = http.createServer((req, res) => {
     const reach = chat.addressable(name, roster);
     const presence = reach.ok ? 'on' : (!Array.isArray(roster) ? 'unsure' : 'off');
     const presenceBecause = reach.ok ? null : reach.because;
+    /* #4340: from THIS thread's own rows, not messages.owesReply. That reads the `kosmos msg` / room log, where a
+       person's DM and the agent's `kosmos reply` never are: a DM never made it owe, and a colleague's message
+       could make it owe under a visible answer. The stored rows (before the question/account rows are added,
+       which are Kosmos's own and not a reply), matched on `name`, the key the thread was read under: readThread
+       refuses a file whose stored agent differs, so every agent row it returns carries exactly that name. A
+       thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
+       dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
+       it (review iteration 7). */
+    const owes = chat.dmOwes(messages, name);
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
@@ -13102,7 +13105,6 @@ const server = http.createServer((req, res) => {
      * the vocabulary the composer uses ('unsure'), so a second spelling of it
      * would be two derivations of one fact again.
      */
-    const owes = messageLog.owesReply(name);
     /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
        as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
        banner fields (asking/question/…) below are unchanged, so Mona's banner
@@ -13166,10 +13168,9 @@ const server = http.createServer((req, res) => {
          removed it, but this box (#5) is a distinct one-to-one surface Josh kept.
          ⚠️ IT RIDES HERE RATHER THAN ON THE STATUS PAYLOAD: it is a fact about
          this conversation and the board has no line to draw it on.
-         🛑 AND IT IS `owesReply` ON THE MODULE, WHICH IS SHADOWED IN THIS
-         SCOPE. `messages` here is the local array being sent; the module of
-         the same name is not reachable by that identifier inside this handler,
-         so it is captured under its own name at the top of the file. */
+         🛑 #4340: computed from THIS thread's rows (chat.dmOwes), not from the
+         `kosmos msg` / room log (messages.owesReply), which never holds a
+         person's DM or the agent's `kosmos reply`. */
       owes,
       presence,
       presenceBecause,
