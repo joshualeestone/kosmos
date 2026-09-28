@@ -32845,6 +32845,7 @@ function openDetail(sessionName, section, fromProject) {
   // #4406: and a previous agent's loading line or Try again never shows on this one (its own load re-shows them).
   document.getElementById('d-instr-loading').hidden = true;
   document.getElementById('d-instr-retry-row').hidden = true;
+  document.getElementById('d-instr').placeholder = '';
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
@@ -35239,7 +35240,9 @@ function setWritesOffered(a, tied) {
   const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
-    if (el) el.disabled = !tied;
+    /* #4406: the instructions box and Save also wait for their content. This runs on every 5 s poll, and turning
+       them on mid-load left an empty, editable box whose typing the landing load then replaced. */
+    if (el) el.disabled = !tied || ((id === 'd-instr' || id === 'd-instr-save') && !INSTR_READY);
   }
   const fileBtn = document.getElementById('d-file-btn');
   if (fileBtn) { if (tied) fileBtn.removeAttribute('aria-describedby'); else fileBtn.setAttribute('aria-describedby', 'd-untied'); }
@@ -35247,7 +35250,7 @@ function setWritesOffered(a, tied) {
   if (!tied) {
     // Clear, don't just disable. A disabled textarea still SHOWS the text.
     const box = document.getElementById('d-instr');
-    if (box) box.value = '';
+    if (box) { box.value = ''; box.placeholder = ''; }   // #4406: no "Loading" for a load this card will not make
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
@@ -35455,8 +35458,6 @@ async function loadInstructions(sessionName) {
     // Now that there is something real in the box, the controls may match it.
     box.disabled = false;
     saveBtn.disabled = false;
-    // #4406: Try again moved focus to the status line, which this load empties; the box is where it belongs now.
-    if (document.activeElement === msg) box.focus();
     const foot = document.getElementById('d-instr-foot');
     foot.hidden = false;
     // Say that the previous version is kept, and where. A safety net nobody
@@ -35502,6 +35503,9 @@ async function loadInstructions(sessionName) {
       }
     }
     renderStale(data.staleness);
+    /* #4406: Try again moved focus to the status line, which this load rewrites: the box when it ended editable,
+       else the line stays (never the page). */
+    if (document.activeElement === msg && !box.disabled) box.focus();
     loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
@@ -35937,7 +35941,7 @@ document.getElementById('d-instr-prev-load').addEventListener('click', async () 
     return;
   }
   box.value = data.text || '';
-  msg.textContent = 'This is the version from before the last change. Nothing is saved until you press Save.';
+  msg.textContent = 'This is the kept previous version. Nothing is saved until you press Save.';
   box.focus();
 });
 document.getElementById('d-instr-save').addEventListener('click', async () => {

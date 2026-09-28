@@ -103,3 +103,16 @@ him the way back (the previous version), which is the part that matters.
   avoids everywhere. What would change it: letting Save replace a refused file, which is its own decision.
 - NIT taken: the new route wraps readPrevious in try/catch like the instructions GET beside it. Left: the
   UTF-8 round-trip check is written twice (inspect and readPrevious); both are one line.
+
+## Review round 5 (opus, 16:21)
+- BLOCKER: the 5 s poll re-offered the card's writes through setWritesOffered and turned the box and Save
+  ON mid-load, so a slow load (the restart case this card is about) gave an empty, editable box whose typing
+  the landing load replaced. The box and Save now also wait for INSTR_READY there. The loading and failed-load
+  arms now wait past a real poll tick and assert the box and Save are still off.
+- The untied reset and openDetail clear the placeholder, so no card says "Loading" for a load it will not make.
+- An empty kept file (a failed backup write) is not offered as a previous version (engine test with a
+  control), and the restore says "the kept previous version" rather than naming which change it came before.
+- NITs taken: focus after Try again moves to the box only when the load leaves it editable; "nothing written"
+  counts every non-GET request to /instructions; the check's request listeners are removed after use; the
+  check closes first run for sure before its first click (an existing flake: Escape raced the overlay).
+- The 6g validation after round 4 was stopped before it finished: this round's blocker needed code changes.

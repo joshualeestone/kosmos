@@ -1644,3 +1644,16 @@ test('#4406: a missing instruction file still says its previous version is kept,
   fs.rmSync(path.join(dir, 'CLAUDE.md.previous'));
   assert.equal(instructions.read(name).hasPrevious, false, 'CONTROL: nothing kept, nothing offered');
 });
+
+test('#4406: an empty kept previous version is not offered as one', () => {
+  const name = 'prev4406d';
+  const dir = path.join(ROOT, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Mine\n\nThe words I wrote for this agent.\n');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md.previous'), '  \n');
+  const got = instructions.readPrevious(name);
+  assert.equal(got.exists, false);
+  assert.equal(got.text, '');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md.previous'), '# Kept\n\nWords from before, kept.\n');
+  assert.equal(instructions.readPrevious(name).exists, true, 'CONTROL: a kept version with words is offered');
+});

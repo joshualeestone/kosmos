@@ -618,6 +618,8 @@ function readPrevious(agent) {
     if (!Buffer.from(text, 'utf8').equals(got.buf)) {
       return { exists: false, text: '', because: 'the previous version is not UTF-8 text, so it cannot be shown here' };
     }
+    // An empty kept file (a backup write that failed half way) is nothing to put back.
+    if (!text.trim()) return { exists: false, text: '', because: 'the kept previous version is empty' };
     return { exists: true, text, because: null };
   } catch (err) {
     return { exists: false, text: '', because: (err && err.message) || 'the previous version could not be read' };
