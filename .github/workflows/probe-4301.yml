@@ -28,7 +28,14 @@ jobs:
             ( while true; do node --test engine/win32apply.test.js < /dev/null > /dev/null 2>&1; done ) &
           done
           for i in 1 2; do
-            node --test engine/win32apply.test.js < /dev/null > full.txt 2>&1; echo "LOAD ${{ matrix.load }} pass $i exit $?"
-            grep -E "^[✔✖] .*\(([0-9.]+)ms\)$" full.txt | awk -v L=${{ matrix.load }} -v P=$i '{ match($0, /\(([0-9.]+)ms\)$/, m); d=substr($0, RSTART+1, RLENGTH-4); if (d+0 > 8000) printf "LOAD %s pass %s SLOW %.0fms %s\n", L, P, d, substr($0, 1, 110) }'
-            grep -E "^ℹ (tests|pass|fail|duration_ms)" full.txt | sed "s/^/LOAD ${{ matrix.load }} pass $i /"
+            node --test engine/win32apply.test.js < /dev/null > full.txt 2>&1 && rc=0 || rc=$?
+            echo "LOAD ${{ matrix.load }} pass $i exit $rc"
+            node -e '
+              const t = require("fs").readFileSync("full.txt", "utf8").replace(/\r/g, "");
+              for (const l of t.split("\n")) {
+                const m = l.match(/^([✔✖]) (.+) \(([\d.]+)ms\)$/);
+                if (m && Number(m[3]) > 8000) console.log(`LOAD ${process.argv[1]} pass ${process.argv[2]} SLOW ${Math.round(m[3])}ms ${m[1]} ${m[2].slice(0, 110)}`);
+              }
+              for (const l of t.split("\n")) if (/^ℹ (tests|pass|fail|duration_ms) /.test(l)) console.log(`LOAD ${process.argv[1]} pass ${process.argv[2]} ${l}`);
+            ' "${{ matrix.load }}" "$i"
           done
