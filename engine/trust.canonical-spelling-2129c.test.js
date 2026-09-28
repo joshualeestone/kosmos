@@ -30,7 +30,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-canon-2129c-')));
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-canon-2129c-')));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -62,7 +62,7 @@ test('canonicalOnDisk resolves a symlink to its target (the property realpath al
   fs.mkdirSync(real, { recursive: true });
   const link = path.join(SANDBOX, `link${n}`);
   fs.symlinkSync(real, link);
-  assert.equal(canonicalOnDisk(link), fs.realpathSync(link), 'symlinks resolve like realpath');
+  assert.equal(canonicalOnDisk(link), fs.realpathSync.native(link), 'symlinks resolve like realpath');
 });
 
 test('#2129/#5: canonicalOnDisk equals what the RUNNER looks up (process.cwd), where realpath does NOT', { skip: !CI_FS && 'case-sensitive FS' }, () => {

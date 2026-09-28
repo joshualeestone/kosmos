@@ -65,8 +65,17 @@ const create = require('./create');
  * Claude at `~/.local/bin/claude`. A test that passes because of what happens
  * to be installed is not testing the thing it names. Every creation here passes
  * its own, and the refusal has a test of its own below.
+ *
+ * #4269: ON A WINDOWS HOST those POSIX paths do not exist (`/bin/echo` is
+ * `C:\bin\echo`), so creation correctly REFUSED every fixture with "we could not
+ * find Claude Code" and forty-odd tests failed describing a harness, not the
+ * product. `winBin` swaps in a real System32 program of the same role (a distinct
+ * one per runner, for the reason CODEX_BIN below states); nothing here launches
+ * it, the win32 stubs further down stand in for the start. macOS is unchanged.
  */
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+const winBin = (posix, exe) => (process.platform === 'win32'
+  ? nodePath.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe) : posix);
+const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bin/echo', 'where.exe') };
 /* 🛑 A DIFFERENT REAL BINARY FROM `claudeBin`, AND THAT IS THE WHOLE POINT.
    Every `codexBin` in this file used to be `/bin/echo` as well - the SAME PATH
    as claude - so no assertion anywhere could tell a codex-labelled job pointing
@@ -76,15 +85,15 @@ const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
    the identical edit in `createAgentInner` went RED - because creation's
    fixtures happen to distinguish them and switching's did not.
    ⇒ Two fixtures with the same value cannot test a choice between them. */
-const CODEX_BIN = '/bin/cat';
+const CODEX_BIN = winBin('/bin/cat', 'whoami.exe');
 /* #3296: a THIRD distinct real runnable binary, for the same reason CODEX_BIN is
    distinct from claudeBin -- so an assertion can tell a gemini-labelled job
    pointing at the GEMINI binary from one pointing at claude's or codex's. */
-const GEMINI_BIN = '/usr/bin/true';
+const GEMINI_BIN = winBin('/usr/bin/true', 'hostname.exe');
 /* #3391: a FOURTH distinct real runnable binary, for the same reason GEMINI_BIN is
    distinct -- so an assertion can tell a grok-labelled job pointing at the GROK
    binary from one pointing at claude's, codex's, or gemini's. */
-const GROK_BIN = '/bin/pwd';
+const GROK_BIN = winBin('/bin/pwd', 'find.exe');
 /* #3568: an Antigravity stand-in must be NAMED agy (create refuses any other name), so a real
    runnable copy under that name in the sandbox. */
 const AGY_BIN = nodePath.join(SANDBOX, 'agy-bin', 'agy');
@@ -177,6 +186,34 @@ if (process.platform === 'win32') {
   });
 }
 
+/**
+ * #4269: THE TESTS BELOW THAT STATE THEIR PLATFORM, per the note above this block.
+ *
+ * Measured on a Windows host (this box and windows-latest): with the fixture
+ * binaries made real (winBin, above) 109 of 189 pass, and every one of the rest
+ * fails on a POSIX HARNESS ASSUMPTION, not on Windows agent creation. Each was read
+ * for that before it was skipped; none is a product defect. Each skip names the
+ * win32 file that covers the same behaviour on Windows. Skipped only on a win32
+ * host, so macOS runs every one of them exactly as before.
+ */
+const onWin = (why) => (process.platform === 'win32' ? { skip: 'POSIX harness on a Windows host (#4269): ' + why } : {});
+const WIN_LAUNCHD = onWin('reads or drives the launchd job (plist, launchctl, the launchd runner seam, or the '
+  + '"already set to start" launchd arm). Windows runs a Scheduled Task; covered by create.win32-job-read.test.js '
+  + 'and create.win32-launch-570.test.js');
+const WIN_LAUNCHD_FAIL = onWin('simulates a failed start or write through the launchd runner seam (create.setRunner), '
+  + 'which the win32 create path never calls. Windows failed starts: create.win32-launch-570.test.js (7c-2)');
+const WIN_TASK_STUB = onWin('switches an agent by rewriting its launch job, and this file\'s win32 stub answers every '
+  + 'Task Scheduler query "no such task", so the switch correctly refuses. Windows switching: '
+  + 'create.win32-job-read.test.js (setAccount, setProvider, setModel, trustAgentFolder on win32)');
+const WIN_BASH_SUPERVISOR = onWin('installs or runs the bash supervisor (agent-supervisor.sh via /bin/bash). Windows '
+  + 'starts agents through supervisor-boot.js; covered by win32supervisor.test.js and create.win32-launch-570.test.js');
+const WIN_CODEX_POSIX_KEY = onWin('keys codex trust on a POSIX path literal or expects the POSIX double-quoted TOML '
+  + 'key; on Windows the key is a drive path in a TOML literal string. Covered by create.codex-toml-3439.test.js');
+const WIN_POSIX_MODE = onWin('asserts POSIX permission bits (0600); Windows has none to assert');
+const WIN_AGY_STANDIN = onWin('the Antigravity stand-in is a #!/bin/sh script (not runnable on Windows), and with the '
+  + 'Windows switch forced off every arm correctly gets the Windows refusal first. Covered by win32agy.test.js '
+  + 'and agystatus.win32-3568.test.js');
+
 const roles = require('./roles');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
@@ -243,7 +280,7 @@ test('a name that cannot address an agent is refused before anything is made', (
   }
 });
 
-test('#740: a two-word capitalised name is shown as typed and is one hyphenated machine name; nothing is stripped', () => {
+test('#740: a two-word capitalised name is shown as typed and is one hyphenated machine name; nothing is stripped', WIN_LAUNCHD, () => {
   assert.equal(create.nameProblem('Kira Knightley'), null, 'the name Josh typed was refused');
   assert.equal(create.cleanName('Kira Knightley'), 'Kira Knightley');
   assert.equal(create.slugFor('Kira Knightley'), 'kira-knightley');
@@ -382,7 +419,7 @@ test('dry-run cannot be left without a runner in place', () => {
 // Creating
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('creating an agent writes its folder, its instructions and its startup job', () => {
+test('creating an agent writes its folder, its instructions and its startup job', WIN_LAUNCHD, () => {
   const calls = recorder();
   create.setDryRun(false);
 
@@ -415,7 +452,7 @@ test('the launchd job carries PATH and LANG, or the board reports nothing or non
   assert.match(plist, /<key>RunAtLoad<\/key>/, 'the agent will not survive a reboot');
 });
 
-test('the session is claimed for Kosmos, and claimed as ITSELF, at every start', () => {
+test('the session is claimed for Kosmos, and claimed as ITSELF, at every start', WIN_LAUNCHD, () => {
   // ⚠️ A NAME OF ITS OWN. These tests share one sandbox, so reusing `casey`
   // meant the second creation was refused as a duplicate -- and the assertion
   // then failed for a reason that has nothing to do with claims. A test whose
@@ -476,7 +513,7 @@ test('the session is claimed for Kosmos, and claimed as ITSELF, at every start',
   assert.ok(fs.statSync(create.supervisorPath()).mode & 0o100, 'the supervisor is not executable');
 });
 
-test('the agent is started the same way it will be started every time after', () => {
+test('the agent is started the same way it will be started every time after', WIN_LAUNCHD, () => {
   // ⚠️ ONE PATH. The previous version ran tmux itself and left the launchd job
   // on disk unloaded: the agent ran now and was gone after a reboot, and the
   // session a person got at creation was set up by different code from the one
@@ -507,7 +544,7 @@ test('the agent is started the same way it will be started every time after', ()
   assert.match(args[2], /com\.kosmos\.agent\.one-path\.plist$/, 'a different job was loaded');
 });
 
-test('no COMMAND is handed to a shell to reinterpret', () => {
+test('no COMMAND is handed to a shell to reinterpret', WIN_LAUNCHD, () => {
   // ⚠️ Renamed from "nothing reaches a shell", which stopped being true when
   // this module started generating one. What holds here is narrower and still
   // worth pinning: every command it RUNS goes through execFile with an argument
@@ -530,7 +567,7 @@ test('no COMMAND is handed to a shell to reinterpret', () => {
   }
 });
 
-test('an agent that will not start is reported as PARTIAL, not as created', () => {
+test('an agent that will not start is reported as PARTIAL, not as created', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ "Created" is a claim about us; "it is running" is a claim about the
   // agent. A setup that wrote three files and could not start the session has
   // not given the person an agent, and saying so is the whole difference
@@ -572,7 +609,7 @@ test('an agent that will not start is reported as PARTIAL, not as created', () =
 // ours is what confirms it worked, and the creation screen watches for exactly
 // that before it says the agent is up.
 
-test('an existing agent is never quietly overwritten', () => {
+test('an existing agent is never quietly overwritten', WIN_LAUNCHD, () => {
   const calls = recorder();
   create.setDryRun(false);
   create.createAgent({ ...BINS, name: 'twice', role: 'pm' });
@@ -726,7 +763,7 @@ test('a name a live session already answers to is refused, even with no folder',
     'the refusal above was not caused by the roster, so this test proves nothing about it');
 });
 
-test('a machine we cannot ask about running agents is refused, not risked', () => {
+test('a machine we cannot ask about running agents is refused, not risked', WIN_LAUNCHD, () => {
   // ⚠️ FAIL CLOSED. "We could not check" is not "the name is free", and this is
   // the one place where guessing wrong makes a second agent under a live name.
   //
@@ -814,7 +851,7 @@ test('a name never becomes shell text, and the validator still holds if it ever 
     + 'removing the per-agent script was meant to close');
 });
 
-test('the board can read the identity the creation writes, for every role', () => {
+test('the board can read the identity the creation writes, for every role', WIN_LAUNCHD, () => {
   // ⚠️ THE COUPLING, tested from both ends and for every role rather than for
   // the one I happened to try. `roles` writes the instruction file; `status`
   // parses it to answer "who is this agent". Nothing but this test connects
@@ -880,7 +917,7 @@ test('an agent is refused when the programs it is made of are not on this machin
     create.OUTCOME.CREATED, 'this name is refused whatever the paths, so the above proves nothing');
 });
 
-test('a write that fails stops the creation instead of loading a job that cannot work', () => {
+test('a write that fails stops the creation instead of loading a job that cannot work', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ Only the folder and the start gated the outcome, so a failed write still
   // returned CREATED -- "set up and starting" over an agent whose startup
   // script was never written. That is worse than untrue: bash exits at once on
@@ -1139,7 +1176,7 @@ esac
   return calls;
 }
 
-test('the startup script, actually run, never kills a session that is not ours', () => {
+test('the startup script, actually run, never kills a session that is not ours', WIN_BASH_SUPERVISOR, () => {
   // Somebody else's session is sitting on the name.
   const calls = runLauncher({ claim: 'somebody-else', paneCommands: ['zsh'] });
   assert.ok(!calls.some((c) => c.startsWith('kill-session')),
@@ -1164,7 +1201,7 @@ test('the startup script, actually run, never kills a session that is not ours',
   }
 });
 
-test('the startup script, actually run, adopts a healthy agent instead of restarting it', () => {
+test('the startup script, actually run, adopts a healthy agent instead of restarting it', WIN_BASH_SUPERVISOR, () => {
   // Ours, and Claude is running in it. Killing it here throws away the
   // conversation -- and this file tells people they can run it by hand.
   const calls = runLauncher({ claim: 'probe', paneCommands: ['2.1.227'] });
@@ -1224,7 +1261,7 @@ test('the startup script, actually run, adopts a healthy agent instead of restar
     'a session was killed because tmux would not say what was running in it');
 });
 
-test('the startup script, actually run, hands the pane its account and its board, and nothing when they are unset (#587)', () => {
+test('the startup script, actually run, hands the pane its account and its board, and nothing when they are unset (#587)', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ ASSERTED FROM THE LAUNCH, NOT FROM THE SCRIPT'S TEXT (#586, #587). tmux
   // does not hand a client's environment to a session it makes on a running
   // server, so the account (CLAUDE_CONFIG_DIR / CODEX_HOME) and the board
@@ -1428,7 +1465,7 @@ test('every name this module accepts is one the rest of the system can address',
   assert.ok(accepted > 0, 'nothing was accepted, so the assertions above never ran');
 });
 
-test('a creation that fails leaves nothing behind, so the same name can be tried again', () => {
+test('a creation that fails leaves nothing behind, so the same name can be tried again', WIN_LAUNCHD_FAIL, () => {
   // ⚠️ TWO half-states shipped before this, and both were worse than the
   // failure they followed:
   //
@@ -1487,7 +1524,7 @@ test('a creation that fails leaves nothing behind, so the same name can be tried
   assert.match(notStarted.because, /try that name again/);
 });
 
-test('a name whose startup job is loaded with nothing on disk is refused by name', () => {
+test('a name whose startup job is loaded with nothing on disk is refused by name', WIN_LAUNCHD, () => {
   // ⚠️ This is what the README's own removal recipe produces if the `rm` runs
   // without the `bootout`, or before it. Without this check the creation goes
   // ahead, `bootstrap` fails with "service already bootstrapped", the rollback
@@ -1578,7 +1615,7 @@ test('a name that shares a KEY with a live session is refused, not just an ident
     create.OUTCOME.CREATED, 'every name is refused while that session runs, so the above proves nothing');
 });
 
-test('the supervisor is installed once and shared, not copied per agent', () => {
+test('the supervisor is installed once and shared, not copied per agent', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ THE WHOLE POINT OF THE CHANGE. Each agent used to get its own copy of a
   // 151-line generated script, so every defect in it shipped as many times as
   // there were agents and every FIX reached only the ones created afterwards --
@@ -1608,7 +1645,7 @@ test('the supervisor is installed once and shared, not copied per agent', () => 
     'an older supervisor was left in place, so every agent keeps running it');
 });
 
-test('a supervisor that cannot be installed stops the creation', () => {
+test('a supervisor that cannot be installed stops the creation', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ A job pointing at a script that is not there IS the respawn loop: bash
   // exits at once and KeepAlive retries every thirty seconds for as long as the
   // machine is on. So this refuses before the job is written, and rolls back.
@@ -1675,7 +1712,7 @@ test('the job passes the supervisor exactly the arguments it reads, in that orde
     'the supervisor reads MODEL but never passes --model to claude');
 });
 
-test('a supervisor missing from the app says so, instead of inviting a retry', () => {
+test('a supervisor missing from the app says so, instead of inviting a retry', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ Two different failures, two different sentences. `installSupervisor`
   // collapsed everything into one boolean, so a full disk was told "trying
   // again will not help until it is fixed" -- false in exactly the case that
@@ -1707,7 +1744,7 @@ test('a supervisor missing from the app says so, instead of inviting a retry', (
   }
 });
 
-test('the supervisor trims its own log rather than growing it forever', () => {
+test('the supervisor trims its own log rather than growing it forever', WIN_BASH_SUPERVISOR, () => {
   // ⚠️ The one destructive branch in the shipped script that nothing exercised.
   // launchd appends to that log, and a job failing every thirty seconds writes
   // to it for as long as the machine is on.
@@ -1757,7 +1794,7 @@ test('the supervisor trims its own log rather than growing it forever', () => {
 // the thing worth testing is exactly which name reaches which place.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('a capitalised name makes its folder, job and session under the LOWER-CASE name', () => {
+test('a capitalised name makes its folder, job and session under the LOWER-CASE name', WIN_LAUNCHD, () => {
   const calls = recorder();
   create.setDryRun(false);
 
@@ -2146,7 +2183,7 @@ test('a chosen label lands in the profile only on a completed creation', () => {
     'the label the person chose is not what the board will read');
 });
 
-test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', () => {
+test('the model choice writes a sixth supervisor argument, and no choice writes the five every existing agent runs', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const chosen = create.createAgent({ ...BINS, name: 'modelled', role: 'pm', model: 'haiku' });
@@ -2355,7 +2392,11 @@ test('an agent made onto a project is born with the block, so the later sync wri
   // `tellAgent` reads is the status engine's output, never a literal.
   const roster = (() => {
     const board = fleet.install([fleet.agent('born-on', { state: 'working' }), fleet.agent('born-off', { state: 'working' })]);
-    try { return board.agents; } finally { board.restore(); }
+    /* #4269: restore() clears the pane seam to null, which is the HOST's tmux, not the
+       empty board this file's beforeEach installs. The creation below then asked the
+       real machine who is running: live tmux on a Mac, and on Windows (no tmux) the
+       read fails closed and the creation is refused. Put the file's own seam back. */
+    try { return board.agents; } finally { board.restore(); status.setPaneSource(() => ''); }
   })();
 
   const made = create.createAgent({ ...BINS, name: 'born-on', role: 'writer', projects: [winter.id] });
@@ -2635,7 +2676,7 @@ test('the birth splice never pushes a boot file past the size its own reader acc
  * shift, silently, together. Creating the agent for real is what makes the
  * writer and the reader one contract with two ends.
  */
-test('the planned model survives the round trip through the real job file', () => {
+test('the planned model survives the round trip through the real job file', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const r = create.createAgent({ ...BINS, name: 'plannedone', role: 'pm', model: 'opus' });
@@ -2650,7 +2691,7 @@ test('the planned model survives the round trip through the real job file', () =
  * a hardcoded string, or read the wrong index and happen to be right for one
  * model, and both tests would pass. This asserts the value TRACKS the choice.
  */
-test('a different choice comes back different, and every model in the list round-trips', () => {
+test('a different choice comes back different, and every model in the list round-trips', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   for (const m of create.MODELS) {
@@ -2669,7 +2710,7 @@ test('a different choice comes back different, and every model in the list round
  * whose model nobody ever chose — the exact could-not-look versus is-not-there
  * confusion this product refuses everywhere else.
  */
-test('no job, no model argument, and an unreadable file all answer null', () => {
+test('no job, no model argument, and an unreadable file all answer null', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
 
@@ -2697,6 +2738,11 @@ test('no job, no model argument, and an unreadable file all answer null', () => 
 const trustCfg = () => nodePath.join(SANDBOX, 'claude.json');
 const writeCfg = (obj) => fs.writeFileSync(trustCfg(), JSON.stringify(obj, null, 2) + '\n', 'utf8');
 const readCfg = () => JSON.parse(fs.readFileSync(trustCfg(), 'utf8'));
+/* #4269: the key trust.js writes, spelled its way: resolved with realpathSync.native
+   (which expands a Windows 8.3 short name) and FORWARD-slashed on every host, because
+   Claude Code does not read a backslashed key (#2281). Identical to the raw realpath
+   on macOS. */
+const trustKey = (p) => fs.realpathSync.native(p).split(nodePath.sep).join('/');
 
 test('a new agent does not stop to ask whether it can trust the folder we just made it', () => {
   /**
@@ -2711,7 +2757,7 @@ test('a new agent does not stop to ask whether it can trust the folder we just m
   const r = create.createAgent({ ...BINS, name: 'trustfix-one', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
 
-  const dir = fs.realpathSync(nodePath.join(SANDBOX, 'workers', 'trustfix-one'));
+  const dir = trustKey(nodePath.join(SANDBOX, 'workers', 'trustfix-one'));
   assert.equal(readCfg().projects[dir].hasTrustDialogAccepted, true);
 });
 
@@ -2826,7 +2872,7 @@ test('a config we cannot write does not cost the person their agent', () => {
   assert.equal(fs.readFileSync(trustCfg(), 'utf8'), '{ not json at all', 'and their file is untouched');
 });
 
-test('an agent that will not start takes its trust entry back off the machine with it', () => {
+test('an agent that will not start takes its trust entry back off the machine with it', WIN_LAUNCHD_FAIL, () => {
   /**
    * ⚠️ THE SENTENCE IS THE TEST. A failed start tells the person "we have taken
    * it back off your computer rather than leave something half installed" —
@@ -2869,13 +2915,13 @@ test('an agent that will not start takes its trust entry back off the machine wi
   writeCfg({ theme: 'dark', projects: {} });
   const ok = create.createAgent({ ...BINS, name: 'trustfix-rollback-control', role: 'pm' });
   assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
-  const controlPath = fs.realpathSync(nodePath.join(SANDBOX, 'workers', 'trustfix-rollback-control'));
+  const controlPath = fs.realpathSync.native(nodePath.join(SANDBOX, 'workers', 'trustfix-rollback-control'));
   assert.equal(readCfg().projects[controlPath].hasTrustDialogAccepted, true,
     'CONTROL: this fixture never produces a trust entry at all, so the rollback assertion above is vacuous');
   create.setRunner(null);
 });
 
-test('a rollback leaves a trust decision THEY already made for that same path', () => {
+test('a rollback leaves a trust decision THEY already made for that same path', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE CONTROL ON THE UNDO, and the first version of it could not fail. It
    * seeded somebody's entry at a DIFFERENT path — which `forgetFolder` would
@@ -2898,7 +2944,7 @@ test('a rollback leaves a trust decision THEY already made for that same path', 
   create.setDryRun(false);
 
   // Their standing decision about the very path this creation will use.
-  const samePath = nodePath.join(fs.realpathSync(SANDBOX), 'workers', 'trustfix-rollback-two');
+  const samePath = nodePath.join(fs.realpathSync.native(SANDBOX), 'workers', 'trustfix-rollback-two');
   writeCfg({ projects: { [samePath]: { hasTrustDialogAccepted: true, allowedTools: ['Bash(ls:*)'] } } });
 
   const r = create.createAgent({ ...BINS, name: 'trustfix-rollback-two', role: 'pm' });
@@ -2957,7 +3003,7 @@ test('a folder that appears in the window between the check and the mkdir is not
     'we answered a safety question about a folder that appeared under us');
 });
 
-test('a rollback removes only the key it added, not the entry it found', () => {
+test('a rollback removes only the key it added, not the entry it found', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE BLOCKER THIS REPLACES WAS IN THE FIX FOR A BLOCKER. The rollback
    * deleted the whole `projects[…]` entry on the reasoning that we must have
@@ -2977,7 +3023,7 @@ test('a rollback removes only the key it added, not the entry it found', () => {
   });
   create.setDryRun(false);
 
-  const samePath = nodePath.join(fs.realpathSync(SANDBOX), 'workers', 'trustfix-merge');
+  const samePath = nodePath.join(fs.realpathSync.native(SANDBOX), 'workers', 'trustfix-merge');
   writeCfg({ projects: { [samePath]: { allowedTools: ['Bash(ls:*)'], mcpServers: { linear: {} } } } });
 
   const r = create.createAgent({ ...BINS, name: 'trustfix-merge', role: 'pm' });
@@ -2991,7 +3037,7 @@ test('a rollback removes only the key it added, not the entry it found', () => {
   create.setRunner(null);
 });
 
-test('an undo that could not run is recorded, because the sentence says it did', () => {
+test('an undo that could not run is recorded, because the sentence says it did', WIN_LAUNCHD_FAIL, () => {
   /**
    * 🛑 THE TEST THIS REPLACES ASSERTED THE ABSENCE OF A STEP NOTHING PUSHED.
    * `assert.ok(!r.steps.some(s => s.label === 'took back the folder trust'))`
@@ -3044,7 +3090,7 @@ test('an undo that could not run is recorded, because the sentence says it did',
     'the entry was NOT removed, because the injected failure reached the undo');
 });
 
-test('a successful undo adds no step, so the failure step means something', () => {
+test('a successful undo adds no step, so the failure step means something', WIN_LAUNCHD_FAIL, () => {
   /**
    * ⚠️ THE VERSION BEFORE THIS PASSED WITH THE WHOLE TRUST FEATURE DELETED. Its
    * two assertions were "projects is empty" and "no failure step" — and a
@@ -3060,7 +3106,7 @@ test('a successful undo adds no step, so the failure step means something', () =
   writeCfg({ projects: {} });
   const ok = create.createAgent({ ...BINS, name: 'trustfix-undo-ok-control', role: 'pm' });
   assert.equal(ok.outcome, create.OUTCOME.CREATED, ok.because);
-  const controlPath = fs.realpathSync(nodePath.join(SANDBOX, 'workers', 'trustfix-undo-ok-control'));
+  const controlPath = fs.realpathSync.native(nodePath.join(SANDBOX, 'workers', 'trustfix-undo-ok-control'));
   assert.equal(readCfg().projects[controlPath].hasTrustDialogAccepted, true,
     'CONTROL: this fixture never produces a trust entry, so the emptiness below proves nothing');
 
@@ -3080,7 +3126,7 @@ test('a successful undo adds no step, so the failure step means something', () =
 });
 
 
-test('setModel rewrites the startup file and keeps everything else about the job', () => {
+test('setModel rewrites the startup file and keeps everything else about the job', WIN_LAUNCHD, () => {
   /**
    * 🔑 THE MODEL WAS ALWAYS WRITTEN INTO THE JOB and always parsed back out;
    * what was missing was the ability to change it. Josh, 2026-08-21, with an
@@ -3160,7 +3206,7 @@ const cfgOf = (text) => {
   return m ? m[1] : null;
 };
 
-test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', () => {
+test('a job made by a server on another port carries KOSMOS_PORT, so the agent answers the board that made it (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3204,7 +3250,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // build that contained the line, whatever the loop did (#587).
 });
 
-test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', () => {
+test('a job made by the default board carries no KOSMOS_PORT: absent means the default, so old plists do not change (#577)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.PORT;
@@ -3219,7 +3265,7 @@ test('a job made by the default board carries no KOSMOS_PORT: absent means the d
   assert.doesNotMatch(plist, /KOSMOS_PORT/);
 });
 
-test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', () => {
+test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions land where the board looks (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3237,7 +3283,7 @@ test('a job made by a server with TMUX_TMPDIR set carries it, so its sessions la
     + 'creation says "started it" and the board says "Not running" forever (#668)');
 });
 
-test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', () => {
+test('a job made with no TMUX_TMPDIR carries none: absent means the default socket, so old plists do not change (#668)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const before = process.env.TMUX_TMPDIR;
@@ -3280,7 +3326,7 @@ test('runningJobs reads which of our jobs launchd holds a live process for, and 
   }
 });
 
-test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default home the add path never writes', () => {
+test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default home the add path never writes', WIN_TASK_STUB, () => {
   /* 🛑 JOSH'S SHIP BLOCKER, 2026-08-28. He added an OpenAI account, it said it
      signed in, he switched an agent, and got "nobody is signed in to OpenAI on
      this computer". Both sentences were true and they were about DIFFERENT
@@ -3335,7 +3381,7 @@ test('#1313: switching to OpenAI carries a SIGNED-IN account, not the default ho
    ⚠️ ASSERTING BOTH ROUTES RATHER THAN JUST THE FIXED ONE. A test that only checked
    the switch would go green if somebody later "fixed" the create path to pin instead,
    which is the same divergence pointing the other way. The equality is the invariant. */
-test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly like creating on it', () => {
+test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly like creating on it', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   /* The DEFAULT codex home is `~/.codex`; a labelled `~/.codex-<x>` is not default.
@@ -3390,7 +3436,7 @@ test('#1600: switching onto the DEFAULT OpenAI row writes no CODEX_HOME, exactly
    ⇒ With an override in force the home MUST be written even though the row is
    "default". #1373 catches this too; this arm states it as its own requirement so a
    future reader sees why the condition is not simply `isDefault`. */
-test('#1600: with an override home in force, the default row still writes CODEX_HOME', () => {
+test('#1600: with an override home in force, the default row still writes CODEX_HOME', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-overridden');
@@ -3432,7 +3478,7 @@ test('#1600: with an override home in force, the default row still writes CODEX_
 /* CONTROL for the test above: a NON-default row must still carry its home, or the
    change would have silently stopped recording every account rather than just the
    default. */
-test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_HOME', () => {
+test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_HOME', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-notdefault');
@@ -3452,7 +3498,7 @@ test('#1600 control: switching onto a NON-default OpenAI row still writes CODEX_
   assert.ok(carried, 'a non-default row stopped carrying its home, so the fix went too wide');
 });
 
-test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', () => {
+test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, and its folder is trusted in THAT home (#540)', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const home = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.codex-team');
@@ -3473,7 +3519,7 @@ test('an OpenAI agent made on a non-default OpenAI account carries CODEX_HOME, a
   assert.match(no.because, /do not know that OpenAI account/);
 });
 
-test('#1486: a non-canonical account path still names the account it points at, on CREATE', () => {
+test('#1486: a non-canonical account path still names the account it points at, on CREATE', WIN_LAUNCHD, () => {
   /* `openaiaccounts.list()` stores `path.resolve(dir)`, and createAgentInner used
      to compare the request UNRESOLVED. So a trailing slash, a `..`, or a symlinked
      home missed an account that is genuinely present, and the person was told we do
@@ -3542,7 +3588,7 @@ test('#1486: the ANTHROPIC arm resolves too, because perturbing it alone left th
    folders on a real machine, one agent's folder had no entry in ANY of three
    configs, so a fix that only flipped an existing boolean would do nothing for
    it. This asserts the entry is CREATED. */
-test('#1629: moving an agent to another account trusts its folder in THAT account', () => {
+test('#1629: moving an agent to another account trusts its folder in THAT account', WIN_TASK_STUB, () => {
   const { home } = seedAccounts();
   const name = 'trustmover';
   recorder();
@@ -3554,7 +3600,7 @@ test('#1629: moving an agent to another account trusts its folder in THAT accoun
   const cfgFile = nodePath.join(target, '.claude.json');
   const readEntry = () => {
     const d = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
-    const key = fs.realpathSync(create.workerDir(name));
+    const key = fs.realpathSync.native(create.workerDir(name));
     return (d.projects || {})[key];
   };
 
@@ -3577,7 +3623,7 @@ test('#1629: moving an agent to another account trusts its folder in THAT accoun
 /* The other direction: moving BACK to the default account trusts the folder
    there too. `isDefault` means no configDir on the plist, and the trust write
    has to follow the same rule rather than writing into a directory nobody reads. */
-test('#1629: moving back to the default account trusts the folder in the default config', () => {
+test('#1629: moving back to the default account trusts the folder in the default config', WIN_TASK_STUB, () => {
   const { home } = seedAccounts();
   const name = 'trustback';
   recorder();
@@ -3591,7 +3637,7 @@ test('#1629: moving back to the default account trusts the folder in the default
   assert.equal(back.trust.ok, true, back.trust.because);
 });
 
-test('an agent can be moved to another account, and the model comes with it', () => {
+test('an agent can be moved to another account, and the model comes with it', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'mover';
   recorder();
@@ -3630,7 +3676,7 @@ test('an agent can be moved to another account, and the model comes with it', ()
   assert.equal(cfgOf(fs.readFileSync(create.plistPath(name), 'utf8')), null);
 });
 
-test('an account that keeps its own history is refused, and the refusal says what to do', () => {
+test('an account that keeps its own history is refused, and the refusal says what to do', WIN_TASK_STUB, () => {
   const { home } = seedAccounts();
   const name = 'stayer';
   recorder();
@@ -3649,7 +3695,7 @@ test('an account that keeps its own history is refused, and the refusal says wha
     'a refused move still wrote the file');
 });
 
-test('an account we do not know, and an agent Kosmos did not start, are both refused', () => {
+test('an account we do not know, and an agent Kosmos did not start, are both refused', WIN_TASK_STUB, () => {
   seedAccounts();
   const name = 'refusals';
   recorder();
@@ -3673,7 +3719,7 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
    trusts the new home; the default row writes no CODEX_HOME (#1600); an unknown
    codex home is refused; and a CLAUDE agent handed a codex dir is STILL refused,
    because a runner switch is setProvider's job, not this. */
-test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', () => {
+test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   /* No override home: the ordinary machine, so the default codex home is
@@ -3745,7 +3791,7 @@ test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still r
   assert.match(wrong.because, /do not know that account/);
 });
 
-test('a new agent can be created on another account, and its history is still shared', () => {
+test('a new agent can be created on another account, and its history is still shared', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'bornelsewhere';
   recorder();
@@ -3780,7 +3826,7 @@ test('creating on an account that keeps its own history is refused before anythi
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'the refusal left a worker folder behind');
 });
 
-test('the default account writes no key, exactly as every existing agent has', () => {
+test('the default account writes no key, exactly as every existing agent has', WIN_LAUNCHD, () => {
   const { home } = seedAccounts();
   const name = 'plainborn';
   recorder();
@@ -4006,7 +4052,7 @@ const plistArgs = (name) => {
   return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]);
 };
 
-test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', () => {
+test('#245: an OpenAI agent is created on the codex runner, recorded everywhere, with the right launch vector', WIN_CODEX_POSIX_KEY, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'codex-home-'));
@@ -4058,7 +4104,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
     'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
 });
 
-test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', () => {
+test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'gemini-kid';
@@ -4119,7 +4165,7 @@ test('#3296: a Gemini create is refused when the runner is missing, and an unkno
   assert.match(bad.because, /pick a provider/);
 });
 
-test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', () => {
+test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', WIN_LAUNCHD, () => {
   // The accounts slice (engine/geminiaccounts.js) REPLACED the old default-account-only
   // behavior: a supplied account is now VALIDATED, not ignored. A known account routes
   // to its per-account home; an unknown one is refused rather than silently created default.
@@ -4151,7 +4197,7 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   assert.match(bad.because, /do not know that Gemini account/);
 });
 
-test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', () => {
+test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
@@ -4168,7 +4214,7 @@ test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not cla
   assert.equal(create.readJob('g-backfill').runner, 'gemini', 'installJob backfilled a gemini agent as the WRONG runner');
 });
 
-test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', () => {
+test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-guard', role: 'pm', provider: 'google' });
@@ -4196,7 +4242,7 @@ test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLA
   assert.equal(back.account.isDefault, true);
 });
 
-test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir writes NO account-env line (configDir null, like createAgentInner)', () => {
+test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir writes NO account-env line (configDir null, like createAgentInner)', WIN_TASK_STUB, () => {
   // The internal-consistency guard: setGeminiAccount must apply isDefault->null just as
   // createAgentInner's google arm and setCodexAccount do. Reachable only when the default home is
   // credentialed (unusual), so construct exactly that and assert the plist carries no
@@ -4231,7 +4277,7 @@ test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trus
     'the gemini launch line must pass yolo, skip-trust, and the pinned -m model');
 });
 
-test('#3391: a Grok agent is created on the grok runner, recorded, with the right launch vector, brief, and self-report hook file', () => {
+test('#3391: a Grok agent is created on the grok runner, recorded, with the right launch vector, brief, and self-report hook file', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'grok-kid';
@@ -4311,7 +4357,7 @@ test('#3568: with the flag off, an Antigravity create is refused as an unknown p
   assert.match(r.because, /pick a provider/);
   assert.equal(create.readJob('agy-off'), null, 'a refused create must not write a job');
 });
-test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', () => {
+test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', WIN_AGY_STANDIN, () => {
   recorder();
   create.setDryRun(false);
   const name = 'agy-kid';
@@ -4342,7 +4388,7 @@ test('#3568: with the flag on, an Antigravity agent is created on the antigravit
   assert.equal(plistArgs(name)[7], '');
   assert.equal(auto.model.label, "Gemini's default");
 });
-test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
+test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', WIN_AGY_STANDIN, () => {
   recorder();
   create.setDryRun(false);
   // Windows refuses only with its switch OFF (engine/win32agy.js; on by default since #3568's Windows half).
@@ -4390,7 +4436,7 @@ test('#3391: a Grok create is refused when the runner is missing', () => {
   assert.match(r.because, /could not find the Grok runner/);
 });
 
-test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', () => {
+test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', WIN_LAUNCHD, () => {
   // The accounts slice (engine/grokaccounts.js) REPLACED the default-account-only
   // behavior: a supplied account is VALIDATED. grok's home (GROK_HOME) is read verbatim,
   // so the account dir rides the plist and the hook write with no transform.
@@ -4417,7 +4463,7 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.match(bad.because, /do not know that Grok account/);
 });
 
-test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', () => {
+test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
@@ -4429,7 +4475,7 @@ test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude)
   assert.equal(create.readJob('gk-backfill').runner, 'grok', 'installJob backfilled a grok agent as the WRONG runner');
 });
 
-test('#3391: trustAgentFolder and setAccount guard a grok agent out of the CLAUDE account path', () => {
+test('#3391: trustAgentFolder and setAccount guard a grok agent out of the CLAUDE account path', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-guard', role: 'pm', provider: 'xai' });
@@ -4485,7 +4531,7 @@ test('#245: openai refuses a model choice, an account choice, a missing runner, 
   assert.match(r.because, /pick a provider/);
 });
 
-test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto, a bad id is refused', () => {
+test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto, a bad id is refused', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-2140-');
@@ -4557,7 +4603,7 @@ test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a
   }
 });
 
-test('#2245: a provider switch MOVES the brief to the file the new runner boots from, both directions', () => {
+test('#2245: a provider switch MOVES the brief to the file the new runner boots from, both directions', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-2245sw-');
@@ -4652,7 +4698,7 @@ test('#2245: a provider switch MOVES the brief to the file the new runner boots 
   }
 });
 
-test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
+test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', WIN_TASK_STUB, () => {
   recorder();
   create.setDryRun(false);
   const codexHome = mkTemp('codex-home-sw-');
@@ -4822,7 +4868,7 @@ test('#548: an OpenAI-only Mac creates an OpenAI agent; Claude\'s absence is not
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
 });
 
-test('#245: a claude agent\'s launch vector is untouched by the runner feature', () => {
+test('#245: a claude agent\'s launch vector is untouched by the runner feature', WIN_LAUNCHD, () => {
   recorder();
   create.setDryRun(false);
   const name = 'claude-classic';
@@ -4837,7 +4883,7 @@ test('#245: a claude agent\'s launch vector is untouched by the runner feature',
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
 
-test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', () => {
+test('jobMissing counts only a proven absence: EACCES answers false, never "never recorded" (#149/#150)', WIN_LAUNCHD, () => {
   /* The function's whole reason to exist over !hasJob(): existsSync swallows
      EACCES into false, so the negation would stamp a provenance claim on
      every agent the moment LaunchAgents cannot be read. Forced here with a
@@ -4891,7 +4937,7 @@ test('an agent born without the messaging block is SAID, not silent (#182)', () 
   }
 });
 
-test('disabledJobs reads the launchd overrides and fails soft to an empty set (#310)', () => {
+test('disabledJobs reads the launchd overrides and fails soft to an empty set (#310)', WIN_LAUNCHD, () => {
   const orig = [];
   create.setRunner((file, args) => {
     orig.push([file, ...(args || [])].join(' '));
@@ -4916,7 +4962,7 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   }
 });
 
-test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we looked, nothing is off" from "we could not look"', () => {
+test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we looked, nothing is off" from "we could not look"', WIN_LAUNCHD, () => {
   // Read succeeded: ok:true with the parsed set (same parse disabledJobs uses).
   create.setRunner(() => ({ ok: true, stdout: 'disabled services = {\n\t"com.kosmos.agent.rick" => disabled\n}\n' }));
   create.setDryRun(false);
@@ -5357,7 +5403,7 @@ function codexCfgHome(entries) {
 }
 const TRUSTED = (d) => `[projects."${d}"]\ntrust_level = "trusted"\n`;
 
-test('#1414: removing an agent takes back the codex trust entry it wrote', () => {
+test('#1414: removing an agent takes back the codex trust entry it wrote', WIN_CODEX_POSIX_KEY, () => {
   const mine = '/somewhere/workers/mineagent';
   const theirs = '/somewhere/workers/otheragent';
   const home = codexCfgHome(`${TRUSTED(theirs)}\n${TRUSTED(mine)}\n[tui.thing]\n"a" = 1\n`);
@@ -5375,7 +5421,7 @@ test('#1414: removing an agent takes back the codex trust entry it wrote', () =>
   assert.ok(after.includes('[tui.thing]'), 'unrelated config must survive');
 });
 
-test('#1414: an entry a PERSON edited is left alone, and said so', () => {
+test('#1414: an entry a PERSON edited is left alone, and said so', WIN_CODEX_POSIX_KEY, () => {
   /* ⚠️ THE CONSERVATIVE ARM, and it is the one that protects somebody's file.
      `trustCodexFolder` is a no-op when the key already exists, so an entry
      Kosmos FOUND is indistinguishable from one it WROTE. Matching the exact
@@ -5420,7 +5466,7 @@ test('#1414: no codex config at all is a quiet success, not a failure', () => {
   assert.equal(got.removed, false);
 });
 
-test('#1414: the rewrite keeps the config\'s permissions, it does not widen them', () => {
+test('#1414: the rewrite keeps the config\'s permissions, it does not widen them', WIN_POSIX_MODE, () => {
   /* 🛑 A REAL REGRESSION, CAUGHT IN CROSS-REVIEW AFTER IT HAD ALREADY RUN
      against the operator's own ~/.codex/config.toml and left it 644 where it
      had been 600. `renameSync` carries the TEMP file's mode, not the target's,
@@ -5439,7 +5485,7 @@ test('#1414: the rewrite keeps the config\'s permissions, it does not widen them
     'the config must keep the permissions it had');
 });
 
-test('#1414 CONTROL: the mode assertion can fail', () => {
+test('#1414 CONTROL: the mode assertion can fail', WIN_POSIX_MODE, () => {
   /* If forgetCodexFolder did nothing, the test above would pass for the wrong
      reason. This proves the fixture's mode is observable and that a DIFFERENT
      mode is distinguishable, so 0o600 above is a real reading. */
@@ -5450,7 +5496,7 @@ test('#1414 CONTROL: the mode assertion can fail', () => {
   assert.notEqual(fs.statSync(cfg).mode & 0o777, 0o600);
 });
 
-test('#1797: the temp is created private, not merely tightened a line later', () => {
+test('#1797: the temp is created private, not merely tightened a line later', WIN_POSIX_MODE, () => {
   /* 🛑 #1414 above proves the END mode is 0600. It CANNOT see the window: the
      original `writeFileSync(tmp, next)` created the temp at the umask default
      and the `chmodSync` a line later closed it, so the whole config sat loose at
@@ -5489,7 +5535,7 @@ test('#1797: the temp is created private, not merely tightened a line later', ()
     'with the chmod neutralized the config came out loose, so the temp was created world-readable and only the chmod was hiding it');
 });
 
-test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling', () => {
+test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling', WIN_CODEX_POSIX_KEY, () => {
   /* 🔑 THE THIRD ARM (Renet Tilley, 2026-08-28): a control proves an instrument
      is NOT DEAD; it cannot prove it is NOT OVER-EAGER. The two arms above test
      liveness. This one tests precision, and it is reachable: NAME_RE admits
@@ -5514,7 +5560,7 @@ test('#1414 PRECISION: removing one agent must not remove a PREFIX-NAMED sibling
   assert.ok(!after.includes(`[projects."${shortDir}"]`), 'and the target is gone');
 });
 
-test('#1414 PRECISION: the reverse direction, removing the LONGER name', () => {
+test('#1414 PRECISION: the reverse direction, removing the LONGER name', WIN_CODEX_POSIX_KEY, () => {
   /* The mirror, because a matcher can be over-eager in one direction only. */
   const shortDir = '/w/mine';
   const longDir = '/w/minelonger';
@@ -5529,7 +5575,7 @@ test('#1414 PRECISION: the reverse direction, removing the LONGER name', () => {
   assert.ok(!after.includes(`[projects."${longDir}"]`));
 });
 
-test('#1414: removal does NOT reformat sections the person wrote', () => {
+test('#1414: removal does NOT reformat sections the person wrote', WIN_CODEX_POSIX_KEY, () => {
   /* 🛑 PigeonPete, cross-review: the first version collapsed `\n{3,}` GLOBALLY,
      so taking back one agent's entry also reflowed unrelated parts of the
      person's own config. Same "never clobber what is theirs" line as the
@@ -5593,7 +5639,7 @@ test('#1432: the plist template carries exactly its known set of keys', () => {
     'a plist key is a function call, so a rename reached into data');
 });
 
-test('#1414 CONTROL: the seam-scoped tidy still runs where it should', () => {
+test('#1414 CONTROL: the seam-scoped tidy still runs where it should', WIN_CODEX_POSIX_KEY, () => {
   /* The mirror of the arm above: proving we did not fix over-reach by simply
      doing nothing. Removing a MIDDLE entry must not leave a growing gap. */
   const mid = '/w/middle';
@@ -5710,7 +5756,7 @@ test('#2250 CONTROL: a NAME_RE-failing name with no provider stays claude (fail-
   assert.ok(create.instructionFile(name).endsWith('CLAUDE.md'));
 });
 
-test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', () => {
+test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', WIN_LAUNCHD, () => {
   const store = require('./store');
   // A codex plist with a silent profile: the plist decides.
   rrWritePlist('rr-codexjob', { runner: 'codex' });
@@ -5733,7 +5779,7 @@ test('#2250 CONTROL: no plist and no profile defaults to claude, and an unusable
     'a traversal-shaped name resolves to claude rather than building a path or throwing');
 });
 
-test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the world store roots', () => {
+test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the world store roots', WIN_BASH_SUPERVISOR, () => {
   // The named-world twin of the #587 default-world pane-env test, through the same
   // shipped-script harness. The supervisor resolves KOSMOS_WORLD into the world's
   // store roots and pushes them (and KOSMOS_WORLD) onto the pane, so a named-world
