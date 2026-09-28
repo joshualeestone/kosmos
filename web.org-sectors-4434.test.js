@@ -160,7 +160,15 @@ function settled(placed, seed, avail) {
   for (const s of placed.values()) maxR = Math.max(maxR, s.r);
   let size = Math.round((maxR + ORG_PAD) * 2);
   if (avail) {
-    const fit = fitOf(maxR, avail);
+    let closest = Infinity;
+    const spots = [...placed.values()];
+    for (let i = 0; i < spots.length; i += 1) {
+      for (let j = i + 1; j < spots.length; j += 1) {
+        closest = Math.min(closest, Math.hypot(Math.cos(spots[i].ang) * spots[i].r - Math.cos(spots[j].ang) * spots[j].r,
+          Math.sin(spots[i].ang) * spots[i].r - Math.sin(spots[j].ang) * spots[j].r));
+      }
+    }
+    const fit = fitOf(maxR, avail, Number.isFinite(closest) ? 46 / closest : 0);
     if (fit.k < 1) for (const s of placed.values()) s.r *= fit.k;
     size = fit.size;
   }
@@ -379,6 +387,7 @@ test('squeezed to a phone, a large fleet still settles with no crossings (#4434,
     const { pos, parentOf, hub } = settled(placed, null, 375);
     const bad = crossings(segments(pos, parentOf, hub));
     assert.deepEqual(bad, [], 'randomTree(' + seed + ', ' + n + ') at 375px: ' + bad.length + ' crossing(s): ' + bad.slice(0, 4).join(', '));
+    assert.equal(overlaps(pos, 44), 0, 'randomTree(' + seed + ', ' + n + ') at 375px: faces overlap (the squeeze went below the tree\'s floor)');
   }
 });
 
