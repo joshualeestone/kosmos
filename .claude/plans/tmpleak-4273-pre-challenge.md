@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 8
 **Converged:** Yes
-**Total findings:** 14 actionable (6 WARNINGs in rounds 3 to 7, plus the round 1 and 2 findings recorded in the plan), with NITs
-**Fixed:** all actionable | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 18 actionable (3 BLOCKERs, 15 WARNINGs), 11 NITs, counted from the plan's review record
+**Fixed:** 18 actionable, 8 NITs | **Deferred:** 3 NITs (round 2: a plural, a launchd label with a space, the kts- source pin kept on purpose) | **Asked (awaiting user):** 0
 
 Evidence: full tools/run-tests.sh run 7 at 3ef83e303 (code identical to this head): 11001 tests, 0 fail, guard GREEN
 with no leak lines. Run 5 went RED on a real leak (engine/agyhooks.test.js left kosmos-agy-throttle), fixed by
@@ -27,11 +27,23 @@ with every perturbation, is in .claude/plans/tmpleak-4273.md.
 
 #### Iteration 1
 **Reviewer model:** opus
-- [WARNING] findings recorded in the plan's review record (round 1), all fixed.
+- [BLOCKER] launchd reports the resolved /private/var plist path, so the check never matched. Fixed: both spellings.
+- [BLOCKER] a pid inside a name made a new family every run; its source compared a Promise with 64. Fixed: digit tokens dropped, the test awaits.
+- [WARNING] the family rule ate real words / skipped empty names. Fixed.
+- [WARNING] an all-one-case random token mid-name. Fixed: allowlist globs.
+- [WARNING] the process check could kill an operator's process. Fixed: orphans only.
+- [WARNING] tmpscope re-raised over a file's own handler. Fixed: stands aside, tested.
+- [WARNING] wiring untested. Fixed: one entry point tested end to end, plus a call-order pin.
+- [NIT] notes and comments. Fixed.
 
 #### Iteration 2
 **Reviewer model:** sonnet
-- [WARNING] findings recorded in the plan's review record (round 2), all fixed.
+- [BLOCKER] the no-separator branch stripped the last 6 characters unconditionally, hiding real names. Fixed.
+- [WARNING] an all-one-case random tail made a family flaky. Fixed.
+- [WARNING] a bare root as its own argument was not matched. Fixed.
+- [WARNING] TERM then KILL after 1s. Fixed: 3s.
+- [WARNING] browser-check helpers re-raised over another handler. Fixed.
+- [NIT] x3 deferred (see summary).
 
 #### Iteration 3
 **Reviewer model:** opus
