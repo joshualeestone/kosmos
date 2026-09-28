@@ -65,7 +65,7 @@ async function run(name, { signedIn, adopt = false, extraEnv = {} }) {
   if (signedIn !== undefined) fs.writeFileSync(nodePath.join(data, 'Kosmos', 'agy-account', 'last.json'), JSON.stringify({ signedIn, at: '2026-09-28T00:00:00Z' }));
   const rec = nodePath.join(dir, 'tmux-calls.txt');
   const board = await standInBoard(rec);
-  const session = 'zz-livecheck-' + name;
+  const session = 'zz-test-4417-' + name;
   const env = {
     PATH: process.env.PATH, HOME: dir, AGENT_WORKFORCE_HOME: dir, AGENT_WORKFORCE_DATA: data,
     AGENT_WORKFORCE_AGY_HOME: nodePath.join(dir, 'agyhome'), KOSMOS_PORT: String(board.port),
