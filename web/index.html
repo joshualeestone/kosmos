@@ -53121,15 +53121,13 @@ function pjReplyMention(p, m, previous) {
   let cut = 0;   // characters taken off the front, so a caret left alone still sits on the same letter
   if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
   const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
-  /* Already addressed somewhere in the words (moved, or typed mid-sentence): not a second time. */
-  const named = !!agent && new RegExp('(^|[^A-Za-z0-9._-])@' + agent.key.replace(/[.]/g, '\\.') + '(?![A-Za-z0-9._-])').test(text.slice(text.startsWith('@' + agent.key + ' ') ? agent.key.length + 2 : 0));
+  /* Already @-named anywhere in the words (typed by the person, at the front or mid-sentence): Reply
+     adds nothing and records nothing, so nothing later takes the person's own mention out. The key is
+     matched literally: a key in a named Kosmos carries a "+" (launchKey), a regex quantifier. */
+  const lit = agent ? agent.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+  const named = !!agent && new RegExp('(^|[^A-Za-z0-9._+-])@' + lit + '(?![A-Za-z0-9._+-])').test(text);
   const ins = agent && !named ? '@' + agent.key + ' ' : '';
-  /* The mention is Reply's to take back out later (on x, or on a Reply to another post) only if Reply
-     wrote it: now, or on an earlier Reply whose mention is still at the front. One the person typed
-     is theirs, and nothing here ever removes it. */
-  const typed = !!ins && text.startsWith(ins);   // left at the front once Reply's own is taken out: the person's
-  if (ins && text.startsWith(ins)) { text = text.slice(ins.length); cut += ins.length; }   // already there: not twice
-  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins && !typed ? ins : null;
+  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
   const after = ins + text;
   if (after !== before) input.value = after;
   /* With a mention, the cursor goes right after it (the card), unless the box was unchanged and the

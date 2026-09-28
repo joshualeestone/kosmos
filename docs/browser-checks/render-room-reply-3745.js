@@ -207,14 +207,24 @@ function chk(ok, label, extra) {
       const moved = box.value;
       box.value = 'please @roomer check'; pjReplyStart('agent-4359');
       const midSentence = box.value;
+      // An agent in a named Kosmos has a "+" in its key (launchKey): it must match literally, not as a regex quantifier.
+      const proj = pjById(PJ_CURRENT);
+      proj.agents.push({ sessionName: 'mona+work2', name: 'Mona' });
+      PJ_ROOM_POSTS.set('world-4359', { id: 'world-4359', from: 'mona+work2', text: 'Done.' });
+      delete PJ_REPLY[PJ_CURRENT]; box.value = 'please @mona+work2 check'; pjReplyStart('world-4359');
+      const worldTyped = box.value;
+      delete PJ_REPLY[PJ_CURRENT]; box.value = ''; pjReplyStart('world-4359');
+      const worldEmpty = box.value;
+      proj.agents.pop(); PJ_ROOM_POSTS.delete('world-4359');
       PJ_ROOM_POSTS.delete('agent-4359');
       delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
-      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence };
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, worldTyped, worldEmpty };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
     chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
     chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
     chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
+    chk(ment.worldTyped === 'please @mona+work2 check' && ment.worldEmpty === '@mona+work2 ', 'an agent key with a "+" (a named Kosmos) is matched literally: not added twice, added once to an empty box', JSON.stringify({ typed: ment.worldTyped, empty: ment.worldEmpty }));
     chk(ment.moved === 'hi @roomer ' && ment.midSentence === 'please @roomer check', 'a mention already in the words (moved, or mid-sentence) is not added again', JSON.stringify({ moved: ment.moved, mid: ment.midSentence }));
     chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
     chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
