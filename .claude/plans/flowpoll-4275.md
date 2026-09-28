@@ -37,3 +37,6 @@
 - [NIT] the acctFlowPaint comment named the start as the example, which no longer reaches that path. FIXED: it names the code and cancel handlers.
 - Pre-existing and out of scope, as the reviewer noted: cancel says "Stopped" without checking res.ok; a poll already in flight at cancel can repaint the old phase once.
 - Validation: 79/79 across the same five files.
+
+#### Iteration 3 (sonnet, blind, 2026-09-27 23:40 CDT)
+- No findings. The reviewer reverted each guard and a stop-on-any-repeat variant in copies (each caught), checked the handler pin against comment and string edge cases, and traced every acctAddStart call site. Converged.
