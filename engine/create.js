@@ -1291,13 +1291,23 @@ function trustAgentFolder(name, opts) {
     : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
 }
 
-/* The launchd arm of readJob, unchanged. */
-function readPlistJob(name, worldId) {
+/* The decoded ProgramArguments of an agent's plist, or null (a bad name, no plist). #4353: the
+   one reader of that list, shared by readPlistJob and agyrefresh's launch folder. The text is
+   returned too, for readPlistJob's environment reads. */
+function plistArgs(name, worldId) {
   if (!NAME_RE.test(String(name == null ? '' : name))) return null;
   let text;
   try { text = fs.readFileSync(plistPath(name, worldId), 'utf8'); } catch { return null; }
   const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
   const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((x) => unxml(x[1])) : [];
+  return { args, text };
+}
+
+/* The launchd arm of readJob. */
+function readPlistJob(name, worldId) {
+  const read = plistArgs(name, worldId);
+  if (!read) return null;
+  const { args, text } = read;
   // 0 bash, 1 supervisor, 2 name, 3 worker dir, 4 runner-bin, 5 tmux,
   // 6 log, 7 model, 8 runner (#245; absent means claude).
   if (args.length < 7 || !args[4] || !args[5]) return null;
@@ -5690,6 +5700,8 @@ module.exports = {
   museEnabled,
   recordedRunner,
   plistPath,
+  // #4353: engine/agyrefresh.js reads a plist's own launch folder through this one reader.
+  plistArgs,
   refuseRealLaunchWriteUnderTest,
   isRealLaunchTargetUnderTest,
   removeJobFileForRollback,
