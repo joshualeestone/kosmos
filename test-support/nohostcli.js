@@ -11,8 +11,9 @@
  * CLI with the test's HOME. The measured cause and the before/after runs are in
  * .claude/plans/xsitechild-4309.md.
  *
- * Call it before requiring ./server: engine/devicedoor.js takes execFile and spawn from
- * node:child_process when it loads, so wrapping them later records nothing.
+ * Call it before requiring ./server: engine/devicedoor.js takes spawn from node:child_process
+ * when it loads (its status probe runs through spawn since #4326), so wrapping it later records
+ * nothing.
  */
 const fs = require('node:fs');
 const path = require('node:path');

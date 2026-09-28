@@ -190,32 +190,37 @@ return { PHASE, state, start, cancel, status, ghBin, setRunner, setSpawner, rese
 /* #4326: a status probe that ALWAYS ends. execFile's `timeout` sends SIGTERM and nothing
    after it, so a CLI that ignores SIGTERM (an unauthenticated `vercel whoami` waiting on a
    prompt) kept running with its callback never called: on 2026-09-28 one ran for 2h39m at
-   ~600 MB and fed a night of memory pressure. Here the child gets its OWN process group, the
-   answer is given at the timeout whether or not the child has exited, and the whole group is
-   sent SIGTERM and then, after `graceMs`, SIGKILL (which cannot be ignored). `done` is called
-   exactly once: (exit code, stdout+stderr), or (-1, text so far) on a timeout or a spawn error. */
+   ~600 MB and fed a night of memory pressure. Here the answer is given at the timeout whether
+   or not the child has exited, and the child gets SIGTERM and then, after `graceMs`, SIGKILL,
+   which cannot be ignored (on Windows child.kill is TerminateProcess either way).
+   ⚠️ NOT detached, on purpose: the probe stays in the board's own process group, so when the
+   board exits (a restart, an update, launchd stopping the job) the probe is reaped with it.
+   A detached probe would outlive the board, and with it the timers that were to kill it.
+   Kept from execFile: the answer is (exit code, stdout then stderr), each capped at 1 MB;
+   `done` is called exactly once, with -1 on a timeout or a spawn error. */
+const PROBE_MAX_BUFFER = 1024 * 1024;
 function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, done) {
-  let text = '';
+  let out = '';
+  let err = '';
   let answered = false;
-  const answer = (code) => { if (answered) return; answered = true; done(code, text); };
+  const answer = (code) => { if (answered) return; answered = true; done(code, out + err); };
   let child;
   try {
-    child = spawn(bin, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   } catch (e) {
     answer(-1);
     return null;
   }
-  const killGroup = (sig) => { try { process.kill(-child.pid, sig); } catch (e) { /* already gone */ } };
+  const kill = (sig) => { try { child.kill(sig); } catch (e) { /* already gone */ } };
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (d) => { text += d; });
-  child.stderr.on('data', (d) => { text += d; });
+  child.stdout.on('data', (d) => { if (out.length < PROBE_MAX_BUFFER) out += d; });
+  child.stderr.on('data', (d) => { if (err.length < PROBE_MAX_BUFFER) err += d; });
   let killTimer = null;
   const timer = setTimeout(() => {
     answer(-1);
-    killGroup('SIGTERM');
-    killTimer = setTimeout(() => killGroup('SIGKILL'), graceMs);
-    if (killTimer.unref) killTimer.unref();
+    kill('SIGTERM');
+    killTimer = setTimeout(() => kill('SIGKILL'), graceMs);
   }, timeoutMs);
   child.on('error', () => { clearTimeout(timer); answer(-1); });
   child.on('close', (code) => {

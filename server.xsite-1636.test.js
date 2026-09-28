@@ -25,10 +25,6 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-xsite-'));
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
-// #4326: /api/connections probes gh and vercel. Never the operator's real ones (an
-// unauthenticated `vercel whoami` waits forever): a fake that answers "signed out" at once.
-process.env.AGENT_WORKFORCE_GH_BIN = path.join(__dirname, 'test-support', 'fake-cli-signed-out.sh');
-process.env.AGENT_WORKFORCE_VERCEL_BIN = path.join(__dirname, 'test-support', 'fake-cli-signed-out.sh');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
