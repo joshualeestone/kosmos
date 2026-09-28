@@ -171,6 +171,20 @@ if [ -z "$FPORT" ]; then fail "ARM 4 flip-origin did not start"; else
   verify_dir_gone "ARM 4"
 fi
 
+# --- CONTROL (#4319): with the old exec restored, the verify directory IS left behind -------
+# So the three cleanup checks above can fail. The inner script is rewritten here only; the file is untouched.
+EXEC_INNER="$T/inner-exec.sh"
+/usr/bin/sed 's|^   /bin/sh "\$d/setup"$|   exec /bin/sh "$d/setup"|' "$INNER" > "$EXEC_INNER"
+if cmp -s "$INNER" "$EXEC_INNER"; then fail "CONTROL #4319: could not restore exec in the lifted script; re-anchor this control"
+else
+  printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
+  rm -f "$T/RAN" "$T/DIR"
+  /bin/sh -c "$(cat "$EXEC_INNER")" "http://127.0.0.1:$FPORT/setup" 0 >/dev/null 2>&1
+  _vd=$(cat "$T/DIR" 2>/dev/null)
+  if [ -n "$_vd" ] && [ -d "$_vd" ]; then pass "CONTROL #4319: with exec the directory is left, so the cleanup checks mean something"; /bin/rm -rf "$_vd"
+  else fail "CONTROL #4319: exec left no directory, so the cleanup checks above prove nothing (dir=$_vd)"; fi
+fi
+
 # --- CONTROL: the harness can tell a run from a refusal --------------------
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 cd "$WWW" || exit 1
