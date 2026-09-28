@@ -31,7 +31,10 @@ const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
 const HARD = 'She said "go & echo INJECTED" ok, 100%PATH% ^ | done';
 
 function zipRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-570-'));
+  /* Long form (#4267): a runner's temp can be an 8.3 name (C:\Users\RUNNER~1\...),
+     and PowerShell's Get-Command reports the long name, so the .ps1 it found read as
+     a different file. realpathSync.native expands it; the JS realpath does not. */
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-570-')));
   fs.mkdirSync(path.join(root, 'bin'));
   fs.mkdirSync(path.join(root, 'runtime'));
   const node = path.join(root, 'runtime', 'node.exe');
