@@ -107,6 +107,13 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - Not changed: the removal log line uses the agent's raw name while the messages use its display name.
   The log is for machines and the steps are for people; that split is deliberate.
 
+## Review 9
+
+- No blocker; every earlier fix re-verified by mutation. The reason text a person sees was only
+  substring-matched (a reversed sentence containing "gone" passed); it is pinned exactly, and in the log
+  and the step.
+- Anything present at the named path (not only a regular file) gets the refusal that names it.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

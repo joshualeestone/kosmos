@@ -4408,7 +4408,7 @@ function createAgentInner(opts) {
     const tried = steps.find((s) => s.ok === false && /would not leave/.test(s.label || ''));
     const namedPath = printedPath(printed);
     let namedExists = false;
-    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && fs.statSync(namedPath).isFile(); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
+    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && Boolean(fs.statSync(namedPath)); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
     const namedIsOurs = Boolean(namedPath) && path.resolve(namedPath) === path.resolve(plistPath(name));
     if (!tried && namedExists && !namedIsOurs) {
       return {

@@ -799,7 +799,8 @@ test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent
   console.log = (...a) => { logged.push(a.join(' ')); };
   let r;
   try { r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' }); } finally { console.log = origLog; }
-  assert.ok(logged.some((l) => l.includes('removed a leftover startup job for leftover-temp') && l.includes(leaked)), 'the removal was not logged with its file');
+  assert.ok(logged.some((l) => l.includes('removed a leftover startup job for leftover-temp') && l.includes(leaked) && l.includes('its startup file is in a temporary folder')), 'the removal was not logged with its file and reason');
+  assert.ok(r.steps.some((s) => s.ok && s.label.includes('its startup file is in a temporary folder')), 'the step does not give the reason');
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(bootedOut(calls), 'the leftover job was not booted out');
   // The one destructive call must target THIS agent's own label, and so must the verify.
@@ -903,12 +904,12 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   assert.equal(create.leftoverJob('\tpath = relative/x.plist\n', ours), null, 'a relative path');
   assert.equal(create.leftoverJob('\t\tpath = /nowhere-4279/x.plist\n', ours), null, 'a NESTED path line is not the job\'s plist');
   const gone = create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours);
-  assert.match(gone.why, /gone/);
+  assert.equal(gone.why, 'its startup file is gone');
   assert.equal(gone.path, '/nowhere-4279/x.plist', 'it reports a different file from the one launchd loaded');
   const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
   try {
     const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
-    assert.match(temp.why, /temporary/);
+    assert.equal(temp.why, 'its startup file is in a temporary folder');
     assert.equal(temp.path, t);
   } finally { fs.rmSync(t, { force: true }); }
   assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
