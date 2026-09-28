@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: consolnav-4345
-diff_hash: f83e22fcecdce032d400f62b3146b0f1eeabe802924f1c93febd58064578668d
+diff_hash: 91fa861ba5c3a72b99e5a2c70eeb0e23d5912477a3c9f25696c9d5630221e54d
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-28T17:29:36Z
@@ -59,6 +59,9 @@ The first final validation failed on four tests, all this branch's own: the READ
   - the four failures above;
   - a surface-gate failure, because my trailers first omitted the .js basename;
   - one engine/musefront.test.js timing red at load 10.8. That file is untouched by this branch and passes 3/3 alone.
+
+### After the proof: one browser-check fix, CI-found
+CI's browser-checks job (on stacked PR #4390) failed `render-tophead-stable-2624`: its control used "the center tabs are hidden" to recognise the consolidated view, which this branch changes on purpose. Its control now reads the header h1, which only the consolidated CSS hides. That file is the only change since the full validation (hash f83e22fcecdc). It is a browser check the validation helper does not run, so it was run by hand: it passes, and with the layout forced to tabs its control goes red. Also in that CI run: `render-type-to-focus-3283` failed, pre-existing and not this branch's (2 of 5 on origin/main, filed as #4401).
 
 ### Tests
 - docs/browser-checks/render-consolidated-nav-4345.js: 54 checks. Every fix in every round is mutation-checked.
