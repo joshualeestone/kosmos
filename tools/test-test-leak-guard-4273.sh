@@ -140,18 +140,32 @@ out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before-other" "$lroot"); rc=$
 printf -- '-\t0\tcom.apple.x\n-\t0\tcom.kosmos.agent.nopath\n' > "$work/labels"
 out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?
 if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'note: new launchd job com.kosmos.agent.nopath: no plist path read'; then ok "a new job with no readable plist path is named on a note"; else bad "unreadable plist path: rc=$rc out=$out"; fi
+printf -- '-\t0\tcom.apple.x\n-\t0\tcom.apple.mdworker.shared.0B00\n' > "$work/labels"
+out=$(PATH="$stub:$PATH" leak_launchd_check "$work/before" "$lroot"); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "macOS's own plist-less jobs (mdworker) make no note (control)" || bad "a com.apple job made noise: rc=$rc out=$out"
 
 # The REAL launchctl, through the guard's own parse (leak_plist_path): it must find a plist path for this Mac's own jobs.
 # If launchctl's output changes shape this goes red, instead of every leak reading clean.
 if command -v launchctl > /dev/null 2>&1 && launchctl list > /dev/null 2>&1; then
-  parsed=0; tried=0
+  # Only a job whose `launchctl print` says ANYTHING can judge the parse: with no jobs, or
+  # no GUI domain (an SSH session, a CI runner), there is nothing to read, which is not a
+  # format change. Red only when jobs printed and not one yielded a path.
+  parsed=0; printed=0; tried=0
   while IFS= read -r l; do
     [ "$tried" -ge 40 ] && break
     tried=$((tried + 1))
+    launchctl print "gui/$(id -u)/$l" 2>/dev/null | grep -q . || continue
+    printed=$((printed + 1))
     p=$(leak_plist_path "$(id -u)" "$l")
     case "$p" in /*.plist) parsed=$((parsed + 1)) ;; esac
   done < <(leak_labels_snapshot)
-  [ "$parsed" -gt 0 ] && ok "the plist-path parse works on this Mac's real launchctl ($parsed of $tried jobs)" || bad "no plist path parsed from the real launchctl print ($tried jobs tried): its output format changed"
+  if [ "$printed" -eq 0 ]; then
+    echo "skip the real-launchctl parse check ($tried jobs listed, none printable in gui/$(id -u) here)"
+  elif [ "$parsed" -gt 0 ]; then
+    ok "the plist-path parse works on this Mac's real launchctl ($parsed of $printed printable jobs)"
+  else
+    bad "no plist path parsed from $printed printable jobs: launchctl print's output format changed"
+  fi
 else
   echo "skip the real-launchctl parse check (no launchctl here)"
 fi

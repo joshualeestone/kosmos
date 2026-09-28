@@ -67,8 +67,10 @@ leak_launchd_check() {
     plist=$(leak_plist_path "$uid" "$label")
     # An unread path cannot be scoped, so it is not judged; but for a NEW job it is SAID,
     # so a change in launchctl's output shows up as notes instead of a silent clean pass.
+    # macOS's own come-and-go jobs (Spotlight's `com.apple.mdworker.shared.*` have no plist)
+    # are left out: two appeared in one full run, and a note on every run gets ignored.
     if [ -z "$plist" ]; then
-      [ "$kind" = new ] && echo "note: new launchd job $label: no plist path read, not checked"
+      case "$kind:$label" in new:com.apple.*|old:*) ;; *) echo "note: new launchd job $label: no plist path read, not checked" ;; esac
       continue
     fi
     case "$plist" in

@@ -170,10 +170,12 @@ fi
 # 104 characters, tmux builds `$TMPDIR/tmux-<uid>/default`, and `engine/status`
 # has a test that needs the ordinary "no server" error from a real tmux. Nesting
 # the run under a long directory produced "File name too long" instead, which is
-# a DIFFERENT error the board correctly refuses, and the test failed. This adds
-# under ten characters; a test file that also uses test-support/tmpscope.js adds
-# `/kts-XXXXXX` (11 more), measured 84 characters for a tmux socket here in total. If a machine is already within ten characters of that
-# limit its suite is fragile today, which is #1264.
+# a DIFFERENT error the board correctly refuses, and the test failed. The run root
+# adds `/kt<pid>` (under ten characters), and a test file that also uses
+# test-support/tmpscope.js adds `/kts-XXXXXX` on top (11 more): about TWENTY in all.
+# Measured on Agent1s (a 48-character TMPDIR): 84 characters for the tmux socket. A
+# machine whose TMPDIR leaves under about twenty characters of that limit has a
+# fragile suite, which is #1264.
 #
 # 📌 A hard kill skips the trap and leaves ONE directory instead of 92, named
 # for the run that made it.
