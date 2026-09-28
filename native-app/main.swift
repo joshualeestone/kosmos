@@ -2659,7 +2659,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                        askedBefore: askedBefore)
                 }
             case .relaunchNow:
-                self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false)
+                self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false,
+                              askedBefore: askedBefore)
             case .askPerson:
                 let restarted = self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
                                                   wordsWaiting: page != .cannotTell)
@@ -2725,11 +2726,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         guard clicked == spec.restartIndex else { return false }
-        relaunch(mine: mine, theirs: theirs, target: target, waited: waited, asked: true)
+        relaunch(mine: mine, theirs: theirs, target: target, waited: waited, asked: true, askedBefore: true)
         return true
     }
 
-    private func relaunch(mine: String, theirs: String, target: URL, waited: TimeInterval, asked: Bool) {
+    private func relaunch(mine: String, theirs: String, target: URL, waited: TimeInterval, asked: Bool,
+                          askedBefore: Bool) {
         logLine("relaunch: \(ISO8601DateFormatter().string(from: Date())) \(mine) -> \(theirs), "
                 + "target \(target.path), waited \(Int(waited))s, \(asked ? "person pressed Restart" : "no question asked")")
 
@@ -2801,8 +2803,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.silentRelaunchFailures += 1
                     if self.silentRelaunchFailures < Self.silentRelaunchFailureLimit {
                         DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) {
+                            // A failure nobody saw is not a question anybody was asked: carry the real value.
                             self.stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: Date(),
-                                               toldGaveUp: false, askedBefore: true)
+                                              toldGaveUp: false, askedBefore: askedBefore)
                         }
                         return
                     }
