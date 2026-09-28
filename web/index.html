@@ -29298,7 +29298,7 @@ function orgPlace(nodes) {
            through the hub. (Capping every manager made one with six plain reports outgrow a phone: #4434
            review it1.) */
         /* 0.9 is a safety margin inside the exact tangent (1.0 is still correct in theory, so no test can pin
-           the margin itself; removing the cap is pinned by the LOPSIDED tree). */
+           the margin itself; removing the cap is pinned by randomTree(1953, 39) and (2064, 30) in the tests). */
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
         const half = Math.min((ps.hi - ps.lo) / 2, cap);
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
