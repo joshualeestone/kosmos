@@ -4002,7 +4002,7 @@ if [ "$_board_ok" = yes ]; then
         # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
         # under the sandbox above, so this path is verified on a real box, not here.)
         # #4356: not on a computer that connects elsewhere; restart would clear board.stopped.
-        _kosmos_mode_keeps_board_off || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else
@@ -4191,7 +4191,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   _do_open=yes
 fi
 
-if [ "$_kosmos_board_off" = "yes" ]; then
+if [ "$_kosmos_board_off" = "yes" ] && [ "$BOARD_OURS" = "yes" ]; then
+  # #4356: set not to run one, but a board of ours is up anyway (a stop that failed, or one started
+  # by hand). Said as it is; the app stops it when it opens (stopBoardIfRunning).
+  printf '\n  Kosmos is installed. This computer is set not to run a board, but one is still running.\n'
+  printf '  Open the Kosmos app from your Applications folder and it will stop it.\n\n'
+elif [ "$_kosmos_board_off" = "yes" ]; then
   # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
   # advice would start a board on a computer that connects elsewhere.
   printf '\n  Kosmos is installed. No board runs on this computer, on purpose (see above).\n'

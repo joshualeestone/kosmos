@@ -1226,8 +1226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
     private var modeHome: String?
-    // #4356: true from Connect until its `kosmos stop` has finished. "Run agents on this computer"
-    // waits for it, or its `kosmos start` would race the stop (and the stop can win).
+    // #4356: true while a `kosmos stop` of ours is running: the switch to connect, or a connect
+    // launch stopping a board left running. "Run agents on this computer" waits for it, or its
+    // `kosmos start` would race the stop (and the stop can win, leaving a run computer's board down).
     private var connectSwitchInFlight = false
     private var lastPageBadgeAt: TimeInterval?   // systemUptime: a clock that never steps backwards
     private var badgeAsked = 0
@@ -1831,8 +1832,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func stopBoardIfRunning() {
         guard let home = modeHome, !FileManager.default.fileExists(atPath: home + "/board.stopped") else { return }
         logLine("#4356: connect computer without board.stopped; stopping the board")
-        DispatchQueue.global(qos: .utility).async {
-            if !stopBoard(kosmosHome: home) { logLine("#4356: the launch-time stop failed too") }
+        connectSwitchInFlight = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let stopped = stopBoard(kosmosHome: home)
+            DispatchQueue.main.async {
+                self?.connectSwitchInFlight = false
+                if !stopped { logLine("#4356: the launch-time stop failed too") }
+            }
         }
     }
 

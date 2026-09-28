@@ -103,8 +103,11 @@ test('#4356: a failed stop is said, and every connect launch stops a board left 
   assert.match(body('private func stopBoardIfRunning()'), /!FileManager\.default\.fileExists\(atPath: home \+ "\/board\.stopped"\)/);
 });
 
-test('#4356: Run agents waits for the switch to connect to finish stopping', () => {
+test('#4356: Run agents waits for any stop of ours to finish, the switch or the launch-time one', () => {
   assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard !connectSwitchInFlight else \{/);
+  const relaunch = body('private func stopBoardIfRunning()');
+  assert.match(relaunch, /connectSwitchInFlight = true/, 'the launch-time stop can race Run agents');
+  assert.match(relaunch, /self\?\.connectSwitchInFlight = false/);
   assert.match(body('private func switchToConnect(home: String)'), /self\.connectSwitchInFlight = false\n\s+guard self\.computerMode == \.connect/);
 });
 

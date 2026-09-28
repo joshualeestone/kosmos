@@ -209,8 +209,11 @@ test('#4356: the address keeper carries ?mode=, or first run never sees it', () 
 
 test('#4356: first run asks for the choice before the wizard, and a Connect ends it there', () => {
   const boot = lift('firstRunBoot');
-  const ask = boot.indexOf("if (frChoiceWanted(state.done) && (await frChoose()) === 'connect') return;");
-  assert.notEqual(ask, -1, 'firstRunBoot does not ask for the choice, or goes on after Connect');
-  assert.ok(ask < boot.indexOf('if (state.done && !force) return;'), 'a Mac that finished first run with an unreadable choice is never asked');
+  const ask = boot.indexOf("const chose = frChoiceWanted(state.done) ? await frChoose() : null;");
+  assert.notEqual(ask, -1, 'firstRunBoot does not ask for the choice');
+  assert.match(boot, /if \(chose === 'connect'\) return;/, 'first run goes on after Connect');
+  const done = boot.indexOf("if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }");
+  assert.notEqual(done, -1, 'a finished Mac that chooses both again never reaches the Kosmos Plus sign-in');
+  assert.ok(ask < done, 'a Mac that finished first run with an unreadable choice is never asked');
   assert.ok(ask < boot.indexOf('frOpen();'), 'the wizard opens before the choice');
 });

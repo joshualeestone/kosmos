@@ -829,7 +829,7 @@ printf 'both\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
 chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
-chk "the launchd bootstrap's restart is held by the same check" "grep -q '_kosmos_mode_keeps_board_off || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
+chk "the launchd bootstrap's restart is held by the same decision" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 

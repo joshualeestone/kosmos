@@ -63897,9 +63897,12 @@ async function firstRunBoot(force, step) {
     // The net effect was still "no overlay", but by accident rather than by the
     // rule three lines up, and an accident is not a fail-closed guarantee.
     if (!state || typeof state !== 'object') return;
-    // #4356: this computer's choice comes first. Connect hands the window to the app.
-    if (frChoiceWanted(state.done) && (await frChoose()) === 'connect') return;
-    if (state.done && !force) return;
+    // #4356: this computer's choice comes first. Connect hands the window to the app. A choice asked
+    // again after first run (an unreadable one) skips the wizard, so "both" goes straight to its
+    // last step, the Kosmos Plus sign-in.
+    const chose = frChoiceWanted(state.done) ? await frChoose() : null;
+    if (chose === 'connect') return;
+    if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }
     FR = state;
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
