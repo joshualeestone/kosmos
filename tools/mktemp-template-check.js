@@ -48,6 +48,43 @@ function hasTemplate(args) {
   return false;
 }
 
+/** For each character of a line, whether it is shell CODE (true) or inside a quoted string or a
+    comment (false). A `$(...)` or a backtick inside double quotes is code again, so
+    `x="$(mktemp -d)"` counts and `echo "if mktemp -d"` or `: # if mktemp -d` does not. A string
+    handed to `-c` (`bash -c '...'`, `sh -c "..."`) is a script, so it is code too. */
+function codeMask(line) {
+  const mask = new Array(line.length).fill(false);
+  const stack = [{ kind: 'code', depth: 0 }];
+  for (let i = 0; i < line.length; i += 1) {
+    const top = stack[stack.length - 1];
+    const ch = line[i];
+    if (top.kind === 'sq') { if (ch === "'") stack.pop(); continue; }
+    if (top.kind === 'dq') {
+      if (ch === '\\') { i += 1; continue; }
+      if (ch === '"') { stack.pop(); continue; }
+      if (ch === '$' && line[i + 1] === '(') { stack.push({ kind: 'code', depth: 1 }); mask[i] = true; mask[i + 1] = true; i += 1; continue; }
+      if (ch === '`') { stack.push({ kind: 'bt' }); mask[i] = true; continue; }
+      continue;
+    }
+    // code, backtick code, or the body of a `-c` string
+    mask[i] = true;
+    if (top.close && ch === top.close) { mask[i] = false; stack.pop(); continue; }
+    if (ch === '\\') { mask[i + 1] = true; i += 1; continue; }
+    if (top.kind === 'bt' && ch === '`') { stack.pop(); continue; }
+    if ((ch === "'" || ch === '"') && /(?:^|\s)-c\s*$/.test(line.slice(0, i))) {
+      mask[i] = false; stack.push({ kind: 'code', depth: 0, close: ch }); continue;
+    }
+    if (ch === "'") { mask[i] = false; stack.push({ kind: 'sq' }); continue; }
+    if (ch === '"') { mask[i] = false; stack.push({ kind: 'dq' }); continue; }
+    if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) { for (let j = i; j < line.length; j += 1) mask[j] = false; break; }
+    if (top.kind === 'code' && top.depth > 0) {
+      if (ch === '(') top.depth += 1;
+      else if (ch === ')') { top.depth -= 1; if (top.depth === 0) stack.pop(); }
+    }
+  }
+  return mask;
+}
+
 /** Bare calls in a file's text, by the line each command STARTS on. A backslash-newline
     continues a command, so a call split across lines is read whole. */
 function bareCalls(text) {
@@ -58,7 +95,11 @@ function bareCalls(text) {
     let line = lines[i];
     while (/\\$/.test(line) && i + 1 < lines.length) { i += 1; line = line.slice(0, -1) + ' ' + lines[i]; }
     if (/^\s*#/.test(line)) continue;
+    const mask = codeMask(line);
     for (const m of line.matchAll(CALL)) {
+      // The word itself must be code: a mention in a string or a comment is not a call.
+      const at = m.index + m[0].search(/mktemp(?![\w.-])/);
+      if (!mask[at]) continue;
       if (!hasTemplate(m[1])) hits.push({ line: start + 1, text: line.trim() });
     }
   }

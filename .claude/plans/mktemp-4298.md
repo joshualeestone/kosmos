@@ -37,7 +37,11 @@ lands under TMPDIR, and the name says which script left it.
 - build-tmux-from-source.sh: a short `bts.XXXXXX` name, because its smoke test puts tmux sockets
   under the dir and a socket path over 104 bytes fails (82 bytes under a run root).
 - Out of scope, noted on the card: shell embedded in JS (engine/reporthook.js, docs/browser-checks,
-  three *.test.js), and ios/ scripts (run by iOS CI, not by test:shell).
+  and install.reachable-1662.test.js, the one test file with a bare call), and ios/ scripts (run by
+  iOS CI, not by test:shell).
+- The matcher decides code vs text per character: quoted strings and comments are text, a `$(...)`
+  or backtick inside double quotes is code, and a string handed to `-c` is code. On origin/main it
+  finds 116 calls in tools/ and 1 in install/, the 117 this branch templates.
 
 ## Mistake recorded
 A `git stash` in the worktree during a measurement run swapped scripts mid-execution; that run was
