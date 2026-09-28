@@ -6200,7 +6200,7 @@ test('#3038: createdCount() counts creations (created + partial), never refusals
   // made by itself (#4350: createdBy 'kosmos', role 'setup', a guide purpose). Stated here in
   // full rather than borrowed from create.js, so this test is a second statement of the rule.
   const sa = require('./setup-assistant');
-  const autoGuide = (e) => e.createdBy === 'kosmos' && e.role === 'setup'
+  const autoGuide = (e) => e.createdBy === sa.GUIDE_CREATED_BY && e.role === sa.SETUP_ROLE_KEY
     && sa.GUIDE_PURPOSE_PREFIXES.some((p) => String(e.purpose || '').startsWith(p));
   const expected = create.createdLog()
     .filter((e) => (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL) && !autoGuide(e)).length;

@@ -61,6 +61,7 @@ test('#4350 record() reports a change only when the STATE changes, and ignores a
     'a retry wait (no state) must record nothing');
   assert.equal(guidestate.current(), 'no-model', 'a wait overwrote the state');
   assert.equal(guidestate.record({ state: 'bogus' }).changed, false, 'an unknown state was recorded');
+  assert.equal(guidestate.current(), 'no-model', 'an unknown state reached the file');
   assert.equal(guidestate.record({ state: 'seeded', reason: 'x' }).changed, true);
   assert.equal(guidestate.current(), 'seeded');
 });
@@ -120,8 +121,8 @@ test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re
   const all = [...src.matchAll(/setupAssistant\.ensureGuide\(/g)];
   assert.equal(all.length, 2, 'expected exactly two ensureGuide call sites; re-read this test if that changed');
   assert.equal(calls.length, all.length, 'an ensureGuide call site drops its outcome');
-  assert.match(src, /const recordGuideOutcome = guidestate\.makeRecorder\(\{ ping: \(\) => createdbeacon\.pingInstall\(\), delayMs: GUIDE_PING_DELAY_MS \}\)/,
-    'the board must record through makeRecorder, pinging the install after GUIDE_PING_DELAY_MS');
+  assert.match(src, /const recordGuideOutcome = guidestate\.makeRecorder\(\{\s*ping: \(\) => createdbeacon\.pingInstall\(\),\s*delayMs: GUIDE_PING_DELAY_MS,\s*setTimer: createdbeacon\.underTest\(\) \? \(\) => null : setTimeout,/,
+    'the board must record through makeRecorder, pinging after GUIDE_PING_DELAY_MS, with no timer under test');
   assert.match(src, /const GUIDE_SEEDED = Object\.freeze\(\{[^}]*state: 'seeded'/, 'the seeded outcome is not defined');
   assert.match(src, /setupAssistantSeeded\(\)\)\s*\{\s*recordGuideOutcome\(GUIDE_SEEDED\)/,
     'an install seeded before the guide state existed must record seeded at the sweep\'s early return');

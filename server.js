@@ -826,7 +826,13 @@ const GUIDE_PING_DELAY_MS = 30 * 1000;
    early once seeded), so the sweep records this for it. `seeded: false` is ensureGuide's own shape
    for "nothing created on this call"; the state says the guide exists. */
 const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
-const recordGuideOutcome = guidestate.makeRecorder({ ping: () => createdbeacon.pingInstall(), delayMs: GUIDE_PING_DELAY_MS });
+// Under a test run the beacon never sends, and an armed 30 s timer could land inside another
+// test's capture window, so no timer is armed at all there (the state is still recorded).
+const recordGuideOutcome = guidestate.makeRecorder({
+  ping: () => createdbeacon.pingInstall(),
+  delayMs: GUIDE_PING_DELAY_MS,
+  setTimer: createdbeacon.underTest() ? () => null : setTimeout,
+});
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
