@@ -239,8 +239,10 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
   /* #4405: the third is the person switching the assistant ON in Settings > Help: explicit, and only there. */
   const explicitCalls = calls.filter((c) => /explicit:\s*true/.test(src.slice(c.index, c.index + 200)));
   assert.equal(explicitCalls.length, 1, 'exactly one ensureGuide call may be explicit');
-  assert.ok(src.lastIndexOf("'/api/settings'", explicitCalls[0].index) > src.lastIndexOf('pathname ===', explicitCalls[0].index) - 200,
-    'the explicit ensureGuide call is not in the /api/settings route');
+  // The nearest route line above it must be the /api/settings POST.
+  const routeAt = src.lastIndexOf('pathname ===', explicitCalls[0].index);
+  assert.match(src.slice(routeAt, src.indexOf('\n', routeAt)), /pathname === '\/api\/settings' && req\.method === 'POST'/,
+    'the explicit ensureGuide call is not in the /api/settings POST route');
   for (const c of calls) {
     const before = src.slice(Math.max(0, c.index - 900), c.index);
     assert.match(before, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)/, 'an ensureGuide call is not behind FIRSTRUN_AUTOCREATE_ENABLED');
@@ -643,6 +645,25 @@ test('ensureGuide: if the seeded flag cannot be written, the next tick still mak
     const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
     assert.match(again.reason, /already seeded/);
     assert.equal(calls.length, 1, 'a failed flag write let a second guide be created');
+  } finally { fs.chmodSync(root, 0o755); fs.rmSync(flag, { recursive: true, force: true }); armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#4405 explicit: a guide made this session whose record could not be written is not made a SECOND time', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  const flag = setupAssistant.flagPath();
+  const root = path.dirname(flag);
+  try {
+    fs.rmSync(flag, { force: true });
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+    const calls = [];
+    fs.chmodSync(root, 0o555);   // the flag write fails
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn, explicit: true });
+    assert.equal(r.seeded, true);
+    assert.equal(setupAssistant.setupAssistantSeeded(), false, 'CONTROL: nothing on disk says seeded');
+    const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn, explicit: true });
+    assert.equal(again.seeded, false, again.reason || '');
+    assert.equal(calls.length, 1, 'a failed flag write let the explicit path make a second guide');
   } finally { fs.chmodSync(root, 0o755); fs.rmSync(flag, { recursive: true, force: true }); armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 

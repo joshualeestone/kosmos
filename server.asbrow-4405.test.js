@@ -1,0 +1,133 @@
+'use strict';
+
+/**
+ * #4405, end to end through the real server: the Settings > Help switch (POST /api/settings
+ * setupAssistant) makes the Kosmos Guide when it is switched ON and none is on this computer,
+ * says why when it cannot (no model), makes nothing when it is switched OFF, and never makes a
+ * second one while a guide exists. RUNS THE REAL SERVER as a child process (the harness is
+ * server.guide-on-connect-3660.test.js's). First run is NOT completed, so the install is not
+ * armed and only the switch can make a guide.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { stopBoard } = require('./test-support/board-child');
+
+const REPO = __dirname;
+
+function signIn(home) {
+  // A signed-in default Claude account; the fake claude bin makes its liveness check pass.
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'guide-test@example.com' } }));
+}
+
+function sandbox({ signedIn = true } = {}) {
+  const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4405-')));
+  const home = path.join(sb, 'home');
+  fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  if (signedIn) signIn(home);
+  fs.writeFileSync(path.join(sb, 'panes.txt'), '');
+  return { sb, home, data: path.join(sb, 'data') };
+}
+
+function boot(box, extraEnv) {
+  const child = spawn(process.execPath, [path.join(REPO, 'server.js')], {
+    env: {
+      PATH: process.env.PATH,
+      HOME: box.home,
+      PORT: '0',
+      AGENT_WORKFORCE_HOME: box.home,
+      AGENT_WORKFORCE_DATA: box.data,
+      AGENT_WORKFORCE_WORKERS: path.join(box.sb, 'workers'),
+      AGENT_WORKFORCE_LAUNCH: path.join(box.sb, 'launch'),
+      AGENT_WORKFORCE_PROJECTS: path.join(box.sb, 'projects'),
+      AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(box.sb, 'claude-config.json'),
+      AGENT_WORKFORCE_CLAUDE_BIN: '/bin/echo',
+      AGENT_WORKFORCE_TMUX_BIN: path.join(REPO, 'test-support', 'fake-tmux.sh'),
+      AGENT_WORKFORCE_FAKE_PANES: path.join(box.sb, 'panes.txt'),
+      AGENT_WORKFORCE_DRY_RUN: '1',
+      /* #4253: this env is built by hand, so NODE_TEST_CONTEXT does not reach the
+         board and its install ping would go to installkosmos.com on every run. */
+      AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
+      AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+      AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
+      ...extraEnv,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return new Promise((resolve, reject) => {
+    let out = '';
+    const t = setTimeout(() => { try { child.kill(); } catch { /* gone */ } reject(new Error('server never announced a port:\n' + out)); }, 15000);
+    child.stdout.on('data', (b) => {
+      out += b;
+      const m = out.match(/http:\/\/[^\s]*?:(\d+)/);
+      if (m) { clearTimeout(t); resolve({ child, base: `http://127.0.0.1:${m[1]}` }); }
+    });
+  });
+}
+
+const flagFile = (box) => path.join(box.data, 'Kosmos', 'setup-assistant.json');
+const armFile = (box) => path.join(box.data, 'Kosmos', 'setup-assistant-armed.json');
+
+async function waitFor(fn, ms) {
+  const until = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > until) return null;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+const save = (base, on) => fetch(base + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: { on } }) })
+  .then(async (r) => ({ status: r.status, body: await r.json() }));
+
+test('#4405: switched ON with no model, it says no-model and makes nothing; OFF never tries', async () => {
+  const box = sandbox({ signedIn: false });
+  let child;
+  try {
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    const off = await save(booted.base, false);
+    assert.equal(off.status, 200);
+    assert.equal(off.body.guide, undefined, 'switching OFF tried to make a guide');
+    const on = await save(booted.base, true);
+    assert.equal(on.status, 200);
+    assert.deepEqual(on.body.guide, { state: 'no-model', seeded: false }, JSON.stringify(on.body));
+    assert.equal(on.body.setupAssistant.on, true);
+    assert.equal(fs.existsSync(flagFile(box)), false, 'a guide was made with no model');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});
+
+test('#4405: switched ON with a model and no guide, it makes the guide once; ON again with a guide on record makes nothing', async () => {
+  const box = sandbox();
+  let child;
+  try {
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    assert.equal(fs.existsSync(armFile(box)), false, 'CONTROL: not armed, so only the switch can make it');
+    const on = await save(booted.base, true);
+    assert.equal(on.status, 200);
+    assert.deepEqual(on.body.guide, { state: 'seeded', seeded: true }, JSON.stringify(on.body));
+    const flag = JSON.parse(fs.readFileSync(flagFile(box), 'utf8'));
+    assert.equal(flag.via, 'settings');
+    assert.ok(fs.existsSync(armFile(box)), 'the switch did not arm the install');
+    /* Here the dry-run create made no real folder, so the board reads the recorded guide as 'not-guide' (a guide
+       whose marker is missing looks the same). That is exactly when a second guide must NOT be made. */
+    const sg = await (await fetch(booted.base + '/api/setup-guide')).json();
+    assert.equal(sg.reason, 'not-guide', 'CONTROL: the ambiguous state this arm is about: ' + JSON.stringify(sg));
+    const again = await save(booted.base, true);
+    assert.equal(again.status, 200);
+    assert.equal(again.body.guide, undefined, 'ON with a recorded guide in doubt tried to make another (a second guide)');
+    assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).at, flag.at, 'the guide record was rewritten');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});

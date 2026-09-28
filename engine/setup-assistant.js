@@ -327,7 +327,8 @@ function guideName() {
 }
 
 /*
- * Seed the setup assistant if it has never been seeded. Returns:
+ * Seed the setup assistant if it has never been seeded (or, with `reseed`, when the person asked for it and no
+ * guide is on the computer now; #4405). Returns:
  *   { seeded: true, name, avatarCopied, marked } -- created
  *   { seeded: false, reason: '<why>' }            -- did not create (all benign)
  *
@@ -610,7 +611,7 @@ function retryWaitMs() {
 
 /**
  * Create the guide if, and only if: the automatic path is on, this install is armed,
- * it has never been seeded, and a model is connected. Tries each connected model in
+ * it has never been seeded (unless `explicit`, below), and a model is connected. Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
  * create at most one. Never throws. Resolves { seeded, state?, name?, reason? }: `state` is one
@@ -637,6 +638,9 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (explicit) armSetupAssistant();
   if (!isArmed()) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
   if (!explicit && (createdHere || setupAssistantSeeded())) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
+  /* Even explicit: a guide made in THIS process whose record could not be written (a full disk) must not get a
+     second one under the fallback name; that is what the in-process latch is for. */
+  if (explicit && createdHere && !setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'made this session; its record could not be written' });
   if (namesTaken) return Promise.resolve({ seeded: false, state: 'names-taken', reason: 'both guide names are taken by other agents' });
   /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;

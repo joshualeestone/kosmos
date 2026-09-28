@@ -10606,11 +10606,14 @@ const server = http.createServer((req, res) => {
         const saved = store.writeSettings(patch);
         const reply = { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) };
         /* #4405: switching the setup assistant ON in Settings > Help is how a person GETS one when
-           none is on this computer (never made; or switched off with "close forever" and wanted back). Create it
+           none is on this computer (never made, or the guide agent was removed). Create it
            now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
         if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
           const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
-          if (now && !now.ok && now.reason !== 'unchecked') {
+          /* Only when the board is SURE there is none: never made, or made and REMOVED (reason 'none'). 'not-guide'
+             is ambiguous (another agent took the name, or the guide's own folder lost its marker): making one
+             there could make a SECOND guide, so it is left alone; 'unchecked' changes nothing on a guess. */
+          if (now && !now.ok && now.reason === 'none') {
             return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
               .then(recordGuideOutcome)   // returns its input
               .catch(() => ({ seeded: false, state: 'refused' }))
