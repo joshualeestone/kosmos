@@ -148,6 +148,26 @@
      flagged rather than silently taken. */
   --k-optline: #82878f;
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
+  /* #4059 (Josh picked study A, 09-27): the gold primary is POLISHED gold, a curved metal
+     gradient, darker at the ends and a bright band through the middle. The study's ends were
+     bronze #7a5410, which is 2.68:1 under the #14161a label, so the ends here are a bronze-leaning
+     gold that keeps the label at 4.5:1 or better on EVERY pixel of the fill. Computed (sRGB):
+       #b2841e 5.36:1 alone, 5.00:1 under the 6% bottom shade (the darkest point, a corner)
+       #f3d27a 12.34:1 (the band)
+     RENDERED, the floor is the pill's rim where the 1px bottom bevel curves round the caps: 4.61:1
+     (Chromium) and 4.76:1 (WebKit) on the big create-flow pill, which is why the shade is 6% and
+     the bevel 25%, not the study's 35% and 55%. The hover is darker through the middle (the band
+     drops to --gold-bright) and keeps the same ends, so its floor is the same.
+     render-gold-buttons-4059.js measures both by pixels. The theme does not change the fill, so
+     one pair serves light, dark and navy. */
+  --gold-end: #b2841e;
+  --gold-polished:
+    linear-gradient(180deg, rgba(255,246,214,.55) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
+    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 14%, var(--gold-bright) 38%, #f3d27a 50%, var(--gold) 64%, var(--gold-deep) 84%, var(--gold-end) 100%);
+  --gold-polished-hover:
+    linear-gradient(180deg, rgba(255,246,214,.35) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
+    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 18%, var(--gold) 40%, var(--gold-bright) 50%, #cf9f2a 64%, var(--gold-deep) 84%, var(--gold-end) 100%);
+  --gold-polished-shadow: inset 0 1px 0 rgba(255,246,214,.7), inset 0 -1px 0 rgba(74,49,6,.25), 0 1px 2px rgba(0,0,0,.25), 0 6px 18px -8px rgba(122,84,16,.55);
   /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
      PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
      its fill, and `--gold-bright` measures 1.95:1 against a white card and
@@ -490,6 +510,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
   .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
+  /* #4059: this primary is BLUE, not gold, so it keeps its own shape and never hosts the gold light. */
+  .askcard .btn.uprime { border-radius: var(--radius-control); box-shadow: none; --gold-light: 0; }
   /* A secondary button on the card never disappears into its ground (the #3796 rule): a visible stroke. */
   .askcard .btn:not(.uprime) { border: 1px solid rgba(127,140,170,.55); }
   .askrow { padding: 8px 0; border-top: 1px solid var(--k-rule); }
@@ -1210,10 +1232,28 @@ html { scroll-padding-top: 132px; }
    .btn:hover repainted the primary action --attn-bg and the gold vanished
    under the pointer. It now deepens to --gold, which is the pattern this file
    already uses for the first-run confirm rather than a new invention. */
+/* #4059 (Josh 09-27, study A): the gold primary is a fully rounded pill in polished gold, and a
+   liquid light follows the pointer across it (goldLight, in the script: ONE shared WebGL canvas
+   that moves to whichever gold button is under the pointer). The border stays its width and turns
+   transparent over the metal, so no button changes size. --gold-light: 1 is how the script tells
+   a GOLD .uprime from one a surface repaints (the blue ask card and Kosmos+ set it to 0). The hover
+   is the darker polished gold, which is ALL a hover does under reduced motion or without WebGL. */
 button.uprime, .btn.uprime, .utoast .uacts button.uprime,
-.dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+.dbox .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a;
+  border-radius: 999px; box-shadow: var(--gold-polished-shadow); --gold-light: 1; }
 button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
-.dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
+.dbox .btn.uprime:hover { background: var(--gold-polished-hover); border-color: transparent; color: #14161a; }
+/* The keyboard ring on the pill: the browser's own ring follows the radius, but it is blue on some
+   engines and faint on gold. This is the ink ring the rest of the app uses, offset off the metal. */
+button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The light's canvas, while a gold button hosts it: behind the label (z-index -1 inside the
+   button's own stacking context, so it paints over the fill and under the text), exactly the
+   button's size, and CLIPPED to the pill by clip-path, because Safari does not clip a GPU canvas
+   to rounded corners with overflow alone (Josh 09-27: "the animation is going outside of the
+   button area"). Screen-blended, so it only ever lightens the gold under dark text. */
+.uprime.gold-lit { isolation: isolate; }
+.uprime > canvas.gold-light { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1;
+  clip-path: inset(0 round 999px); border-radius: 999px; pointer-events: none; mix-blend-mode: screen; opacity: .9; }
 /* #3955: the update chip (Mona Lisa's mock A and B): one line and one gold action, beside the Kosmos
    switcher in the same slot the old boxes used. Small on purpose (Josh: "It looks terrible and it's
    gigantic"). */
@@ -1275,7 +1315,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to
    every primary button in the product. */
-.btn.uprime.big { font-size: 1.0625rem; padding: .9em 1.75em; border-radius: 10px; }
+.btn.uprime.big { font-size: 1.0625rem; padding: .9em 1.75em; border-radius: 999px; }   /* #4059: a pill, like every gold primary */
 .sfoot { margin-top: var(--space-8); display: flex; justify-content: flex-end; }
 /* #2923: the project-settings save confirmation sits to the LEFT of Save
    changes (Josh 6.59 QA: "Saved." below the button was easy to miss). The
@@ -7798,9 +7838,11 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    so the colour never carries the state alone (kosmos#1346, same `--ok` as the found
    rows). `.added` is set by addImportedInPlace, not baked into the label. */
 #firstrun .fr-importrow .btn.uprime,
-#import-found .fr-importrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+#import-found .fr-importrow .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a; }   /* #4059: polished gold */
+#firstrun .fr-importrow .btn.uprime:not(.added):hover,
+#import-found .fr-importrow .btn.uprime:not(.added):hover { background: var(--gold-polished-hover); }
 #firstrun .fr-importrow .fr-importgo.added,
-#import-found .fr-importrow .fr-importgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
+#import-found .fr-importrow .fr-importgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
 .fr-importrow .fr-importgo.added::before { content: '\2713'; margin-right: 6px; font-weight: 700; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
@@ -8588,7 +8630,8 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    📌 #3048: this used to cover the home board panel too (#found-list/#scan-list,
    which `foundRowsHtml` also painted); those were removed with the home discovery
    markup, so the rule is now #firstrun-scoped. */
-#firstrun .fr-foundrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+#firstrun .fr-foundrow .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a; }   /* #4059: polished gold */
+#firstrun .fr-foundrow .btn.uprime:not(.added):hover { background: var(--gold-polished-hover); }
 /* #1938: a scan row stacks -- name/role, then the file preview full width, then the
    actions -- rather than the two-column found-row grid, because the preview needs the
    whole width and would be unreadable in a narrow left column. */
@@ -8609,7 +8652,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    `textContent` is exactly "Added" (render-found-undo.js, render-found-board.js);
    putting the glyph in the string would have forced both to be loosened, which is
    how a guard quietly stops guarding. The word is unchanged, the mark is added. */
-#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
+#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
 /* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
    done. `--ok` rather than a new value, because this file already measured it at
    5.32:1 and its own note says "we already use this green" is not a measurement:
@@ -9154,7 +9197,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    rather than raising .uprime globally, which would repaint buttons on screens
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
-#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-polished); color: #14161a; border-color: transparent; }   /* #4059: polished gold */
 /* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
    finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
    and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
@@ -9166,7 +9209,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
    the key step are the same buttons and drew the same blue. */
 #acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-#firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
+#firstrun .fr-confirm .btn.uprime:hover { background: var(--gold-polished-hover); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
    as one more quiet line of body copy. The plain #firstrun .fr-msg colour is the
@@ -9704,7 +9747,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    leave no sign of focus or of the current box: give the current box a thick system-colour edge. */
 @media (forced-colors: active) { #plus-state2 .otp-cell.on { border: 3px solid Highlight; } }
 #plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-#plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
+#plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; box-shadow: none; --gold-light: 0; }   /* #4059: blue, so no gold light */
 #plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
 #plus-state2 .btn.uprime:disabled { opacity: .55; filter: none; }
 #plus-state2 .btn:not(.uprime) { background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; }
@@ -63233,6 +63276,249 @@ window.addEventListener('online', () => { tick(); loadProjects(); });
    the last "just now". A helper nothing calls is the defect this file is written
    against; this is the caller. */
 setInterval(ageCheckedStamp, 1000);
+</script>
+<!-- #4059: the liquid light on the gold buttons. Its own attributed block, like
+     push-client below, so the page tests' bare-script extractor never sees it.
+     Self-contained: it reads nothing of the app's state, only the DOM. -->
+<script id="gold-light">
+(function () {
+  'use strict';
+  /* THE SIZE OF THE LIGHT, in the study's own units (kosmos#4059): the light's radius is
+     .0035 x this, and its brightness per push scales by this to the power -0.15, so a bigger
+     light does not wash out to white. Josh's three sizes from the study: 2 ("Slightly larger"),
+     3.3 ("Larger", the one built) and 5.3 ("Boldest"). Change this one number to change it. */
+  var GOLD_LIGHT_SIZE = 3.3;
+  /* How long the light lingers after the last push before the loop stops and the canvas goes
+     (the dye fades by about 99% in this time, so nothing visible is cut off). A pointer resting
+     still on the button counts as no push, so a resting pointer runs no GPU work either; the
+     next move brings the light back. */
+  var LINGER_MS = 12000;
+  var WHITE_GOLD = [1.0, 0.86, 0.52];   // the bright streak in the reference frames
+  var FEEL = { curl: 26, velDiss: 0.2, dyeDiss: 0.36 };
+
+  /* A tiny stable-fluids simulation (advection, swirl, pressure), from the approved study.
+     ONE WebGL context for the whole app: browsers cap live contexts at about 16, and the app
+     shows far more gold buttons than that, so the one canvas moves to the button under the
+     pointer and resizes its buffers there. */
+  var VS = 'precision highp float; attribute vec2 aPos; varying vec2 vUv, vL, vR, vT, vB; uniform vec2 texel;'
+    + ' void main(){ vUv = aPos*.5+.5; vL = vUv-vec2(texel.x,0.); vR = vUv+vec2(texel.x,0.); vT = vUv+vec2(0.,texel.y); vB = vUv-vec2(0.,texel.y); gl_Position = vec4(aPos,0.,1.); }';
+  var FS = {
+    splat: 'precision highp float; varying vec2 vUv; uniform sampler2D target; uniform float aspect, radius; uniform vec3 color; uniform vec2 point;'
+      + ' void main(){ vec2 p = vUv-point; p.x *= aspect; vec3 s = exp(-dot(p,p)/radius)*color; gl_FragColor = vec4(texture2D(target,vUv).xyz+s,1.); }',
+    advect: 'precision highp float; varying vec2 vUv; uniform sampler2D vel, src; uniform vec2 texel; uniform float dt, diss, cap;'
+      + ' void main(){ vec2 c = vUv - dt*texture2D(vel,vUv).xy*texel; vec4 v = texture2D(src,c)/(1.+diss*dt); gl_FragColor = cap > 0. ? min(v, vec4(cap)) : v; }',
+    curl: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel;'
+      + ' void main(){ float L=texture2D(vel,vL).y, R=texture2D(vel,vR).y, T=texture2D(vel,vT).x, B=texture2D(vel,vB).x; gl_FragColor = vec4(.5*(R-L-T+B),0.,0.,1.); }',
+    /* Josh 09-27 ("after 15 seconds it freaks out"): the speed is capped at 80, so play can
+       never wind it up. The dye is capped too (advect's cap, 1.6, below). */
+    vort: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel, curl; uniform float amount, dt;'
+      + ' void main(){ float L=texture2D(curl,vL).x, R=texture2D(curl,vR).x, T=texture2D(curl,vT).x, B=texture2D(curl,vB).x, C=texture2D(curl,vUv).x;'
+      + ' vec2 f = .5*vec2(abs(T)-abs(B), abs(R)-abs(L)); f /= length(f)+.0001; f *= amount*C; f.y *= -1.;'
+      + ' vec2 v = texture2D(vel,vUv).xy + f*dt; float l = length(v); if (l > 80.) v *= 80./l;'
+      + ' gl_FragColor = vec4(v, 0., 1.); }',
+    div: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel;'
+      + ' void main(){ float L=texture2D(vel,vL).x, R=texture2D(vel,vR).x, T=texture2D(vel,vT).y, B=texture2D(vel,vB).y; gl_FragColor = vec4(.5*(R-L+T-B),0.,0.,1.); }',
+    fade: 'precision highp float; varying vec2 vUv; uniform sampler2D src; uniform float value; void main(){ gl_FragColor = value*texture2D(src,vUv); }',
+    pressure: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D pres, divg;'
+      + ' void main(){ float L=texture2D(pres,vL).x, R=texture2D(pres,vR).x, T=texture2D(pres,vT).x, B=texture2D(pres,vB).x, D=texture2D(divg,vUv).x; gl_FragColor = vec4((L+R+B+T-D)*.25,0.,0.,1.); }',
+    grad: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D pres, vel;'
+      + ' void main(){ float L=texture2D(pres,vL).x, R=texture2D(pres,vR).x, T=texture2D(pres,vT).x, B=texture2D(pres,vB).x; gl_FragColor = vec4(texture2D(vel,vUv).xy - vec2(R-L,T-B), 0., 1.); }',
+    show: 'precision highp float; varying vec2 vUv; uniform sampler2D dye;'
+      + ' void main(){ vec3 c = texture2D(dye,vUv).rgb; c = c/(1.+c*.6); float a = max(c.r,max(c.g,c.b)); gl_FragColor = vec4(c, a); }'
+  };
+
+  /* The simulation on one canvas. Programs compile once; size() rebuilds the buffers for the
+     button the canvas is on (its aspect is the button's). Returns null when WebGL, or a float
+     texture it needs, is missing, and the caller falls back to the CSS hover alone. */
+  function makeFluid(canvas) {
+    var gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: false });
+    if (!gl) return null;
+    var half = gl.getExtension('OES_texture_half_float'), halfLin = gl.getExtension('OES_texture_half_float_linear');
+    var flt = gl.getExtension('OES_texture_float'), fltLin = gl.getExtension('OES_texture_float_linear');
+    var TYPE = half ? half.HALF_FLOAT_OES : (flt ? gl.FLOAT : null);
+    if (!TYPE) return null;
+    var LIN = (half && halfLin) || (!half && flt && fltLin) ? gl.LINEAR : gl.NEAREST;
+    function prog(fs) {
+      var p = gl.createProgram(), pairs = [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, fs]];
+      for (var i = 0; i < pairs.length; i++) {
+        var s = gl.createShader(pairs[i][0]); gl.shaderSource(s, pairs[i][1]); gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) return null;
+        gl.attachShader(p, s);
+      }
+      gl.bindAttribLocation(p, 0, 'aPos'); gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
+      var u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+      for (var j = 0; j < n; j++) { var name = gl.getActiveUniform(p, j).name; u[name] = gl.getUniformLocation(p, name); }
+      return { p: p, u: u };
+    }
+    var P = {};
+    for (var k in FS) { P[k] = prog(FS[k]); if (!P[k]) return null; }
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, -1, 1, 1, 1, 1, -1]), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), gl.STATIC_DRAW);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(0);
+    var made = [];   // this size's textures and framebuffers, freed on the next size()
+    function fbo(w, h) {
+      var tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, LIN); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, LIN);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, TYPE, null);
+      var f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      made.push({ tex: tex, f: f });
+      return { tex: tex, f: f, w: w, h: h };
+    }
+    function dbl(w, h) {
+      var a = fbo(w, h), b = fbo(w, h);
+      return { get r() { return a; }, get w() { return b; }, swap: function () { var t = a; a = b; b = t; }, tw: 1 / w, th: 1 / h };
+    }
+    var aspect = 1, vel, dye, pres, divg, curl;
+    function size() {
+      for (var i = 0; i < made.length; i++) { gl.deleteTexture(made[i].tex); gl.deleteFramebuffer(made[i].f); }
+      made = [];
+      aspect = canvas.width / canvas.height;
+      var simH = 32, simW = Math.max(1, Math.round(simH * aspect)), dyeH = 128, dyeW = Math.max(1, Math.round(dyeH * aspect));
+      vel = dbl(simW, simH); dye = dbl(dyeW, dyeH); pres = dbl(simW, simH); divg = fbo(simW, simH); curl = fbo(simW, simH);
+      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    }
+    function bindTex(unit, t) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t.tex); return unit; }
+    function draw(target) {
+      if (target) { gl.viewport(0, 0, target.w, target.h); gl.bindFramebuffer(gl.FRAMEBUFFER, target.f); }
+      else { gl.viewport(0, 0, canvas.width, canvas.height); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    }
+    function use(key, tw, th) { gl.useProgram(P[key].p); if (P[key].u.texel) gl.uniform2f(P[key].u.texel, tw, th); return P[key].u; }
+    if (!size()) return null;
+    return {
+      size: size,
+      splat: function (x, y, dx, dy, color, radius) {
+        var u = use('splat', vel.tw, vel.th);
+        gl.uniform1i(u.target, bindTex(0, vel.r)); gl.uniform1f(u.aspect, aspect); gl.uniform2f(u.point, x, y);
+        gl.uniform3f(u.color, dx, dy, 0); gl.uniform1f(u.radius, radius); draw(vel.w); vel.swap();
+        u = use('splat', dye.tw, dye.th);
+        gl.uniform1i(u.target, bindTex(0, dye.r)); gl.uniform1f(u.aspect, aspect); gl.uniform2f(u.point, x, y);
+        gl.uniform3f(u.color, color[0], color[1], color[2]); gl.uniform1f(u.radius, radius); draw(dye.w); dye.swap();
+      },
+      step: function (dt, o) {
+        gl.disable(gl.BLEND);
+        var u = use('curl', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); draw(curl);
+        u = use('vort', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.curl, bindTex(1, curl)); gl.uniform1f(u.amount, o.curl); gl.uniform1f(u.dt, dt); draw(vel.w); vel.swap();
+        u = use('div', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); draw(divg);
+        u = use('fade', vel.tw, vel.th); gl.uniform1i(u.src, bindTex(0, pres.r)); gl.uniform1f(u.value, 0.8); draw(pres.w); pres.swap();
+        u = use('pressure', vel.tw, vel.th); gl.uniform1i(u.divg, bindTex(1, divg));
+        for (var i = 0; i < 16; i++) { gl.uniform1i(u.pres, bindTex(0, pres.r)); draw(pres.w); pres.swap(); }
+        u = use('grad', vel.tw, vel.th); gl.uniform1i(u.pres, bindTex(0, pres.r)); gl.uniform1i(u.vel, bindTex(1, vel.r)); draw(vel.w); vel.swap();
+        u = use('advect', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.src, bindTex(0, vel.r)); gl.uniform1f(u.dt, dt); gl.uniform1f(u.diss, o.velDiss); gl.uniform1f(u.cap, 0); draw(vel.w); vel.swap();
+        u = use('advect', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.src, bindTex(1, dye.r)); gl.uniform1f(u.dt, dt); gl.uniform1f(u.diss, o.dyeDiss); gl.uniform1f(u.cap, 1.6); draw(dye.w); dye.swap();
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        u = use('show', 0, 0); gl.uniform1i(u.dye, bindTex(0, dye.r)); gl.clearColor(0, 0, 0, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT); draw(null);
+      }
+    };
+  }
+
+  var canvas = null, sim = null, dead = false;   // dead: WebGL is unavailable here, so the CSS hover is all there is
+  var host = null, hostPos = null, last = null, pend = null, raf = 0, prev = 0, lastPush = 0;
+  var reduceQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+  /* A GOLD primary: .uprime, enabled, and not repainted by its surface (the blue ask card and
+     Kosmos+ set --gold-light to 0 in the CSS, and so does a found row's Added state). */
+  function goldOf(t) {
+    var b = t && t.closest ? t.closest('.uprime') : null;
+    if (!b || b.disabled) return null;
+    return getComputedStyle(b).getPropertyValue('--gold-light').trim() === '1' ? b : null;
+  }
+  function at(b, e) {
+    var r = b.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: 1 - (e.clientY - r.top) / r.height };
+  }
+  function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; }
+  function detach() {
+    stop();
+    if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+    if (host) { host.classList.remove('gold-lit'); if (hostPos !== null) host.style.position = hostPos; }
+    host = null; hostPos = null; last = null; pend = null;
+  }
+  function attach(b) {
+    if (dead || (reduceQ && reduceQ.matches)) return false;
+    if (host === b) return true;
+    detach();
+    var r = b.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    try {
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'gold-light';
+        canvas.setAttribute('aria-hidden', 'true');
+        canvas.addEventListener('webglcontextlost', function () { dead = true; detach(); });
+      }
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
+      /* The canvas is placed against the button, so a static button becomes relative while it
+         hosts (a button already positioned keeps its own position; nothing moves either way). */
+      hostPos = getComputedStyle(b).position === 'static' ? b.style.position : null;
+      if (hostPos !== null) b.style.position = 'relative';
+      b.classList.add('gold-lit');
+      b.insertBefore(canvas, b.firstChild);
+      host = b;
+      if (!sim) { sim = makeFluid(canvas); if (!sim) { dead = true; detach(); return false; } }
+      else if (!sim.size()) { dead = true; detach(); return false; }
+    } catch (err) {
+      dead = true; detach(); return false;   // never throw from a hover
+    }
+    lastPush = performance.now();
+    return true;
+  }
+  function frame(now) {
+    raf = 0;
+    /* Nothing visible, nothing drawn: the host left the page or was hidden, the canvas was
+       taken out by a repaint of the button, or the light has faded with the pointer gone. */
+    if (!host || !host.isConnected || !host.getClientRects().length || canvas.parentNode !== host
+        || (reduceQ && reduceQ.matches) || now - lastPush > LINGER_MS) { detach(); return; }
+    var dt = Math.min(0.033, Math.max(0, (now - prev) / 1000)); prev = now;
+    try {
+      if (pend) {
+        var x = pend.x, y = pend.y, dx = pend.dx, dy = pend.dy; pend = null;
+        var m = Math.hypot(dx, dy); if (m > 400) { dx *= 400 / m; dy *= 400 / m; }   // one push per frame, capped
+        var kk = Math.min(1, Math.hypot(dx, dy) / 60) * 0.55 + 0.12;
+        var sc = kk * Math.pow(GOLD_LIGHT_SIZE, -0.15);
+        sim.splat(x, y, dx, dy, [WHITE_GOLD[0] * sc, WHITE_GOLD[1] * sc, WHITE_GOLD[2] * sc], 0.0035 * GOLD_LIGHT_SIZE);
+        lastPush = now;
+      }
+      sim.step(dt, FEEL);
+    } catch (err) { dead = true; detach(); return; }
+    raf = requestAnimationFrame(frame);
+  }
+  function run() { if (!raf && host) { prev = performance.now(); raf = requestAnimationFrame(frame); } }
+
+  document.addEventListener('pointerover', function (e) {
+    var b = goldOf(e.target);
+    if (!b || b === host) return;
+    if (attach(b)) { last = at(b, e); run(); }
+  }, true);
+  document.addEventListener('pointermove', function (e) {
+    var b = goldOf(e.target);
+    if (!b) return;
+    if (b !== host) { if (!attach(b)) return; last = at(b, e); run(); return; }
+    var p = at(b, e);
+    /* Gathered and applied once per frame (a fast mouse sends several moves a frame). */
+    if (last) { var q = pend || { dx: 0, dy: 0 }; pend = { x: p.x, y: p.y, dx: q.dx + (p.x - last.x) * 1800, dy: q.dy + (p.y - last.y) * 900 }; }
+    last = p; lastPush = performance.now(); run();
+  }, true);
+  document.addEventListener('pointerout', function (e) {
+    if (host && (e.target === host || host.contains(e.target)) && !(e.relatedTarget && host.contains(e.relatedTarget))) last = null;   // leaves: the light lingers, then fades
+  }, true);
+  document.addEventListener('pointerdown', function (e) {
+    var b = goldOf(e.target);
+    if (!b || b !== host || !last || !sim) return;
+    var sc = 0.9 * Math.pow(GOLD_LIGHT_SIZE, -0.12);
+    try { sim.splat(last.x, last.y, 0, 0, [WHITE_GOLD[0] * sc, WHITE_GOLD[1] * sc, WHITE_GOLD[2] * sc], 0.012 * Math.sqrt(GOLD_LIGHT_SIZE)); } catch (err) { dead = true; detach(); return; }
+    lastPush = performance.now(); run();
+  }, true);
+  /* What render-gold-buttons-4059.js reads: whether the loop runs, and on which button. */
+  window.goldLightState = function () { return { size: GOLD_LIGHT_SIZE, running: raf !== 0, host: host, dead: dead }; };
+})();
 </script>
 <!-- #718: the service worker and the Phone notifications control. Its own block,
      given id="push-client" so it is NOT a second attribute-less script tag -- the
