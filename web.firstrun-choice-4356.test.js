@@ -261,6 +261,26 @@ test('#4356: tips, the Community notice, What\'s New and the setup assistant all
   assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*n\.inert = true;[\s\S]*observe\(document\.body, \{ childList: true \}\)/);
 });
 
+test('#4356: a layer appended to <body> while the screen is up goes inert, and the watch stops after', () => {
+  let observed = null;
+  let callback = null;
+  class MO { constructor(cb) { callback = cb; } observe(target, opts) { observed = { target, opts }; } disconnect() { observed = 'disconnected'; } }
+  const body = { id: 'body' };
+  const ctx = { MutationObserver: MO, document: { body, querySelectorAll: () => [] }, FR_CHOICE_WATCH: null };
+  vm.createContext(ctx);
+  vm.runInContext('var FR_CHOICE_WATCH = null;\n' + lift('frChoiceInert'), ctx);
+  ctx.frChoiceInert(true);
+  assert.equal(observed && observed.target, body, 'nothing watches <body> while the screen is up');
+  assert.equal(observed.opts.childList, true);
+  const layer = { nodeType: 1, id: 'asblayer', inert: false };
+  const screen = { nodeType: 1, id: 'fr-choice', inert: false };
+  callback([{ addedNodes: [layer, screen, { nodeType: 3 }] }]);
+  assert.equal(layer.inert, true, 'a layer appended under the screen takes focus from behind it');
+  assert.equal(screen.inert, false, 'the screen itself went inert');
+  ctx.frChoiceInert(false);
+  assert.equal(observed, 'disconnected', 'the watch outlives the screen and inerts the board');
+});
+
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {
   // syncUrl rebuilds the query from the page's own state at boot; a key it does not carry is gone
   // before firstRunBoot reads it. That is how the first screen went missing in the browser check.

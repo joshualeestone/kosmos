@@ -308,11 +308,18 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 /// #4356: `bin/kosmos stop`, when a computer switches to connect. It writes board.stopped, which
 /// launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, so the board stays down
 /// across logins until something runs `kosmos start`. Returns whether it exited 0.
-func stopBoard(kosmosHome: String, port: Int?) -> Bool {
+/// What `kosmos stop` did. `notOurs` is the CLI's own refusal to stop a board it did not start
+/// (another account's Kosmos, say, on this port): nothing of this install is running, so it is not
+/// the "still running here" the person is warned about (review round 15).
+enum StopOutcome: Equatable {
+    case stopped, notOurs, failed
+}
+
+func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         logLine("#4356: cannot stop the board: \(kosmosBin) is missing")
-        return false
+        return .failed
     }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: kosmosBin)
@@ -323,17 +330,27 @@ func stopBoard(kosmosHome: String, port: Int?) -> Bool {
     // environment, and `kosmos stop` judges "running" on the port it is given (review round 9).
     if let port { env["KOSMOS_PORT"] = String(port) }
     process.environment = env
-    // The null device for both, as startBoard explains: an undrained Pipe can deadlock the wait.
+    // Output to the null device, as startBoard explains (an undrained Pipe can deadlock the wait);
+    // stderr to a file, which has no buffer to fill, so the CLI's reason can be read afterwards.
+    let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-stop-\(UUID().uuidString).err")
+    FileManager.default.createFile(atPath: errURL.path, contents: nil)
+    defer { try? FileManager.default.removeItem(at: errURL) }
     process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
+    process.standardError = (try? FileHandle(forWritingTo: errURL)) ?? FileHandle.nullDevice
     do { try process.run() } catch {
         logLine("#4356: could not run \(kosmosBin) stop: \(error.localizedDescription)")
-        return false
+        return .failed
     }
     process.waitUntilExit()
+    let said = (try? String(contentsOf: errURL, encoding: .utf8)) ?? ""
     logLine("#4356: kosmos stop exited \(process.terminationStatus)")
-    if process.terminationStatus != 0 { holdBoardStopped(kosmosHome: kosmosHome) }
-    return process.terminationStatus == 0
+    if process.terminationStatus == 0 { return .stopped }
+    holdBoardStopped(kosmosHome: kosmosHome)
+    if said.contains("not started by this command") {
+        logLine("#4356: the board answering on this port is not this install's; left alone")
+        return .notOurs
+    }
+    return .failed
 }
 
 /// #4356: a stop that failed removes board.stopped on purpose (install/kosmos: a stop it could not
@@ -1862,6 +1879,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// served by the board, but an update can stop it while the screen waits (its pause, and it does
     /// not start a board for an unreadable choice), leaving the answer on a dead page. `kosmos start`
     /// on a healthy board only checks it, and it clears board.stopped, which a run computer wants.
+    /// Known race: an answer given while the update is still copying files can start from a half
+    /// copied tree and fail; the failure is said (Cmd-R), and the installer's own start or launchd
+    /// restart at the end of its run brings the finished board up.
     private func ensureBoardRunning(home: String) {
         guard let port = resolvedPort ?? modePort, !boardStartInFlight else { return }
         // Counted as a board start, as loadBoard's is, so a Cmd-R meanwhile is ignored (reloadDecision)
@@ -1909,11 +1929,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let home = modeHome else { return }
         logLine("#4356: connect computer launching; making sure its board is stopped")
         stopsInFlight += 1
+        let port = modePort   // read here, on the main thread, not from the queue below
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let stopped = stopBoard(kosmosHome: home, port: self?.modePort)
+            let outcome = stopBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async {
                 self?.stopsInFlight -= 1
-                if !stopped { self?.showBoardStillRunning() }
+                if outcome == .failed { self?.showBoardStillRunning() }
             }
         }
     }
@@ -1971,14 +1992,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         promptRequestTimer?.invalidate(); promptRequestTimer = nil
         NSApp.dockTile.badgeLabel = nil
         updateRunAgentsItem()
+        let port = modePort   // read here, on the main thread, not from the queue below
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let stopped = stopBoard(kosmosHome: home, port: self?.modePort)
+            let outcome = stopBoard(kosmosHome: home, port: port)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.stopsInFlight -= 1
                 guard self.computerMode == .connect else { return }
                 self.loadConnect()
-                if !stopped { self.showBoardStillRunning() }
+                if outcome == .failed { self.showBoardStillRunning() }
             }
         }
     }

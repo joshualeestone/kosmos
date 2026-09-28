@@ -73,11 +73,11 @@ test('#4356: switching to connect stops what belongs to a board, then the board,
     assert.match(sw, new RegExp(t + '\\?\\.invalidate\\(\\); ' + t + ' = nil'), t + ' keeps running on a computer with no board');
   }
   assert.match(sw, /NSApp\.dockTile\.badgeLabel = nil/, 'a stale waiting count stays on the Dock icon');
-  const stop = sw.indexOf('stopBoard(kosmosHome: home, port: self?.modePort)');
+  const stop = sw.indexOf('stopBoard(kosmosHome: home, port: port)');
   assert.notEqual(stop, -1, 'switching to connect leaves the board the installer started running');
   assert.ok(stop < sw.indexOf('self.loadConnect()'), 'sign-in loads before the board is stopped');
   assert.match(sw, /DispatchQueue\.global\(qos: \.userInitiated\)\.async/, 'kosmos stop runs on the main thread and beachballs the app');
-  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> Bool');
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome');
   assert.notEqual(at, -1, 'stopBoard is gone from main.swift');
   assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /process\.arguments = \["stop"\]/);
 });
@@ -100,7 +100,7 @@ test('#4356: loadBoard itself refuses on a connect computer, so no path into it 
 
 test('#4356: a failed stop is said, and every connect launch stops a board left running', () => {
   const sw = body('private func switchToConnect(home: String)');
-  assert.match(sw, /if !stopped \{ self\.showBoardStillRunning\(\) \}/, 'a stop that failed is only logged');
+  assert.match(sw, /if outcome == \.failed \{ self\.showBoardStillRunning\(\) \}/, 'a stop that failed is only logged');
   assert.match(sw, /recoverOnReloadFailure = false\n\s+reloadNavigation = nil/, 'a Reload in flight can fall through to a board start');
   const launch = body('func applicationDidFinishLaunching(_ notification: Notification)');
   assert.match(launch, /loadConnect\(\)\n\s+stopBoardIfRunning\(\)/);
@@ -108,19 +108,32 @@ test('#4356: a failed stop is said, and every connect launch stops a board left 
   // Not gated on the marker: a failed stop leaves it written (holdBoardStopped), which would make
   // the promised retry impossible (review round 9).
   assert.doesNotMatch(retry, /board\.stopped/, 'the launch-time retry is skipped whenever a marker exists');
-  assert.match(retry, /if !stopped \{ self\?\.showBoardStillRunning\(\) \}/, 'a retry that fails is only logged');
+  assert.match(retry, /if outcome == \.failed \{ self\?\.showBoardStillRunning\(\) \}/, 'a retry that fails is only logged');
+});
+
+test('#4356: another install\'s board on the port is not "still running here"', () => {
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome');
+  const stop = SRC.slice(at, SRC.indexOf('\n}\n', at));
+  assert.match(stop, /said\.contains\("not started by this command"\)[\s\S]*return \.notOurs/);
+  // The CLI's own sentence, so the two cannot drift apart unnoticed.
+  assert.match(fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8'), /but it was not started by this command, so it was left alone/);
+  for (const f of ['private func stopBoardIfRunning()', 'private func switchToConnect(home: String)']) {
+    assert.match(body(f), /if outcome == \.failed \{ self\??\.showBoardStillRunning\(\) \}/, f + ' warns about a board that is not this install\'s');
+    assert.match(body(f), /let port = modePort/, f + ' reads modePort from a background queue');
+  }
 });
 
 test('#4356: kosmos stop is told the same port as kosmos start', () => {
-  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> Bool');
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome');
   assert.notEqual(at, -1, 'stopBoard takes no port, so it judges "running" on the default one');
   assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /if let port \{ env\["KOSMOS_PORT"\] = String\(port\) \}/);
   assert.doesNotMatch(SRC, /stopBoard\(kosmosHome: [^,)]+\)/, 'a call that leaves the port out');
 });
 
 test('#4356: a stop that failed still leaves board.stopped, so the next login does not start the board', () => {
-  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> Bool');
-  assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /if process\.terminationStatus != 0 \{ holdBoardStopped\(kosmosHome: kosmosHome\) \}/);
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome');
+  const stop = SRC.slice(at, SRC.indexOf('\n}\n', at));
+  assert.match(stop, /if process\.terminationStatus == 0 \{ return \.stopped \}\n\s+holdBoardStopped\(kosmosHome: kosmosHome\)/, 'a failed stop leaves no marker');
   const hold = SRC.slice(SRC.indexOf('func holdBoardStopped(kosmosHome: String)'));
   assert.match(hold, /let marker = kosmosHome \+ "\/board\.stopped"\n\s+if FileManager\.default\.createFile\(atPath: marker/);
 });
