@@ -117,6 +117,11 @@ test('the board\'s Stop (one Escape, on its own) never eats the next message', a
     assert.equal(h.calls.length, 1);
     assert.equal(h.calls[0].prompt, next, 'the Escape swallowed the start of the next message');
   }
+  // An Escape followed in the same read by an ordinary character is Stop too, and the character is kept.
+  const m = harness([OK('a')]);
+  m.f.feed('\u001bHi\r');
+  await within(m.f.drained(), 'the message after Stop never ran');
+  assert.equal(m.calls[0].prompt, 'Hi', 'an Escape in the same read ate the next character');
   // CONTROL: an Escape sequence inside one read (an arrow key) is still dropped whole.
   const c = harness([OK('a')]);
   c.f.feed('\u001b[Ahi\r');

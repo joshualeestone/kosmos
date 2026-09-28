@@ -112,7 +112,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (!text) { write(PROMPT); return; }
     queue.push(text);
     if (running) write('(queued: Muse is still on the last message)\n');
-    pump();
+    pump().catch(() => { /* report and write never throw; a turn's own failure is said inside pump */ });
   }
 
   /** The board's Stop (one Escape): the line being typed, the waiting messages and the running turn all end. */
@@ -131,11 +131,17 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     let echo = '';
     const flush = () => { if (echo) { write(echo); echo = ''; } };
     // An escape sequence (an arrow key) arrives whole in one read, so its state never carries into the
-    // next read: an Escape on its own, at the end of a read, is the board's Stop.
+    // next read. Any other Escape is the board's Stop.
     let esc = 0;   // 0 = none, 1 = after ESC, 2 = inside ESC [ ...
     for (let i = 0; i < chars.length; i++) {
       const ch = chars[i];
-      if (esc === 1) { esc = (ch === '[' || ch === 'O') ? 2 : 0; continue; }
+      if (esc === 1) {
+        if (ch === '[' || ch === 'O') { esc = 2; continue; }
+        // An Escape followed by anything else was not a key sequence: it was Stop, and this character is typed.
+        esc = 0;
+        flush();
+        stop();
+      }
       if (esc === 2) { if (ch >= '@' && ch <= '~') esc = 0; continue; }   // the final byte ends it
       if (ch === '\u001b') {
         if (i === chars.length - 1) { flush(); stop(); } else esc = 1;

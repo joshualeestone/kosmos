@@ -457,8 +457,10 @@ if [ -z "$adopt" ]; then
   # var) reaches the pane with the home the CLI reads. Absent for a default-account
   # agent, so this is a no-op there -- exactly like CODEX_HOME.
   # #3568: CLAUDE_CONFIG_DIR is not forwarded from this supervisor's env into an Antigravity pane.
+  # #3939: nor into a Muse pane.
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    [ "$RUNNER" = muse ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
     # #3769: not even one this supervisor inherited from its own environment.
     if [ "$IS_SETUP_GUIDE" = 1 ]; then
       case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac

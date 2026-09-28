@@ -78,6 +78,9 @@ test('the forwarding loop hands CLAUDE_CONFIG_DIR to a claude pane and not to an
   const agy = forwardedFor('antigravity');
   assert.doesNotMatch(agy, /CLAUDE_CONFIG_DIR/, 'an agy pane carries no Claude account folder');
   assert.match(agy, /HOME=\/h/, 'CONTROL: the rest of the loop still runs for an agy pane');
+  const muse = forwardedFor('muse');   // #3939
+  assert.doesNotMatch(muse, /CLAUDE_CONFIG_DIR/, 'a Muse pane carries no Claude account folder');
+  assert.match(muse, /HOME=\/h/, 'CONTROL: the rest of the loop still runs for a Muse pane');
 });
 
 /* #3568: the adopt path's "is this pane a live agent or a crashed shell" test, RUN under bash.

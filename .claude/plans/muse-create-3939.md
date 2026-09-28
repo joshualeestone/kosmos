@@ -87,11 +87,20 @@ logs, the supervisor loop) is reused unchanged.
 The Create Agent form option and its create branch, the Connections box, connections.js text (3c-3b);
 the first-run Meta row; a real signed-in turn (the Mortals-Mac run, Josh approves the device code).
 
-## Status (2026-09-28 02:10, Angel)
+## Status (2026-09-28 03:00, Angel)
 
-Built. Touched tests 414/414; full tools/run-tests.sh exit 0. Checked in build: the supervisor's adopt
-allowlist already accepts `node`, so a live Muse pane is adopted, not killed; agy-report-bridge.reportFor
-maps PreInvocation/Stop with the front's `{}` payload to working/idle. Next: challenge loop, PR.
+Built, then changed by the challenge loop:
+- Round 1 found that Stop did nothing for a Muse agent (one Escape was swallowed with the next typed
+  byte) and that a closing pane left Muse running in its own process group. Now: muserun.runTurn takes
+  an `onStop` hook and answers STOPPED; the front treats Escape (not followed by `[`/`O`) as Stop, which
+  ends the running turn and drops waiting messages; SIGHUP/SIGTERM/stdin end stop the turn before the
+  front exits. Also: idle reported at start, working re-reported every 60s during a turn (the report
+  decays at 5 min, a turn may run 10), UTF-8 decoded across reads, the create-checked muse binary
+  passed to the pane as AGENT_WORKFORCE_MUSE_BIN, Muse panes kept out of the Claude model/context
+  readers and every Claude-only pane setting, "Muse Code"/"Meta" in chat.js's refusals, and
+  `kosmos whoami` names Meta Muse. The context family count in render-talk-goldencard-2519 is 17 -> 18.
+- Round 2: the CLAUDE_CONFIG_DIR forwarding loop now skips Muse too; Escape then a typed character in
+  one read is Stop and keeps the character.
 
 ## Weakest premise
 
