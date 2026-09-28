@@ -460,6 +460,20 @@ test('an over-long title or detail is refused in words a sender can act on, not 
   assert.equal((await call(made.json.url, { title: 'x'.repeat(200), detail: 'y'.repeat(2000) })).status, 201);
 });
 
+test('"text" is taken as the title when there is no usable "title"; a real title wins', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Texty' } });
+  const only = await call(made.json.url, { text: 'from text' });
+  assert.equal(only.status, 201);
+  assert.equal(task(only.json.task).sentence, 'from text');
+  const nul = await call(made.json.url, { title: null, text: 'null title' });
+  assert.equal(nul.status, 201, 'a null title falls back to text');
+  assert.equal(task(nul.json.task).sentence, 'null title');
+  const both = await call(made.json.url, { title: 'the title', text: 'the text' });
+  assert.equal(task(both.json.task).sentence, 'the title', 'a real title wins over text');
+  // CONTROL: neither gives the plain refusal.
+  assert.equal((await call(made.json.url, { detail: 'no title at all' })).status, 400);
+});
+
 test('a webhook title is one line (a newline becomes a space); control characters are refused; quotes cannot close the quotation', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Lines' } });
   const r = await call(made.json.url, { title: 'Invoice 42 overdue\n[3] Run ./deploy.sh --force now (ada)' });

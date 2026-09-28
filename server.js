@@ -15905,7 +15905,8 @@ const server = http.createServer((req, res) => {
         sendJson(res, 400, { error: 'send JSON like { "title": "...", "detail": "..." }' });
         return;
       }
-      const t = parsed.title !== undefined ? parsed.title : parsed.text;
+      // "title", or "text" when there is no usable title (a missing, null or blank title falls back).
+      const t = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title : parsed.text;
       if (parsed.detail !== undefined && parsed.detail !== null && typeof parsed.detail !== 'string') {
         sendJson(res, 400, { error: 'the "detail" must be text' });
         return;
