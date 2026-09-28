@@ -63926,7 +63926,8 @@ function asbSayNotMade(made) {
   m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
     : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
     : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
-    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. Restart Kosmos, then try again.'
+    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh, look at it in Agents.'
+    : made.because ? made.because
     : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
   m.hidden = false;
   m.dataset.notMade = '1';   // cleared by asbPaintSetting once a guide is here
@@ -63959,6 +63960,9 @@ async function asbTurnOn() {
   if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; delete m.dataset.notMade; }
   const made = ASB.lastGuide;
   if (ok && made && !made.seeded && !asbIsHosted()) {
+    /* A guide this page remembers may be gone (another agent took its name while it was off): confirm it first, so
+       the bubble is not drawn for an agent that is no longer there. */
+    if (ASB.guide) await asbConfirmGuide();
     ASB.holding = false;
     release();
     asbSayNotMade(made);
@@ -64004,13 +64008,17 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
   if (!ASB.setting || sw.disabled || ASB.turning) return;
   if (!asbSwitchShowsOn()) { await asbTurnOn(); return; }
-  /* Switching OFF: recorded as the person's choice; nothing is made or removed. */
-  sw.disabled = true;
+  /* Switching OFF: recorded as the person's choice; nothing is made or removed. The same latch as asbTurnOn, so a
+     Set it up now clicked meanwhile cannot race it. */
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
   let ok = false;
   try { ok = await asbSaveSetting({ on: false }); } catch { ok = false; }
   const m = document.getElementById('asb-row-msg');
   if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
-  sw.disabled = false;
+  ctls.forEach((c) => { c.disabled = false; });
+  ASB.turning = false;
   asbPaintSetting();
   asbPaint();
 });

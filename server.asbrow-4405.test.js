@@ -118,8 +118,10 @@ test('#4405: switched ON with a model and no guide, it makes the guide once; ON 
     const flag = JSON.parse(fs.readFileSync(flagFile(box), 'utf8'));
     assert.equal(flag.via, 'settings');
     assert.ok(fs.existsSync(armFile(box)), 'the switch did not arm the install');
-    /* Here the dry-run create made no real folder, so the board reads the recorded guide as 'not-guide' (a guide
-       whose marker is missing looks the same). That is exactly when a second guide must NOT be made. */
+    /* The dry-run create made no real folder. Give the recorded name a folder WITHOUT the guide's marker: another
+       agent on the name, or the guide's folder having lost its marker. That is ambiguous, and a second guide must
+       NOT be made there. */
+    fs.mkdirSync(path.join(box.sb, 'workers', 'josh'), { recursive: true });
     const sg = await (await fetch(booted.base + '/api/setup-guide')).json();
     assert.equal(sg.reason, 'not-guide', 'CONTROL: the ambiguous state this arm is about: ' + JSON.stringify(sg));
     const again = await save(booted.base, true);
@@ -149,9 +151,31 @@ test('#4405: a guide that was made and then REMOVED is put back by switching ON 
     assert.equal(sg.reason, 'none', 'CONTROL: a removed guide reads as none: ' + JSON.stringify(sg));
     const on = await save(booted.base, true);
     assert.equal(on.status, 200);
-    assert.ok(on.body.guide && ['restored', 'refused'].includes(on.body.guide.state), 'the removed guide did not go down the restore path: ' + JSON.stringify(on.body));
+    assert.deepEqual(on.body.guide, { state: 'restored', seeded: true }, 'the removed guide was not restored: ' + JSON.stringify(on.body));
+    /* 'restored' is restore's own outcome (a refused restore answers 'refused'); the test board runs dry, so restore
+       reports what it would do and writes nothing, which is why the removed list is not read back here. */
     assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'first-run', 'the guide record was rewritten: a second guide was made');
     assert.equal(fs.existsSync(path.join(box.sb, 'workers', 'josh-ai')), false, 'a second guide (Josh AI) was made');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});
+
+test('#4405: a recorded guide whose folder is GONE from disk is forgotten, and switching ON makes a new one', async () => {
+  const box = sandbox();
+  let child;
+  try {
+    fs.mkdirSync(path.join(box.data, 'Kosmos'), { recursive: true });
+    fs.writeFileSync(flagFile(box), JSON.stringify({ at: '2026-09-01T00:00:00.000Z', name: 'josh', via: 'first-run', provider: 'anthropic' }));
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    const sg = await (await fetch(booted.base + '/api/setup-guide')).json();
+    assert.equal(sg.reason, 'not-guide', 'CONTROL: a recorded guide with no folder reads not-guide: ' + JSON.stringify(sg));
+    const on = await save(booted.base, true);
+    assert.equal(on.status, 200);
+    assert.deepEqual(on.body.guide, { state: 'seeded', seeded: true }, JSON.stringify(on.body));
+    assert.equal(JSON.parse(fs.readFileSync(flagFile(box), 'utf8')).via, 'settings', 'the new guide was not recorded');
   } finally {
     if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });

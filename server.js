@@ -10611,10 +10611,11 @@ const server = http.createServer((req, res) => {
            now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
         if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
           const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
-          /* Made only when the board is SURE there has never been one: no guide on record at all. A record that
-             exists but cannot be read, or a recorded guide whose folder lost its marker ('not-guide'), or a check the
-             board could not make ('unchecked'), is ambiguous: making one there could make a SECOND guide. */
-          if (now && !now.ok && now.reason === 'none' && !setupAssistant.setupAssistantSeeded()) {
+          /* Made only when the board is SURE there is no guide: none on record, or one whose folder is GONE from disk
+             (forgotten here). Anything ambiguous (a record it cannot read, another agent on the name, a check it could
+             not make) is left alone: making one there could make a SECOND guide. */
+          const gone = !!now && !now.ok && now.reason === 'not-guide' && setupAssistant.forgetGoneGuide();
+          if (now && !now.ok && (now.reason === 'none' || gone) && !setupAssistant.setupAssistantSeeded()) {
             return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
               .then(recordGuideOutcome)   // returns its input
               .catch(() => ({ seeded: false, state: 'refused' }))
@@ -10628,7 +10629,8 @@ const server = http.createServer((req, res) => {
             /* A refusal because another window restored it a moment ago is a success: check again. */
             const ok = (!!back && back.outcome !== removal.OUTCOME.REFUSED) || setupGuideNow().ok;
             if (ok) recordGuideOutcome(GUIDE_SEEDED);   // #4350: the guide is here again
-            sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok } });
+            // A refusal that does not clear with time (its account folder is gone, say) carries restore's own sentence.
+            sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok, ...(ok || !back || !back.because ? {} : { because: String(back.because) }) } });
             return;
           }
           if (now && !now.ok) { sendJson(res, 200, { ...reply, guide: { state: 'unclear', seeded: false } }); return; }
