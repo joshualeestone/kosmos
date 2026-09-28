@@ -214,7 +214,7 @@ test('#4356: if the app cannot be told, Connect does nothing rather than leave d
   await new Promise((r) => setImmediate(r));
   assert.equal(settled, false, 'the page went on as if the Mac had switched');
   assert.deepEqual(w.replaced, [], 'the address forgot a choice the app never heard');
-  assert.ok(w.btns.every((b) => !b.disabled), 'the buttons are left disabled with nothing happening');
+  assert.ok(w.btns.every((b) => !b.disabled), 'the buttons went dead though nothing was sent, and nothing will happen');
 });
 
 test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"', () => {
