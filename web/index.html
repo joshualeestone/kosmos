@@ -34308,7 +34308,10 @@ async function whatsNewCheck() {
     // A real deadline (round 7): a background tab slows timers, so counting ticks is not an hour.
     /* An hour, looked at each second. Written here, not as page consts: tests lift this function alone. */
     /* Round 15: first run and the update overlay too (they draw over the window and keep focus). */
-    const held = () => (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) || (typeof wnCovered === 'function' && wnCovered());
+    /* #4328: and while the boot cover is up, so the window is neither opened nor recorded as seen under it. Here,
+       not in wnCovered(): that also decides who owns the keys, and the cover takes none. */
+    const held = () => (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) || (typeof wnCovered === 'function' && wnCovered())
+      || (typeof document !== 'undefined' && !!document.querySelector('#boot-cover:not([hidden])'));
     const until = Date.now() + 60 * 60 * 1000;
     while (Date.now() < until && held()) await new Promise((r) => setTimeout(r, 1000));
     // A tour still open after an hour: recorded quietly rather than opened over it (round 6).

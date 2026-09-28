@@ -155,3 +155,40 @@ test('#3955 round 15: the window also waits while first run is on screen, then o
   await done;
   assert.deepEqual(opened, ['0.6.98'], 'CONTROL: it opens once first run closes');
 });
+
+/* #4328: the boot cover (z-index 70, over everything) stays up until first run's check answers or a 3 s fallback
+   lifts it, and /api/whats-new can answer inside that time. The window must not open, nor record the version as
+   seen, while the cover is up; it opens once the cover lifts. The fake document answers the one selector held()
+   asks about the cover; any other selector finds nothing. */
+function bootCoverRun(coverUp) {
+  const opened = [];
+  const posts = [];
+  const fetchStub = async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts.push(url); return { ok: true, text: async () => '' }; }
+    return { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) };
+  };
+  const doc = { querySelector: (sel) => (sel === '#boot-cover:not([hidden])' && coverUp.now ? {} : null) };
+  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout', 'document',
+    'let TIP_OPEN = null;\n' + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
+  const done = run(fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f), doc);
+  return { opened, posts, done };
+}
+
+test('#4328: the window waits under the boot cover, recording nothing, then opens and records once it lifts', { timeout: 5000 }, async () => {
+  const coverUp = { now: true };
+  const r = bootCoverRun(coverUp);
+  for (let i = 0; i < 20; i++) await new Promise((res) => setImmediate(res));
+  assert.deepEqual(r.opened, [], 'the window opened under the boot cover, where nobody can see it');
+  assert.deepEqual(r.posts, [], 'the version was recorded as seen while the boot cover hid the window');
+  coverUp.now = false;
+  await r.done;
+  assert.deepEqual(r.opened, ['0.6.98'], 'the window never opened once the boot cover lifted');
+  assert.equal(r.posts.length, 1, 'the version was not recorded exactly once when the window opened');
+});
+
+test('#4328 CONTROL: with no boot cover up, the window opens and records at once', { timeout: 5000 }, async () => {
+  const r = bootCoverRun({ now: false });
+  await r.done;
+  assert.deepEqual(r.opened, ['0.6.98'], 'the window did not open with the cover already gone');
+  assert.equal(r.posts.length, 1, 'the version was not recorded exactly once');
+});

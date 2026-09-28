@@ -11,6 +11,9 @@
  * down onto the correct destination: the board when first-run is done, the
  * first-run overlay when it is not.
  *
+ * #4328 (arms C and D): What's New must not open, nor record the version as seen, under the
+ * cover; it opens once the cover lifts.
+ *
  * The API response is intercepted, not the render functions, so the whole client
  * path (fetch, parse, paint, cover, reveal) runs exactly as it does live.
  */
@@ -107,6 +110,51 @@ async function arm(browser, label, firstRunPayload, expect) {
   await page.close();
 }
 
+/* #4328: What's New must not open, nor record the version as seen, while the boot cover is up; it opens once the
+   cover lifts. /api/whats-new answers at once with a newer version than the one seen, so on a page without the
+   hold the window opens under the cover. The seen POST is answered here and never reaches the board this check
+   shares, and tips are switched off so the tour cannot be what holds the window. `hold` false is the control:
+   no cover wait, and the window opens straight away. */
+async function whatsNewArm(browser, label, hold) {
+  const current = (await (await fetch(`${BASE}/api/whats-new`, { cache: 'no-store' })).json()).current;
+  const page = await browser.newPage();
+  let released;
+  const gate = new Promise((r) => { released = r; });
+  if (!hold) released();
+  let seen = 0;
+  await page.route('**/api/first-run', async (route) => { await gate; route.fulfill({ json: { done: true } }); });
+  await page.route((u) => u.pathname === '/api/tips', (route) => (route.request().method() === 'GET'
+    ? route.fulfill({ json: { ok: true, seen: [], off: true } }) : route.fulfill({ json: { ok: true } })));
+  await page.route('**/api/whats-new/seen', (route) => { seen += 1; route.fulfill({ json: { ok: true } }); });
+  let answered;
+  const newsAnswered = new Promise((r) => { answered = r; });
+  await page.route((u) => u.pathname === '/api/whats-new', async (route) => {
+    await route.fulfill({ json: {
+      current, seen: '0.0.1', highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] } });
+    answered();
+  });
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
+  const wnUp = () => page.evaluate(() => !!document.getElementById('whatsnew'));
+  if (hold) {
+    // Read shortly after /api/whats-new is answered, not at a fixed time from load: the 3 s fallback that lifts the
+    // cover starts while the page script runs, before domcontentloaded, so a fixed wait eats the margin.
+    await newsAnswered;
+    await page.waitForTimeout(700);
+    const during = await coverIsOccluding(page);
+    check(during.up, `${label}: #boot-cover was already down when the arm looked (the 3 s fallback beat it), so this arm observed nothing`);
+    check(!(await wnUp()), `${label}: What's New opened under the boot cover, where nobody can see it`);
+    check(seen === 0, `${label}: the version was recorded as seen (${seen}) while the boot cover was up`);
+    released();
+  }
+  await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return c && c.hidden; },
+    null, { timeout: 5000 }).catch(() => {});
+  check(await coverGone(page), `${label}: #boot-cover never came down`);
+  await page.waitForFunction(() => !!document.getElementById('whatsnew'), null, { timeout: 5000 }).catch(() => {});
+  check(await wnUp(), `${label}: What's New never opened after the boot cover lifted`);
+  check(seen === 1, `${label}: the version was recorded ${seen} times, expected once when the window opened`);
+  await page.close();
+}
+
 (async () => {
   const browser = await chromium.launch();
   try {
@@ -114,6 +162,9 @@ async function arm(browser, label, firstRunPayload, expect) {
     await arm(browser, 'done', { done: true }, 'board');
     // Arm B: no completed first run -> the installer overlay, agents never flash.
     await arm(browser, 'fresh', { done: false, step: 1 }, 'firstrun');
+    // Arm C (#4328): What's New waits out the boot cover. Arm D: the control, no cover wait.
+    await whatsNewArm(browser, 'whats-new under the cover', true);
+    await whatsNewArm(browser, 'whats-new control', false);
   } finally {
     await browser.close();
   }
@@ -122,5 +173,5 @@ async function arm(browser, label, firstRunPayload, expect) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-boot-no-flash PASS: no agents-view flash on either arm; cover held through the gate and came down onto the right destination.');
+  console.log('render-boot-no-flash PASS: no agents-view flash on either first-run arm (A, B); the cover held through the gate and came down onto the right destination; What\'s New waited out the cover and opened after it (C), and opens at once without it (D).');
 })().catch((e) => { console.error('FAIL  render-boot-no-flash crashed:', e && e.message); process.exit(1); });
