@@ -155,7 +155,9 @@ const fitOf = (() => {
 })();
 /* `avail` (optional): the width the chart must fit, squeezed as paintOrg squeezes it (orgFit scales every
    radius by k; the canvas is fit.size). The settle then ends with orgPlanarRepair, as orgLiveSettle does. */
-function settled(placed, seed, avail) {
+/* The canvas paintOrg gives a placement: the squeeze to `avail` (which scales `placed` in place), the square's
+   size, and the hub's centre. */
+function canvasFor(placed, avail) {
   let maxR = 0;
   for (const s of placed.values()) maxR = Math.max(maxR, s.r);
   let size = Math.round((maxR + ORG_PAD) * 2);
@@ -181,6 +183,10 @@ function settled(placed, seed, avail) {
   }
   const cx = Math.round(size / 2 - (minX + maxX) / 2);
   const cy = Math.round(size / 2 - (minY + maxY) / 2);
+  return { size, cx, cy };
+}
+function settled(placed, seed, avail) {
+  const { size, cx, cy } = canvasFor(placed, avail);
   const shiftX = cx - HUB.x; const shiftY = cy - HUB.y;   // a seed is given around HUB; move it with the canvas
   const hub = { x: cx, y: cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
   const nodes = new Map();
@@ -447,6 +453,72 @@ test('the same input gives the same positions (stable across reloads) (#4434)', 
     assert.equal(two.get(k).ang, s.ang, k + ' moved between two identical layouts');
     assert.equal(two.get(k).r, s.r, k + ' moved between two identical layouts');
   }
+});
+
+/* The page's live chart itself (orgLiveStart, orgLiveSettle, orgLiveSync, orgLiveRun), lifted with the
+   simulation and run against a stub map, animation frames queued by hand. */
+function livePage() {
+  const grab = (name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    assert.ok(at > -1, name + ' vanished from the page');
+    let d = 0;
+    for (let k = SCRIPT.indexOf('{', at); k < SCRIPT.length; k += 1) {
+      if (SCRIPT[k] === '{') d += 1; else if (SCRIPT[k] === '}') { d -= 1; if (!d) return SCRIPT.slice(at, k + 1); }
+    }
+    return '';
+  };
+  const simAt = SCRIPT.indexOf('const ORG_SIM = {');
+  const simSrc = SCRIPT.slice(simAt, SCRIPT.indexOf('let ORG_LIVE = null;'));
+  const frames = [];
+  const el = () => ({ style: {}, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} });
+  const els = new Map();
+  const map = { querySelector: (q) => { if (!els.has(q)) els.set(q, el()); return els.get(q); } };
+  const env = {
+    window: { matchMedia: () => ({ matches: false }) },
+    CSS: { escape: (x) => x },
+    requestAnimationFrame: (f) => { frames.push(f); return frames.length; },
+    cancelAnimationFrame: () => {},
+  };
+  // eslint-disable-next-line no-new-func
+  const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame',
+    'const ORG_STEP = ' + pageConst('ORG_STEP') + '; const ORG_PAD_MIN = ' + ORG_PAD_MIN + ';\n' + simSrc
+    + "let ORG_LIVE = null; let ORG_POS = new Map(); let ORG_PLANAR_AT = '';\n"
+    + 'function orgWireEnds(x0, y0, a0, x1, y1) { return { x1: x0, y1: y0, x2: x1, y2: y1, shown: true }; }\n'
+    + ['orgLiveStart', 'orgLiveSettle', 'orgLiveSync', 'orgLiveRun'].map(grab).join('\n')
+    + '\nreturn { orgLiveStart, pos: () => ORG_POS, planarAt: () => ORG_PLANAR_AT, forget: () => { ORG_PLANAR_AT = \'\'; } };')(
+    env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame);
+  /* Run queued frames until the animation stops; return how far any node got from where it started. */
+  const run = () => {
+    const from = new Map([...page.pos()].map(([k, q]) => [k, { x: q.x, y: q.y }]));
+    let far = 0; let n = 0;
+    while (frames.length && n < 5000) {
+      frames.shift()(); n += 1;
+      for (const [k, q] of page.pos()) { const f = from.get(k); if (f) far = Math.max(far, Math.hypot(q.x - f.x, q.y - f.y)); }
+    }
+    assert.ok(n < 5000, 'the animation never stopped');
+    return { far, frames: n };
+  };
+  return { page, map, run };
+}
+
+test('a repaint of a chart the repair already restored does not replay the crossing and the snap (#4434)', () => {
+  /* randomTree(104, 82) at 375px: the physics carries it into a crossing, the repair snaps it back ~130px,
+     and before this memory every repaint that changed the chart (a status, a name) replayed both. */
+  const { placed } = firstPaint(cards(randomTree(104, 82)));
+  const { size, cx, cy } = canvasFor(placed, 375);
+  const { page, map, run } = livePage();
+  page.orgLiveStart(map, placed, cx, cy, size);
+  const first = run();
+  assert.ok(first.frames > 0 && page.planarAt() !== '', 'CONTROL: this tree no longer needs the repair on first load, so it tests nothing');
+  const rested = new Map([...page.pos()].map(([k, q]) => [k, { x: q.x, y: q.y }]));
+  page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
+  const again = run();
+  assert.equal(again.frames, 0, 'a repaint of the restored layout ran the physics again');
+  for (const [k, q] of page.pos()) assert.ok(Math.hypot(q.x - rested.get(k).x, q.y - rested.get(k).y) < 0.01, k + ' moved on a repaint');
+  page.forget();
+  page.orgLiveStart(map, placed, cx, cy, size);
+  const control = run();
+  assert.ok(control.far > 40, 'CONTROL: without the memory the repaint does replay the move (' + control.far.toFixed(0) + 'px), so the assertion above can fail');
 });
 
 test('orgLiveStart gives each tree node its placed home and spring rest, as this file\'s settle does', () => {
