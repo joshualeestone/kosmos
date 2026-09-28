@@ -37,3 +37,12 @@ create.test.js and win32keyed.test.js: 233/233 pass. Three mutants were each app
 - M1: the supervisor drops the rules cell (1 fail).
 - M2: the JS list drops the mcps cell (2 fail).
 - M3: the Windows env goes back to hooks-only (1 fail).
+
+## Review round 2 (sonnet, blind): no issues (1 NIT, the '0' vs 'false' kept above)
+- Verified: tmux takes repeated -e and the LAST wins. The compat flags come after PANE_ENV, so a door file named GROK_CLAUDE_* cannot switch a cell back on.
+- Verified: turnEnv copies into a fresh object, so the board's process.env is untouched.
+
+## Validation (first run): 1 red, mine
+- supervisor.provider-key-inject-3296.test.js pinned `GROK_CLAUDE_HOOKS_ENABLED=0` as the flag immediately before `/usr/bin/env -u XAI_API_KEY`. The new cells come after it, so that adjacency broke.
+- Loosened the pin to "the last claude-compat -e, then env -u". create.test.js still pins which cells are set.
+- The file passes 22/22. A mutant that drops the env -u prefix goes red (8 fail).
