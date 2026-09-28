@@ -52,3 +52,24 @@ him the way back (the previous version), which is the part that matters.
   with the page's requests answered by the check (the sandbox's stand-in agent is not one the route knows).
 - Measured by the check while building: the load is keyed by session name ("beatrix-discord"), not the
   display name; a load that lands after another agent opened now clears the placeholder as well as the line.
+
+## Review round 1 (opus, 15:13)
+- Try again stranded focus on the page (the box it moved to is disabled for the load): focus now goes to the
+  status line. Arm: Enter on Try again, focus is not BODY.
+- The loading line and Try again survived onto another agent's card (untied opens bump no load token): both
+  join openDetail's reset and setWritesOffered's untied list, the failed-load path checks the card is still
+  this agent's, and Try again refuses an untied card (openDetail's own isNamedOurs test). Arm: untied card.
+- A late restore answer could land in a newer load or a disabled box: it now requires the same load token
+  and INSTR_READY.
+- The restore replaced unsaved typing with no way back: it now refuses while the box differs from the text
+  it last loaded or saved (INSTR_LOADED_TEXT), and says why. Arm.
+- The loading line is role="status" aria-live, so it is announced. Arm.
+- The check now proves what Save sends after a restore: the restored text with the loaded version. Arm.
+- Update's reload (#3050) no longer shows two loaders: the loading line stays hidden while its own shows.
+- Conventions: the check's comment names server.test.js; the README row names the #4406 arms. NITs: the
+  input dispatch is gone (nothing listens on #d-instr); the restore button explains itself when the box is
+  not editable; the CSS rule moved below the rule its neighbour comment describes; one ellipsis character.
+- The check marks its stand-in card tied (isNamedOurs), the state a real agent's tab is in: the sandbox
+  cannot tie it, which is why the route answered 404 there. Stated in the check.
+- The first (6.0) validation run was stopped before it finished: iteration 1's findings needed code changes,
+  so it would have validated a superseded tree; the validation after these fixes is the baseline.
