@@ -77,13 +77,21 @@ logs, the supervisor loop) is reused unchanged.
   waits), session id create/reuse/invalid, report child args. runTurn stubbed via muserun.setForTests.
 - create: meta refused with flag off, accepted with flag on (darwin), account refused, model refused,
   brief file is AGENTS.md, plist runner arg is muse.
-- supervisor: the muse branch launches node + musefront (existing supervisor test pattern).
+- supervisor: the muse branch launches node + musefront (supervisor.muse-launch-3939.test.js: launch arm,
+  a refusal with no engine beside the script, a claude control). Proven able to fail: with the muse arm
+  renamed, 2 of its 3 tests go red.
 - Controls: each new refusal/acceptance test goes red with its guard removed.
 
 ## Not in this slice
 
 The Create Agent form option and its create branch, the Connections box, connections.js text (3c-3b);
 the first-run Meta row; a real signed-in turn (the Mortals-Mac run, Josh approves the device code).
+
+## Status (2026-09-28 02:10, Angel)
+
+Built. Touched tests 414/414; full tools/run-tests.sh exit 0. Checked in build: the supervisor's adopt
+allowlist already accepts `node`, so a live Muse pane is adopted, not killed; agy-report-bridge.reportFor
+maps PreInvocation/Stop with the front's `{}` payload to working/idle. Next: challenge loop, PR.
 
 ## Weakest premise
 
