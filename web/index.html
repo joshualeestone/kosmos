@@ -1833,6 +1833,15 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
   min-width: 224px; max-width: 320px; padding: 6px; background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
 .worldsw-list { display: flex; flex-direction: column; }
+.worldsw-computer { display: flex; align-items: center; gap: 8px; padding: 7px 8px 5px;
+  font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
+.worldsw-computer + .worldsw-local { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 0.5px solid var(--separator); }
+.worldsw-local { padding-left: 14px; }
+.worldsw-remote { width: 100%; border: 0; background: none; text-align: left; cursor: pointer; }
+.worldsw-remote:hover { background: var(--k-sunk); }
+.worldsw-remote:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-remote:disabled { cursor: default; color: var(--k-ink-2); }
+.worldsw-state { margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* #1704 14.1: a world's row + its rename cog sit on one line; the row grows, the cog
    is a fixed-width sibling on the right (a non-active row is a <button>, so the cog
    cannot nest inside it). */
@@ -24636,6 +24645,18 @@ const WORLDS_CACHE_KEY = 'kosmos-worlds-last-known';
 const WORLDS_RETRY_MS = 8000;
 let WORLDS_RETRY_T = null;
 let WORLDSW_STALE = false;
+let WORLDS_LIVE = null;
+let ACCOUNT_COMPUTERS = [];
+
+async function accountComputersFetch() {
+  try {
+    const res = await fetch('/api/account-computers', { cache: 'no-store' });
+    const data = res.ok ? await res.json() : null;
+    if (!data || data.ok !== true || !Array.isArray(data.computers)) return;
+    ACCOUNT_COMPUTERS = data.computers;
+    if (WORLDS_LIVE && !WORLDSW_RECONNECTING) worldswRender(WORLDS_LIVE);
+  } catch { /* local worlds remain usable; never guess remote destinations */ }
+}
 
 function worldsCacheSave(data) {
   try {
@@ -24664,6 +24685,7 @@ async function worldsFetch() {
   if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
     clearTimeout(WORLDS_RETRY_T);   // recovered: stop the fallback retry
     worldsCacheSave(data);
+    WORLDS_LIVE = data;
     worldswRender(data);   // a live read -- clears any stale note
     return;
   }
@@ -24736,13 +24758,25 @@ function worldswRender(data, opts) {
   const active = data.worlds.find((w) => w.id === currentId) || data.worlds[0];
   const activeId = active ? active.id : null;
   const activeName = (active && active.name) || 'Kosmos';
-  nameEl.textContent = activeName;
-  document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
+  // Some focused tests extract this renderer by itself. An absent account list
+  // is also the real fail-closed state, so one fallback serves both boundaries.
+  const accountRows = typeof ACCOUNT_COMPUTERS === 'undefined' ? [] : ACCOUNT_COMPUTERS;
+  const thisComputer = accountRows.find((row) => row && row.thisComputer === true);
+  const computerName = (thisComputer && thisComputer.name) || activeName;
+  nameEl.textContent = computerName;
+  document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your computers. Current: ' + computerName);
   /* #2238: rows are built from textContent, never innerHTML, so a world name is
      never interpreted as markup. A NON-active row is a native <button> (keyboard-
      operable via Tab + Enter/Space, no ARIA menu contract needed); the active row is a
      non-interactive <div> marked aria-current. */
   list.textContent = '';
+  const computer = document.createElement('div');
+  computer.className = 'worldsw-computer';
+  computer.setAttribute('aria-current', 'true');
+  computer.textContent = thisComputer ? 'This computer · ' + thisComputer.name : 'This computer';
+  list.appendChild(computer);
+  const local = document.createElement('div');
+  local.className = 'worldsw-local';
   for (const w of data.worlds) {
     const isActive = w.id === activeId;
     const wname = w.name || 'Kosmos';
@@ -24781,7 +24815,28 @@ function worldswRender(data, opts) {
     cog.textContent = '⚙︎';   // gear, text presentation (VS15); aria-label carries the meaning
     cog.addEventListener('click', (e) => { e.stopPropagation(); worldRenameOpen(w.id, wname); });
     entry.appendChild(cog);
-    list.appendChild(entry);
+    local.appendChild(entry);
+  }
+  list.appendChild(local);
+  for (const rowData of accountRows) {
+    if (!rowData || rowData.thisComputer === true) continue;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'worldsw-row worldsw-remote';
+    row.disabled = rowData.online !== true || typeof rowData.openUrl !== 'string';
+    row.setAttribute('aria-label', row.disabled ? rowData.name + ', offline' : 'Open ' + rowData.name);
+    const check = document.createElement('span');
+    check.className = 'worldsw-check';
+    check.setAttribute('aria-hidden', 'true');
+    const nm = document.createElement('span');
+    nm.className = 'worldsw-rowname';
+    nm.textContent = rowData.name;
+    const state = document.createElement('span');
+    state.className = 'worldsw-state';
+    state.textContent = row.disabled ? 'Offline' : '';
+    row.append(check, nm, state);
+    if (!row.disabled) row.addEventListener('click', () => { window.location.href = rowData.openUrl; });
+    list.appendChild(row);
   }
   sw.hidden = false;
   worldswSetStale(!!(opts && opts.stale));   // #3055: honest note on a last-known render
@@ -25573,6 +25628,7 @@ async function worldHideSubmit() {
   const btn = document.getElementById('worldsw-btn');
   if (!btn) return;
   btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
+  accountComputersFetch().catch(() => {});
   document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
   document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
   document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);

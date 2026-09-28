@@ -53,7 +53,12 @@ test('the cog is on EVERY row, Kosmos 1 included, labelled as settings, and open
     dom.document, () => {}, (id, name) => opened.push([id, name]), () => {},
     { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'alpha', name: 'Alpha' }], activeWorldId: 'default' },
   );
-  const cogs = list.children.map((entry) => entry.children.find((c) => c.className === 'worldsw-cog'));
+  // #4356 nests same-Mac Kosmos instances below the "This computer" row.
+  // Their entries and settings cogs remain byte-for-byte actionable inside
+  // that local group rather than being direct list children.
+  const local = list.children.find((entry) => entry.className === 'worldsw-local');
+  assert.ok(local, 'the same-Mac Kosmos group is missing');
+  const cogs = local.children.map((entry) => entry.children.find((c) => c.className === 'worldsw-cog'));
   assert.equal(cogs.length, 2);
   assert.ok(cogs.every(Boolean), 'a Kosmos has no cog');
   assert.deepEqual(cogs.map((c) => c.getAttribute('aria-label')), ['Settings for Kosmos 1', 'Settings for Alpha']);

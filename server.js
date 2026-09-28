@@ -209,6 +209,7 @@ const promptrequest = require('./engine/promptrequest');
 const FILE_ACCESS_CONSUME_PROBE_MS = 5000;
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
+const accountComputers = require('./engine/accountcomputers');
 
 // Single source of truth for the version. With no support function, "what
 // version are you on?" is the first question of every diagnosis, so the number
@@ -4927,6 +4928,27 @@ const server = http.createServer((req, res) => {
         sendJson(res, made.ok ? 200 : 400, made);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #4356: this Mac asks the coordinator for the other computers on its own
+     account with its MAC KEY, never a person's browser session. A failed or
+     malformed signed read is a successful empty/fail-closed answer: the header
+     keeps its local Kosmos instances and offers no guessed remote destination.
+     The open URL carries only a public address to signin.html; that page owns
+     the user session and mints #3837's short per-address handoff. */
+  if (pathname === '/api/account-computers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    accountComputers.list(remote.macRequest)
+      .then((answer) => {
+        const coordinator = remote.coordinator();
+        const rows = answer.computers.map((row) => ({
+          ...row,
+          openUrl: !row.thisComputer && row.online
+            ? accountComputers.openIntent(row.address, coordinator)
+            : null,
+        }));
+        sendJson(res, 200, { ok: answer.ok, computers: rows });
+      })
+      .catch(() => sendJson(res, 200, { ok: false, computers: [] }));
     return;
   }
   /* #1704: the multiple-Kosmos registry. GET lists the worlds + the active one;
