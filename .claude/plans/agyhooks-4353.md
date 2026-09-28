@@ -18,9 +18,10 @@ board adopts running agents rather than restarting them, so its card said "Can't
     no version probe at all. The supervisor can still write between check and write; if this
     write lands second it replaces a tool-hooked entry with a Working/Idle one until the next
     launch (needs_you for a question lost meanwhile; board start racing an agy launch).
-  - Nothing is written when the bridge is missing (an empty PreToolUse answer is a DENY). Not on
+  - Nothing is written when the bridge is missing (its handlers would fail every turn, and a later current supervisor would leave the entry alone). Not on
     win32. Never throws.
-- Only agents with no entry: rewriting an existing one would make the board and the supervisor
+- A broken entry (PreInvocation or Stop missing, or naming a node or bridge that is gone) counts as absent and is repaired; a repair keeps the ask_question tool hooks when the old entry had them (only a current supervisor writes those, after its version check).
+- Only agents with no working entry: rewriting an existing one would make the board and the supervisor
   take turns (different node spellings).
 - server.js: once at board start, after installSupervisor, not under AGENT_WORKFORCE_DRY_RUN,
   deferred with setImmediate (its reads and writes happen after start, not in it); logs each agent it hooked and each failure (not the git-project refusal).

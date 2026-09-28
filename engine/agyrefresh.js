@@ -18,30 +18,47 @@
  * a running agent for nothing. Only running agents are visited; a stopped one is hooked when it
  * starts. Only this Kosmos's agents (runningJobs is world-scoped): an agy agent kept running in
  * another Kosmos is hooked when that Kosmos's board starts. Nothing is written when the bridge
- * the hook would run is missing: agy reads an empty answer from a PreToolUse hook as a DENY,
- * which is worse than "Can't tell".
+ * the hook would run is missing: its PreInvocation and Stop handlers would fail on every turn,
+ * and a later current supervisor would find an entry to leave alone.
+ * An entry that is there but broken (a node or bridge gone) is REPAIRED, keeping its ask_question
+ * tool hooks if it had them: a current supervisor wrote those after checking agy was new enough.
  * Never throws.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** Does `<workdir>/.agents/hooks.json` already carry an entry named `hookName`? Unreadable = no. */
-function hasKosmosHook(workdir, hookName) {
+/** The object entry named `hookName` in `<workdir>/.agents/hooks.json`, or null (unreadable, absent,
+    or not an object: a null, a string or a list there is malformed and ensureHooks replaces it). */
+function readEntry(workdir, hookName) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(workdir, '.agents', 'hooks.json'), 'utf8'));
     const e = j && typeof j === 'object' ? j[hookName] : null;
-    // Only an object entry counts (a null, a string or a list there is malformed, and
-    // ensureHooks replaces it, so it must not read as "already hooked").
-    if (!(e && typeof e === 'object' && !Array.isArray(e))) return false;
-    // Both halves ensureHooks writes: without PreInvocation, Working is never reported.
-    if (!Array.isArray(e.PreInvocation) || e.PreInvocation.length === 0) return false;
-    // It counts only if its Stop command names a node and a bridge that both exist. One that
-    // cannot be read that way (no Stop, no command, another shape), or whose node or bridge is gone
-    // (a node an upgrade removed), fails on every turn; it counts as absent so it is written again.
-    const cmd = Array.isArray(e.Stop) && e.Stop[0] && typeof e.Stop[0].command === 'string' ? e.Stop[0].command : '';
-    const quoted = [...cmd.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
-    return quoted.length >= 2 && quoted.slice(0, 2).every((p) => fs.existsSync(p));
-  } catch { return false; }
+    return e && typeof e === 'object' && !Array.isArray(e) ? e : null;
+  } catch { return null; }
+}
+
+/** Does this event's first handler run `'<node>' '<bridge>' ...` with both paths present? */
+function runsLive(e, ev) {
+  const h = Array.isArray(e[ev]) ? e[ev][0] : null;
+  const cmd = h && typeof h.command === 'string' ? h.command : '';
+  const quoted = [...cmd.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
+  return quoted.length >= 2 && quoted.slice(0, 2).every((p) => fs.existsSync(p));
+}
+
+/** Is there a WORKING Kosmos entry: both halves ensureHooks writes (PreInvocation reports Working,
+    Stop reports Idle), each naming a node and a bridge that exist? One that cannot be read that way,
+    or whose node or bridge is gone (a node an upgrade removed), fails on every turn; it counts as
+    absent so it is written again. Unreadable = no. */
+function hasKosmosHook(workdir, hookName) {
+  const e = readEntry(workdir, hookName);
+  return !!e && runsLive(e, 'PreInvocation') && runsLive(e, 'Stop');
+}
+
+/** Did the entry being replaced carry the ask_question tool hooks? Only a current supervisor writes
+    them, after checking agy is new enough, so a repair keeps them. */
+function hadToolHooks(workdir, hookName) {
+  const e = readEntry(workdir, hookName);
+  return !!e && Array.isArray(e.PreToolUse) && e.PreToolUse.length > 0;
 }
 
 /**
@@ -49,7 +66,8 @@ function hasKosmosHook(workdir, hookName) {
  *   names()           -> iterable of running agent names
  *   job(name)         -> { runner, claude (the runner binary) } or null
  *   workdir(name)     -> the folder the supervisor launches it in
- *   hasHook(workdir)  -> whether a Kosmos entry is already there
+ *   hasHook(workdir)  -> whether a working Kosmos entry is already there
+ *   hadToolHooks(workdir) -> whether the entry being replaced had the tool hooks (optional; no)
  *   ensureHooks(workdir, nodeBin, bridge, withToolHooks) -> { ok, changed, why }
  *   nodeBin, bridge   -> what the hook runs; bridgeExists() -> boolean
  * Resolves one row per antigravity agent visited: { name, ok, changed, why }.
@@ -78,14 +96,18 @@ async function refreshRunningAgyHooks(deps) {
     // still reports Working and Idle, and only needs_you for a question is lost meanwhile. The
     // window is a board start racing an agy launch.
     let r;
+    // Working/Idle hooks only here, not the ask_question tool hooks: this writes into a process
+    // that may have started BEFORE the update, and the agy binary on disk (the only one that could
+    // be asked its version) may be newer than the running one. The tool hooks are only safe on an
+    // agy new enough for them (agyhooks MIN_TOOL_HOOKS), so they wait for a CURRENT supervisor,
+    // which rewrites the entry with them when it next starts (the old supervisor's own relaunch
+    // loop never touches hooks.json, so an agy crash alone does not bring them). The one
+    // exception: repairing a broken entry that already HAD them, which only a current supervisor
+    // writes, so this agy was already checked.
+    let keepTools = false;
+    try { keepTools = !!(deps.hadToolHooks && deps.hadToolHooks(wd)); } catch { keepTools = false; }
     try {
-      // Working/Idle hooks only here, never the ask_question tool hooks: this writes into a process
-      // that started BEFORE the update, and the agy binary on disk (the only one that could be
-      // asked its version) may be newer than the running one. The tool hooks are only safe on an
-      // agy new enough for them (agyhooks MIN_TOOL_HOOKS), so they wait for a CURRENT supervisor,
-      // which rewrites the entry with them when it next starts (the old supervisor's own relaunch
-      // loop never touches hooks.json, so an agy crash alone does not bring them).
-      r = deps.ensureHooks(wd, deps.nodeBin, deps.bridge, false);
+      r = deps.ensureHooks(wd, deps.nodeBin, deps.bridge, keepTools);
     } catch (err) {
       r = { ok: false, changed: false, why: String((err && err.message) || err) };
     }
@@ -117,6 +139,7 @@ async function refreshAtBoardStart() {
     job: (name) => create.readJob(name),
     workdir: (name) => launchDir(create, name),
     hasHook: (wd) => hasKosmosHook(wd, agyhooks.HOOK_NAME),
+    hadToolHooks: (wd) => hadToolHooks(wd, agyhooks.HOOK_NAME),
     ensureHooks: agyhooks.ensureHooks,
     // Not process.execPath: a versioned Homebrew path dies at the next upgrade, and this entry
     // outlives the board in a running agent nobody restarts (allowance.stableNode's reason).
@@ -129,4 +152,4 @@ async function refreshAtBoardStart() {
   });
 }
 
-module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, hasKosmosHook, launchDir };
+module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, hasKosmosHook, hadToolHooks, launchDir };

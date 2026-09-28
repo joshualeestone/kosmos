@@ -178,3 +178,52 @@ test('#4353 an entry whose node or bridge no longer exists counts as absent, so 
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'an entry naming a missing node read as hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
+
+test('#4353 repairing a broken entry keeps its ask_question tool hooks, and adds none to one without', async () => {
+  const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agykeep-'));
+  try {
+    const bridge = path.join(wd, 'agy-report-bridge.js');
+    fs.writeFileSync(bridge, '');
+    const f = path.join(wd, '.agents', 'hooks.json');
+    const deps = {
+      names: () => ['gem'],
+      job: () => ({ runner: 'antigravity', claude: '/x/agy' }),
+      workdir: () => wd,
+      hasHook: (d) => agyrefresh.hasKosmosHook(d, agyhooks.HOOK_NAME),
+      hadToolHooks: (d) => agyrefresh.hadToolHooks(d, agyhooks.HOOK_NAME),
+      ensureHooks: agyhooks.ensureHooks,
+      nodeBin: process.execPath,
+      bridge,
+      bridgeExists: () => true,
+    };
+    for (const withTools of [true, false]) {
+      // A current supervisor's entry (with or without the tool hooks), then an upgrade removes its node.
+      agyhooks.ensureHooks(wd, process.execPath, bridge, withTools);
+      fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(process.execPath).join('/gone/node'));
+      assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'the broken entry read as hooked');
+      const rows = await agyrefresh.refreshRunningAgyHooks(deps);
+      assert.equal(rows[0].changed, true, rows[0].why);
+      const entry = JSON.parse(fs.readFileSync(f, 'utf8'))[agyhooks.HOOK_NAME];
+      assert.equal(Array.isArray(entry.PreToolUse), withTools,
+        withTools ? 'the repair dropped the tool hooks a current supervisor had written' : 'the repair added tool hooks the entry never had');
+      assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true, 'the repaired entry does not read as hooked');
+      fs.rmSync(path.join(wd, '.agents'), { recursive: true, force: true });
+    }
+  } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+});
+
+test('#4353 an entry whose PreInvocation names a missing node is broken even when Stop is live', () => {
+  const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agypre-'));
+  try {
+    const bridge = path.join(wd, 'bridge.js');
+    fs.writeFileSync(bridge, '');
+    agyhooks.ensureHooks(wd, process.execPath, bridge, false);
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true, 'CONTROL: a live entry must read as hooked');
+    const f = path.join(wd, '.agents', 'hooks.json');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const e = j[agyhooks.HOOK_NAME];
+    e.PreInvocation[0].command = e.PreInvocation[0].command.split(process.execPath).join('/gone/node');
+    fs.writeFileSync(f, JSON.stringify(j));
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'a dead PreInvocation read as hooked');
+  } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+});
