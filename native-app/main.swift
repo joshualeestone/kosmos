@@ -199,8 +199,9 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
 //   both       runs agents, as run does (the app, the installer and updates treat it as run), and
 //              first run ends at Kosmos Plus sign-in (Josh's third button, 10:31 on the card).
 //   anything else, or a file that cannot be read: UNREADABLE. The app asks again (the first screen);
-//   it never quietly becomes one of the three. The installer, which cannot ask, does not start the
-//   board (an update's pause stops it); the app starts it when the person answers run or both.
+//   it never quietly becomes one of the three. The app starts the board at launch so its page can
+//   ask; the installer, which cannot ask, does not start it (an update's pause stops it), and an
+//   answer of run or both starts it again if an update stopped it meanwhile (ensureBoardRunning).
 enum ComputerMode: String {
     case unset, run, connect, both, unreadable
 }
@@ -343,6 +344,7 @@ func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome {
     process.standardError = (try? FileHandle(forWritingTo: errURL)) ?? FileHandle.nullDevice
     do { try process.run() } catch {
         logLine("#4356: could not run \(kosmosBin) stop: \(error.localizedDescription)")
+        holdBoardStopped(kosmosHome: kosmosHome)   // as every non-stopped outcome does
         return .failed
     }
     process.waitUntilExit()
@@ -1915,7 +1917,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func showChoiceNotSaved(_ home: String) {
-        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again the next time it opens. Check that you can write to \(home).", title: "Kosmos could not save your choice")
+        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it may treat this computer as running agents from now on. Check that you can write to \(home).", title: "Kosmos could not save your choice")
     }
 
     /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
@@ -3116,6 +3118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// that slept through an update does not wake up "past the limit" before the install could finish.
     private func stepRelaunch(mine: String, theirs: String, since: TimeInterval, freshSince: TimeInterval?, toldGaveUp: Bool,
                               askedBefore: Bool = false) {
+        // #4356: a loop begun on the board's page, before a switch to Connect, stops here: the page is
+        // now Kosmos Plus's, it cannot say whether a restart is safe, and "your agents keep running"
+        // is not true of a computer that runs none (review round 19).
+        guard computerMode != .connect else { logLine("stale-app: stopped, this computer switched to connect"); return }
         /* A dialog, sheet or file picker of the app's own is open: do nothing now and look again later,
            without deciding anything, so no second dialog lands on top of it and no restart closes it. */
         if ownDialogOpen {

@@ -2757,7 +2757,15 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # stop` already failed to pause a board on our port, so the window is narrow --
         # but the "quit it" advice could nudge that user at their own live board. Fixing
         # it needs a stronger own-board signal than board.pid; out of scope here.
+        # #4356: on a computer whose choice keeps its board off (connect), the pause has nothing to
+        # protect: this install's board is not running and will not be started, and the other
+        # board on the port is not ours to pause. Refusing would make the install line, a connect
+        # computer's only way to update, fail every time on a shared Mac (review round 19).
+        if _kosmos_mode_keeps_board_off; then
+          info "another Kosmos is answering on port $PORT; it is not this install's, and this computer does not run a board, so it is left alone"
+        else
         die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
+        fi
       fi
       ;;
     "") ;;

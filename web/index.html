@@ -64164,7 +64164,7 @@ function frChoiceBridge() {
 
 /* #4356: the app puts ?mode=unset on a computer that has not chosen, and ?mode=unreadable when its
    stored choice could not be read. An unread choice asks again even after first run, rather than
-   quietly becoming one of the two. */
+   quietly becoming one of the three. */
 function frChoiceWanted(done) {
   if (!frChoiceBridge()) return false;
   // Only on this computer's own board: in connect mode the window shows ANOTHER computer's page,

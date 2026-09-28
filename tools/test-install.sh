@@ -814,6 +814,7 @@ chk "its summary says no board runs here, on purpose" "grep -q 'No board runs on
 chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
 chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
 chk "the pause does not say it is pausing a board that is already off" "grep -q 'making sure Kosmos is paused for the update' \"$SB/update-connect.log\" && ! grep -q 'pausing Kosmos for the update' \"$SB/update-connect.log\""
+chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -B2 'it is not this install.s, and this computer does not run a board, so it is left alone' \"$SETUP\" | grep -q 'if _kosmos_mode_keeps_board_off; then'"
 chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while Kosmos does not run a board' \"$SB/update-connect.log\""
 chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'stays off while Kosmos does not run a board on this computer' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
