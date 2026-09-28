@@ -7062,10 +7062,22 @@ const server = http.createServer((req, res) => {
      agents' tokens over the last 7 days; it is null ("not measured yet") until community
      turns can be told apart in the usage data, which comes with the managed block (#4289).
      Never 0: a zero would claim a measurement nobody made. */
-  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null }; };
+  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, noticeSeen: r.noticeSeen }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, communityBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  /* #4288 part B: the one-time notice records itself as seen when it OPENS, so two tabs do not both
+     show it (the What's New rule). The body is ignored; the answer is the same body as GET. */
+  if (pathname === '/api/community-setting/notice-seen' && req.method === 'POST') {
+    readBody(req)
+      .then(() => {
+        const saved = communityswitch.markNoticeSeen();
+        if (!saved.ok) { sendJson(res, 500, { error: saved.because }); return; }
+        sendJson(res, 200, communityBody());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   if (pathname === '/api/community-setting' && req.method === 'PUT') {
@@ -17490,6 +17502,10 @@ if (require.main === module) {
      attempting a Mac-only action on the wrong OS. The user-facing copy + screen
      for an unsupported platform is the operator's to add (see engine/platform.js
      and the PR); this is the mechanism only, and it invents no product copy. */
+  /* #4288 part B: the Community switch's one-time step, on the real-start path only (the routing
+     tests require this module). An existing install gets the one-time notice; a fresh one is told
+     in first run. A first-run flag that cannot be read counts as done, firstrun's own rule. */
+  try { communityswitch.migrate({ existingInstall: firstrun.seen().done === true }); } catch { /* never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();
   } else {

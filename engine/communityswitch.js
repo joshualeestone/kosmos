@@ -21,8 +21,10 @@ const FILE = path.join(store.ROOT, 'community.json');
 
 /**
  * No file is a never-asked machine, fresh or existing, and reads ON (Josh's default).
- * That is also the migration for existing installs: nothing is written, so nothing can
- * run twice. A present file that cannot be read or parsed reads OFF with ok:false: it
+ * No file also owes no notice (noticeSeen true): only migrate() decides the one-time
+ * notice is owed, and it records that in the file. A board that never ran migrate (a
+ * server required in-process by a check or a test) must not open it over every page
+ * (#4288 part B: it covered the agent page in 22 browser checks). A present file that cannot be read or parsed reads OFF with ok:false: it
  * could be hiding an OFF we cannot see, and what it gates is posts leaving the machine
  * (the feedbacksend split, #2037).
  */
@@ -30,7 +32,7 @@ function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return { on: true, ok: true, noticeSeen: false };
+    if (err && err.code === 'ENOENT') return { on: true, ok: true, noticeSeen: true };
     return { on: false, ok: false, noticeSeen: false };
   }
   let parsed;
@@ -66,10 +68,26 @@ function markNoticeSeen() {
   return write({ noticeSeen: true });
 }
 
+/**
+ * The one-time step at board start (#4288 part B). With no file, write ON once, and decide once
+ * whether this install is told by the one-time notice:
+ *   - an EXISTING install (first run already done when this board starts) had the default change
+ *     under it, so its notice is pending (noticeSeen false) and shows once;
+ *   - a FRESH install (first run not done) is told in first run instead, so its notice is marked
+ *     seen. That also keeps the notice off every freshly booted test board.
+ * A file already there, readable or not, is left exactly as it is: the step runs once.
+ */
+function migrate({ existingInstall }) {
+  try { fs.statSync(FILE); return { ok: true, wrote: false }; }
+  catch (err) { if (!err || err.code !== 'ENOENT') return { ok: false, wrote: false }; }
+  const saved = write({ on: true, noticeSeen: existingInstall !== true });
+  return { ok: saved.ok, wrote: saved.ok };
+}
+
 /* The one gate the send layer and the managed block call. */
 function participating() {
   const r = read();
   return r.ok === true && r.on === true;
 }
 
-module.exports = { read, setOn, markNoticeSeen, participating, FILE };
+module.exports = { read, setOn, markNoticeSeen, participating, migrate, FILE };

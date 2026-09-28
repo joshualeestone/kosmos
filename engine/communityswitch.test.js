@@ -32,18 +32,18 @@ test('the setting file lands under the sandboxed data root', () => {
   assert.equal(nodePath.basename(sw.FILE), 'community.json');
 });
 
-test('no file (fresh or existing install) reads ON, ok, notice not seen, and writes nothing', () => {
-  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: false });
+test('no file (fresh or existing install) reads ON, ok, no notice owed, and writes nothing', () => {
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: true });
   assert.equal(sw.participating(), true);
   assert.equal(fs.existsSync(sw.FILE), false, 'reading the default wrote a file');
 });
 
 test('OFF survives a restart, and ON again survives one too', () => {
   assert.deepEqual(sw.setOn(false), { ok: true });
-  assert.deepEqual(restarted().read(), { on: false, ok: true, noticeSeen: false });
+  assert.deepEqual(restarted().read(), { on: false, ok: true, noticeSeen: true });
   assert.equal(restarted().participating(), false);
   assert.deepEqual(sw.setOn(true), { ok: true });
-  assert.deepEqual(restarted().read(), { on: true, ok: true, noticeSeen: false });
+  assert.deepEqual(restarted().read(), { on: true, ok: true, noticeSeen: true });
 });
 
 test('an unparseable, non-object or array file reads OFF and NOT ok, so nothing is sent', () => {
@@ -95,6 +95,37 @@ test('a write over an unreadable file repairs it toward OFF, never ON', () => {
   assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: true });
 });
 
+test('migrate: an existing install is written ON with the notice pending, once', () => {
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: true });
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: false });
+  sw.setOn(false);
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: false }, 'the step ran twice');
+  assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: false }, 'a second run undid the person\'s OFF');
+});
+
+test('migrate: a fresh install is written ON with the notice already seen', () => {
+  assert.deepEqual(sw.migrate({ existingInstall: false }), { ok: true, wrote: true });
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: true });
+});
+
+test('migrate: an unreadable file is left exactly as it is', () => {
+  fs.mkdirSync(nodePath.dirname(sw.FILE), { recursive: true });
+  fs.writeFileSync(sw.FILE, '{not json');
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: false });
+  assert.equal(fs.readFileSync(sw.FILE, 'utf8'), '{not json');
+});
+
+test('migrate: a stat error other than ENOENT is not treated as no file (a self-looping link stays)', () => {
+  /* ELOOP, not EACCES: a locked folder also blocks the write, so it cannot tell "refused" from "tried".
+     A link to itself fails stat but would be replaced by the rename, so only a real refusal leaves it. */
+  fs.mkdirSync(nodePath.dirname(sw.FILE), { recursive: true });
+  fs.symlinkSync(nodePath.basename(sw.FILE), sw.FILE);
+  try {
+    assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: false, wrote: false }, 'a stat error other than ENOENT was treated as no file');
+    assert.equal(fs.lstatSync(sw.FILE).isSymbolicLink(), true, 'migrate wrote over a file it could not read');
+  } finally { fs.rmSync(sw.FILE, { force: true }); }
+});
+
 test('a failed save says so and leaves the old value', () => {
   sw.setOn(false);
   const dir = nodePath.dirname(sw.FILE);
@@ -102,5 +133,5 @@ test('a failed save says so and leaves the old value', () => {
   try {
     assert.deepEqual(sw.setOn(true), { ok: false, because: 'we could not save that setting' });
   } finally { fs.chmodSync(dir, 0o700); }
-  assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: false });
+  assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: true });
 });
