@@ -51,6 +51,11 @@ async function openDm(page, messages, olderCount) {
   await page.evaluate(([msgs, older]) => {
     window.__fx = { messages: msgs, olderCount: older || 0 };
     window.__posts = [];
+    /* Each scenario starts with nothing in flight. A send whose repaint had not yet found it in the thread
+       (R3's second send, on a slow machine) left its "Sending…" row in TALK_PENDING, and this swap of the
+       thread meant it could never be found: every later scenario then drew one extra row of the person's
+       (R13 read 6 rows, R6c a third answer). Seen on CI and locally, about one run in three. */
+    for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k];
     CURRENT = { sessionName: 'april', name: 'April' };
     LAST = [{ sessionName: 'april', name: 'April', state: 'idle' }];
     document.getElementById('panel-detail').hidden = false;
