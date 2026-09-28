@@ -15,6 +15,7 @@
  *   SHARE     a measured share renders Token Usage's own units (usageAbbr, "3% (12K of 410K)"), and a
  *             community spend of 0 renders "none".
  *   CLICK     pressing the knob PUTs on:false and paints what the board answered.
+ *   CLICK-FAIL  a refused save shows its message and leaves the knob where it was.
  * The DEFAULT arm is also the control for the others: it proves the row is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -61,6 +62,7 @@ function readRow(pg) {
       share: (document.getElementById('community-share') || {}).textContent || '',
       offNoteHidden: off ? off.hidden : null,
       offNote: off ? off.textContent : '',
+      msg: (document.getElementById('community-msg') || {}).textContent || '',
     };
   });
 }
@@ -140,6 +142,12 @@ async function run() {
     await p4.waitForTimeout(300);
     const s2 = await readRow(p4);
     check('SHARE: a community spend of 0 renders "none"', /: none$/.test(s2.share), JSON.stringify(s2.share));
+    // A spend against no total is no measurement, never "0%".
+    shareBody = { on: true, ok: true, share: { community: 500, total: 0 } };
+    await p4.evaluate(() => refreshCommunity());
+    await p4.waitForTimeout(300);
+    const s3 = await readRow(p4);
+    check('SHARE: a share with no total reads "not measured yet"', /: not measured yet$/.test(s3.share), JSON.stringify(s3.share));
     await p4.close();
 
     // CLICK: the knob PUTs on:false and paints what the board answered.
@@ -157,6 +165,20 @@ async function run() {
     check('CLICK: one PUT with on:false', puts.length === 1 && JSON.parse(puts[0]).on === false, JSON.stringify(puts));
     check('CLICK: the knob now reads Off and the OFF note shows', c.checked === 'false' && c.offNoteHidden === false, JSON.stringify(c));
     await p5.close();
+
+    // CLICK-FAIL: a refused save says so and leaves the knob where it was.
+    const p6 = await page();
+    await p6.route(ROUTE, (route) => {
+      if (route.request().method() === 'PUT') return answer({ error: 'we could not save that setting' }, 400)(route);
+      return answer({ on: true, ok: true, share: null })(route);
+    });
+    await openAutomation(p6);
+    await p6.click('#community-toggle');
+    await p6.waitForTimeout(400);
+    const f = await readRow(p6);
+    check('CLICK-FAIL: a refused save shows its message', /could not save that setting/i.test(f.msg), JSON.stringify(f.msg));
+    check('CLICK-FAIL: the knob still reads ON and the OFF note stays hidden', f.checked === 'true' && f.offNoteHidden === true, JSON.stringify(f));
+    await p6.close();
   } finally {
     await browser.close();
   }

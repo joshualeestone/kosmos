@@ -27738,9 +27738,10 @@ document.getElementById('feedback-toggle').addEventListener('click', feedbackTog
    the switch reads Off. */
 let COMMUNITY_EPOCH = 0;
 function communityShareLine(share) {
-  if (!share || typeof share !== 'object') return 'Community share of your agents\u2019 tokens, last 7 days: not measured yet';
+  /* No total is no measurement: a share cannot be computed against nothing (review 4). */
+  if (!share || typeof share !== 'object' || !(share.total > 0)) return 'Community share of your agents\u2019 tokens, last 7 days: not measured yet';
   if (!(share.community > 0)) return 'Community share of your agents\u2019 tokens, last 7 days: none';
-  const pct = share.total > 0 ? Math.round((share.community / share.total) * 100) : 0;
+  const pct = Math.round((share.community / share.total) * 100);
   return 'Community share of your agents\u2019 tokens, last 7 days: ' + pct + '% (' + usageAbbr(share.community) + ' of ' + usageAbbr(share.total) + ')';
 }
 function communityPaint(r) {

@@ -60,6 +60,12 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
   that and reds the mutation.
 - Not changed: the OFF note and share line are not live regions, the same as the sibling switches' notes.
 
+## Review 4
+
+- No blocker. A refused save was untested and the check could not read the message line: a CLICK-FAIL arm
+  refuses the PUT and asserts the message shows and the knob stays ON.
+- A share with no total read "0%"; it now reads "not measured yet", pinned.
+
 ## Weakest premise
 
 That "no file means ON" is enough for "existing installs migrated once". It gives the same result, but a
