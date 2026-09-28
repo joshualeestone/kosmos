@@ -2032,8 +2032,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        #1042 gate need a window server, and it would then SKIP on a headless
        build box, which is exactly the property that makes this gate better than
        its sibling. */
-    /* #4347: this prompt is now the fallback, shown only when the page cannot say whether a restart
-       would lose anything. Restart is the default: Josh read the old grey "Quit and Open Again" beside a
+    /* #4347: this prompt is now the fallback: shown when the page cannot say whether a restart would lose
+       anything, or when something has held the restart for relaunchAskAfter (with its own wording, and no
+       Return key, when something unfinished would be lost). Restart is the default: Josh read the old grey "Quit and Open Again" beside a
        blue "Not Now" as the notice recommending the wrong thing, and a restart that reopens Kosmos is not
        the destructive quit the old Return rule guarded against. */
     static let relaunchButtons: (titles: [String], returnIndex: Int, restartIndex: Int) =
@@ -2618,12 +2619,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         set { UserDefaults.standard.set(newValue, forKey: Self.relaunchGaveUpKey) }
     }
 
+    /// #4347: a dialog, sheet or file picker of the app's own is open.
+    private var ownDialogOpen: Bool { NSApp.modalWindow != nil || window?.attachedSheet != nil || openPanelOutstanding }
+    /// #4347: silent restarts that failed to open the new window this launch; after the limit the person is told.
+    private var silentRelaunchFailures = 0
+    static let silentRelaunchFailureLimit = 3
+
     /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
     private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?, toldGaveUp: Bool,
                               askedBefore: Bool = false) {
         /* A dialog, sheet or file picker of the app's own is open: do nothing now and look again later,
            without deciding anything, so no second dialog lands on top of it and no restart closes it. */
-        if NSApp.modalWindow != nil || window?.attachedSheet != nil || openPanelOutstanding {
+        if ownDialogOpen {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
                 self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: freshSince,
                                    toldGaveUp: toldGaveUp, askedBefore: askedBefore)
@@ -2639,8 +2646,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let decide = { [weak self] (page: PageSays) in
             guard !decided, let self else { return }
             decided = true
-            switch Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page,
-                                     toldGaveUp: toldGaveUp, askedBefore: askedBefore, seenFresh: freshAt != nil) {
+            var step = Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page,
+                                         toldGaveUp: toldGaveUp, askedBefore: askedBefore, seenFresh: freshAt != nil)
+            // A dialog may have opened while the page was answering: never act under it.
+            if (step == .relaunchNow || step == .askPerson) && self.ownDialogOpen { step = .wait }
+            switch step {
             case .wait:
                 let again = target != nil ? Self.relaunchPollForPage
                     : (toldGaveUp ? Self.relaunchPollAfterGiveUp : Self.relaunchPollForApp)
@@ -2727,7 +2737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            this process calls NSApp.terminate a few lines down, so anything
            recorded "once the replacement is up" is recorded by nobody. If the
            relaunch fails instead, the value is still correct -- we DID try at
-           this version -- and the failure path below tells the person directly. */
+           this version -- and the failure path below clears it again, since nothing reopened. */
         relaunchedAtVersion = mine
 
         /* 🛑 NEVER QUIT UNTIL THE REPLACEMENT IS ACTUALLY COMING. Terminating
@@ -2784,8 +2794,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 if let handoffURL = relaunchHandoffURL() {
                     try? FileManager.default.removeItem(at: handoffURL)
                 }
-                // #4347: nobody asked for a silent restart, so its failure is logged, not put in front of them.
-                guard asked else { return }
+                /* #4347: nobody asked for a silent restart, so a failure is tried again quietly. Nothing reopened,
+                   so the #1182 marker is cleared; after silentRelaunchFailureLimit the person is told, below. */
+                if !asked {
+                    self.relaunchedAtVersion = nil
+                    self.silentRelaunchFailures += 1
+                    if self.silentRelaunchFailures < Self.silentRelaunchFailureLimit {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) {
+                            self.stepRelaunch(mine: mine, theirs: theirs, since: Date(), freshSince: Date(),
+                                               toldGaveUp: false, askedBefore: true)
+                        }
+                        return
+                    }
+                }
                 let f = NSAlert()
                 f.messageText = "Kosmos could not open a new window"
                 f.informativeText = "This window is still working and still on version \(mine). "

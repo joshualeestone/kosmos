@@ -98,3 +98,9 @@ condition (one update, no second prompt) is first observable on the update after
 - A silent restart that fails to open the new window is logged, not shown (nobody asked for it).
 - A page error is logged once per window, then asked again.
 - A What's New check pending longer than its own one-hour wait no longer holds the restart.
+
+## Review iteration 10 (changes)
+- The own-dialog check is made again when the window is about to act on the page's answer, so a Cmd-Q or file
+  picker opened while the page was answering is never restarted under or covered.
+- A silent restart that fails to open the new window is tried again quietly (the #1182 marker is cleared,
+  since nothing reopened), up to 3 times this launch; after that the person is told once.
