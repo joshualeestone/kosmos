@@ -53292,7 +53292,7 @@ const PJ_SILENCE_AFTER_MS = 2 * 60 * 1000;
 function dmOwesLine(owes, rows) {
   if (!owes || typeof owes !== 'object') return '';
   if (owes.state === 'unknown') {
-    return '<p class="dmnone">We could not read the message record, so we cannot tell whether it has answered.</p>';
+    return '<p class="dmnone">We could not read this conversation, so we cannot tell whether it has answered.</p>';
   }
   if (owes.state !== 'owes') return '';
   /* 🛑 ONLY WHEN SOMETHING ACTUALLY REACHED IT, which the first version of this
@@ -53305,7 +53305,10 @@ function dmOwesLine(owes, rows) {
      actually reached (`state === 'placed'`) can be said to have gone quiet.
      The room enforced this before #3130/#3202 removed that surface; it is kept
      here because it is correct, not because the room still runs it. */
-  const landed = rows.filter((m) => m && m.delivery && m.delivery.state === 'placed');
+  /* #4340: the same rows chat.dmOwes counts: placed, and not an answer to the agent's own question (a menu answer
+     with a `wire`, or a row sent while it was asking), so the grace is timed from the message actually owed. */
+  const landed = rows.filter((m) => m && m.delivery && m.delivery.state === 'placed'
+    && !(typeof m.wire === 'string' && m.wire) && m.toQuestion !== true);
   if (!landed.length) return '';
   /* ⚠️ THE GRACE IS MEASURED ON THE MESSAGE THAT LANDED, not on the state and
      not on the newest row. `owes` is true the instant something is recorded, so

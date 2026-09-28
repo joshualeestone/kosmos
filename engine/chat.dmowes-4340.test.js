@@ -45,6 +45,12 @@ test('a MENU ANSWER (a row with a wire: the keystroke that answered the agent\'s
   assert.equal(chat.dmOwes([{ ...person(5), wire: null }], A).state, 'owes', 'an ordinary message (wire null) stopped counting');
 });
 
+test('a row sent while the agent was ASKING (toQuestion: a typed answer to its question) owes nothing', () => {
+  const typed = { ...person(5), text: 'call it report-final', toQuestion: true };
+  assert.equal(chat.dmOwes([typed], A).state, 'clear', 'a typed answer to the agent\'s question put it in debt');
+  assert.equal(chat.dmOwes([person(9), typed], A).state, 'owes', 'CONTROL: a real message before it is still owed');
+});
+
 test('only the agent\'s own rows are its answer; another author (a question row for someone else) is not', () => {
   assert.equal(chat.dmOwes([person(5), reply(3, 'someone-else')], A).state, 'owes');
 });

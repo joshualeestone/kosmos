@@ -11,6 +11,9 @@
  *   ANSWERED the agent replied after it: no line.
  *   GRACE    a DM that landed 30 seconds ago: owes, but inside the 2-minute grace, so no line yet.
  *   NOT DELIVERED  a DM that never reached the agent: no line (it was never received).
+ *   MENU / TYPED ANSWER  the person answered the agent's own question (a menu button's `wire`, or a message sent
+ *            while it was asking, `toQuestion`): no line, the agent owes nothing for an answer to its question.
+ * Every arm also asserts the thread's message rows really rendered, so a "no line" arm cannot pass on a blank paint.
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the thread poll from the fixture,
  * set CURRENT, call paintTalk.
  *
@@ -44,6 +47,8 @@ const ARMS = [
   { name: 'ANSWERED', rows: [dm(5), reply(3)], owes: 'clear', line: false },
   { name: 'GRACE', rows: [dm(0.5)], owes: 'owes', line: false },
   { name: 'NOT DELIVERED', rows: [dm(5, chat.DELIVERY.COULD_NOT)], owes: 'clear', line: false },
+  { name: 'MENU ANSWER', rows: [{ ...dm(5), text: 'Yes, and don\'t ask again', wire: '2' }], owes: 'clear', line: false },
+  { name: 'TYPED ANSWER', rows: [{ ...dm(5), text: 'call it report-final', toQuestion: true }], owes: 'clear', line: false },
 ];
 
 (async () => {
@@ -79,9 +84,9 @@ const ARMS = [
       const seen = await page.evaluate((line) => {
         const box = document.getElementById('d-dmthread');
         const hits = box ? [...box.querySelectorAll('.dmnone')].filter((p) => p.textContent.trim() === line) : [];
-        return { box: !!box, shown: hits.length, visible: hits.some((p) => p.checkVisibility()) };
+        return { box: !!box, rows: box ? box.querySelectorAll('.msg').length : 0, shown: hits.length, visible: hits.some((p) => p.checkVisibility()) };
       }, LINE);
-      chk(seen.box, arm.name + ': the DM thread rendered');
+      chk(seen.box && seen.rows === arm.rows.length, arm.name + ': the DM thread rendered its ' + arm.rows.length + ' row(s)', JSON.stringify(seen));
       if (arm.line) chk(seen.shown === 1 && seen.visible, arm.name + ': "' + LINE + '" shows under the thread', JSON.stringify(seen));
       else chk(seen.shown === 0, arm.name + ': "' + LINE + '" does not show', JSON.stringify(seen));
       chk(errs.length === 0, arm.name + ': no page errors', errs.join(' | '));
