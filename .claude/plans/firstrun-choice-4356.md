@@ -1,5 +1,14 @@
 # firstrun-choice-4356: the first screen asks whether this Mac runs agents or connects to them (#4356 slice 1, step 1)
 
+## Release switch (Liu Kang m2647)
+- `let kosmosFirstRunChoice = false` in native-app/main.swift (KOSMOS_FIRSTRUN_CHOICE) is OFF on main:
+  the app treats every Mac as run before reading anything, so there is no first screen and no connect,
+  and first run is exactly as before. A test pins it off. #4382 (Johnny Cage, a connect Mac updating
+  itself) turns it on in its own PR, so Connect reaches no release before a connect Mac can update.
+- The one thing that runs with it off: an update of a set-up pre-#4356 install records `run`, which
+  changes nothing a person sees (absent and run both start the board).
+- Everything under "Finished means" below describes the switch ON.
+
 ## Finished means (Liu Kang's plan on the card, and m2433/m2435/m2442)
 - On a fresh Mac, the app's first screen is exactly: the Kosmos logo, the heading
   "How would you like to set up Kosmos on this computer?", and three buttons,

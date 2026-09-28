@@ -20518,6 +20518,14 @@ function paintRestartScreen(down, deviceIsOffline) {
       const back = RESTART_SCREEN_RETURN;
       RESTART_SCREEN_RETURN = null;
       if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+      /* #4356: the board came back without a reload, and the first screen it hid is still waiting for
+         an answer (firstRunBoot awaits it): give it back, with its own inert hold, or first run
+         never opens (review round 26). */
+      if (typeof FR_CHOICE_HIDDEN_BY_RESTART !== 'undefined' && FR_CHOICE_HIDDEN_BY_RESTART) {
+        FR_CHOICE_HIDDEN_BY_RESTART = false;
+        const frc = document.getElementById('fr-choice');
+        if (frc && FR_CHOICE_PENDING) { frc.hidden = false; frChoiceInert(true); }
+      }
     }
     return;
   }
@@ -20545,7 +20553,11 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* #4356: a board that is really down under the first screen shows this screen, not dead buttons:
      the first screen goes (and gives back only its own inert holds) before this one takes the page. */
   { const frc = document.getElementById('fr-choice');
-    if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
+    if (frc && !frc.hidden) {
+      frc.hidden = true;
+      if (typeof frChoiceInert === 'function') frChoiceInert(false);
+      if (typeof FR_CHOICE_PENDING !== 'undefined' && FR_CHOICE_PENDING) FR_CHOICE_HIDDEN_BY_RESTART = true;
+    } }
   RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
   document.documentElement.classList.add('restart-up');
@@ -64333,6 +64345,8 @@ function frChoiceForget(mode) {
 let FR_CHOICE_WATCH = null;
 let FR_CHOICE_INERTED = [];   // only what this screen made inert is given back, as the restart screen (#4343) does
 let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being stopped on purpose
+let FR_CHOICE_PENDING = false;      // the first screen is waiting for an answer (frChoose)
+let FR_CHOICE_HIDDEN_BY_RESTART = false;   // the restart screen hid it, and gives it back if it clears
 function frChoiceHold(n) {
   if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
   n.inert = true;
@@ -64371,6 +64385,7 @@ function frChoose() {
         // both choice keeps ?mode=both for this session's last step (frPlusLast); if the app did not
         // hear it, the next launch asks again anyway.
         if (told || mode === 'both') frChoiceForget(mode);
+        if (mode !== 'connect' || told) FR_CHOICE_PENDING = false;
         if (mode === 'connect') {
           if (!told) return;
           FR_CHOICE_CONNECTING = true;   // the board goes down now on purpose: no restart screen over it
@@ -64383,6 +64398,7 @@ function frChoose() {
         resolve(mode);
       };
     });
+    FR_CHOICE_PENDING = true;
     el.hidden = false;
     // Everything else on the page goes inert while the screen is up, as first run's frOpen does: no
     // Tab, click or screen reader reaches the board under it (and first run re-applies its own).

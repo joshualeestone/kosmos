@@ -3758,6 +3758,8 @@ fi
 # never finished, keeps no file and is asked (review round 21).
 if [ "$FRESH_INSTALL" = no ] && [ ! -e "$KOSMOS_HOME/mode" ] && [ -f "$_wf_data_root/first-run.json" ]; then
   # Atomic (a temp file, then a rename), as the app writes it, so the app never reads half a word.
+  # A temp left by an earlier run killed mid-write goes first (its pid is gone, so only a glob finds it).
+  rm -f "$KOSMOS_HOME"/mode.new.* 2>/dev/null || true
   { printf 'run\n' > "$KOSMOS_HOME/mode.new.$$" && mv -f "$KOSMOS_HOME/mode.new.$$" "$KOSMOS_HOME/mode"; } 2>/dev/null \
     || rm -f "$KOSMOS_HOME/mode.new.$$" 2>/dev/null || true
 fi

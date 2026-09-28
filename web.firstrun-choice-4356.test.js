@@ -129,7 +129,7 @@ function world({ search = '', bridge = true, throws = false, windows = false, ho
       : { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
-  vm.runInContext(['var FR_CHOICE_WATCH = null; var FR_CHOICE_INERTED = []; var FR_CHOICE_CONNECTING = false;', lift('revealBoot'), lift('frChoiceHold'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
+  vm.runInContext(['var FR_CHOICE_WATCH = null; var FR_CHOICE_INERTED = []; var FR_CHOICE_CONNECTING = false; var FR_CHOICE_PENDING = false;', lift('revealBoot'), lift('frChoiceHold'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
   return { ctx, posted, btns, el, cover, replaced, siblings };
 }
 
@@ -296,9 +296,19 @@ test('#4356: #4343\'s restart screen stands down while Connect stops the board, 
   const paint = lift('paintRestartScreen');
   assert.match(paint, /\(typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING\)\) \{\n\s+BOARD_NO_ANSWER_SINCE = null;/,
     'a person who chose Connect is told "Kosmos requires a full restart" while it stops its board on purpose');
-  assert.match(paint, /if \(frc && !frc\.hidden\) \{ frc\.hidden = true; if \(typeof frChoiceInert === 'function'\) frChoiceInert\(false\); \} \}\n\s+RESTART_SCREEN_RETURN = document\.activeElement;/,
+  assert.match(paint, /if \(frc && !frc\.hidden\) \{\n\s+frc\.hidden = true;\n\s+if \(typeof frChoiceInert === 'function'\) frChoiceInert\(false\);[\s\S]{0,160}\} \}\n\s+RESTART_SCREEN_RETURN = document\.activeElement;/,
     'a board that is really down leaves the first screen\'s buttons dead over it');
   assert.match(lift('frChoose'), /FR_CHOICE_CONNECTING = true;/);
+});
+
+test('#4356: a restart screen that clears without a reload gives back a first screen still waiting', () => {
+  const paint = lift('paintRestartScreen');
+  assert.match(paint, /if \(typeof FR_CHOICE_PENDING !== 'undefined' && FR_CHOICE_PENDING\) FR_CHOICE_HIDDEN_BY_RESTART = true;/);
+  assert.match(paint, /if \(frc && FR_CHOICE_PENDING\) \{ frc\.hidden = false; frChoiceInert\(true\); \}/,
+    'the board recovers and first run never opens: the choice it awaits is hidden for good');
+  const choose = lift('frChoose');
+  assert.match(choose, /FR_CHOICE_PENDING = true;\n\s+el\.hidden = false;/);
+  assert.match(choose, /if \(mode !== 'connect' \|\| told\) FR_CHOICE_PENDING = false;/);
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {
