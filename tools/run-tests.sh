@@ -35,6 +35,17 @@ case "$KOSMOS_TEST_PART" in
   all|node|shell) ;;
   *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
 esac
+# A part other than all runs only some of the suite, so it is honoured only where it is meant: in
+# CI (GITHUB_ACTIONS=true), or locally with KOSMOS_TEST_PART_LOCAL=1 said on purpose. A value merely
+# inherited from a shell would otherwise narrow a release cut's or a validation's `yarn test` to a
+# part and let it pass. And a part always says so, on stderr, so a log shows what ran.
+if [ "$KOSMOS_TEST_PART" != all ]; then
+  if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${KOSMOS_TEST_PART_LOCAL:-}" != 1 ]; then
+    echo "run-tests: KOSMOS_TEST_PART=$KOSMOS_TEST_PART runs only part of the suite; outside CI, set KOSMOS_TEST_PART_LOCAL=1 to mean it (unset KOSMOS_TEST_PART for the whole suite)" >&2
+    exit 2
+  fi
+  echo "run-tests: running ONLY the $KOSMOS_TEST_PART part of the suite${KOSMOS_SHELL_SHARD:+ (shard $KOSMOS_SHELL_SHARD)} (#4317); the other part runs in its own job" >&2
+fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
 if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
   echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2

@@ -60,7 +60,9 @@ function runShard(list, ii, nn, stdio = 'inherit') {
   const mine = select(list, ii, nn);
   // A shard with nothing to run would pass having run nothing.
   if (!mine.length) { console.error(`shell-shard ${ii}/${nn}: no commands in this shard; refusing to report green`); return 1; }
-  console.log(`shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands`);
+  // Written synchronously: stdout to a pipe is asynchronous on macOS, and the first command's own
+  // output (inherited stdio) would otherwise land in the log before this line.
+  fs.writeSync(1, `shell-shard ${ii}/${nn}: ${mine.length} of ${list.length} test:shell commands\n`);
   for (const c of mine) {
     const r = cp.spawnSync('sh', ['-c', c], { cwd: ROOT, stdio });
     if (r.status !== 0) {
@@ -69,7 +71,7 @@ function runShard(list, ii, nn, stdio = 'inherit') {
       return r.status || 1;
     }
   }
-  console.log(`shell-shard ${ii}/${nn}: all ${mine.length} passed`);
+  fs.writeSync(1, `shell-shard ${ii}/${nn}: all ${mine.length} passed\n`);
   return 0;
 }
 

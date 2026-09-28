@@ -124,8 +124,8 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
      reach the suite and fail at once with 97, rather than run the real suite on this machine. */
   const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-stub-'));
   for (const bin of ['node', 'yarn']) fs.writeFileSync(path.join(stub, bin), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
-  const base = { ...process.env, PATH: stub + path.delimiter + process.env.PATH };
-  delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD;
+  const base = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
+  delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD; delete base.KOSMOS_TEST_PART_LOCAL;
   t.after(() => fs.rmSync(stub, { recursive: true, force: true }));
   const cases = [
     [{ KOSMOS_TEST_PART: 'bogus' }, [], /KOSMOS_TEST_PART must be all, node or shell/],
@@ -134,6 +134,9 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
     [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: '2' }, [], /must be i\/n/],
     [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: 'x/2' }, [], /must be i\/n/],
     [{ KOSMOS_TEST_PART: 'shell' }, ['engine/store.test.js'], /takes no node --test arguments/],
+    /* Outside CI, an inherited part must not narrow a cut's or a validation's `yarn test`. */
+    [{ GITHUB_ACTIONS: '', KOSMOS_TEST_PART: 'node' }, [], /outside CI, set KOSMOS_TEST_PART_LOCAL=1/],
+    [{ GITHUB_ACTIONS: '', KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: '1/2' }, [], /outside CI, set KOSMOS_TEST_PART_LOCAL=1/],
   ];
   for (const [env, args, reason] of cases) {
     const started = Date.now();
@@ -148,6 +151,7 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
 test('run-tests.sh: the default part is all, so `yarn test` still runs the node suite and all of test:shell', () => {
   const src = fs.readFileSync(path.join(ROOT, 'tools', 'run-tests.sh'), 'utf8');
   assert.match(src, /KOSMOS_TEST_PART="\$\{KOSMOS_TEST_PART:-all\}"/);
+  assert.match(src, /echo "run-tests: running ONLY the \$KOSMOS_TEST_PART part of the suite/, 'a part says so in the log');
   assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n\s+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');

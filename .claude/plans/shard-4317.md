@@ -30,7 +30,9 @@
   - Measured balance at 2 shards: 464 s and 557 s of shell time (a greedy split would be 511/511,
     but it needs the timings kept up to date).
 - tools/run-tests.sh: KOSMOS_TEST_PART = all (the default, what `yarn test` runs, unchanged), node or
-  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. An unknown part, a shard that is not i/n, a shard
+  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. A part other than all is honoured only in CI
+  (GITHUB_ACTIONS=true) or with KOSMOS_TEST_PART_LOCAL=1, so a value inherited from a shell cannot
+  narrow a release cut's or a validation's `yarn test`; a part always prints a line saying so. An unknown part, a shard that is not i/n, a shard
   outside a shell-only run, or node --test arguments to a shell-only run exits 2 at the top of the
   file, before the machine claim, the temp root or any test. The test RUNS each refusal, with stub
   node and yarn on the PATH so a missing refusal fails at once instead of running the suite.
@@ -59,14 +61,15 @@
   - Mutations seen red: dropping shard 2/2 from the matrix; SUITE_TIMEOUT_MIN 30 against 45.
 
 ## Measured on the runner (the real test.yml on this branch, via a temporary push trigger, since reverted)
-**Run of record: 36423468035 at 260b9cd.** It is in this branch's history, and its code is identical
-to the head apart from comments, this plan and the reverted trigger (`git diff 260b9cd HEAD`). The
-three runs before it ran commits from before the rebase onto main (ec4a9eb, 225a6e8 and c07e463 are
-not ancestors of the head); they are kept as earlier evidence.
-- Run 36415011074 (ec4a9eb, pre-rebase): three source pins went red. #1934, #3605 and #4273 find the suite by
+**The run of record is the one taken after the last code change, cited in the PR body** (a merge
+of main, which changed run-tests.sh's node --test line in #4326, orphaned the earlier runs as a
+measurement of the head's code). The runs below are earlier evidence; each names the code it ran,
+and the commit the runner actually checked out when that was a temporary trigger commit on top.
+- Run 36415011074 (the code at ec4a9eb, run as TEMP commit c025ca6): three source pins went red. #1934, #3605 and #4273 find the suite by
   `^node --test`, and the line had been indented inside the new part check. It is flush left
   again (225a6e8), and the #4317 test pins that.
-- Run 36416362440 (225a6e8, pre-rebase): **success**.
+- Run 36416362440 (the runner checked out 225a6e8 itself; the trigger came from TEMP commit c025ca6
+  below it): **success**.
 
   | job | wall time | share of its 45 min |
   |---|---|---|
@@ -74,10 +77,10 @@ not ancestors of the head); they are kept as earlier evidence.
   | shell 1/2 | 514 s | 19% |
   | shell 2/2 | 638 s | 24% |
 
-  Run 36419129296 (c07e463, pre-rebase, after review round 1): success again. node 697 s (26%), shell 1/2
+  Run 36419129296 (the code at c07e463, run as TEMP commit 07a1e10, after review round 1): success again. node 697 s (26%), shell 1/2
   481 s (18%), shell 2/2 681 s (25%).
-- Run 36423468035 (260b9cd, the run of record: the iteration 4 code, rebased on main): success,
-  every shard green.
+- Run 36423468035 (the code at ddb3e41, run as TEMP commit 260b9cd; the iteration 4 code, rebased
+  on main before #4326): success, every shard green.
 
   | job | wall time | share of 45 min |
   |---|---|---|
@@ -90,8 +93,10 @@ not ancestors of the head); they are kept as earlier evidence.
   runner. The job times are the card's bar; the queue is the runners' supply.
 - **Wall time depends on free runners.** Run 36416362440 took 12 min 13 s end to end, with all
   three jobs starting together. Run 36419129296 took 19 min 56 s, because shell 1/2 waited 11 min
-  39 s for a macOS runner (it started after the other two had finished). Either is under the 24 to
-  28 min of the one job, and no job's own time came near its limit. 11142 node tests ran.
+  39 s for a macOS runner (it started after the other two had finished). Run 36423468035 took 38
+  min, its jobs running almost one after another while they waited for runners. No job's own time
+  came near its limit; how long a whole run takes depends on how many macOS runners are free.
+  11142 and 11144 node tests ran in the first two, 11237 in the third (main grew).
 
 ## Decided
 - Three jobs: the node part (4.9 to 12 min measured) and two shell shards (7.7 to 8.6 min and 9.6 to
@@ -110,7 +115,9 @@ not ancestors of the head); they are kept as earlier evidence.
   Queue time is not part of timeout-minutes, so it cannot cancel a job; it can delay the result.
 - Latency down, machine time up. Each job pays its own checkout, tmux install and node setup, and
   runs the guards (coverage, leak checks, both browser-check gates) itself, so a run uses a few more
-  runner-minutes in total than one job did, while the result arrives in about half the wall time.
+  runner-minutes in total than one job did. The result arrives faster only when three macOS runners
+  are free at once (12 min in run 36416362440); when they are not, it can take longer than the one
+  job did (38 min in run 36423468035). The card's bar is each job's share of its limit, which holds.
   The repo is public, so the minutes are not billed.
 - A hash does not balance by time. A new slow shell test could land on the larger shard, and the 70%
   warning is what catches that before it cancels.
