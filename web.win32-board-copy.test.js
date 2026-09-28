@@ -589,3 +589,9 @@ test('#718 state 2: a Windows board reached remotely is never told "your Mac"', 
   assert.doesNotMatch(card('win32'), /your Mac/, 'a Windows board was told its Mac did not answer');
   assert.match(card('darwin'), /Something on your Mac did not answer/, 'CONTROL: a Mac board reached remotely names the Mac');
 });
+
+test('#4408: a restart the board refused says the Windows remedy on Windows, never "restart your computer"', () => {
+  const fn = page.lift(SCRIPT, 'engineRestartClick');
+  assert.match(fn, /if \(onWindows\(\)\) small\.innerHTML = 'Kosmos could not restart itself\. ' \+ windowsCopy\('engineStaleRemedy'\);/);
+  assert.match(fn, /else small\.textContent = 'Kosmos could not restart itself\. Restarting your computer picks up the change\.';/, 'CONTROL: the Mac line is the other arm');
+});

@@ -19568,7 +19568,11 @@ async function engineRestartClick() {
       if (r.status === 409 && out && out.current === true) { location.reload(); return; }
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
-      if (small) small.textContent = 'Kosmos could not restart itself. Restarting your computer picks up the change.';
+      /* Windows keeps its own remedy (its copy table), never "restart your computer". Static copy, so innerHTML. */
+      if (small) {
+        if (onWindows()) small.innerHTML = 'Kosmos could not restart itself. ' + windowsCopy('engineStaleRemedy');
+        else small.textContent = 'Kosmos could not restart itself. Restarting your computer picks up the change.';
+      }
       return;
     }
   } catch (e) {
