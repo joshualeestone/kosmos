@@ -26,8 +26,11 @@ const minusOne = (field) => Buffer.concat([varint(field * 8), Buffer.from([0xff,
 
 /** One generation as agy writes it: model at 1.19, usage at 1.4. `negative` adds an int64 -1 field
     inside the usage message and at top level, as real blobs carry such fields. */
-function generation({ model = 'gemini-3.8-flash', prompt, reply, thoughts = 0, negative = false } = {}) {
-  const usageParts = [num(1, 1318), num(2, prompt), num(3, reply + thoughts), num(9, reply), num(10, thoughts)];
+function generation({ model = 'gemini-3.8-flash', prompt, cached, reply, thoughts = 0, negative = false } = {}) {
+  // `prompt` is 1.4.2 (the uncached part); `cached` is 1.4.5, written only once agy's cache is in use.
+  const usageParts = [num(1, 1318), num(2, prompt), num(3, reply + thoughts)];
+  if (cached !== undefined) usageParts.push(num(5, cached));
+  usageParts.push(num(9, reply), num(10, thoughts));
   if (negative) usageParts.push(minusOne(12));
   const usage = prompt === undefined ? [] : [msg(4, ...usageParts)];
   const parts = [msg(1, model === null ? Buffer.alloc(0) : msg(19, model), ...usage)];
