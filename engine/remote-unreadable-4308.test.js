@@ -134,7 +134,9 @@ test('5. a sign-in on a damaged file keeps its device id through the repair (no 
 
 test('6. a save removes temporary files left by a killed write, but never a fresh one', () => {
   saveGood({ on: false });
-  const stale = FILE + '.99999.deadbeef.tmp';
+  // A pid that is certainly dead: a child that has already exited.
+  const deadPid = require('node:child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+  const stale = FILE + '.' + deadPid + '.deadbeef.tmp';
   const fresh = FILE + '.99998.cafef00d.tmp';
   const liveOld = FILE + '.' + process.ppid + '.0badc0de.tmp';   // an OLD file whose writer is still running
   fs.writeFileSync(stale, '{"on":true,"email":"old@example.com"}');
@@ -147,6 +149,10 @@ test('6. a save removes temporary files left by a killed write, but never a fres
   assert.equal(fs.existsSync(stale), false, 'a stale temporary file (with a copy of the settings) was left');
   assert.equal(fs.existsSync(fresh), true, 'a fresh temporary file, possibly a live writer, was removed');
   assert.equal(fs.existsSync(liveOld), true, 'an old temporary file of a still-running writer was removed');
+  // Past a day even a live pid does not shelter it: pids are reused, and no save stalls that long.
+  const ancient = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(liveOld, ancient, ancient);
+  assert.equal(remote.setRelay('sweep2.example:443').ok, true);
+  assert.equal(fs.existsSync(liveOld), false, 'a day-old temporary file survived because its pid is in use');
   fs.rmSync(fresh, { force: true });
-  fs.rmSync(liveOld, { force: true });
 });
