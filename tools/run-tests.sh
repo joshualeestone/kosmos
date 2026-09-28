@@ -286,6 +286,11 @@ case "$KOSMOS_TEST_PART" in
   all|node|shell) ;;
   *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
 esac
+# Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
+if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
+  echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2
+  exit 2
+fi
 # A shard is only ever part of a shell-only run, and only in the form i/n. Anything else refuses:
 # a stray value would otherwise turn `yarn test` into the node suite plus one shard, green.
 if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then

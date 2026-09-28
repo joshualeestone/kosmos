@@ -31,8 +31,9 @@ explicitly to learn the repo's pre-PR commands and conventions.
   (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
   (Windows-branching files left out).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
-  shells out to `yarn` (`yarn -s test:shell`, line 210), and its own coverage-mismatch message
-  names `yarn test` the canonical helper, so yarn must be present regardless. There is no
+  shells out to `yarn` (`yarn -s test:shell`, in its default `all` part, which is what `yarn test`
+  runs locally; CI runs the parts separately, #4317), and its own coverage-mismatch message names
+  `yarn test` the canonical helper, so yarn must be present regardless. There is no
   committed lockfile or `packageManager` pin.
 
 ### Build / Lint

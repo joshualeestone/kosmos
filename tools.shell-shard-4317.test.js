@@ -11,9 +11,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const sh = require('../tools/shell-shard');
+const sh = require('./tools/shell-shard');
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = __dirname;
 const WF = path.join(ROOT, '.github', 'workflows', 'test.yml');
 
 /* test.yml, parsed once with ruby's YAML, as ci.main-runs-finish-4021.test.js does (the repo has no
@@ -67,10 +67,15 @@ test('every command is one plain script call whose script exists, so the split o
 });
 
 test('a shard runs its commands in order and stops at the first failure, with its exit status', () => {
-  const list = ['exit 3', 'exit 5'];
-  assert.equal(sh.runShard(list, 1, 1, 'ignore'), 3, 'the first failure is the result, and nothing after it runs');
-  assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore'), 0);
-  assert.equal(sh.runShard(['exit 0'].concat(['exit 7']), 1, 1, 'ignore'), 7);
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-'));
+  try {
+    const ran = path.join(dir, 'ran'); const after = path.join(dir, 'after');
+    const code = sh.runShard([`touch '${ran}'`, 'exit 3', `touch '${after}'`], 1, 1, 'ignore');
+    assert.equal(code, 3, 'the first failure is the result');
+    assert.ok(fs.existsSync(ran), 'the command before the failure ran');
+    assert.ok(!fs.existsSync(after), 'the command after the failure did not run');
+    assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore'), 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a bad shard is refused, not read as a subset', () => {

@@ -82,7 +82,7 @@ jobs:
   # took 24-28 min (the node part 517 s and test:shell 1,021 s when timed apart on this runner,
   # probe run 36412608975). Now: the node suite in one job, and test:shell split by
   # tools/shell-shard.js into SHELL_SHARDS jobs (every command in exactly one shard;
-  # engine/shell-shard-4317.test.js proves the union is the full list and pins this matrix to it).
+  # tools.shell-shard-4317.test.js proves the union is the full list and pins this matrix to it).
   # The `test` job below needs them all and is the one check named `test`, as before.
   # The cost: a run now holds three macos-latest runners instead of one (the #3499 contention was
   # about exactly those runners). Queue time is not part of timeout-minutes, so it cannot cancel a
@@ -113,12 +113,11 @@ jobs:
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
     # cross it and be CANCELLED (read as `fail`). 30 gives a single run real headroom
     # while still catching a genuine hang at ~2x the runtime.
-    # #4317 (2026-09-28): the job now runs 20-23.5 min on main (the last five green runs), so 30
-    # left ~6 min for everyone and #4307 was CANCELLED at the limit. 45 is ~2x the runtime again.
-    # Sharding the job (with a warning at 70% of this) is the follow-up on #4317.
-    # #4317: each shard job now runs about 10 min; 45 keeps it well under 60% and still catches a
+    # #4317 (2026-09-28): before sharding, the one job ran 20-23.5 min on main, so 30 left ~6 min
+    # and #4307 was CANCELLED at the limit; the limit went to 45 (#4322).
+    # #4317, sharded: each job now runs 8 to 12 min; 45 keeps it well under 60% and still catches a
     # hang. SUITE_TIMEOUT_MIN is the same number, for the 70% warning at the end of the job;
-    # engine/shell-shard-4317.test.js pins the two equal.
+    # tools.shell-shard-4317.test.js pins the two equal.
     timeout-minutes: 45
     env:
       SUITE_TIMEOUT_MIN: 45
@@ -170,15 +169,12 @@ jobs:
           echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
       # No install step, but NOT dependency-free: this repo declares zero package
       # dependencies (empty deps/devDeps, no lockfile), so `yarn install` would
-      # install nothing and only add a way to fail. run-tests.sh does two things:
-      # `node --test engine/*.test.js *.test.js` (the JS suite) and then, on a green
-      # node run, `yarn -s test:shell` (dozens of tools/test-*.sh). So the runner's
-      # preinstalled `yarn` and `bash` ARE required at runtime; both ship on
-      # ubuntu-latest. Verified green on this recipe on node 22 AND node 26 (both
-      # arms of run-tests.sh, exit 0). If GitHub ever drops yarn from the image the
-      # suite would exit 127 and red here honestly, which is the correct direction.
-      # #4317: in CI each job runs ONE part: the node job runs the node suite, and a shell shard runs
-      # its test:shell commands through tools/shell-shard.js (sh -c each), not through yarn.
+      # install nothing and only add a way to fail. #4317: each job runs ONE part of
+      # run-tests.sh. The node job runs `node --test engine/*.test.js *.test.js`; a shell
+      # shard runs its share of test:shell's tools/test-*.sh through tools/shell-shard.js
+      # (sh -c each). No CI job calls yarn now (`yarn test` still does, locally, running
+      # both parts). So the runner's `node`, `bash` and `sh` are what the suite needs here;
+      # a missing one exits 127 and reds here honestly, which is the correct direction.
       # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard).
       - name: this job's part of the suite (run-tests.sh, gated on the exit code)
         env:

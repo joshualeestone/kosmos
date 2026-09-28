@@ -42,13 +42,14 @@
   - a `test` job that needs `suite` (if: !cancelled(), so a superseded run still reads as
     cancelled) and is green only when every suite job was. So the check named `test` that people and
     tools read is still there.
-- engine/shell-shard-4317.test.js:
+- tools.shell-shard-4317.test.js:
   - the partition (at SHELL_SHARDS and at 2, 3 and 4 shards, disjoint and complete, no empty
     shard);
-  - order-independence, and the refusals;
+  - order-independence, and the refusals (a bad shard, a shell part given node --test arguments);
   - every command is one plain script call whose script exists (so a quote, a ; or a nested && fails
     the test rather than being mis-cut);
-  - a shard runs in order and stops at the first failure with its exit status (runShard);
+  - a shard runs in order and stops at the first failure with its exit status (runShard; a marker
+    file after the failure must not appear);
   - run-tests.sh's shard arm RUNS the shard, and refuses a bad shard;
   - that the matrix runs the node part once and shards 1..SHELL_SHARDS once each;
   - that SUITE_TIMEOUT_MIN equals timeout-minutes, and the warning's 70% and always();
@@ -69,8 +70,10 @@
 
   Run 36419129296 (c07e463, after review round 1): success again. node 697 s (26%), shell 1/2
   481 s (18%), shell 2/2 681 s (25%).
-  The whole suite now finishes in about 12 min of wall time, against 24 to 28 min before. 11142
-  node tests ran.
+- **Wall time depends on free runners.** Run 36416362440 took 12 min 13 s end to end, with all
+  three jobs starting together. Run 36419129296 took 19 min 56 s, because shell 1/2 waited 11 min
+  39 s for a macOS runner (it started after the other two had finished). Either is under the 24 to
+  28 min of the one job, and no job's own time came near its limit. 11142 node tests ran.
 
 ## Decided
 - Three jobs: the node part (about 9 min) and two shell shards (about 8 and 9.5 min). One node job

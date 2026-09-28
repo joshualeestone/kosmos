@@ -9,7 +9,7 @@
  *
  * WHICH SHARD: a command's sha256, mod the shard count. A new command lands in a shard with no list
  * to edit, and the same command always lands in the same shard. The union of the shards is the
- * full list by construction, and engine/shell-shard-4317.test.js proves it on the real list.
+ * full list by construction, and tools.shell-shard-4317.test.js proves it on the real list.
  *
  * HOW A SHARD RUNS: each of its commands with `sh -c`, from the repository root, in the order
  * test:shell lists them, stopping at the first that fails, exactly as the `&&` chain does. It
@@ -63,7 +63,8 @@ function runShard(list, ii, nn, stdio = 'inherit') {
   for (const c of mine) {
     const r = cp.spawnSync('sh', ['-c', c], { cwd: ROOT, stdio });
     if (r.status !== 0) {
-      console.error(`shell-shard ${ii}/${nn}: FAILED (exit ${r.status === null ? r.signal : r.status}): ${c}`);
+      const why = r.error ? `could not run: ${r.error.message}` : `exit ${r.status === null ? r.signal : r.status}`;
+      console.error(`shell-shard ${ii}/${nn}: FAILED (${why}): ${c}`);
       return r.status || 1;
     }
   }
@@ -73,9 +74,9 @@ function runShard(list, ii, nn, stdio = 'inherit') {
 
 function main(argv) {
   const [verb, i, n] = argv;
+  if (verb !== 'list' && verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n>'); return 2; }
   const [ii, nn] = parseShard(i, n);
   if (verb === 'list') { for (const c of select(commands(), ii, nn)) console.log(c); return 0; }
-  if (verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n>'); return 2; }
   return runShard(commands(), ii, nn);
 }
 
