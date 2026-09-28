@@ -31,6 +31,14 @@
  * which only happens when the ring was overcrowded and the settle expanded it.
  * A flat five-agent board leaves the tightest pair 114px apart and fails that.
  *
+ * 📌 SINCE #4434 THE STATIC LAYOUT NO LONGER OVERLAPS on this board: orgPlace now lays a tree out by
+ * sectors and grows each ring until no two nodes are closer than ORG_MIN_ARC, so the dense board's first
+ * paint is already clear (measured: tightest pair 64px on first paint, 66px settled). The settle is no
+ * longer load-bearing HERE; its own ability to resolve an overlapping field is pinned in node by
+ * org-reduced-motion-settle-1738.test.js (a seeded overlap). This check now pins that a reduced-motion
+ * render of a DENSE tree stays overlap-free, and DENSE_MAX (raised from 64 to 72) still reds a sparse
+ * fixture (a flat five-agent board sits at 114px), so it cannot pass on a board with nothing close.
+ *
  * The board this needs is the one tools/browser-checks.sh boots with
  * boot_board_org (a manager + eight reports + two deeper); with such a board on
  * $PORT the check runs standalone:
@@ -53,7 +61,7 @@ const DISC_MIN = 44;
    Measured after settle: the dense board sits at 52, a flat board at 114. This
    ceiling passes the packed board and reds a fixture too sparse to have
    overlapped in the first place. */
-const DENSE_MAX = 64;
+const DENSE_MAX = 72;   // #4434: was 64; the dense board now sits at 66 settled (see the header)
 
 (async () => {
   const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17491';
@@ -110,7 +118,7 @@ const DENSE_MAX = 64;
   say(m.minC !== null && m.minC >= DISC_MIN,
     'the tightest pair clears a disc diameter', m.minC + 'px');
   say(m.minC !== null && m.minC <= DENSE_MAX,
-    'the ring is packed to the sim floor, so the settle was load-bearing', m.minC + 'px');
+    'the board is dense (its tightest pair sits near the minimum arc), so a sparse fixture cannot pass', m.minC + 'px');
 
   try { fs.mkdirSync('/tmp/orgshots', { recursive: true }); } catch { /* best effort */ }
   await pg.screenshot({ path: '/tmp/orgshots/org-reduced-motion.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });

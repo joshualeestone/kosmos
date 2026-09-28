@@ -63,3 +63,26 @@ springs nodes with no notion of whose branch they are in, so it can also carry a
 - Found on the way: my first board (the UNEVEN tree) was GREEN on main, because main's physics untangles it
   once it settles. A check that cannot fail on main guards nothing, so the board is a tree that crosses on
   main even after settling (the node test's seed-8 random tree).
+
+## Rework after review it1 (a BLOCKER: my "sector clamp alone holds" was wrong, from too narrow a sample)
+- Placement: the tangent cap applies only to a manager that has a manager (only then can a report's line dip
+  across its grandparent's line); a first-ring manager's reports stay within ~85 degrees of it, so no line
+  sweeps past the hub. Capping every manager made one with six plain reports outgrow a phone.
+- Physics: the hard sector clamp is gone (it made released nodes jump 50-95px). In a tree, each node is pulled
+  back to its placed position relative to the hub (ORG_SIM.home 0.08), and its parent spring rests at the
+  placed edge length (orgStep's ORG_STEP rest pulled grown rings back in). A flat fleet has neither and moves
+  exactly as on main.
+- Measured with the reviewer's harness (scratchpad os-rw/, which builds nodes like orgLiveStart): settled
+  crossings 0/1000 (8-25 agents) and 0/150 (30-60) at natural, 375px and 1000px widths; 60-90 agents
+  squeezed to a phone or 1000px box: 9/150 (pRoot .33) and 3/150 (.15), 0 overlaps. KNOWN LIMIT, decided:
+  a stronger home pull (0.15, 0.3) cut those crossings to 2/150 and 1/150 but made faces OVERLAP (3 and 31
+  cases), which is worse. Flat drags: release jump 1-5px (main-like). Tree drags: after a release and
+  settle, 2/120 keep a crossing (a drag is a gesture, not in the card's done-when). Phone fit for a
+  manager with 3-8 reports: identical to main.
+- render-org-reduced-motion (#1870): its premise (the static layout overlaps on the dense board) is gone by
+  design; first paint 64px, settled 66px. DENSE_MAX raised 64 -> 72 (still reds a flat board at 114) and
+  the header/label now say what it pins. The settle's own overlap resolution stays pinned in node
+  (org-reduced-motion-settle-1738).
+- New tests: settle drift < 85px (placed rest 61.5 vs ORG_STEP rest 110.9), no non-hub line within 74px of
+  the hub (with the 85-degree limit 108.7; without 28.3), a bigger branch gets a wider slice. Mutations each
+  red: no cap, no home pull, no placed rest, no root limit, even weights. Unarmed by design: the 0.9 margin.

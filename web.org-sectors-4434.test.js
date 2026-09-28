@@ -154,9 +154,16 @@ function settled(placed, seed) {
       key, x: was ? was.x + shift : cx + Math.cos(spot.ang) * spot.r, y: was ? was.y + shift : cx + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
       lo: spot.lo, hi: spot.hi,
+      home: Number.isFinite(spot.lo) ? { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r } : null,
+      rest: 0,
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
+  for (const n of nodes.values()) {
+    if (!n.home) continue;
+    const ph = n.parent && n.parent.home ? n.parent.home : { dx: 0, dy: 0 };
+    n.rest = Math.hypot(n.home.dx - ph.dx, n.home.dy - ph.dy);
+  }
   const bodies = [...nodes.values()];
   const box = { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN };
   let a = 1;
@@ -282,6 +289,53 @@ test('a re-parent settles into the new manager\'s sector without crossing, from 
   assert.deepEqual(bad, [], bad.length + ' crossing(s) after a re-parent: ' + bad.slice(0, 6).join(', '));
 });
 
+test('a settle stays close to the placement: the spring rests at the placed length, not the ring step (#4434)', () => {
+  /* orgPlace grows rings; a parent spring resting at ORG_STEP pulled grown rings back in, across other branches
+     (review it1: a node placed at r=322 settled at 145). Measured max drift with the placed rest 61.5px, with
+     ORG_STEP 110.9px, over 200 random trees; 85px separates them. */
+  let worst = 0; let where = '';
+  for (let seed = 1; seed <= 60; seed += 1) {
+    const spec = randomTree(seed, 8 + (seed % 40));
+    const { placed } = firstPaint(cards(spec));
+    let maxR = 0; for (const s of placed.values()) maxR = Math.max(maxR, s.r);
+    const cx = Math.round((maxR + ORG_PAD) * 2) / 2;
+    const { pos } = settled(placed);
+    for (const [k, s] of placed) {
+      const d = Math.hypot(pos.get(k).x - (cx + Math.cos(s.ang) * s.r), pos.get(k).y - (cx + Math.sin(s.ang) * s.r));
+      if (d > worst) { worst = d; where = 'seed ' + seed + ' ' + k; }
+    }
+  }
+  assert.ok(worst < 85, 'a node drifted ' + worst.toFixed(0) + 'px from where it was placed (' + where + ')');
+});
+
+test('no line but the hub\'s own passes over the hub (#4434)', () => {
+  /* A first-ring manager's reports spread at most ~85 degrees either side of it. Wider, a line to a report
+     on the far side sweeps past the centre, over the person's own picture (measured without the limit: a
+     line 28px from the hub centre). Clearance: the hub's radius plus a face's, 52 + 22. */
+  let closest = Infinity; let where = '';
+  for (const [label, spec] of Object.entries(NAMED).concat(Array.from({ length: 40 }, (_, i) => ['seed ' + (i + 1), randomTree(i + 1, 8 + (i % 40))]))) {
+    const { pos, parentOf } = firstPaint(cards(spec));
+    for (const [k, b] of pos) {
+      const par = parentOf.get(k);
+      if (!par) continue;
+      const a = pos.get(par);
+      const vx = b.x - a.x; const vy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, (-a.x * vx - a.y * vy) / (vx * vx + vy * vy)));
+      const d = Math.hypot(a.x + t * vx, a.y + t * vy);
+      if (d < closest) { closest = d; where = label + ' ' + k; }
+    }
+  }
+  assert.ok(closest >= 74, 'a report\'s line passes ' + closest.toFixed(0) + 'px from the hub centre (' + where + ')');
+});
+
+test('a bigger branch gets a wider slice (sectors are weighted by the people at the ends of each branch) (#4434)', () => {
+  const { placed } = firstPaint(cards(UNEVEN));
+  const width = (suffix) => { for (const [k, s] of placed) if (k.endsWith('_' + suffix)) return s.hi - s.lo; return NaN; };
+  // m1 has five leaves, m2 one, s1 none of its own (a leaf, weight 1).
+  assert.ok(width('m1') > 3 * width('m2'), 'm1 (5 leaves) is not much wider than m2 (1 leaf): ' + width('m1').toFixed(2) + ' vs ' + width('m2').toFixed(2));
+  assert.ok(Math.abs(width('m2') - width('s1')) < 1e-9, 'two branches of one leaf each got different slices');
+});
+
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
   const agentsOnce = cards(UNEVEN);
   const one = place.orgPlace(place.orgTreeOf(agentsOnce)).placed;
@@ -292,11 +346,13 @@ test('the same input gives the same positions (stable across reloads) (#4434)', 
   }
 });
 
-test('orgLiveStart hands each live node its sector (the physics can only keep what it is given)', () => {
+test('orgLiveStart gives each tree node its placed home and spring rest, as this file\'s settle does', () => {
+  /* settled() above mirrors orgLiveStart; this pins the page to the same two pieces, so the settle the tests
+     measure is the one the page runs. */
   const at = SCRIPT.indexOf('function orgLiveStart(');
   const body = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  assert.match(body, /lo:\s*spot\.lo/, 'orgLiveStart no longer copies the sector\'s lo onto the live node');
-  assert.match(body, /hi:\s*spot\.hi/, 'orgLiveStart no longer copies the sector\'s hi onto the live node');
+  assert.match(body, /home:\s*Number\.isFinite\(spot\.lo\)\s*\?\s*\{\s*dx:\s*Math\.cos\(spot\.ang\)\s*\*\s*spot\.r/, 'orgLiveStart no longer gives a tree node its placed home');
+  assert.match(body, /n\.rest\s*=\s*Math\.hypot\(n\.home\.dx - ph\.dx, n\.home\.dy - ph\.dy\)/, 'orgLiveStart no longer sets the spring rest to the placed length');
 });
 
 test('a CONTROL for the crossing count: two segments that do cross are counted, touching ends are not', () => {
