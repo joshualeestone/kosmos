@@ -2976,6 +2976,18 @@ messages.setSenderTextFilter(guideMasked);
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
    for its notice (#4354: the clock the pause's pausedAt is written with). */
+/* #4423: a room note in the words it would have if written NOW. A recommender note keeps its facts by session
+   (`rec`, messages.roomNote), so its sentence is re-made with each agent's current name (readIdentity: the recorded
+   name, whatever the provider); every other note, and any written before notes kept their facts, is its text. */
+function noteTextNow(m) {
+  const r = m && m.rec;
+  if (!r || typeof r.stuck !== 'string' || !Array.isArray(r.asked) || typeof r.because !== 'string') return (m && m.text) || null;
+  const nameOf = (s) => { try { return readIdentity(s).displayName || s; } catch { return s; } };
+  try {
+    return recommender.roomNoteText({ name: nameOf(r.stuck), because: r.because, asked: r.asked.map((s) => ({ name: nameOf(s) })) });
+  } catch { return m.text || null; }
+}
+
 function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
@@ -15371,7 +15383,7 @@ const server = http.createServer(async (req, res) => {
           : m.kind === 'external'
           ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
-          ? { kind: 'note', text: m.text || null, at: m.at }
+          ? { kind: 'note', text: noteTextNow(m), at: m.at }
           : m.kind === 'post'
           ? (() => {
               /* #2255: the post's reactions, replayed from the reaction events in
@@ -15424,7 +15436,7 @@ const server = http.createServer(async (req, res) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
-          if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
+          if (m.kind === 'note') return [when + '  [kosmos] ' + String(noteTextNow(m) || '')];
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */
@@ -17858,7 +17870,7 @@ function start(port = PORT) {
           const members = setting.on ? recommender.membersFrom(projects.readAll()) : new Map();
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
-            roomNote: (projectId, text) => messages.roomNote(projectId, text),
+            roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
           });

@@ -378,7 +378,7 @@ test('runOnce: note and asks once per item, the playbook names who was reached, 
     const notes = []; const sent = [];
     let playbookVerdict = DELIVERY.COULD_NOT;
     const verdictFor = (s) => (s === k.rungone ? DELIVERY.COULD_NOT : s === k.run ? playbookVerdict : DELIVERY.PLACED);
-    const deps = { roomNote: (pid, t) => { notes.push([pid, t]); return true; }, deliver: (s, t) => { sent.push([s, t]); return { state: verdictFor(s) }; }, DELIVERY };
+    const deps = { roomNote: (pid, t, o) => { notes.push([pid, t, o]); return true; }, deliver: (s, t) => { sent.push([s, t]); return { state: verdictFor(s) }; }, DELIVERY };
     const members = new Map([['proj-a', [k.run, k.runpeer, k.rungone]]]);
     const roster = b.cards.filter((c) => c.sessionName !== k.runboom);
     const seen = r.runOnce({ prev: undefined, roster, setting: ON, members, now: T0, ...deps });
@@ -388,6 +388,9 @@ test('runOnce: note and asks once per item, the playbook names who was reached, 
     assert.equal(notes[0][0], 'proj-a');
     assert.match(notes[0][1], /asked Pete for one reply/, 'the room note did not name the reached peer');
     assert.ok(!notes[0][1].includes('Gone'), 'the room note named a peer whose ask did not land');
+    // #4423: the note's facts, by session, so the room can name them as they are called when it is read.
+    assert.deepEqual(notes[0][2], { recommender: { stuck: k.run, asked: [k.runpeer], because: 'which of two layouts to ship' } },
+      'the room note no longer carries its facts, so a rename cannot reach its names');
     assert.deepEqual(sent.map((x) => x[0]), [k.runpeer, k.rungone, k.run], 'asks go to both peers, then the playbook');
     assert.match(sent[0][1], /kosmos post proj-a/);
     assert.match(sent[2][1], /I asked Pete for one reply/, 'the playbook did not name the reached peer');

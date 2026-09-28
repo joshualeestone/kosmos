@@ -20877,6 +20877,7 @@ async function tick() {
          second find() for the same card is the one-fact-two-derivations habit
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
+      followCard(fresh);   // #4423: the title line and Reports-to menu, drawn once at open, follow the card too
       /* #3958: the pill follows the poll too, off the same `fresh` card. No card this poll (the
          agent is gone or unread) keeps the last reading rather than guessing. */
       if (fresh) paintDetailState(fresh);
@@ -30748,6 +30749,25 @@ function followRename(fresh) {
   }
 }
 
+/**
+ * #4423: what openDetail painted once and the poll never repainted, beyond the agent's own name (followRename):
+ *  - the title line and its "no name was chosen" note (paintDetailMeta), so a role changed elsewhere, or a name
+ *    chosen, shows without reopening the agent;
+ *  - the Reports-to menu (paintReportsTo), which names the OTHER agents, so one renamed while this page is open
+ *    shows its new name. Only while the menu still shows the saved choice and is not focused: a choice somebody
+ *    has picked and not yet saved is theirs, and a repaint would put the saved one back.
+ * Both from the fresh card, both written only when their markup changed.
+ */
+function followCard(fresh) {
+  if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
+  paintDetailMeta(fresh);
+  const sel = document.getElementById('d-reports');
+  if (!sel || document.activeElement === sel) return;
+  const saved = (fresh.profile && typeof fresh.profile.reportsTo === 'string') ? fresh.profile.reportsTo : '';
+  if (sel.value !== saved) return;
+  paintReportsTo(fresh);
+}
+
 /* "What <name> is for", the Instructions lede: one sentence, painted at open and after a rename (#4421).
    Falls back to the generic when there is no name, rather than "What  is for". */
 function paintInstrLede(a) {
@@ -30780,7 +30800,7 @@ function paintDetailMeta(a) {
   // The block note already starts on its own line; the title alone or the note alone are single
   // segments where the separator never renders.
   const dmeta = document.getElementById('d-meta');
-  dmeta.innerHTML = metaBits.join('');
+  { const html = metaBits.join(''); if (dmeta.innerHTML !== html) dmeta.innerHTML = html; }   // #4423: every poll now, so only on a change
   // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
   // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
   // double the gap between the name and the status badge (#3385 iteration-9).
@@ -31912,7 +31932,9 @@ function dmReplyPaint(agent) {
   if (!el) return;
   const r = agent ? DM_REPLY[agent] : null;
   const input = document.getElementById('d-say');
-  const key = r ? agent + '\u0000' + r.at : '';
+  /* #4423: the name as it is NOW (a rename while a reply is pending), and part of the key so a new name redraws. */
+  const who = r ? (r.from ? dmWho(r.from, DM_ROWS_NAME) : r.who) : '';
+  const key = r ? agent + '\u0000' + r.at + '\u0000' + who : '';
   if (el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
   el.dataset.key = key;
   if (!r) {
@@ -31922,7 +31944,7 @@ function dmReplyPaint(agent) {
   }
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'd-reply-what');   // heard each time the box is reached
-  el.innerHTML = '<span class="pj-replying-t" id="d-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+  el.innerHTML = '<span class="pj-replying-t" id="d-reply-what">Replying to <b>' + esc(who) + '</b>: ' + esc(r.words) + '</span>'
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function dmReplySay(words) {
@@ -31940,7 +31962,8 @@ function dmReplyStart(at) {
   // Between an agent switch and the new thread's first paint the rows are the last agent's. The real
   // guard is the server's: it refuses a reply to a message that is not in this conversation.
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
-  DM_REPLY[agent] = { at, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  /* #4423: `from` kept beside the name, so the strip names the sender as they are called NOW (dmReplyPaint). */
+  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
   dmReplyPaint(agent);
   dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
@@ -54480,7 +54503,10 @@ function pjReplyPaint(projectId) {
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'pj-reply-what');   // a screen reader hears "Replying to" each time it lands on the box
   /* #4359: no "Add @name" hint any more; Reply puts the agent's @mention in the box itself. */
-  el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+  /* #4423: named as they are called NOW; the name taken at the click only if the project is not loaded. */
+  const rp = r.from ? pjById(projectId) : null;
+  const who = rp ? pjNameOf(rp, r.from) : r.who;
+  el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(who) + '</b>: ' + esc(r.words) + '</span>'
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function pjReplyStart(postId) {
@@ -54491,7 +54517,8 @@ function pjReplyStart(postId) {
   // not in this room, so nothing is ever misfiled.
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
+  /* #4423: who it answers, kept as the id (or "you"), so the strip names them as they are called NOW (pjReplyPaint). */
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -54745,7 +54772,10 @@ function rxnsInner(list, withReply) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
-    const who = Array.isArray(r.who) ? r.who.join(', ') : '';
+    /* #4423: the server lists reactors by SESSION name (and "you"); named here by their current card, the one
+       derivation dmWho and pjNameOf use, and by the id only when there is no card. Guarded like dmWho's call. */
+    const who = Array.isArray(r.who)
+      ? r.who.map((w) => (w === 'you' || typeof tskAgentName !== 'function') ? w : tskAgentName(w)).join(', ') : '';
     return '<button class="rxn' + (r.mine ? ' mine' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(who) + '">'
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
@@ -54906,7 +54936,10 @@ function pjRoomRow(m, p, hideHeader) {
       + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   const isOp = m.operator === true;
-  const card = !isOp && (p.agents || []).find((a) => a.sessionName === m.from);
+  /* #4423: a former member (a post from before it left) is found on the board's cards too, so its photo shows
+     rather than a letter disc; `typeof`-guarded like dmRow's, for the tests that lift this without LAST. */
+  const card = !isOp && ((p.agents || []).find((a) => a.sessionName === m.from)
+    || ((typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x && x.sessionName === m.from) : null));
   // #3130: the operator's post carries no name (the header omits it), so there is
   // no "You" to compute; only an agent's name is used, in the header's agent arm.
   const name = isOp ? '' : pjNameOf(p, m.from);
