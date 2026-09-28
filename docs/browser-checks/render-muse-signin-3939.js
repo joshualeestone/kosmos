@@ -702,6 +702,38 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__museRead = null; window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; MUSE_CREATE = null; });
   await museRead();
 
+  /* ---- #3939 3c-4: Meta Muse on the first-run model step ---- */
+  const frMeta = () => q(() => {
+    const row = document.getElementById('fr-meta-row'); const btn = document.getElementById('fr-meta-connect');
+    return { off: row.classList.contains('off'), on: row.classList.contains('on'), soon: !document.getElementById('fr-meta-soon').hidden,
+      btn: !btn.hidden, btnText: btn.textContent.trim(), btnOff: btn.disabled, flow: !document.getElementById('fr-muse-flow').hidden,
+      msg: document.getElementById('fr-muse-msg').textContent.trim(), box: document.getElementById('fr-muse-msg').className };
+  });
+  await q(() => { MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; window.__museInstalled = true; frOpen(); frGo(5); });
+  await settle(); await settle();
+  let fm = await frMeta();
+  chk(fm.off && !fm.on && fm.soon && !fm.btn && !fm.flow, 'first run, switched off: the Meta row is today\'s Coming soon, no Connect, no panel', JSON.stringify(fm));
+  await q(() => { MUSE_CREATE = null; window.__museOn = true; }); await q(() => frPaintMeta()); await settle();
+  fm = await frMeta();
+  chk(fm.on && !fm.off && !fm.soon && fm.btn && fm.btnText === 'Connect' && !fm.btnOff && !fm.flow, 'first run, switched on and signed out: Connect, no pill, panel shut', JSON.stringify(fm));
+  const opened = await q(() => { document.getElementById('fr-meta-connect').click(); return { flow: !document.getElementById('fr-muse-flow').hidden, focus: document.activeElement && document.activeElement.id, exp: document.getElementById('fr-meta-connect').getAttribute('aria-expanded') }; });
+  chk(opened.flow && opened.focus === 'fr-muse-go' && opened.exp === 'true', 'Connect opens Meta\'s sign-in under the row, focus on Sign in with Meta', JSON.stringify(opened));
+  const frPostsBefore = await q(() => window.__posts.length);
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  chk(await q((n) => window.__posts.length === n + 1 && window.__posts[window.__posts.length - 1].path === '/', frPostsBefore), 'Sign in with Meta on first run starts one sign-in');
+  await q(() => frClose()); await settle();
+  chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001' && window.__polls.size === 0; }), 'closing first run stops that sign-in by its id and stops polling');
+  // Not installed: Connect says so and opens nothing.
+  await q(() => { MUSE_CREATE = null; window.__museInstalled = false; frOpen(); frGo(5); }); await settle(); await settle();
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  fm = await frMeta();
+  chk(!fm.flow && /^Muse Code is not on this computer yet\./.test(fm.msg), 'first run, Muse Code missing: Connect says so and opens no sign-in', JSON.stringify(fm));
+  // Signed in: Connected, with the gold box.
+  await q(() => { MUSE_CREATE = null; window.__museInstalled = true; window.__museSignedIn = true; }); await q(() => frPaintMeta()); await settle();
+  fm = await frMeta();
+  chk(fm.btn && fm.btnOff && /Connected/.test(fm.btnText) && fm.box === 'fr-connbox' && /Meta Muse is connected/.test(fm.msg), 'first run, signed in: the row reads Connected with the gold box', JSON.stringify(fm));
+  await q(() => { frClose(); MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; });
+
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
   if (fail.length) { console.error('\nrender-muse-signin-3939: ' + fail.length + ' check(s) failed'); process.exit(1); }
