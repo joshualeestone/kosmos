@@ -862,6 +862,22 @@ test('#4279: OUR OWN plist, present but unreadable, is never called a file Kosmo
   assert.doesNotMatch(r.because, /did not make/, 'our own unreadable plist was called a file Kosmos did not make');
 });
 
+test('#4279: a NON-own plist that exists but cannot be read is refused, and named, never called gone', WIN_LAUNCHD, () => {
+  const locked = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-foreign-'));
+  const foreign = nodePath.join(locked, 'com.kosmos.agent.leftover-foreign.plist');
+  fs.writeFileSync(foreign, '<plist/>');
+  const calls = leftoverRunner(foreign);
+  fs.chmodSync(locked, 0o000);
+  let r;
+  try { r = create.createAgent({ ...BINS, name: 'leftover-foreign', role: 'pm' }); }
+  finally { fs.chmodSync(locked, 0o700); fs.rmSync(locked, { recursive: true, force: true }); }
+  if (process.getuid && process.getuid() === 0) return; // root reads through 000
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'bootout'), 'an unreadable plist was booted out');
+  assert.match(r.because, /did not make/, 'an unreadable foreign plist got the "nothing else left of it" message');
+  assert.ok(r.because.includes(foreign), 'the refusal does not name the file');
+});
+
 test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-timeout.plist');

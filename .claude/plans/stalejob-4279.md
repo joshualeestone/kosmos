@@ -100,6 +100,13 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - Not changed: tempRoots' one-push-per-line shape is deliberate, since the #1732 inventory counts one
   literal per row; a comment says so.
 
+## Review 8
+
+- No blocker. Review 5's "a non-ENOENT stat error means a file is there" had no test on a NON-own path
+  (reverting it passed all 198); a locked foreign plist now pins it: refused, named, never booted out.
+- Not changed: the removal log line uses the agent's raw name while the messages use its display name.
+  The log is for machines and the steps are for people; that split is deliberate.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to
