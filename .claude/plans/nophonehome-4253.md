@@ -136,6 +136,16 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
   inside a string. Three self-tests pin it. Review 7's ledger line claimed more than the code did; it is
   corrected above.
 
+## Review 9
+
+Three false "safe" verdicts in mechanisms the lint claims to model, each now failing closed:
+- several spread sources: the first safe one vouched for the rest, though a later spread wins at
+  runtime. Every source must be safe on its own now.
+- an options helper was judged by its FIRST return, not the one that runs. Every return must be safe.
+- a later bare reassignment (`env = ...`) was ignored for the stale declaration. The last reassignment's
+  value is judged now.
+Each is a self-test. None is used by a real spawn in the tree today.
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live

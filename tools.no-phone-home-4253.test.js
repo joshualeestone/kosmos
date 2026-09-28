@@ -332,8 +332,14 @@ function envOfOptions(src, opts, callAt, depth = 0) {
     // a helper that builds the options: judge what its body returns
     const body = definition(src, name);
     if (!body) return UNKNOWN;
-    const ret = /\breturn\s+([^;\n]+)/.exec(body);
-    return ret ? envOfOptions(body, ret[1].trim(), body.length, depth + 1) : UNKNOWN;
+    /* EVERY return must give a safe env: which branch runs is not knowable here. */
+    const rets = [...body.matchAll(/\breturn\s+/g)].map((r) => {
+      const from = r.index + r[0].length;
+      return '([{'.includes(body[from]) ? balanced(body, from) : body.slice(from).split(/[;\n]/)[0].trim();
+    });
+    if (!rets.length) return UNKNOWN;
+    const envs = rets.map((r) => envOfOptions(body, r, body.length, depth + 1));
+    return envs.every((e) => envIsSafe(body, e, body.length, depth + 1)) ? envs[0] : UNKNOWN;
   }
   const r = region(src, name, callAt);
   if (!r) return UNKNOWN;
@@ -387,7 +393,18 @@ function region(src, name, callAt) {
   if ('([{'.includes(src[at])) stmt = balanced(src, at);
   else { const semi = src.indexOf(';', at); stmt = src.slice(at, semi < 0 ? callAt : Math.min(semi, callAt)); }
   const word = new RegExp(`(?<![.\\w$])${name}\\b`);
-  const later = src.slice(at + stmt.length, callAt).split('\n').filter((l) => word.test(l)).join('\n');
+  const between = src.slice(at + stmt.length, callAt);
+  const later = between.split('\n').filter((l) => word.test(l)).join('\n');
+  /* A later bare reassignment (`env = ...`) replaces the declaration: judge the
+     LAST one's value instead of the stale declaration. */
+  const reassign = new RegExp(`(?<![.\\w$])${name}\\s*=(?![=>])\\s*`, 'g');
+  let last = null; let x;
+  while ((x = reassign.exec(between))) last = x;
+  if (last) {
+    const from = last.index + last[0].length;
+    const val = '([{'.includes(between[from]) ? balanced(between, from) : between.slice(from).split(/[;\n]/)[0];
+    return { stmt: val, later };
+  }
   return { stmt, later };
 }
 
@@ -401,13 +418,17 @@ function envIsSafe(src, expr, callAt, depth = 0) {
   if (DROPS_TEST_CONTEXT.test(expr) && !NAMED_LOOPBACK_URL.test(expr)) return false;
   if (safeText(expr)) return true;
   if (depth > MAX_DEPTH) return false;
-  for (const name of flows(expr)) {
+  /* Every name that carries a whole environment in must be safe on its own: a
+     later spread overrides an earlier one, so one safe source cannot vouch for
+     the rest. */
+  const names = [...flows(expr)];
+  if (!names.length) return false;
+  return names.every((name) => {
     const r = region(src, name, callAt);
-    if (!r) continue;
+    if (!r) return false;
     if (DROPS_TEST_CONTEXT.test(r.later) && !NAMED_LOOPBACK_URL.test(r.stmt + r.later)) return false;
-    if (safeText(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1)) return true;
-  }
-  return false;
+    return safeText(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1);
+  });
 }
 
 /* Every spawn in `raw` that boots a board: server.js as the script (literally, or
@@ -502,6 +523,12 @@ test('#4253: the boot analyzer judges each spawn, not the file', () => {
   assert.deepEqual(boots(hidden).map((b) => b.safe), [false], 'server.js after a // on a continuation line of a multi-line command is still seen');
   const blockInString = "spawn(process.execPath, ['server.js'], { env: { ...process.env, GLOB: 'a/*b' } });\nconst x = 1; // */";
   assert.deepEqual(boots(blockInString).map((b) => b.safe), [true], 'a /* inside a string does not open a comment');
+  const lastWins = "const unsafeOverrides = { NODE_TEST_CONTEXT: undefined };\nconst safeBase = { ...process.env };\nspawn(process.execPath, ['server.js'], { env: { ...safeBase, ...unsafeOverrides } });";
+  assert.deepEqual(boots(lastWins).map((b) => b.safe), [false], 'one safe spread cannot vouch for a later one');
+  const branches = "function mkOpts(bad) { if (!bad) { return { env: { ...process.env } }; } return { env: { HOME: sb } }; }\nspawn(process.execPath, ['server.js'], mkOpts(true));";
+  assert.deepEqual(boots(branches).map((b) => b.safe), [false], 'every return of an options helper must be safe');
+  const reassigned = "let env = { ...process.env };\nspawn(process.execPath, ['server.js'], { env });\nenv = { HOME: sb };\nspawn(process.execPath, ['server.js'], { env });";
+  assert.deepEqual(boots(reassigned).map((b) => b.safe), [true, false], 'a bare reassignment replaces the declaration');
   const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
   assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
   const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";
