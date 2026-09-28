@@ -29,10 +29,10 @@ const fs = require('node:fs');
    name or by path (`/usr/bin/mktemp`). */
 const PRE = String.raw`(?:\$\(|` + '`' + String.raw`|^|[;&|!{()]|\b(?:if|then|do|else|elif|while|until)\b|["'])`;
 const OPT = String.raw`(?:\s+-[\w-]+(?:\s+(?:"[^"]*"|'[^']*'|[^\s-]\S*))?)*`;
-const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs|stdbuf)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
+const WRAP = String.raw`\s*(?:(?:command|env|exec|sudo|nice|time|nohup|xargs|stdbuf|caffeinate|arch)` + OPT + String.raw`\s+|timeout` + OPT + String.raw`\s+[\d.]+[smhd]?\s+)*`
   + String.raw`(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*`;
 /* The name may be quoted (`"mktemp" -d` runs mktemp all the same). */
-const BIN = String.raw`(["']?)(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])`;
+const BIN = String.raw`(["']?)\\?(?:\/[\w./-]*\/)?mktemp\1(?![\w.-])`;
 const CALL = new RegExp(PRE + WRAP + BIN, 'g');
 
 /* What comes right before a quoted string that is itself a script: a shell's `-c` (in a flag
@@ -89,12 +89,17 @@ function words(s) {
 }
 
 /** True when the call passes a positional template ending in X's. A short-flag cluster holding `t` or `p`
-    (`-t`, `-dt`) takes the next word as its value, and on macOS that value is NOT a template.
+    takes the next word as its value; any `-t` (alone or in a cluster) is a leak outright, because macOS
+    then also creates `<prefix>.XXXX` in the per-user root. A template must be written out inline:
+    `mktemp -d "$T"` is reported, since the checker cannot see what $T holds.
     The fd number in front of a redirection (`2>/dev/null`) is not one either. */
 function hasTemplate(args) {
   const w = words(args.replace(/\s#.*$/, '').replace(/\s\d+\s*$/, ''));
   for (let i = 0; i < w.length; i += 1) {
-    if (/^-[A-Za-z]+$/.test(w[i])) { if (/[tp]/.test(w[i])) i += 1; continue; }
+    // `-t` makes macOS create a SECOND file in the per-user root even beside a template, so any
+    // call carrying it leaks, whatever else it passes.
+    if (/^-[A-Za-z]*t[A-Za-z]*$/.test(w[i])) return false;
+    if (/^-[A-Za-z]+$/.test(w[i])) { if (/p/.test(w[i])) i += 1; continue; }
     if (w[i].startsWith('-')) continue;
     // A template must END in a run of X's for mktemp to randomise; `"$T/fixed"` names one fixed
     // path every time, so it is no template at all.

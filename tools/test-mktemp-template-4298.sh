@@ -23,11 +23,17 @@ trap 'rm -rf "$T"' EXIT
 # scripts and the pkg postinstall too, and measured, those left most of the tmp.* a
 # run made. A glob that matched nothing would pass the
 # clean arm vacuously, so it carries a floor.
+# Every shell script git tracks under those three trees, at any depth: a .sh file, or one whose
+# first line is a shell shebang (install/kosmos, install/pkg-scripts/*).
 scope=()
-for f in tools/*.sh tools/lib/*.sh install/*.sh install/kosmos install/pkg-scripts/* bin/*.sh; do
+while IFS= read -r f; do
   # This file's own fixtures below are bare on purpose.
-  [ "$f" = "tools/test-mktemp-template-4298.sh" ] || scope+=("$f")
-done
+  [ "$f" = "tools/test-mktemp-template-4298.sh" ] && continue
+  case "$f" in
+    *.sh) scope+=("$f") ;;
+    *) head -1 "$f" 2>/dev/null | grep -qE '^#!.*/(env +)?(ba|z|da|k)?sh\b' && scope+=("$f") ;;
+  esac
+done < <(git ls-files tools install bin)
 [ "${#scope[@]}" -ge 150 ] && [ -f "${scope[0]}" ] \
   && ok "the scope holds ${#scope[@]} scripts (floor 150)" \
   || bad "the scope glob matched ${#scope[@]} files; the clean arm would prove nothing"
@@ -70,10 +76,14 @@ bash -c 'mktemp -d >/dev/null'
 eval "mktemp -d"
 timeout 5 mktemp -d >/dev/null
 z="$(mktemp -d "${TMPDIR:-/tmp}/fixed-name")"
+aa="$(mktemp -d -t x "${TMPDIR:-/tmp}/n.XXXXXX")"
+ab="$(\mktemp -d)"
+caffeinate -i mktemp -d >/dev/null
+arch -arm64 mktemp -d >/dev/null
 SH
 got="$(node tools/mktemp-template-check.js "$T/bare.sh" | cut -d: -f2 | sort -n | tr '\n' ' ')"
-want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 30 "
-[ "$got" = "$want" ] && ok "CONTROL: all 29 bare shapes are found, each on its own line" \
+want="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 "
+[ "$got" = "$want" ] && ok "CONTROL: all 33 bare shapes are found, each on its own line" \
   || bad "CONTROL: bare shapes found on lines [$got], want [$want]"
 
 # The other side: templated calls and mentions are not calls to fix.
@@ -120,6 +130,23 @@ if [ -n "$vt_line" ]; then
   [ "$got" = "ok[]" ] && ok "installer arm: a failing getconf leaves _vt empty under set -e (then /tmp), no abort" \
     || bad "installer arm: a failing getconf aborted or set _vt: [$got]"
 fi
+
+# A TMPDIR that survives sudo but is not writable (a sudoers env_keep): the first mktemp fails and
+# the retry must land in the per-user dir. The postinstall's own _vt and d lines are run, with
+# getconf pointed at a scratch dir so nothing reaches the real temp root.
+blk="$(awk '/^[[:space:]]*_vt="\$\{TMPDIR:-/{on=1} on{print} on&&/\|\| exit 1[[:space:]]*$/{exit}' install/pkg-scripts/postinstall)"
+case "$blk" in
+  *'d=$(/usr/bin/mktemp -d'*'|| exit 1'*)
+    PERUSER="$T/peruser"; mkdir -p "$PERUSER"
+    blk="$(printf '%s' "$blk" | sed "s#/usr/bin/getconf DARWIN_USER_TEMP_DIR#/bin/echo $PERUSER#g")"
+    got="$(TMPDIR=/nonexistent-4298 /bin/sh -ec "$blk"'; printf %s "$d"' 2>/dev/null)"
+    case "$got" in
+      "$PERUSER"/kosmos-pkg-verify.*) [ -d "$got" ] && ok "installer arm: an unwritable TMPDIR falls back to the per-user dir, not an aborted install" \
+        || bad "installer arm: the fallback named $got but made nothing" ;;
+      *) bad "installer arm: with an unwritable TMPDIR the verify dir was [$got], want one under $PERUSER" ;;
+    esac ;;
+  *) bad "could not find the postinstall's _vt..d block; re-point this arm" ;;
+esac
 
 echo "mktemp-template: $FAILS failures"
 exit $([ "$FAILS" -eq 0 ] && echo 0 || echo 1)

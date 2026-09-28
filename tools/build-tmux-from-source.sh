@@ -64,7 +64,8 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 PREFIX="$OUT/tmux-floor-prefix"
 # A SHORT name (#4298): the smoke test puts tmux sockets under $WORK, and a socket
-# path over 104 bytes fails. `bts.XXXXXX` is shorter than the old `tmp.XXXXXXXXXX`.
+# path over 104 bytes fails. `bts.XXXXXX` is shorter than the old `tmp.XXXXXXXXXX`, but the
+# base is now $TMPDIR, so a very long TMPDIR can still push the socket path over the limit.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/bts.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 

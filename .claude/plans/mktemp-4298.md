@@ -36,7 +36,8 @@ lands under TMPDIR, and the name says which script left it.
   behaviour and a separate card; the block is a single-quoted sh -c arg, so no apostrophes added.
   `sudo -u -H` strips TMPDIR in a real install, so the template falls back to
   `getconf DARWIN_USER_TEMP_DIR`, the same per-user dir a bare mktemp used (checked with TMPDIR
-  empty and `mktemp -u`), not the shared /tmp. /tmp only if getconf fails.
+  empty and `mktemp -u`), not the shared /tmp. /tmp only if getconf fails. A TMPDIR that survives
+  sudo (a sudoers env_keep) but is not writable retries in the getconf dir instead of aborting the install.
 - build-tmux-from-source.sh: a short `bts.XXXXXX` name, because its smoke test puts tmux sockets
   under the dir and a socket path over 104 bytes fails (82 bytes under a run root).
 - Out of scope, noted on the card: shell embedded in JS (engine/reporthook.js, docs/browser-checks,
@@ -52,10 +53,12 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 29 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  of 33 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
   `command`/`env`/`sudo`/`nice`/`VAR=` prefixes, `if`/`{`/a `case` arm, `-dt`, a continued line,
   `bash -c`/`sh -ec`/`eval`/`trap` strings, including one that starts with mktemp, `timeout`,
-  a quoted `"mktemp"`, `-t "$(basename "$0")"`, a template with no X run), templated calls, messages,
+  a quoted `"mktemp"`, `-t "$(basename "$0")"`, a template with no X run, `-t` beside a template (macOS then makes a second file in the per-user
+  root), `\mktemp`, `caffeinate`/`arch` wrappers); the scope is every shell script git tracks under
+  tools/, install/ and bin/ (git ls-files, by .sh or shell shebang), templated calls, messages,
   comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
   getconf dir; getconf failing under set -e: falls back, no abort).
 - Leftovers in the per-run root, by name, fixed at the test: test-cut-parallel-region.sh (7
