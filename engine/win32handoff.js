@@ -425,8 +425,8 @@ function thisMachinesSpellings(address, interfaces) {
  * zone with atoi (read from libuv source, not measured). The look never probes LESS than a board could hold:
  *   - all digits: the number atoi gives, so `%014` is probed as `%14`; 0 is no zone (below);
  *   - anything else (a NAME such as `%Wi-Fi` or `%Ethernet 2`, a mix such as `%14abc`, a sign such as `%-14`,
- *     or nothing after `%`):
- *     no zone. atoi would give 0 or a leading number, and whether Windows then binds is not measured either,
+ *     or nothing after `%`): no zone. atoi would give 0, a leading number or (for a sign) a negative one, and
+ *     whether Windows then binds is not measured either,
  *     so the address is taken as unzoned, which probes it through EVERY interface that has it (the unzoned
  *     path of thisMachinesSpellings), a superset of whatever the board bound.
  * A non-IPv6 host, and every host on another platform, are returned unchanged. `platform` replaces
@@ -434,11 +434,12 @@ function thisMachinesSpellings(address, interfaces) {
  */
 function windowsZoneAsLibuvReadsIt(bound, platform) {
   if ((platform || process.platform) !== 'win32') return bound;
-  const at = String(bound).indexOf('%');
+  const text = String(bound);
+  const at = text.indexOf('%');
   if (at < 0) return bound;
-  const bare = bound.slice(0, at);
+  const bare = text.slice(0, at);
   if (require('node:net').isIP(bare) !== 6) return bound;
-  const zone = bound.slice(at + 1);
+  const zone = text.slice(at + 1);
   if (/^[0-9]+$/.test(zone) && Number(zone) > 0) return bare + '%' + Number(zone);
   return bare;
 }

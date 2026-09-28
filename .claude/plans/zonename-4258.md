@@ -25,6 +25,7 @@ Rejected:
 - **The coupling with #1777, which is stronger than "can go":** on `win-ci-1777` (checked at its tip each review; the entry is still listed), `judge()` counts a KNOWN_RED entry that now passes as STALE and fails the job. Whichever of this and win-ci-1777 lands second must also remove the `engine/win32handoff.test.js` entry from KNOWN_RED.
 
 ## Inferred, not measured (no Windows run of this branch yet)
+- The first Windows run of this branch is also the first Windows run of the REST of the round 5 test: on #1777's run it stopped at the failing name-zone assert, so the E2, resolves-to, other-zone and resolves-to-zoned asserts after it have never run on Windows (review 7). One of them (resolves-to, an exact list) would go red for an unrelated reason if the runner held the same link-local address on two adapters.
 - The real-interface arm on a Windows runner expects the scope-id spelling to be probed. That holds for an adapter name with or without a space, but not for a name made only of digits: an adapter named `3` would be read as scope 3, which would contain `byScope` only if its scope id is 3. Kano's Windows job is the first real run.
 
 ## Weakest premise
