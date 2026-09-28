@@ -1933,14 +1933,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func showChoiceNotSaved(_ home: String) {
-        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it may treat this computer as running agents from now on. Check that you can write to \(home).", title: "Kosmos could not save your choice")
+        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it may ask you again, or carry on as if this computer runs agents. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not save your choice")
     }
 
     /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
     /// port). Said when it happens: at the switch to connect, or at a launch's retry (stopBoardIfRunning).
     private func showBoardStillRunning() {
         logLine("#4356: kosmos stop failed; the board may still be running on this computer")
-        showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens, and it will not start again when you restart this computer.", title: "Kosmos is still running here")
+        showStartupFailureAlert(detail: "Kosmos could not stop running in the background on this computer. You can connect to your other computer anyway. Kosmos will try again the next time it opens, and it will not start again when you restart this computer.", title: "Kosmos is still running here")
     }
 
     /// At every launch of a connect computer: `kosmos stop`, whatever the marker says. A board left
@@ -1968,8 +1968,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
-    /// is, no page can change it. Note an install from before #4356 has no file, so it counts as
-    /// unset for its whole life; only the board's own page in the main frame can post here.
+    /// is, no page can change it. An install from before #4356 has no file until its next update
+    /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
+    /// main frame can post here.
     func pageChoseMode(_ body: Any) {
         guard let choice = body as? String, let home = modeHome,
               computerMode == .unset || computerMode == .unreadable
@@ -1990,7 +1991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
-                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can write to \(home).", title: "Kosmos could not switch")
+                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
                 loadBoard()
                 return
             }
@@ -2043,7 +2044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         guard writeComputerMode(.run, kosmosHome: home) else {
-            showStartupFailureAlert(detail: "Kosmos could not save that change on this computer, so it still connects to agents on another computer. Check that you can write to \(home), then try again.", title: "Kosmos could not switch")
+            showStartupFailureAlert(detail: "Kosmos could not save that change on this computer, so it still connects to agents on another computer. Check that you can make changes in the Kosmos folder in your home folder (\(home)), then try again.", title: "Kosmos could not switch")
             return
         }
         computerMode = .run
@@ -3106,6 +3107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func offerRelaunch(mine: String, theirs: String) {
+        // #4356: a status answer that lands after a switch to Connect offers nothing: the dialogs below
+        // are about this computer's board and agents, which it no longer runs (review round 25).
+        if computerMode == .connect { logLine("stale-app: an answer landed after Connect; nothing offered"); return }
         /* #1182. Reopening was already tried at this exact version and we are
            still here, so it is not the remedy. Say so, offer nothing that loops,
            and do not quit: the person keeps the working window they have. */

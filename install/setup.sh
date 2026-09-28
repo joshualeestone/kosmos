@@ -3757,7 +3757,9 @@ fi
 # records `run`, which is what that Mac has always been. A fresh install, or one whose first run
 # never finished, keeps no file and is asked (review round 21).
 if [ "$FRESH_INSTALL" = no ] && [ ! -e "$KOSMOS_HOME/mode" ] && [ -f "$_wf_data_root/first-run.json" ]; then
-  printf 'run\n' > "$KOSMOS_HOME/mode" 2>/dev/null || true
+  # Atomic (a temp file, then a rename), as the app writes it, so the app never reads half a word.
+  { printf 'run\n' > "$KOSMOS_HOME/mode.new.$$" && mv -f "$KOSMOS_HOME/mode.new.$$" "$KOSMOS_HOME/mode"; } 2>/dev/null \
+    || rm -f "$KOSMOS_HOME/mode.new.$$" 2>/dev/null || true
 fi
 # Read again now (_kosmos_board_decide): the person may have answered the first screen, or used the
 # menu, during this run. The latest reading decides whether this run starts the board.
@@ -3817,7 +3819,7 @@ ok
 # #4356: the heading says what this run does. On a computer set not to run a board, the login item is
 # still installed (so "Run agents on this computer" works later) and board.stopped keeps it off.
 if [ "$_kosmos_board_off" = yes ]; then
-  step "Installing the login item. It stays off while Kosmos does not run a board on this computer."
+  step "Setting Kosmos to open at login. It stays off while this computer is set not to run agents."
 else
   step "Keeping Kosmos running after a restart."
 fi
@@ -4072,7 +4074,7 @@ if [ "$_board_ok" = yes ]; then
   elif [ "$_kosmos_board_off" = yes ]; then
     # #4356: the job is installed so "Run agents on this computer" works later, but board.stopped
     # keeps it from starting anything while the board is off on purpose.
-    info "the login item is installed, and stays off while Kosmos does not run a board on this computer"
+    info "Kosmos will not start itself at login while this computer is set not to run agents"
   else
     info "Kosmos will start itself when you log in"
   fi
@@ -4112,7 +4114,7 @@ fi
 # (no launchctl under AGENT_WORKFORCE_LAUNCH), enable-before-bootstrap, and
 # leave-an-already-loaded-job-alone idempotency.
 if [ "$_kosmos_board_off" = yes ]; then
-  step "Installing the board watchdog. It stays off while Kosmos does not run a board on this computer."
+  step "Setting up the helper that restarts Kosmos if it stops. It stays off while this computer is set not to run agents."
 else
   step "Watching the board so it comes back after a restart."
 fi

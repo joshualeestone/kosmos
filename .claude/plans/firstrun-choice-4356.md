@@ -16,7 +16,9 @@
   app window. The person lands on their other computer's board. No model sign-in, no
   permissions, no tmux, no keep-awake, no launchd board on this Mac.
 - The mode is stored where the installer and the update path can read it. An update on a
-  connect-mode Mac, good or failed, never starts the board (a test says so).
+  connect-mode Mac never starts the board. test-install says so for a good update; its failed-
+  update pair cannot fail until #4342 (Raiden's resume-on-failure trap) lands, and the #4342 ruling
+  (Liu m2647) makes whichever PR lands second route that trap through _kosmos_board_decide, with a test.
 - This Mac app's own menu can switch a connect Mac to Run agents (not web Settings: in
   connect mode the page is the other computer's).
 - An unreadable mode shows the first screen again; it never silently picks a mode.

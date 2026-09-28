@@ -815,9 +815,9 @@ chk "and never tells the person to start a board on another port" "! grep -q 'St
 chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
 chk "the pause does not say it is pausing a board that is already off" "grep -q 'making sure Kosmos is paused for the update' \"$SB/update-connect.log\" && ! grep -q 'pausing Kosmos for the update' \"$SB/update-connect.log\""
 chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -B2 'it is not this install.s, and this computer does not run a board, so it is left alone' \"$SETUP\" | grep -q 'if _kosmos_mode_keeps_board_off; then'"
-chk "an update of a set-up install from before #4356 records run, so it is never asked" "grep -A2 '^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME/mode\" \\] && \\[ -f \"\$_wf_data_root/first-run.json\" \\]; then' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n'\""
-chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while Kosmos does not run a board' \"$SB/update-connect.log\""
-chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'stays off while Kosmos does not run a board on this computer' \"$SETUP\""
+chk "an update of a set-up install from before #4356 records run, so it is never asked" "grep -A2 '^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME/mode\" \\] && \\[ -f \"\$_wf_data_root/first-run.json\" \\]; then' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
+chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while this computer is set not to run agents' \"$SB/update-connect.log\""
+chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login while this computer is set not to run agents' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
 # ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
@@ -850,6 +850,7 @@ chk "and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.
 printf 'connect\n' > "$SB/home/mode"
 "$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
 RC=0; cat "$SETUP" | sh > "$SB/update-migrate-keep.log" 2>&1 || RC=$?
+chk "that update exits 0 (or the check below tests nothing)" "rc_ok $RC"
 chk "with first run done, an existing connect choice is not overwritten" "[ \"\$(cat \"$SB/home/mode\" 2>/dev/null)\" = connect ]"
 rm -f "$SB/data/Kosmos/first-run.json"
 printf 'run\n' > "$SB/home/mode"
