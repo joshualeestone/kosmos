@@ -26,8 +26,9 @@ const crypto = require('node:crypto');
 const cp = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
-// How many shell jobs test.yml runs. Measured: 2 gives 464 s and 557 s of shell time
-// (probe run 36412608975), each well under 60% of the job's 45 minutes with setup.
+// How many shell jobs test.yml runs. 2 was projected at 464 s and 557 s of shell time from the
+// probe's per-command timings (run 36412608975); the measured shard jobs are in the plan
+// (.claude/plans/shard-4317.md), each well under 60% of the job's 45 minutes.
 const SHELL_SHARDS = 2;
 
 function commands(pkg) {

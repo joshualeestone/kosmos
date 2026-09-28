@@ -113,8 +113,8 @@ jobs:
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
     # cross it and be CANCELLED (read as `fail`). 30 gives a single run real headroom
     # while still catching a genuine hang at ~2x the runtime.
-    # #4317 (2026-09-28): before sharding, the one job ran 20-23.5 min on main (the five green runs
-    # before 02:40 CDT, and 23 to 29 min later that day), so 30 left ~6 min
+    # #4317 (2026-09-28): before sharding, the one job's suite step ran 24 to 28 min on main (runs
+    # 36395139895, 36397645580, 36399854828), so 30 left too little
     # and #4307 was CANCELLED at the limit; the limit went to 45 (#4322).
     # #4317, sharded: each job ran about 5 to 12 min in the measured runs (see the plan); 45 keeps it well under 60% and still catches a
     # hang. SUITE_TIMEOUT_MIN is the same number, for the 70% warning at the end of the job;
@@ -206,6 +206,8 @@ jobs:
   # suite jobs as cancelled and `test` as SKIPPED. No check is required on this repo today (see the
   # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
   # passing.
+  # It runs no tests, only reads needs.suite.result, so it is on ubuntu-latest on purpose: the
+  # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
   test:
     needs: suite
     if: ${{ !cancelled() }}

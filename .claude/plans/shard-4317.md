@@ -59,10 +59,14 @@
   - Mutations seen red: dropping shard 2/2 from the matrix; SUITE_TIMEOUT_MIN 30 against 45.
 
 ## Measured on the runner (the real test.yml on this branch, via a temporary push trigger, since reverted)
-- Run 36415011074 (ec4a9eb): three source pins went red. #1934, #3605 and #4273 find the suite by
+**Run of record: 36423468035 at 260b9cd.** It is in this branch's history, and its code is identical
+to the head apart from comments, this plan and the reverted trigger (`git diff 260b9cd HEAD`). The
+three runs before it ran commits from before the rebase onto main (ec4a9eb, 225a6e8 and c07e463 are
+not ancestors of the head); they are kept as earlier evidence.
+- Run 36415011074 (ec4a9eb, pre-rebase): three source pins went red. #1934, #3605 and #4273 find the suite by
   `^node --test`, and the line had been indented inside the new part check. It is flush left
   again (225a6e8), and the #4317 test pins that.
-- Run 36416362440 (225a6e8): **success**.
+- Run 36416362440 (225a6e8, pre-rebase): **success**.
 
   | job | wall time | share of its 45 min |
   |---|---|---|
@@ -70,9 +74,10 @@
   | shell 1/2 | 514 s | 19% |
   | shell 2/2 | 638 s | 24% |
 
-  Run 36419129296 (c07e463, after review round 1): success again. node 697 s (26%), shell 1/2
+  Run 36419129296 (c07e463, pre-rebase, after review round 1): success again. node 697 s (26%), shell 1/2
   481 s (18%), shell 2/2 681 s (25%).
-- Run 36423468035 (the iteration 4 code, rebased on main): success, every shard green.
+- Run 36423468035 (260b9cd, the run of record: the iteration 4 code, rebased on main): success,
+  every shard green.
 
   | job | wall time | share of 45 min |
   |---|---|---|
@@ -89,7 +94,8 @@
   28 min of the one job, and no job's own time came near its limit. 11142 node tests ran.
 
 ## Decided
-- Three jobs: the node part (about 9 min) and two shell shards (about 8 and 9.5 min). One node job
+- Three jobs: the node part (4.9 to 12 min measured) and two shell shards (7.7 to 8.6 min and 9.6 to
+  11.4 min measured). One node job
   is well under the bar, so the node files are not split; SHELL_SHARDS is one number to raise.
 - Rejected:
   - Hand-listing the slow shell tests into their own job: the list goes stale as tests change.
@@ -97,8 +103,8 @@
   - Lowering timeout-minutes: the card's bar is a share of the limit; 45 keeps the hang-guard.
 
 ## Weakest part
-- The timings are one run of this branch (36416362440), through a temporary push trigger, not yet
-  main. The first main runs after merge are the confirmation, and each job's summary line reports
+- The timings are three runs of this branch through a temporary push trigger, one of them on the
+  head's own code (36423468035), not yet main. The first main runs after merge are the confirmation, and each job's summary line reports
   its share.
 - A run now holds three macos-latest runners instead of one (#3499's contention was about those).
   Queue time is not part of timeout-minutes, so it cannot cancel a job; it can delay the result.
