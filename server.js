@@ -17599,7 +17599,8 @@ if (require.main === module) {
     try {
       require('./engine/agyrefresh').refreshAtBoardStart()
         .then((rows) => {
-          for (const r of rows) if (!r.ok) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
+          // A folder inside a git project is refused on purpose, every start; not worth a line each time.
+          for (const r of rows) if (!r.ok && !/inside the git project/.test(r.why)) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
         })
         .catch(() => { /* best effort: the supervisor still writes it at the next launch */ });
     } catch { /* best effort */ }

@@ -128,4 +128,46 @@ test('#4353 the board runs the refresh at start, after the supervisor refresh, n
   assert.ok(sup > 0 && ref > sup, 'the refresh is missing, or runs before the bridge is refreshed');
   const guard = src.lastIndexOf("process.env.AGENT_WORKFORCE_DRY_RUN !== '1'", ref);
   assert.ok(guard > sup, 'the refresh is not behind the dry-run guard');
+  // INSIDE the guarded block, not merely after the guard's text: more braces opened than closed.
+  const between = src.slice(guard, ref);
+  assert.ok((between.match(/\{/g) || []).length > (between.match(/\}/g) || []).length,
+    'the guard\'s block closes before the refresh call');
+});
+
+test('#4353 the launch folder is read from the plist the supervisor started with, else workerDir', () => {
+  const name = 'launch4353';
+  const text = create.plistFor(name, '/x/agy', '/x/tmux', null, null, 'antigravity')
+    .replace('<string>' + create.workerDir(name) + '</string>', '<string>/Users/p/their &amp; folder</string>');
+  fs.mkdirSync(path.dirname(create.plistPath(name)), { recursive: true });
+  fs.writeFileSync(create.plistPath(name), text);
+  try {
+    assert.equal(agyrefresh.launchDir(create, name), '/Users/p/their & folder', 'not the folder the supervisor was started in');
+  } finally { fs.rmSync(create.plistPath(name), { force: true }); }
+  assert.equal(agyrefresh.launchDir(create, name), create.workerDir(name), 'no plist must fall back to workerDir');
+});
+
+test('#4353 a hook the supervisor wrote while the version was being asked is not overwritten', async () => {
+  const { calls, deps } = fakes({ gem: { runner: 'antigravity', claude: '/x/agy' } });
+  let asked = false;
+  deps.versionOf = async () => { asked = true; return 'agy 1.2.12'; };
+  deps.hasHook = () => asked;   // absent before the await, present after it
+  const rows = await agyrefresh.refreshRunningAgyHooks(deps);
+  assert.equal(calls.ensure.length, 0, 'an entry written during the await was overwritten');
+  assert.equal(rows[0].why, 'already hooked');
+});
+
+test('#4353 a version probe whose grandchild holds the pipe still settles (a hang would stall every agent after it)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyver-'));
+  const tag = 'aw-agyver-grandchild-' + process.pid;
+  const bin = path.join(dir, 'agy');
+  fs.writeFileSync(bin, `#!/bin/bash\necho "agy 1.2.12"\n(exec -a ${tag} sleep 30) &\nexit 0\n`, { mode: 0o755 });
+  try {
+    const t0 = Date.now();
+    const v = await agyrefresh.versionOf(bin);
+    assert.ok(Date.now() - t0 < 9000, 'the probe did not settle');
+    assert.ok(v === '' || v === 'agy 1.2.12', v);
+  } finally {
+    require('node:child_process').spawnSync('pkill', ['-f', tag]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

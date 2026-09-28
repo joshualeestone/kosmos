@@ -67,6 +67,10 @@ async function refreshRunningAgyHooks(deps) {
       let v = '';
       try { v = String((await deps.versionOf(job.claude)) || ''); } catch { v = ''; }
       versions.set(job.claude, v);
+      // The await is a window in which the supervisor could have launched it and written its own
+      // entry; look again rather than overwrite that.
+      try { has = !!deps.hasHook(wd); } catch { has = false; }
+      if (has) { rows.push({ name, ok: true, changed: false, why: 'already hooked' }); continue; }
     }
     let r;
     try {
@@ -80,15 +84,31 @@ async function refreshRunningAgyHooks(deps) {
 }
 
 /** `<bin> --version`, the first line of what it printed whatever its exit status (as the
-    supervisor reads it: `head -n 1`), or ''. Asynchronous, and killed after 5 s, so a hung
-    binary never holds the board. */
+    supervisor reads it: `head -n 1`), or ''. Asynchronous, and killed after 5 s; that timeout
+    settles the call even when a grandchild of the binary still holds its output open (the
+    grandchild test pins it). */
 function versionOf(bin) {
   return new Promise((resolve) => {
     if (!bin) { resolve(''); return; }
-    execFile(bin, ['--version'], { timeout: 5000, killSignal: 'SIGKILL', encoding: 'utf8' }, (_err, stdout) => {
-      resolve(String(stdout || '').split('\n')[0]);
-    });
+    try {
+      execFile(bin, ['--version'], { timeout: 5000, killSignal: 'SIGKILL', encoding: 'utf8' }, (_err, stdout) => {
+        resolve(String(stdout || '').split('\n')[0]);
+      });
+    } catch { resolve(''); }
   });
+}
+
+/** The folder the running supervisor was STARTED in: argument 3 of the agent's own plist, which
+    is what it launched with, even if the agent's recorded folder has changed since. Falls back to
+    create.workerDir(name) (what plistFor writes there) when the plist cannot be read. */
+function launchDir(create, name) {
+  try {
+    const text = require('node:fs').readFileSync(create.plistPath(name), 'utf8');
+    const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+    const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]) : [];
+    if (args[3]) return args[3].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  } catch { /* fall back */ }
+  return create.workerDir(name);
 }
 
 /** The production wiring: create.js for the agents and bridge, agyhooks for the write. */
@@ -99,15 +119,17 @@ function refreshAtBoardStart() {
   return refreshRunningAgyHooks({
     names: () => create.runningJobs(),
     job: (name) => create.readJob(name),
-    workdir: (name) => create.workerDir(name),   // the plist's launch folder (plistFor argument 3)
+    workdir: (name) => launchDir(create, name),
     hasHook: (wd) => hasKosmosHook(wd, agyhooks.HOOK_NAME),
     ensureHooks: agyhooks.ensureHooks,
     toolHooksSafe: agyhooks.toolHooksSafe,
     versionOf,
-    nodeBin: process.execPath,
+    // Not process.execPath: a versioned Homebrew path dies at the next upgrade, and this entry
+    // outlives the board in a running agent nobody restarts (allowance.stableNode's reason).
+    nodeBin: require('./allowance').stableNode(),
     bridge,
     bridgeExists: () => fs.existsSync(bridge),
   });
 }
 
-module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, versionOf, hasKosmosHook };
+module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, versionOf, hasKosmosHook, launchDir };
