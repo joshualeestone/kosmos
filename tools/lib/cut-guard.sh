@@ -235,6 +235,12 @@ _kosmos_marker_other_live() {
 # guard refuses EVERY cut, on a Mac with no other cut, forever -- a total
 # release outage that reads exactly like the guard working. The seam is an
 # env var so the tests can drive it; it defaults to the caller's own pid.
+# 🛑 CALLING CONTRACT for the pgrep-probing kosmos_refuse_if_* guards below (#4410 review): call as
+# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each runs `raw="$(pgrep ...)"; rc=$?`,
+# and pgrep exits 1 when nothing matches, which is the ordinary nothing-running case. Called as a
+# bare statement under `set -e` (release.sh and test-install.sh both set it), that exit 1 would end
+# the caller silently at the very moment the answer is "go ahead". The `||` or `if` suspends -e for
+# the whole call, which is why every call site in this repo is written that way.
 kosmos_refuse_if_cut_live() {
   local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_CUT_SELF_PID:-$$}"
