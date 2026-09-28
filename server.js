@@ -817,6 +817,23 @@ const communitymine = require('./engine/communitymine'); // #4313: the owner's l
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
+const guidestate = require('./engine/guidestate');
+/* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
+   its STATE changes, send the install ping GUIDE_PING_DELAY_MS later (guidestate.makeRecorder
+   says why the delay, and is tested there). This covers the board-start ping only: a created
+   ping (an agent made inside the window) can still race it, as a count change always could. */
+const GUIDE_PING_DELAY_MS = 30 * 1000;
+/* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
+   early once seeded), so the sweep records this for it. `seeded: false` is ensureGuide's own shape
+   for "nothing created on this call"; the state says the guide exists. */
+const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
+// Under a test run the beacon never sends, and an armed 30 s timer could land inside another
+// test's capture window, so no timer is armed at all there (the state is still recorded).
+const recordGuideOutcome = guidestate.makeRecorder({
+  ping: () => createdbeacon.pingInstall(),
+  delayMs: GUIDE_PING_DELAY_MS,
+  setTimer: createdbeacon.underTest() ? () => null : setTimeout,
+});
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
@@ -11004,6 +11021,7 @@ const server = http.createServer((req, res) => {
         try {
           setupAssistant.armSetupAssistant();
           setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'first-run' })
+            .then(recordGuideOutcome)
             .catch(() => { /* the setup guide is a nicety; onboarding still completed */ });
         } catch { /* the setup guide is a nicety; onboarding still completed */ }
       }
@@ -17359,8 +17377,9 @@ function start(port = PORT) {
         const guideTick = () => {
           try {
             /* Once a guide exists there is nothing left to do: stop the timer. */
-            if (setupAssistant.setupAssistantSeeded()) { if (guideSweep) clearInterval(guideSweep); return; }
+            if (setupAssistant.setupAssistantSeeded()) { recordGuideOutcome(GUIDE_SEEDED); if (guideSweep) clearInterval(guideSweep); return; }
             setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
+              .then(recordGuideOutcome)
               .catch(() => { /* best-effort */ });
           } catch { /* best-effort */ }
         };
@@ -17371,7 +17390,8 @@ function start(port = PORT) {
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it
-         carries no agent information, only that an install exists -- and
+         carries no agent count, only that an install exists plus its setup guide
+         state word (#4350, see createdbeacon.js) -- and
          fire-and-forget, once on board start. The server is idempotent (Math.max
          on count 0), so a re-fire on every launch never inflates anything; that
          is also how an install that predates this beacon gets counted, on its

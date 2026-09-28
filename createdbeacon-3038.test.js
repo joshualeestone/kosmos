@@ -37,9 +37,9 @@ function capture() {
   return calls;
 }
 
-test('payload() pins the collector contract {installId, count, version, os}', () => {
+test('payload() pins the collector contract {installId, count, version, os, guide}', () => {
   const p = beacon.payload(4);
-  assert.deepEqual(Object.keys(p).sort(), ['count', 'installId', 'os', 'version']);
+  assert.deepEqual(Object.keys(p).sort(), ['count', 'guide', 'installId', 'os', 'version']);   // guide: #4350
   assert.equal(p.count, 4);
   assert.equal(typeof p.installId, 'string');
   assert.ok(p.installId.length > 0);
@@ -155,7 +155,7 @@ test('#4253 rule C: internal:true rides the payload only when the data root hold
     fs.writeFileSync(f, JSON.stringify({ internal: true }));
     const p = beacon.payload(3);
     assert.equal(p.internal, true, 'the marked machine says it is ours');
-    assert.deepEqual(Object.keys(p).sort(), ['count', 'installId', 'internal', 'os', 'version']);
+    assert.deepEqual(Object.keys(p).sort(), ['count', 'guide', 'installId', 'internal', 'os', 'version']);   // guide: #4350
     const calls = capture();
     beacon.send(3);
     assert.equal(calls.length, 1);

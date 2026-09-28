@@ -12,9 +12,8 @@
  *
  * TWO signals leave the machine here, both fire-and-forget:
  *   - install ping   UNCONDITIONAL, on board start. Registers the install with
- *                    count 0, so the homepage INSTALL count moves. It carries NO
- *                    agent information -- an install shares only "an install
- *                    exists", never how many agents it runs.
+ *                    count 0, so the homepage INSTALL count moves. It carries no
+ *                    agent count and nothing agent-identifying.
  *   - created ping   on agent create, GATED on the create-agent checkbox
  *                    (default CHECKED, hardcoded on the form, #238). Carries the
  *                    install's TOTAL-EVER-CREATED count (create.createdCount,
@@ -22,8 +21,18 @@
  *                    which froze at peak-running under Math.max), so the homepage
  *                    AGENT count moves to the true number (not +1 -- see below).
  *
- * The split is deliberate: the install ping cannot be opted out (it is just a
- * headcount of installs and reveals nothing about agents), and the agent count
+ * BOTH pings also carry ONE word about this install's setup guide (#4350; they share
+ * payload()): created, not armed, turned off by the person, no model connected, a model
+ * connected but none could run, refused, names taken, or disabled (guidestate.STATES).
+ * 'disabled' is recorded only under AGENT_WORKFORCE_DRY_RUN=1 without
+ * AGENT_WORKFORCE_SETUP_GUIDE=on; a build with FIRSTRUN_AUTOCREATE_ENABLED false records
+ * nothing new and sends its last recorded state, or 'unknown'. A 'seeded' or
+ * 'names-taken' also says the install has agents, even with the create box unticked.
+ * Splinter ruled it inside Josh's 09-14 telemetry ruling (#4350); the site's privacy page
+ * says so (chaoskosmos-site guidestate-4350).
+ *
+ * The split is deliberate: the install ping cannot be opted out (it is a
+ * headcount of installs plus the guide state above, no agent count), and the agent count
  * -- the one thing the checkbox governs -- only leaves when the checkbox is on.
  *
  * 🔑 THE SERVER IS IDEMPOTENT ON `count` (Math.max), NOT an incrementer. Both
@@ -37,7 +46,9 @@
  *     more, rather than climbing +1 forever.
  * The contract with the collector is exactly:
  *   POST <endpoint>  application/json
- *   { installId, count, version, os }       plus `internal: true` on our own machines only (rule C, #4253)
+ *   { installId, count, version, os, guide }   plus `internal: true` on our own machines only (rule C, #4253)
+ * `guide` (#4350) is one word from guidestate.STATES, or 'unknown' when this install has
+ * recorded none yet.
  *   200 { ok: true }
  * payload() below is the single source of that shape; a test pins the keys so
  * the two sides cannot drift.
@@ -48,11 +59,13 @@
  * create an agent (or just launched the board), not for a network round-trip.
  * 🛑 installId is RANDOM and per-install (engine/ping.js): it identifies an
  * install, never a machine or a person. Nothing agent-identifying (names,
- * instructions, conversations, files) is in this payload -- only a count.
+ * instructions, conversations, files) is in this payload: a count, a version, an
+ * OS, and the guide state word.
  */
 
 const os = require('node:os');
 const ping = require('./ping');       // installId + the under-test guard
+const guidestate = require('./guidestate');   // #4350: the setup guide's last outcome, one word
 
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 
@@ -90,7 +103,9 @@ function payload(count) {
   let install = null;
   try { install = ping.installId(); } catch { install = null; }
   const n = Number.isInteger(count) && count >= 0 ? count : 0;
-  const data = { installId: install || 'unknown', count: n, version: version(), os: osTag() };
+  let guide = null;
+  try { guide = guidestate.current(); } catch { guide = null; }
+  const data = { installId: install || 'unknown', count: n, version: version(), os: osTag(), guide: guide || 'unknown' };
   if (isInternal()) data.internal = true;
   return data;
 }
