@@ -17,7 +17,7 @@
  * AGENT_WORKFORCE_FEEDBACK_URL, at a dead local port, the way browser-checks.sh
  * already points its other outbound URLs at 127.0.0.1:9.
  *
- * Two halves:
+ * Three parts:
  *   1. the CONTROL: a board booted outside node's test runner really does send the
  *      install ping, to whatever the variable names. Without this the other half
  *      would pin a line nobody needs.
@@ -231,15 +231,29 @@ test('#4253: test-install.sh\'s first installer run is the first one in the file
    not model is invisible to it, which is the one direction a partial reader fails
    in. What actually keeps a test board quiet is NODE_TEST_CONTEXT reaching it (or
    the harness's export); this catches the ways that has been lost here so far. */
-const SAFE_ENV = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|AGENT_WORKFORCE_CREATED_URL|^\s*process\.env\s*$/;
+/* Naming the URL counts only when it names THIS machine, the rule the harness checks
+   above apply to their exports. */
+const NAMED_LOOPBACK_URL = /AGENT_WORKFORCE_CREATED_URL['"]?\s*[:=]\s*['"`]http:\/\/127\.0\.0\.1:[\d${}.\w]*\//;
+const SAFE_ENV = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|^\s*process\.env\s*$/;
 /* Taking NODE_TEST_CONTEXT back out undoes a spread of process.env: the board then
    believes it is not under test and pings for real (unless the URL is named). */
 const DROPS_TEST_CONTEXT = /NODE_TEST_CONTEXT\s*:\s*(undefined|null|''|""|``|false|0)\b|NODE_TEST_CONTEXT\s*:\s*(''|""|``)|delete\s+[\w$.]+\.NODE_TEST_CONTEXT|\.NODE_TEST_CONTEXT\s*=\s*(undefined|null|''|""|``)/;
-const safeText = (t) => SAFE_ENV.test(t) && (/AGENT_WORKFORCE_CREATED_URL/.test(t) || !DROPS_TEST_CONTEXT.test(t));
+const safeText = (t) => NAMED_LOOPBACK_URL.test(t) || (SAFE_ENV.test(t) && !DROPS_TEST_CONTEXT.test(t));
 
+/* Blanks block comments and every `//` comment, whole-line or trailing, that is
+   outside a string; a `//` inside a string (a URL) is kept. */
 function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .split('\n').map((l) => (/^\s*\/\//.test(l) ? '' : l)).join('\n');
+  const noBlocks = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  return noBlocks.split('\n').map((l) => {
+    let q = null;
+    for (let i = 0; i < l.length; i += 1) {
+      const c = l[i];
+      if (q) { if (c === '\\') { i += 1; continue; } if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '/' && l[i + 1] === '/') return l.slice(0, i);
+    }
+    return l;
+  }).join('\n');
 }
 
 /* The text from `open` (an opening bracket) to its match. */
@@ -365,13 +379,13 @@ const MAX_DEPTH = 6;
 function envIsSafe(src, expr, callAt, depth = 0) {
   if (expr === null) return true;
   if (expr === UNKNOWN) return false;
-  if (DROPS_TEST_CONTEXT.test(expr) && !/AGENT_WORKFORCE_CREATED_URL/.test(expr)) return false;
+  if (DROPS_TEST_CONTEXT.test(expr) && !NAMED_LOOPBACK_URL.test(expr)) return false;
   if (safeText(expr)) return true;
   if (depth > MAX_DEPTH) return false;
   for (const name of flows(expr)) {
     const r = region(src, name, callAt);
     if (!r) continue;
-    if (DROPS_TEST_CONTEXT.test(r.later) && !/AGENT_WORKFORCE_CREATED_URL/.test(r.stmt + r.later)) return false;
+    if (DROPS_TEST_CONTEXT.test(r.later) && !NAMED_LOOPBACK_URL.test(r.stmt + r.later)) return false;
     if (safeText(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1)) return true;
   }
   return false;
@@ -455,6 +469,14 @@ test('#4253: the boot analyzer judges each spawn, not the file', () => {
   assert.deepEqual(boots(execd).map((b) => b.safe), [false], 'an exec string that runs server.js is a boot');
   const shelled = "spawn('sh', ['-c', `${process.execPath} ${path.join(REPO, 'server.js')}`], { env: { HOME: h } });";
   assert.deepEqual(boots(shelled).map((b) => b.safe), [false], 'sh -c running server.js is a boot');
+  const trailing = "spawn(process.execPath, ['server.js'], { env: {\n  HOME: sb, // AGENT_WORKFORCE_CREATED_URL not needed here\n} });";
+  assert.deepEqual(boots(trailing).map((b) => b.safe), [false], 'a trailing comment naming the URL is not a fix');
+  const realUrl = "spawn(process.execPath, ['server.js'], { env: { HOME: sb, AGENT_WORKFORCE_CREATED_URL: 'https://installkosmos.com/api/created' } });";
+  assert.deepEqual(boots(realUrl).map((b) => b.safe), [false], 'naming the URL counts only when it is this machine');
+  const loop = "spawn(process.execPath, ['server.js'], { env: { HOME: sb, AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created' } });";
+  assert.deepEqual(boots(loop).map((b) => b.safe), [true], 'a loopback URL is a fix');
+  const inString = "spawn(process.execPath, ['server.js'], { env: { ...process.env, X: 'http://a//b' } });";
+  assert.deepEqual(boots(inString).map((b) => b.safe), [true], 'a // inside a string is not a comment');
   const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
   assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
   const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";

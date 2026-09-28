@@ -117,6 +117,15 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
   a modelled shape judged wrong, does not.
 - The plan's count was 47; the guard measures 46 because it excludes its own file. Corrected.
 
+## Review 7
+
+- BLOCKER, fixed: the comment stripper blanked only whole-line comments, so a trailing
+  `// AGENT_WORKFORCE_CREATED_URL ...` inside a multi-line env literal read as the URL. It now blanks
+  every `//` comment outside a string (a `//` in a URL string is kept). Self-tested both ways.
+- Naming the URL counted whatever its value was, even the real endpoint. It counts now only as a
+  loopback value, the rule the harness checks already apply. Self-tested both ways.
+- The file header said "Two halves" over three parts.
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live
