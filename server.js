@@ -2786,7 +2786,7 @@ function swarmSweepDeps(roster) {
     writeProfile: (n, patch) => store.writeProfile(n, patch),
     interrupt: (n) => chat.interrupt(n, roster),
     stopHelpers: (n) => chat.stopHelpers(n, roster),
-    say: (n, text) => keepAgentReply(n, text),
+    say: (n, text) => keepAgentReply(n, text, undefined, { kosmos: true }),   // #4354: Kosmos speaking, not the agent
   };
 }
 
@@ -2840,11 +2840,13 @@ messages.setSenderTextFilter(guideMasked);
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
-function keepAgentReply(who, text, at) {
+function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
+    // #4354: Kosmos's own words in the agent's name (the daily-limit notice), so dmOwes can tell them from a reply
+    ...(opts && opts.kosmos === true ? { kosmos: true } : {}),
   });
 }
 
@@ -13105,7 +13107,14 @@ const server = http.createServer((req, res) => {
        thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
        dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
        it (review iteration 7). */
-    const owes = chat.dmOwes(messages, name);
+    /* #4354: whether the agent is switched off now, for Kosmos's daily-limit notice: it stands in for an answer
+       only while the agent is paused. A swarm switched off for any reason cannot answer, so any pause counts. A
+       profile we cannot read, or an agent that is not a swarm, reads as running: the line then comes back rather
+       than being hidden by a notice from a pause we cannot see. */
+    let dmPaused = false;
+    try { const sw = require('./engine/swarm').settingsOf(store.readProfile(name)); dmPaused = Boolean(sw && !sw.active); }
+    catch { dmPaused = false; }
+    const owes = chat.dmOwes(messages, name, { paused: dmPaused });
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
