@@ -1,0 +1,32 @@
+# TEMP (#4278): repeat the hand-off limit arm on windows-latest. Removed before the PR.
+name: probe-4278
+on:
+  push:
+    branches: ["flaky-4278"]
+permissions:
+  contents: read
+jobs:
+  repeat:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: the arm, ten times
+        run: |
+          pass=0; fail=0
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if node --test --test-name-pattern="round 6 finding 1: the launcher" engine/win32handoff.test.js < /dev/null > out.txt 2>&1 && grep -q "^ℹ pass 1$" out.txt; then pass=$((pass+1)); echo "run $i PASS"; else fail=$((fail+1)); echo "run $i FAIL"; grep -E "AssertionError|ℹ (pass|fail)" out.txt; fi
+          done
+          echo "SHARD ${{ matrix.shard }}: pass=$pass fail=$fail"
+          [ "$fail" -eq 0 ]
