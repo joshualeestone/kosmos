@@ -1,0 +1,45 @@
+'use strict';
+/* #3997 (ruling C): the login-date reader's own rules. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const m = require('./claudeloginlive');
+
+test.afterEach(() => { m.setReaderForTests(null); m._clearForTest(); });
+
+test('#3997: loginGood only for an unverified, signed-in row whose date is ahead and has no rejection on record', () => {
+  const now = 1000;
+  const good = { badge: 'signed_in_unverified', checkLiveState: 'connected', latestOutcome: null, until: 2000, now };
+  assert.equal(m.loginGood(good), true);
+  assert.equal(m.loginGood({ ...good, until: 999 }), false, 'a login that has run out');
+  assert.equal(m.loginGood({ ...good, until: null }), false, 'no date read');
+  assert.equal(m.loginGood({ ...good, latestOutcome: '401' }), false, 'a rejection on record');
+  assert.equal(m.loginGood({ ...good, badge: 'working' }), false, 'already green from a real outcome');
+  assert.equal(m.loginGood({ ...good, badge: 'rejected' }), false);
+  assert.equal(m.loginGood({ ...good, checkLiveState: 'none' }), false, 'claude auth status says signed out');
+});
+
+test('#3997 ruling C: greenFromLogin is off while the switch is off', () => {
+  assert.equal(m.GREEN_FROM_LOGIN, false);
+  assert.equal(m.greenFromLogin({ badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 }), false);
+});
+
+test('#3997: validUntil skips a key account, maps the default to an unset CLAUDE_CONFIG_DIR, and caches', async () => {
+  const asked = [];
+  m.setReaderForTests((ccd) => { asked.push(ccd); return 5000; });
+  assert.equal(await m.validUntil({ apiKey: true, dir: '/k' }, 100), null, 'a key account has its own live check');
+  assert.equal(await m.validUntil({ isDefault: true, dir: '/home/.claude' }, 100), 5000);
+  assert.equal(await m.validUntil({ dir: '/home/.claude-aria' }, 100), 5000);
+  assert.deepEqual(asked, [undefined, '/home/.claude-aria']);
+  await m.validUntil({ dir: '/home/.claude-aria' }, 100 + m.CACHE_MS - 1);
+  assert.equal(asked.length, 2, 'a second read inside the cache window asked again');
+  await m.validUntil({ dir: '/home/.claude-aria' }, 100 + m.CACHE_MS);
+  assert.equal(asked.length, 3, 'a read after the cache window did not ask again');
+});
+
+test('#3997: a reader that throws or answers nonsense gives no date, never a throw', async () => {
+  m.setReaderForTests(() => { throw new Error('keychain locked'); });
+  assert.equal(await m.validUntil({ dir: '/a' }, 1), null);
+  m._clearForTest();
+  m.setReaderForTests(() => 'soon');
+  assert.equal(await m.validUntil({ dir: '/a' }, 1), null);
+});

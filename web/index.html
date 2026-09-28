@@ -700,6 +700,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-box-top > .acct-connected,
 .acct-box-top > .acct-none,
 .acct-box-top > .acct-unverified,
+.acct-box-top > .acct-loginok,
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
@@ -752,13 +753,17 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
    with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
    left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
-   in its title. */
+   in its title. Calm neutral (.acct-loginok, #3997 ruling C) = a Claude sign-in no agent is using, whose login date
+   Kosmos read on this computer: not amber (nothing is wrong) and not green (nothing answered). */
 .acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
 .acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
+.acct-loginok { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--label); white-space: normal; }
+.acct-loginok .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-reauth,
 .acct-disconnect,
 .acct-check,
@@ -23203,8 +23208,18 @@ async function paintAccounts(opts) {
     /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
        structured verdict, not a match on its sentence: review round 4). */
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
+    /* #3997 (ruling C): a Claude sign-in no agent is using, whose login date Kosmos read on this computer. Calm and
+       neutral, with the date; it turns green when an agent uses it or Check now answers. */
+    const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
+    const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+    const loginOkWhy = 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.';
     let connBadge;
-    if (badge === 'working') {
+    if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
+      // Only with the server's switch on (Josh's call): the same words, in green.
+      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (badge === 'signed_in_unverified' && loginDate) {
+      connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
