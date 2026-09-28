@@ -61,7 +61,17 @@
   - Mutations seen red: dropping shard 2/2 from the matrix; SUITE_TIMEOUT_MIN 30 against 45.
 
 ## Measured on the runner (the real test.yml on this branch, via a temporary push trigger, since reverted)
-**The run of record is the one taken after the last code change, cited in the PR body** (a merge
+**Run of record: 36429871904**, on commit 2bc46cc, which is 10b46e6 (the code as it merges) plus
+the temporary push trigger, since dropped from the branch. Success:
+
+| job | wall time | share of 45 min |
+|---|---|---|
+| node | 705 s | 26% |
+| shell 1/2 | 554 s | 21% |
+| shell 2/2 | 645 s | 24% |
+
+11264 node tests ran; each part logged its "running ONLY" line; 22 min end to end.
+The earlier runs below are evidence from before later changes. **Earlier:** (a merge
 of main, which changed run-tests.sh's node --test line in #4326, orphaned the earlier runs as a
 measurement of the head's code). The runs below are earlier evidence; each names the code it ran,
 and the commit the runner actually checked out when that was a temporary trigger commit on top.
