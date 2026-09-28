@@ -180,6 +180,18 @@ function changedFiles(root) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
+// Why a file failed, as node's spec reporter says it: the "failing tests:" section it prints at the
+// end, minus stack frames, capped. Before #4301 only lines containing "Error" were kept, so a test
+// that ran out of its own timeout ("test timed out after 30000ms") showed its name and nothing else.
+// A crash before that section (no section at all) falls back to the tail of the output.
+const DETAIL_LINES = 60;
+function failureDetail(output) {
+  const lines = String(output).replace(/\r/g, '').split('\n');
+  const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
+  const section = at >= 0 ? lines.slice(at + 1) : lines.slice(-DETAIL_LINES);
+  return section.filter((l) => l.trim() && !/^\s+at /.test(l)).slice(0, DETAIL_LINES).map((l) => l.trimEnd());
+}
+
 function count(output, label) {
   const m = String(output).match(new RegExp('^ℹ ' + label + ' (\\d+)$', 'm'));
   return m ? Number(m[1]) : null;
@@ -217,10 +229,9 @@ function main() {
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
     const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
-      // Every failing name (a KNOWN_RED entry is copied from these), then the first errors.
+      // Every failing name (a KNOWN_RED entry is copied from these), then why (#4301).
       for (const n of failing) console.log('    ✖ ' + n);
-      const errors = output.split('\n').filter((l) => /Error/.test(l));
-      for (const l of errors.slice(0, 20)) console.log('    ' + l.trim());
+      for (const l of failureDetail(output)) console.log('    ' + l);
     }
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
@@ -241,6 +252,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { selectFiles, failingTests, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();

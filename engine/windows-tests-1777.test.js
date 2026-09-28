@@ -74,6 +74,28 @@ test('failing test names are read from the spec reporter, without the file-level
   assert.deepEqual(w.failingTests(out, 'engine/win32x.test.js'), ['the first one', 'a nested one']);
 });
 
+test('#4301: failure detail is node\'s failing-tests section, so a test timeout shows its reason', () => {
+  const out = [
+    '✔ fine (1.2ms)',
+    '✖ slow one (30012ms)',
+    '✖ failing tests:',
+    '',
+    'test at engine\\win32apply.test.js:2331:1',
+    '✖ slow one (30012ms)',
+    '  \'test timed out after 30000ms\'',
+    '    at async Test.run (node:internal/test_runner/test:1402:25)',
+    '✖ other (1ms)',
+    '  AssertionError [ERR_ASSERTION]: nope',
+  ].join('\r\n');
+  const got = w.failureDetail(out);
+  assert.ok(got.some((l) => /test timed out after 30000ms/.test(l)), 'the timeout reason is shown: ' + JSON.stringify(got));
+  assert.ok(got.some((l) => /AssertionError: nope|AssertionError \[ERR_ASSERTION\]: nope/.test(l)));
+  assert.ok(!got.some((l) => /^\s+at /.test(l)), 'stack frames are dropped');
+  assert.ok(!got.some((l) => /fine/.test(l)), 'passing tests are not repeated');
+  const crashed = w.failureDetail('boot\nTypeError: x is not a function\n    at foo');
+  assert.ok(crashed.some((l) => /TypeError: x is not a function/.test(l)), 'a crash with no section shows its tail');
+});
+
 test('a real test whose title ends in .test.js is still read as failing', () => {
   const out = [
     '✖ engine/win32x.test.js (12ms)',
