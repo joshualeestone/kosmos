@@ -53,7 +53,8 @@ function serviceNameFor(ccd) {
   return `${DEFAULT_SERVICE}-${hex}`;
 }
 
-/* The keychain read, one definition for both readers below: its arguments, its bound and its quiet stderr. */
+/* The keychain read, one definition for both readers below: its arguments and its bound. stdio keeps stderr off
+   the sync reader's inherited output; execFile keeps stderr in its own buffer and never prints it. */
 const KEYCHAIN_READ = (service) => ['find-generic-password', '-s', service, '-w'];
 const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
 
@@ -73,7 +74,7 @@ function readCredDefault(service) {
 }
 
 /* The same read, asynchronous, for a caller that must not block the board (#3997, claudeloginlive): one
- * definition of the command, its timeout and its quiet stderr. Resolves the raw body or null; never rejects. */
+ * definition of the command and its timeout. Resolves the raw body or null; never rejects. */
 function readCredAsync(service) {
   return new Promise((resolve) => {
     execFile('security', KEYCHAIN_READ(service), KEYCHAIN_OPTS, (err, stdout) => resolve(err ? null : stdout));

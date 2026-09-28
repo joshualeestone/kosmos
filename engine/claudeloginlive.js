@@ -70,7 +70,8 @@ async function validUntilWithin(row, budgetMs = READ_BUDGET_MS, now = Date.now()
 }
 
 /* Whether this row shows its login as good: an unverified badge on a signed-in account whose login date is still
-   ahead. `latestOutcome` is the newest recorded outcome of ANY age: a recorded rejection keeps the row where the
+   ahead. `latestOutcome` is the newest outcome engine/observed holds for the row, whatever its age; observed keeps
+   them in memory, so that reaches back to the board's last start. A rejection it holds keeps the row where the
    verdict put it, since a token refused by Anthropic can still carry a date ahead. */
 function loginGood({ badge, checkLiveState, latestOutcome, until, now = Date.now(), rejected = OUTCOME.REJECTED } = {}) {
   return badge === 'signed_in_unverified' && checkLiveState === 'connected' && latestOutcome !== rejected

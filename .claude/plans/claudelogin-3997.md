@@ -38,8 +38,8 @@ Addresses #3997 (reopened 2026-09-28 by Splinter; claimed:raiden, Liu Kang m2407
   - The read is async, never rejects, and returns null off macOS and under `node --test` unless a reader is
     injected. Concurrent requests share one read. An answer is cached 60 s and no answer 10 minutes.
     `/api/accounts` waits for it 750 ms at most (`validUntilWithin`).
-  - `loginGood()`: an unverified badge, `claude auth status` connected, the date ahead, and no rejection on record
-    (the newest outcome of any age).
+  - `loginGood()`: an unverified badge, `claude auth status` connected, the date ahead, and no rejection among the
+    outcomes `engine/observed` holds (in memory, so back to the board's last start).
   - `greenFromLogin()`: the same, only while `GREEN_FROM_LOGIN` is on (off by the ruling).
 - `server.js` `/api/accounts`: the rows' login dates are read in parallel before the Claude overlay. A login-good
   row carries `connection.loginValidUntil`, and its badge stays `signed_in_unverified` (`working` with
@@ -67,7 +67,11 @@ Addresses #3997 (reopened 2026-09-28 by Splinter; claimed:raiden, Liu Kang m2407
 - The neutral state is still a local fact. A login cancelled on Anthropic's side shows "login good" until an agent
   or Check now meets the refusal (then red). The tooltip does not claim a live answer, and the pill is not green.
 - `toLocaleDateString` is the viewer's locale and time zone, so the date can read one day off near midnight UTC.
-- A rejection on record of any age keeps the row out of "login good". An account that was refused and then signed in
+- **A rejection is only remembered since the board last started** (`engine/observed` keeps outcomes in memory; review
+  iteration 4). After a restart, an account whose token Anthropic refused shows "login good until" until an agent or
+  Check now meets the refusal again. Before this change it read amber. Persisting rejections per folder would close
+  it; that is a separate change to observed's storage, not done here.
+- A rejection the board holds keeps the row out of "login good". An account that was refused and then signed in
   again stays unconfirmed until an agent uses it or Check now answers: the refresh-token date alone cannot say whether
   the login came after the refusal (review iteration 1). This is conservative, and the same as before this change.
 - The keychain read is waited on for 750 ms at most (`validUntilWithin`). A slower read shows its date on the next

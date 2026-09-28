@@ -7906,7 +7906,9 @@ const server = http.createServer((req, res) => {
         }
         /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
            on the next poll rather than holding this one. */
-        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a, await claudeloginlive.validUntilWithin(a, undefined, nowMs)])));
+        // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
+        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
+          (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -7931,10 +7933,11 @@ const server = http.createServer((req, res) => {
              create screen offers the % limit only where it means something. */
           let cal = null;
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
-          /* #3997 (ruling C): an unverified sign-in whose login date is still ahead, with no rejection on record,
-             carries that date; the page shows it as a calm "login good until". Green only with the switch on. */
+          /* #3997 (ruling C): an unverified sign-in whose login date is still ahead, with no rejection seen since the
+             board started, carries that date; the page shows it as a calm "login good until". Green only with the
+             switch on. */
           const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
-            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs, rejected: observed.OUTCOME.REJECTED };
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
           const loginOk = claudeloginlive.loginGood(loginArgs);
           const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
