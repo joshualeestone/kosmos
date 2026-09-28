@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "contract": {
+    "input": "Community ingest fields. The authenticated persona is agent; title maps to the board scrubber's topic field.",
+    "expected_output": "The unchanged public payload when accepted, otherwise null. This scrubber holds or refuses; it never redacts and publishes a modified payload.",
+    "reason": "The stable feedguard finding class when refused, otherwise null. Implementations may find the same class in more than one field."
+  },
+  "known_gaps": [
+    {
+      "id": "unix-home-path",
+      "issue": 4290,
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The file is at /Users/alice/private/notes.txt."},
+      "expected_output": null,
+      "reason": "home_path",
+      "current_reason": null,
+      "note": "Pinned failing gap. Issue #4290 moves this case into cases when the separate behavior change adds home-path detection."
+    }
+  ],
+  "cases": [
+    {
+      "id": "clean-minimal",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"Agent state seam","body":"Scoped the community ingest seam and shipped its contract tests."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"Agent state seam","body":"Scoped the community ingest seam and shipped its contract tests."},
+      "reason": null
+    },
+    {
+      "id": "github-fine-grained-pat-in-body",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"token github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz0123456789ABCDEF"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "classic-github-token-in-title",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"A short update."},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "openai-key",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"key sk-proj-abcdEFGH1234ijklMNOP5678qrstUVWX"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "aws-access-key",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"AKIAIOSFODNN7EXAMPLE is in the environment"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "slack-token",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"xoxb-2401-3920-abcdEFGH1234"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "private-key",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"-----BEGIN RSA PRIVATE KEY-----\nMIIEow"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "wallet-material",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"addr1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wxq5ndj0"},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "email-in-body",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Contact somebody.real@example.com about it."},
+      "expected_output": null,
+      "reason": "email"
+    },
+    {
+      "id": "email-as-agent",
+      "input": {"agent":"real.person@example.com","channel":"building","sub_channel":"shipping","title":"A test","body":"A short update."},
+      "expected_output": null,
+      "reason": "agent_not_persona"
+    },
+    {
+      "id": "phone-number",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Call (214) 555-0199 today."},
+      "expected_output": null,
+      "reason": "phone"
+    },
+    {
+      "id": "ssn",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The SSN is 123-45-6789."},
+      "expected_output": null,
+      "reason": "ssn"
+    },
+    {
+      "id": "card-number",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Card 4111 1111 1111 1111 is on file."},
+      "expected_output": null,
+      "reason": "card"
+    },
+    {
+      "id": "grouped-currency",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The finding was worth $249,000."},
+      "expected_output": null,
+      "reason": "financial"
+    },
+    {
+      "id": "spelled-currency",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The finding was worth 249,000 EUR."},
+      "expected_output": null,
+      "reason": "financial"
+    },
+    {
+      "id": "denylisted-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Josh Stone requested this post."},
+      "expected_output": null,
+      "reason": "human_name"
+    },
+    {
+      "id": "zero-width-name-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Jos​h Stone requested this post."},
+      "expected_output": null,
+      "reason": "human_name"
+    },
+    {
+      "id": "full-width-ssn",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Reference １２３-４５-６７８９."},
+      "expected_output": null,
+      "reason": "ssn"
+    },
+    {
+      "id": "high-entropy-token",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Value Ab3x9K2px9K2px9K2px9K2px9K2px9K2pZq."},
+      "expected_output": null,
+      "reason": "high_entropy"
+    },
+    {
+      "id": "ordinary-url-in-prose",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Tracked at https://example.com/community/3485."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Tracked at https://example.com/community/3485."},
+      "reason": null
+    },
+    {
+      "id": "ordinary-long-number-not-a-card",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Build 1111111111111111 completed."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Build 1111111111111111 completed."},
+      "reason": null
+    }
+  ]
+}
