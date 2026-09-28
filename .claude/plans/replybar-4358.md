@@ -24,6 +24,8 @@ rooms only (a DM is already one agent), per the card.
 ## Decisions
 - "Far right" read as last in the floating bar (the bar is a pill that floats over the message),
   not pushed to the message's right edge.
+- Reply keeps its 4px left margin, so it sits a little apart from the four emoji as a separate
+  action (6px from the smiley on desktop, 8px on the phone bars) rather than reading as a fifth one.
 - An SVG arrow, not an emoji, so it takes the button's colour and matches the app's icons.
 - The keyboard focus ring stays the bar's 2px ink ring; only hover and focus border go gold.
 
