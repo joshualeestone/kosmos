@@ -170,6 +170,21 @@ test('#4277: under the test runner with NO test tunnel binary, the not-enrolled 
   } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
 });
 
+test('#4277: the enrolled standing call commits the heal baseline only when the send succeeded', async () => {
+  const rr = require('../engine/remote-report');
+  const real = rr.commitHeal;
+  const committed = [];
+  rr.commitHeal = (report) => { committed.push(report); };
+  try {
+    enroll();
+    await run('refused', () => macStanding.fetchStanding());
+    assert.equal(committed.length, 0, 'a failed send committed the heal baseline (a relaunch would be swallowed)');
+    await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+    assert.equal(committed.length, 1, 'a successful send did not commit the heal baseline');
+    assert.equal(typeof committed[0].healBaseline, 'number', 'the committed report is not the one that was built');
+  } finally { rr.commitHeal = real; }
+});
+
 test('#4277: key-only signing opens the report route and nothing else', async () => {
   remote.resetForTests();
   keyOnly(true);

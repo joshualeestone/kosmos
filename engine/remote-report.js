@@ -78,8 +78,18 @@ function scrub(text, home, extra) {
     .sort((a, b) => b.length - a.length);
   for (const p of paths) swap(p, '<path>');
   if (typeof extra.user === 'string' && extra.user.length >= 3) swap(extra.user, '<user>', true);
-  s = s.replace(/(?:~|[A-Za-z]:\\|\\\\|\/)(?!path>)[^;"'()]*?(?=\s+does not\b|\s+\(|:\s|;|"|'|\s+E[A-Z]{2,}\b|$)/g, '<path>');
-  s = s.replace(/\S*@\S*/g, '<email>');
+  // An absolute path, carried across a space only while a LATER word still has a slash in it
+  // (so "/Volumes/Josh Stone Drive/Kosmos/remote" goes whole, and "…/state failed to load" keeps
+  // its words): the diagnosis is the prose, the identifying part is the path. A coordinator
+  // route (`/v1/...`) names nobody and says which call was refused, so it is kept.
+  const P = '[^\\s:;"\'()<>]';
+  s = s.replace(new RegExp('(?<=^|[\\s(\\[{"\'=>])(?:~|[A-Za-z]:\\\\|\\\\\\\\|/(?!v1/))(?!path>)' + P + '*(?:(?:\\s+' + P + '+)*?\\s+' + P + '*[\\\\/]' + P + '*)*', 'g'), '<path>');
+  // An email: any run with an @ in it, punctuation around it kept.
+  s = s.replace(/[^\s()<>"',;]*@[^\s()<>"',;]*/g, '<email>');
+  // An opaque secret: a bearer value, or any long run mixing letters and digits (keys, tokens).
+  // A run starting with `/` is left: real paths are already redacted, so it is a /v1 route.
+  s = s.replace(/\b(Bearer|Token|token|key|Key)(\s*[:=]?\s+)\S+/g, '$1$2<token>');
+  s = s.replace(/[A-Za-z0-9_+/=.-]{20,}/g, (m) => (!m.startsWith('/') && /[A-Za-z]/.test(m) && /[0-9]/.test(m) ? '<token>' : m));
   s = s.replace(/(?:<path>)+/g, '<path>');
   s = Array.from(s).filter((c) => c >= ' ' && c !== '\u007f').join('').trim();
   if (!s) return null;
@@ -92,7 +102,6 @@ function safeRealpath(p) { try { return fs.realpathSync.native(p); } catch { ret
    not swallow a relaunch. A relaunch whose tunnel is still starting is not yet a result:
    it reads `none` and stays pending for the next report. */
 let lastRestarts = null;
-let proposedRestarts = null;
 
 /**
  * The report, or null when it cannot be built. `deps` replaces remote.js and the
@@ -114,7 +123,7 @@ function build(deps) {
     const tunnel = tunnelState(st.state, on);
     const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     let heal = 'none';
-    proposedRestarts = restarts;
+    let proposedRestarts = restarts;
     if (lastRestarts !== null && restarts > lastRestarts) {
       if (tunnel === 'running') heal = 'relaunched';
       else if (tunnel === 'starting') proposedRestarts = lastRestarts;   // not a result yet
@@ -122,7 +131,7 @@ function build(deps) {
     }
     let app = null;
     try { app = (deps && deps.appVersion) || require('../package.json').version || null; } catch { app = null; }
-    return {
+    const r = {
       on,
       tunnel,
       error: tunnel === 'running' ? null : scrub(st.because, home, { email: settings && settings.email, stateDir: dir, user }),
@@ -132,12 +141,18 @@ function build(deps) {
       app,
       heal,
     };
+    // The heal baseline travels WITH this report (not serialised): commitHeal(report) adopts the
+    // one that was actually sent, whatever else build() was called for in between.
+    Object.defineProperty(r, 'healBaseline', { value: proposedRestarts, enumerable: false });
+    return r;
   } catch {
     return null;
   }
 }
 
-/** Call after a report was SENT, so its heal baseline counts. */
-function commitHeal() { if (proposedRestarts !== null) lastRestarts = proposedRestarts; }
+/** Call with the report that was SENT, so its heal baseline counts. */
+function commitHeal(report) {
+  if (report && typeof report.healBaseline === 'number') lastRestarts = report.healBaseline;
+}
 
-module.exports = { build, commitHeal, tunnelState, scrub, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = null; proposedRestarts = null; } };
+module.exports = { build, commitHeal, tunnelState, scrub, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = null; } };

@@ -98,19 +98,21 @@ test('stateDir: custom when AGENT_WORKFORCE_TUNNEL_STATE is set, missing when th
 test('heal: counted only once a report is SENT; a tunnel still starting is not yet a result', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
-  const at = (restarts, state) => report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {}, home: HOME }).heal;
+  let last = null;
+  const at = (restarts, state) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {}, home: HOME }); return last.heal; };
+  const commit = () => report.commitHeal(last);
   assert.equal(at(3, 'up'), 'none', 'the first report cannot know what happened before it');
-  report.commitHeal();
+  commit();
   assert.equal(at(4, 'up'), 'relaunched');
   // Not sent (no commitHeal): the relaunch is still news for the next report.
   assert.equal(at(4, 'up'), 'relaunched', 'a relaunch was swallowed by a report that never went out');
-  report.commitHeal();
+  commit();
   assert.equal(at(4, 'up'), 'none', 'the same count again is not a new relaunch');
-  report.commitHeal();
+  commit();
   assert.equal(at(5, 'connecting'), 'none', 'a tunnel still starting was called a failure');
-  report.commitHeal();
+  commit();
   assert.equal(at(5, 'up'), 'relaunched', 'the pending relaunch was lost while the tunnel was starting');
-  report.commitHeal();
+  commit();
   assert.equal(at(6, 'restarting'), 'relaunch-failed');
 });
 
@@ -126,6 +128,11 @@ test('adversarial sentences: no email, path, or login name survives', () => {
     ['C:\\Users\\Josh\\AppData\\x does not look like one', {}, '<path> does not look like one'],
     ['the tunnel for somebody stopped', { user: 'somebody' }, 'the tunnel for <user> stopped'],
     ['restarting after a crash (exit 3)', {}, 'restarting after a crash (exit 3)'],
+    ['reading /Users/somebody/state failed to load', {}, 'reading <path> failed to load'],
+    ['auth failed: Authorization: Bearer sk-ABCDEF1234567890', {}, 'auth failed: Authorization: Bearer <token>'],
+    ['refused with a1b2c3d4e5f6a7b8c9d0e1f2 today', {}, 'refused with <token> today'],
+    ['sign-in failed (josh@stuff.io) try again', {}, 'sign-in failed (<email>) try again'],
+    ['Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)', {}, 'Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)'],
   ];
   for (const [text, extra, want] of cases) assert.equal(report.scrub(text, home, extra), want, text);
   // A decomposed (NFD) spelling of the home, as some file systems return it.

@@ -85,7 +85,7 @@ async function fetchStanding() {
     const r = await remote.macRequest('POST', ROUTE, report ? { remote: report } : {});
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     // The report went out: its heal baseline counts now, not before (a failed send keeps it).
-    if (report) { try { require('./remote-report').commitHeal(); } catch { /* never costs the standing */ } }
+    if (report) { try { require('./remote-report').commitHeal(report); } catch { /* never costs the standing */ } }
     const standing = parseStanding(r.data);
     if (standing === null) { logFailure('the answer carried no standing'); return null; }
     clearFailure();

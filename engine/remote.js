@@ -293,7 +293,7 @@ function reportNotEnrolledIfDue(now) {
     // Through the export, so a test can observe the call without any binary being run.
     module.exports.macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
       .then((r) => {
-        if (r && r.ok) { require('./remote-report').commitHeal(); return; }
+        if (r && r.ok) { require('./remote-report').commitHeal(report); return; }
         process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
       })
       .catch(() => {})
