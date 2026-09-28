@@ -29,6 +29,9 @@ rounded pills with the light clipped inside, per his 09-27 12:48 notes.
   sees it). The study's stable-fluids sim, restructured so programs compile once and `size()` rebuilds the
   buffers for whichever button hosts the canvas. Delegated pointer listeners on the document, so buttons
   painted later are covered with no wiring.
+  The block sits in the head, not the body: the body grid reserves exactly one row per direct child, so a
+  39th child left the pre-rail row test red (web.consolidated-980). In the head it behaves the same, since
+  all it does on load is add listeners to the document.
 
 ## The shared-canvas decision, and why
 
