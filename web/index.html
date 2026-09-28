@@ -39198,6 +39198,18 @@ document.getElementById('d-save').addEventListener('click', async () => {
        name the record does not hold. An empty-after-trim name is dropped by the
        route (deliberately, so nobody blanks an agent into anonymity), so the
        heading is left alone in that case rather than being emptied. */
+    /* #2139: the @mention picker sources each candidate's shown name from
+       PROJECTS[].agents[].name (mentionCandidates -> pjById(PJ_CURRENT).agents),
+       and PROJECTS is populated only by loadProjects() reading /api/projects --
+       tick() refreshes the fleet (LAST), a different structure, so a rename left
+       the picker (and any other PROJECTS-agent-name reader, e.g. the room member
+       list) showing the OLD name until the next projects load. Re-fetch when the
+       shown name actually changed. Non-blocking and self-handling (loadProjects
+       swallows its own read errors in an internal try/catch and never rethrows),
+       so it never delays or breaks the save feedback; the picker reads PROJECTS
+       live on the next keystroke, so an async refresh is enough.
+       #4421: before the switched-agent return below, since PROJECTS is every project's, not this panel's. */
+    if (nameEdited && renameTo !== wasCalled) loadProjects();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;   // #4421 (review iteration 3): switched during the read
     if (nameEdited) {
       renameBox.dataset.shown = renameTo;
@@ -39209,17 +39221,6 @@ document.getElementById('d-save').addEventListener('click', async () => {
       detailNavNames(renameTo);
       fitDetailName();   // #3385: re-fit the name to the column after a rename (long shrinks, short grows back)
     }
-    /* #2139: the @mention picker sources each candidate's shown name from
-       PROJECTS[].agents[].name (mentionCandidates -> pjById(PJ_CURRENT).agents),
-       and PROJECTS is populated only by loadProjects() reading /api/projects --
-       tick() refreshes the fleet (LAST), a different structure, so a rename left
-       the picker (and any other PROJECTS-agent-name reader, e.g. the room member
-       list) showing the OLD name until the next projects load. Re-fetch when the
-       shown name actually changed. Non-blocking and self-handling (loadProjects
-       swallows its own read errors in an internal try/catch and never rethrows),
-       so it never delays or breaks the save feedback; the picker reads PROJECTS
-       live on the next keystroke, so an async refresh is enough. */
-    if (nameEdited && renameTo !== wasCalled) loadProjects();
     await tick();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;

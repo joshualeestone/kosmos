@@ -163,3 +163,13 @@ test('#4421: the poll follows the rename BEFORE it paints the title, the labels 
   assert.ok(follow < at('paintBusy(fresh, CURRENT.name);'), 'the working line is painted before the name follows');
   assert.match(SCRIPT, /textContent = 'Direct Message to ' \+ name;/, 'the title no longer comes from the name the poll passes');
 });
+
+test('#4421: a room row\'s picture takes its letter and tint from the name it shows, not the id', () => {
+  /* Pinned in source: the browser check drives the DM row's picture; the room row's is the same rule. */
+  const row = page.lift(SCRIPT, 'pjRoomRow');
+  assert.match(row, /discTint\(name\) \+ ';color:' \+ discInk\(name\) \+ '">' \+ esc\(initials\(name\)\)/,
+    'the room row\'s picture is no longer drawn from the name its label shows');
+  assert.doesNotMatch(row, /discTint\(m\.from\)/, 'the room row\'s picture is drawn from the id again');
+  const dm = page.lift(SCRIPT, 'dmRow');
+  assert.doesNotMatch(dm, /discTint\(m\.from\)/, 'the DM row\'s picture is drawn from the id again');
+});

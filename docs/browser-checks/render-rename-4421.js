@@ -55,7 +55,9 @@ async function surfaces(page) {
     const note = document.querySelector('#d-meta .dmeta-note');
     return { title: txt('d-talk-label'), heading: txt('d-name'), busy: txt('d-busy'), labels, rows: box ? box.querySelectorAll('.msg').length : 0,
       note: note ? note.textContent : '', box: (document.getElementById('d-rename') || {}).value,
-      ini: (document.getElementById('d-initials') || {}).textContent, tint: (document.getElementById('d-initials') || { style: {} }).style.background };
+      ini: (document.getElementById('d-initials') || {}).textContent, tint: (document.getElementById('d-initials') || { style: {} }).style.background,
+      /* the agent's own message row's picture (the person's rows have no .msg-nm label beside a named disc) */
+      rowAv: (() => { const nm = box && [...box.querySelectorAll('.msg-nm')][0]; const row = nm && nm.closest('.msg'); const av = row && row.querySelector('.msg-av'); return av ? { text: av.textContent.trim(), bg: av.style.background } : null; })() };
   });
 }
 
@@ -108,6 +110,8 @@ async function surfaces(page) {
     const want = await page.evaluate((n) => { const d = document.createElement('div'); d.style.background = discTint(n); return { ini: initials(n), tint: d.style.background, oldTint: (() => { d.style.background = discTint('Gemini-Sub'); return d.style.background; })() }; }, NEW);
     chk(want.tint !== want.oldTint, 'fixture: the two names have different disc tints (or the tint arm proves nothing)', JSON.stringify(want));
     chk(after.ini === want.ini && after.tint === want.tint, 'RENAMED: the picture\'s initial and its tint are the new name\'s', JSON.stringify({ ini: after.ini, tint: after.tint, want }));
+    chk(!!after.rowAv && after.rowAv.text === want.ini && after.rowAv.bg === want.tint,
+      'RENAMED: the agent\'s message picture is the new name\'s letter and tint, not the id\'s', JSON.stringify({ rowAv: after.rowAv, want }));
 
     const puts = await page.evaluate(async () => {
       document.getElementById('d-role').value = 'Chief of Staff';
