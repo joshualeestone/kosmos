@@ -363,6 +363,54 @@ function chk(ok, label, extra) {
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT, 'detail-header-1841.png'), fullPage: false });
 
+    /* ── #4406: the Instructions box while it loads, when the load fails, and the kept previous version ──
+       The page's side, with its requests answered here: this sandbox's stand-in agent is not one the server
+       treats as known, so its real route answers 404 (the route itself is tested in server.instructions-4406). */
+    const SN = await page.evaluate(() => CURRENT.sessionName);   // the session name the page loads by
+    const INSTR_URL = '**/api/agent/' + SN + '/instructions?*';
+    const PREV_URL = '**/api/agent/' + SN + '/instructions/previous?*';
+    const MINE = { exists: true, editable: true, text: '# Beatrix\n\nYou coordinate collections for the team.\n', version: 'v1', hasPrevious: true, staleness: null };
+    const answer = (route, body, status) => route.fulfill({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const held = [];
+    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { held.push(r); }); await answer(route, MINE); });
+    const release = () => { while (held.length) held.shift()(); };
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); });
+    await page.waitForTimeout(150);
+    const loading = await page.evaluate(() => {
+      const box = document.getElementById('d-instr');
+      return { line: !document.getElementById('d-instr-loading').hidden, spin: !!document.querySelector('#d-instr-loading .spin'),
+        ph: box.placeholder, value: box.value, boxOff: box.disabled, saveOff: document.getElementById('d-instr-save').disabled };
+    });
+    chk(loading.line && loading.spin && loading.ph === 'Loading instructions...' && loading.value === '' && loading.boxOff && loading.saveOff,
+      '#4406: while the box loads it says so with the loading mark, and neither the box nor Save can be used', JSON.stringify(loading));
+    release(); await page.waitForTimeout(300); await page.unroute(INSTR_URL);
+    const landed = await page.evaluate(() => ({ line: !document.getElementById('d-instr-loading').hidden, ph: document.getElementById('d-instr').placeholder,
+      value: document.getElementById('d-instr').value, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!landed.line && landed.ph === '' && landed.value === MINE.text && !landed.saveOff, 'CONTROL: once the load lands the text shows, the loading line goes and Save is usable', JSON.stringify(landed));
+    // A load that fails says so and offers Try again, which loads again.
+    await page.route(INSTR_URL, (route) => answer(route, { error: 'x' }, 500));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    const failed = await page.evaluate(() => ({ line: !document.getElementById('d-instr-loading').hidden, retry: !document.getElementById('d-instr-retry-row').hidden,
+      msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!failed.line && failed.retry && /could not be loaded/.test(failed.msg) && failed.saveOff, '#4406: a failed load says so, offers Try again, and Save stays off', JSON.stringify(failed));
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.click('#d-instr-retry'); await page.waitForTimeout(400);
+    const retried = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, value: document.getElementById('d-instr').value, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!retried.retry && retried.value === MINE.text && !retried.saveOff, '#4406: Try again loads the instructions and the retry goes away', JSON.stringify(retried));
+    // The kept previous version goes back in the box, and nothing is written until Save.
+    const PREV = '# Beatrix before\n\nThe words from before the last change.\n';
+    await page.route(PREV_URL, (route) => answer(route, { exists: true, text: PREV, because: null }));
+    const puts = [];
+    page.on('request', (r) => { if (r.method() === 'PUT' && /\/instructions$/.test(r.url())) puts.push(r.url()); });
+    chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), '#4406: with a previous version kept, the tab offers to put it back');
+    await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
+    const restored = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(restored.value === PREV && /Nothing is saved until you press Save/.test(restored.msg) && !restored.saveOff,
+      '#4406: the button puts the previous version in the box, says nothing is saved yet, and Save can keep it', JSON.stringify(restored));
+    chk(puts.length === 0, '#4406: and nothing was written (no save sent)', String(puts.length));
+    await page.unroute(INSTR_URL); await page.unroute(PREV_URL);
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {

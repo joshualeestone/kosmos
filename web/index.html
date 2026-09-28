@@ -11445,8 +11445,11 @@ window.kosmosMeasureScrollbarWidth();
          CLAUDE.md.previous", which is both jargon and, on a non-Claude agent,
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
-    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost.</div>
+    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
+    <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
+    <p class="dhint" id="d-instr-loading" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions...</p>
+    <div class="frow" id="d-instr-retry-row" hidden style="margin-top:6px;"><button class="btn" id="d-instr-retry" type="button">Try again</button></div>
   </div>
   </section>
   </section>
@@ -35404,6 +35407,13 @@ async function loadInstructions(sessionName) {
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
   renderStale(null);
+  /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
+     hold the answer for a while). It says it is loading until the answer lands, whichever way. */
+  box.placeholder = 'Loading instructions...';
+  document.getElementById('d-instr-loading').hidden = false;
+  { const rr = document.getElementById('d-instr-retry-row');
+    if (rr.contains(document.activeElement)) box.focus();   // never strand focus on a control that is going
+    rr.hidden = true; }
 
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instructions?t=' + Date.now(),
@@ -35416,9 +35426,11 @@ async function loadInstructions(sessionName) {
     // on B's panel. A new sibling does not inherit the guard; this one
     // now guards the whole family below it.
     if (mine !== INSTR_LOAD) return; // a newer agent is open; this answer is for the old one
-    if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    if (!CURRENT || CURRENT.sessionName !== sessionName) { document.getElementById('d-instr-loading').hidden = true; box.placeholder = ''; return; }
     if (!res.ok) throw new Error(data.error || 'that did not work');
 
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
     box.value = data.text || '';
     // Remember which version this is, so Save can refuse to clobber an edit
     // made after this load.
@@ -35477,6 +35489,9 @@ async function loadInstructions(sessionName) {
     loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
+    document.getElementById('d-instr-retry-row').hidden = false;   // #4406: a way to ask again, beside the sentence
     // The load is finished and broken, which is a different state from "still
     // in flight" and gets a different sentence. It leaves INSTR_READY false, so
     // Save stays refused: we have no version, and saving without one would be
@@ -35868,6 +35883,34 @@ function renderStale(s) {
   return;
 }
 
+/* #4406: a failed load is asked again for the agent on screen. */
+document.getElementById('d-instr-retry').addEventListener('click', () => {
+  if (CURRENT && CURRENT.sessionName) loadInstructions(CURRENT.sessionName);
+});
+/* #4406: put the kept previous version in the box. Writes nothing: the person's Save keeps it, with the version
+   this box loaded, and that Save keeps today's text as the new previous version, so this can be undone the same
+   way. A read that answers after another agent was opened is dropped. */
+document.getElementById('d-instr-prev-load').addEventListener('click', async () => {
+  const box = document.getElementById('d-instr');
+  const msg = document.getElementById('d-instr-msg');
+  const who = CURRENT && CURRENT.sessionName;
+  if (!who || !INSTR_READY) return;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/instructions/previous?t=' + Date.now(), { cache: 'no-store' });
+    data = await res.json().catch(() => null);
+    if (!res.ok) data = null;
+  } catch { data = null; }
+  if (!CURRENT || CURRENT.sessionName !== who) return;
+  if (!data || !data.exists) {
+    msg.textContent = 'The previous version could not be read' + (data && data.because ? ': ' + data.because : '') + '.';
+    return;
+  }
+  box.value = data.text || '';
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  msg.textContent = 'This is the version from before the last change. Nothing is saved until you press Save.';
+  box.focus();
+});
 document.getElementById('d-instr-save').addEventListener('click', async () => {
   if (!CURRENT) return;
   const msg = document.getElementById('d-instr-msg');

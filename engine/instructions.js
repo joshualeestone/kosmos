@@ -597,6 +597,30 @@ function read(agent, exactSession) {
 }
 
 /**
+ * #4406: the version kept beside an agent's instruction file (`<file>.previous`, written by every `write`),
+ * for the Instructions tab to put back in the box. Read through the same shared reader as the file itself,
+ * so the same symlink, containment and size refusals apply, and UTF-8 checked as `inspect` does. Writes
+ * nothing: putting it back is the person's own Save. Never throws.
+ */
+function readPrevious(agent) {
+  try {
+    const file = fileFor(agent);
+    if (!file) return { exists: false, text: '', because: 'that is not a name we can look up' };
+    const got = workerfile.readWorkerFile(`${file}.previous`, path.dirname(file));
+    if (!got.ok) {
+      return { exists: false, text: '', because: got.missing ? 'there is no previous version kept' : got.because };
+    }
+    const text = got.buf.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(got.buf)) {
+      return { exists: false, text: '', because: 'the previous version is not UTF-8 text, so it cannot be shown here' };
+    }
+    return { exists: true, text, because: null };
+  } catch (err) {
+    return { exists: false, text: '', because: (err && err.message) || 'the previous version could not be read' };
+  }
+}
+
+/**
  * Replace an agent's instructions.
  *
  * Refuses rather than creates: an agent with no worker directory is not an
@@ -999,6 +1023,6 @@ module.exports = {
   /* lazy, so the export cannot re-freeze what rootDir() unfroze (#1432) */
   get ROOT() { return rootDir(); },
   FILENAME, MAX_BYTES, MIN_CHARS, STALENESS, ABSENT, UNREADABLE,
-  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, write, renameIn, wroteBy,
+  fileFor, registryKey, sessionStartedAt, staleness, compare, versionOf, read, readPrevious, write, renameIn, wroteBy,
   _setNofollowForTest,
 };

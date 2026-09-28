@@ -14044,6 +14044,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #4406: the version kept beside the file, for the Instructions tab to put back in the box. Read-only:
+     putting it back is the person's own Save (the PUT below), with its version check. */
+  const instrPrev = pathname.match(/^\/api\/agent\/([^/]+)\/instructions\/previous$/);
+  if (instrPrev && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(instrPrev[1]);
+    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    sendJson(res, 200, instructions.readPrevious(name));
+    return;
+  }
+
   if (instr && req.method === 'PUT') {
     const name = decodeSegment(instr[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }

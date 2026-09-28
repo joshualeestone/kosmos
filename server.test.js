@@ -1565,6 +1565,31 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
   assert.equal(JSON.parse(back.body).text, text, 'a re-read did not see the write');
 });
 
+/* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */
+test('#4406: GET instructions/previous answers the kept version, writes nothing, and refuses an unknown agent', async (t) => {
+  const unknown = await req('/api/agent/definitely-not-an-agent/instructions/previous');
+  assert.equal(unknown.status, 404);
+  const bad = await req('/api/agent/%zz/instructions/previous?t=1');
+  assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'CLAUDE.md');
+  fs.writeFileSync(file, 'The instructions this agent had before the #4406 test ran.');
+  const text = 'Replaced by the #4406 test, so the old words are kept as the previous version.';
+  const put = await req(`/api/agent/${name}/instructions`,
+    { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+  assert.equal(put.status, 200, put.body);
+  const res = await req(`/api/agent/${name}/instructions/previous?t=1`);
+  assert.equal(res.status, 200, res.body);
+  assert.match(res.type, /application\/json/);
+  const body = JSON.parse(res.body);
+  assert.equal(body.exists, true);
+  assert.equal(body.text, 'The instructions this agent had before the #4406 test ran.');
+  assert.equal(fs.readFileSync(file, 'utf8'), text, 'reading the previous version must not write');
+});
+
 test('both modules resolve worker files under the SAME sandboxed root', async (t) => {
   // ⚠️ Pins the one thing standing between `node --test` and the live CLAUDE.md
   // files that real agents boot from. `status.js` used to carry its own
