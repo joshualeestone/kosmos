@@ -93,3 +93,6 @@ read as a NEW family every run (a false red). Full run 2 is the measurement.
 - [NIT] tails other than 6 or 10 characters are not recognised (13 mktemp sites use 8 X's, all cleaned up). Documented in the lib header.
 - The trace run had 2 failures from my scratch TMPDIR (one test depends on /tmp being a symlink); full run 6 at 6be87696e had 0 fail and the guard GREEN with no leak lines.
 - Validation: guard test 54/54.
+
+#### Iteration 8 (sonnet, blind, 2026-09-28 00:34 CDT)
+- No findings. The reviewer fed every allowlisted family with a realistic random tail through the real leak_family (all map to their listed family), read every mkdtempSync call site (each has a fixed literal prefix), checked remove-at-end's registry and stand-aside semantics, the EXIT-trap condition, and the launchd/process scoping. Converged.
