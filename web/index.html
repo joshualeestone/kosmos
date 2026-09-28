@@ -63825,11 +63825,17 @@ function asbStart() {
    win32-board-copy: a platform copy layer is back, for Windows rather than for the
    Success screen alone: onWindows() and windowsCopyTable() at the top of this script. */
 
-/* #4356: the Mac app's own handler for this computer's choice. Absent in a browser, and on a
-   board opened any other way, so the choice screen never shows there. */
+/* #4356: the app's own handler for this computer's choice: the Mac app's kosmosMode handler, or
+   the Windows app's window (WebView2), which takes { kosmosMode: "run|connect|both" } the way it
+   takes { kosmosBadge: n } (#4381, Homer's half). Absent in a browser, and on a board opened any
+   other way, so the choice screen never shows there; and only an app that knows the choice puts
+   ?mode= on the address (frChoiceWanted), so an older Windows app never shows it either. */
 function frChoiceBridge() {
   const h = window.webkit && window.webkit.messageHandlers;
-  return h && h.kosmosMode ? h.kosmosMode : null;
+  if (h && h.kosmosMode) return h.kosmosMode;
+  const wv = window.chrome && window.chrome.webview;
+  if (wv && typeof wv.postMessage === 'function') return { postMessage: (mode) => wv.postMessage({ kosmosMode: mode }) };
+  return null;
 }
 
 /* #4356: the app puts ?mode=unset on a computer that has not chosen, and ?mode=unreadable when its

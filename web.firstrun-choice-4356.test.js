@@ -106,7 +106,7 @@ function lift(name) {
   assert.fail(name + ' never closes');
 }
 
-function world({ search = '', bridge = true, throws = false } = {}) {
+function world({ search = '', bridge = true, throws = false, windows = false } = {}) {
   const posted = [];
   const btn = (mode) => ({ dataset: { mode }, disabled: false, onclick: null, focused: false, focus() { this.focused = true; } });
   const btns = [btn('run'), btn('connect'), btn('both')];
@@ -120,7 +120,9 @@ function world({ search = '', bridge = true, throws = false } = {}) {
     URLSearchParams,
     Promise,
     document: { getElementById: (id) => (id === 'fr-choice' ? el : id === 'boot-cover' ? cover : null) },
-    window: { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
+    window: windows
+      ? { chrome: { webview: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } }
+      : { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
   vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoose')].join('\n'), ctx);
@@ -134,6 +136,21 @@ test('#4356: the screen shows only in the Mac app, and only when the app says no
   assert.equal(world({ search: '' }).ctx.frChoiceWanted(false), false, 'a Mac that has chosen is asked again');
   assert.equal(world({ search: '?mode=run' }).ctx.frChoiceWanted(false), false);
   assert.equal(world({ search: '?mode=unset', bridge: false }).ctx.frChoiceWanted(false), false, 'a browser shows a Connect button that cannot do anything');
+});
+
+test('#4356: the Windows app (WebView2) is a bridge too, told { kosmosMode } like its { kosmosBadge }', async () => {
+  const w = world({ search: '?mode=unset', windows: true });
+  assert.equal(w.ctx.frChoiceWanted(false), true, 'the Windows app never shows the first screen (#4381)');
+  assert.equal(world({ search: '', windows: true }).ctx.frChoiceWanted(false), false, 'an older Windows app, which puts no ?mode=, would show it');
+  const choice = w.ctx.frChoose();
+  w.btns[2].onclick();
+  assert.equal(await choice, 'both');
+  assert.deepEqual(JSON.parse(JSON.stringify(w.posted)), [{ kosmosMode: 'both' }]);
+  // A plain Chrome has window.chrome but no webview: not a bridge.
+  const chrome = { location: { search: '?mode=unset' }, URLSearchParams, window: { chrome: {} } };
+  vm.createContext(chrome);
+  vm.runInContext(lift('frChoiceBridge') + '\n' + lift('frChoiceWanted'), chrome);
+  assert.equal(chrome.frChoiceWanted(false), false, 'plain Chrome shows a first screen whose buttons reach nothing');
 });
 
 test('#4356: Run agents tells the app "run", hides the screen and lets first run carry on', async () => {
