@@ -89,7 +89,7 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
   const mention = run([['115', WORK, 'bash -c pgrep -f tools/test-install.sh', 'zsh']]);
   assert.equal(mention.code, 0, mention.out);
   assert.match(mention.out, /ignore 115: mentions the name but does not run it/);
-  // The control differs from 113 only in the folder the script sits in.
+  // The control differs from 117 only in the folder the script sits in.
   assert.equal(run([['116', WORK, 'bash ' + WORK + '/tools/test-install.sh --sleep 4', 'zsh']]).code, 1);
 });
 

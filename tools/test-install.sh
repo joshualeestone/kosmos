@@ -45,7 +45,7 @@ fi
 . "$HERE/tools/lib/disk-guard.sh"
 kosmos_require_free_mb "${KOSMOS_HARNESS_MIN_FREE_MB:-3072}" "${TMPDIR:-/tmp}" "a full install-harness run" || exit 1
 # ---- a cut, before a port is taken (#708) ------------------------------------
-# Two copies of this gate on one Mac poison each other (fixed ports, the real
+# Two copies of this gate on one Mac poison each other (the same port range, the real
 # folder fingerprints, the gui launchd domain); measured 2026-08-26 01:29. A
 # cut's own run (the holder of its machine claim, #4410) is the cut and never refuses itself;
 # tools/test-cut-guard.sh shows the guard red and green.

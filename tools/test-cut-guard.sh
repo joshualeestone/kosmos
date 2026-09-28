@@ -346,9 +346,16 @@ else
     ours="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E "^$harness +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |\$)" || true)"
     { [ "$rc" -ne 0 ] && [ -n "$ours" ]; } && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
       || fail "a live harness was not detected: rc=$rc ours='$ours' out=$out"
+    # A REAL harness another agent started after the pre-flight would refuse the plain caller too;
+    # re-check it (fixtures dropped, as the mention arm does) so that reads as a SKIP, not a FAIL.
+    _late_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' | _kosmos_drop_test_fixtures || true)"
+    if [ -n "$_late_harness" ] && [ "$rc_plain" -ne 0 ]; then
+      echo "SKIP  the plain-caller arm: a real harness started meanwhile, so it cannot answer (${_late_harness:0:60})"
+    else
     { [ "$rc_plain" -eq 0 ] && has "$out_plain" "CUT-PROCEEDS"; } \
       && pass "#4410 the same live stand-in, in the fixture sandbox, is dropped by the harness guard without the test seam" \
       || fail "#4410 a sandboxed stand-in refused the harness guard without the seam, so other agents' runs would too: rc=$rc_plain out=$out_plain"
+    fi
   else
     echo "SKIP  harness detection: the stand-in exited before both guard calls finished (a loaded Mac), so neither arm can answer"
   fi
@@ -529,7 +536,7 @@ _wired "$RT" '&& ! kosmos_holds_machine_claim; then' \
   || fail "#4410 run-tests.sh's harness check is not scoped to the claim holder"
 
 # kosmos_holds_machine_claim: our live claim yes; a foreign one, none, or no cookie of ours, no.
-MCD="$T/mc4410"; mkdir -p "$MCD"; ( sleep 30 ) & mcp=$!
+MCD="$T/mc4410"; mkdir -p "$MCD"; sleep 30 & mcp=$!
 printf 'MINE %s %s host release x\n' "$mcp" "$(( $(date +%s) + 600 ))" > "$MCD/machine-claim"
 KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=MINE bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
   && pass "#4410 the run holding the live claim is recognised as the claim holder" \

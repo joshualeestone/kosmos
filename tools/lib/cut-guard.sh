@@ -221,7 +221,7 @@ _kosmos_marker_other_live() {
 }
 
 # The live-cut guard (#708). Two copies of the install gate on one Mac share
-# the fixed port range, the real ~/Applications and /Applications
+# the harness's port range (probed from 4460), the real ~/Applications and /Applications
 # fingerprints and the gui launchd domain, and they poison each other:
 # measured 2026-08-26 01:29, a local run went red on "real home Applications
 # unchanged" at the second cut 0.5.54's own gate was installing. A cut has
@@ -436,7 +436,8 @@ kosmos_refuse_if_harness_live() {
 # probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
 # Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
-# matched; `yarn test` and `bash tools/run-tests.sh`, the documented ways, are.
+# matched; `yarn test` and `bash tools/run-tests.sh` (any bash or sh, by path too), the documented
+# ways, are.
 # The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
 # stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
 # suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
@@ -444,7 +445,7 @@ _kosmos_suite_candidates() {
   local raw rc
   raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return "$rc"
-  printf '%s\n' "$raw" | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
 }
 
 kosmos_refuse_if_suite_live() {

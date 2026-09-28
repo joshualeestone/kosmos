@@ -9,6 +9,7 @@
 # Needs the staged trees in dist/ (build them first, as test-install.sh says).
 # Minutes, three gate runs (untouched, staged tree broken, tarball broken); run by hand before changing the gate or the
 # installer's post-extract list: `bash tools/test-install-gate-control.sh`.
+# Exit 0: the control holds. Exit 1: a real red. Exit 3: skipped, the box was busy (#4410).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
@@ -34,14 +35,20 @@ settle() {
 }
 # #4410: test-install.sh now refuses to start beside a live suite, another harness or a cut, even
 # with KOSMOS_INSTALL_GATE=1 (only a cut's own claim holder skips those checks). Such a refusal is
-# not the gate's verdict, so say the box is busy instead of scoring it as green or red.
-if ! bash tools/heavy-gate.sh --quiet --quiet-box; then
-  echo "SKIP: the box is busy (bash tools/heavy-gate.sh --quiet-box says with what), and test-install.sh would refuse to start; run this control again when it is quiet."; exit 1
+# not the gate's verdict, so say the box is busy instead of scoring it as green or red, and exit 3
+# (not 1, which is a real red) so `... && echo ok` and a caller's exit check can tell them apart.
+# The pre-check is heavy-gate --quiet-box, which is broader than the harness's own refusals (it also
+# counts a browser run and a release reservation): all of those would disturb a gate run anyway.
+hg_rc=0; bash tools/heavy-gate.sh --quiet --quiet-box || hg_rc=$?
+if [ "$hg_rc" -ne 0 ]; then
+  if [ "$hg_rc" = 1 ]; then why="the box is busy (bash tools/heavy-gate.sh --quiet-box says with what)"
+  else why="heavy-gate could not read the box (exit $hg_rc)"; fi
+  echo "SKIP: $why, so this control cannot answer; run it again when the box is quiet."; exit 3
 fi
 busy_refusal() {
   grep -qE 'is already running on this Mac|a cut is running on this Mac|reserved for a release' "$1" || return 1
   echo "SKIP: a gate run was refused because the box became busy, not judged: $(grep -E 'already running on this Mac|cut is running|reserved for a release' "$1" | head -1 | cut -c1-160)"
-  exit 1
+  exit 3
 }
 # CONTROL OF THE CONTROL: the untouched copy must be green, or the red below
 # could be the copy itself.
