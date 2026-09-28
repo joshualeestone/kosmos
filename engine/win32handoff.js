@@ -385,7 +385,9 @@ function canonicalAddress(bare) {
  * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
  * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
  * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
- * without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface, by scope id or by name: the
+ * without its zone, and a zone (`%14`, `%en0`) must name that interface, by scope id or by name. (On Windows the
+ * bind host's zone has already been read by windowsZoneAsLibuvReadsIt, #4258, so no name zone arrives here from
+ * it; an address from a name lookup is not re-read, and carries no name zone.) The
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
@@ -418,6 +420,30 @@ function thisMachinesSpellings(address, interfaces) {
   return spellings;
 }
 
+/**
+ * #4258: the bind host as Windows reads it. Windows zones are the numeric scope id, and libuv reads a Windows
+ * zone with atoi (read from libuv source, not measured). The look never probes LESS than a board could hold:
+ *   - all digits: the number atoi gives, so `%014` is probed as `%14`; 0 is no zone (below);
+ *   - anything else (a NAME such as `%Wi-Fi` or `%Ethernet 2`, a mix such as `%14abc`, a sign such as `%-14`,
+ *     or nothing after `%`): no zone. atoi would give 0, a leading number or (for a sign) a negative one, and
+ *     whether Windows then binds is not measured either,
+ *     so the address is taken as unzoned, which probes it through EVERY interface that has it (the unzoned
+ *     path of thisMachinesSpellings), a superset of whatever the board bound.
+ * A non-IPv6 host, and every host on another platform, are returned unchanged. `platform` replaces
+ * process.platform in a test.
+ */
+function windowsZoneAsLibuvReadsIt(bound, platform) {
+  if ((platform || process.platform) !== 'win32') return bound;
+  const text = String(bound);
+  const at = text.indexOf('%');
+  if (at < 0) return bound;
+  const bare = text.slice(0, at);
+  if (require('node:net').isIP(bare) !== 6) return bound;
+  const zone = text.slice(at + 1);
+  if (/^[0-9]+$/.test(zone) && Number(zone) > 0) return bare + '%' + Number(zone);
+  return bare;
+}
+
 /* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
 function isLinkLocalAddress(bare) {
   return /^fe[89ab][0-9a-f]:/i.test(bare);
@@ -432,10 +458,10 @@ function isLinkLocalAddress(bare) {
  * A board cannot listen on an address this machine does not have (server.listen fails), so no other
  * address is ever probed, and no probe crosses the network to another machine. A name that does not
  * resolve, or does not resolve within BIND_HOST_LOOKUP_TIMEOUT_MS, adds nothing: a board could not have
- * bound it either. `lookup` replaces dns.lookup in a test.
+ * bound it either. `lookup` replaces dns.lookup in a test, and `platform` process.platform (#4258).
  */
-async function bindHostProbeAddresses(env, lookup, interfaces) {
-  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
+async function bindHostProbeAddresses(env, lookup, interfaces, platform) {
+  const bound = windowsZoneAsLibuvReadsIt(require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1'), platform);
   if (!bound || BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase())) return [];
   let found = [bound];
   if (require('node:net').isIP(bound) === 0) {
@@ -462,9 +488,9 @@ async function bindHostProbeAddresses(env, lookup, interfaces) {
  * connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER process's
  * environment cannot be seen from here; the board task's state is the backstop (the plan's known limits).
  */
-async function boardProbeAddresses(env, lookup, interfaces) {
+async function boardProbeAddresses(env, lookup, interfaces, platform) {
   const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
-  for (const address of await bindHostProbeAddresses(env, lookup, interfaces)) {
+  for (const address of await bindHostProbeAddresses(env, lookup, interfaces, platform)) {
     if (!addresses.some((known) => known.toLowerCase() === address.toLowerCase())) addresses.push(address);
   }
   return addresses;
@@ -487,12 +513,12 @@ function opennessRank(answer) {
  * slowest probe rather than their sum (plus resolving a bind host name, when there is one). The most open
  * answer wins, with the address it came from (`host`). The uninstall and the move read it with
  * boardMayBeOpen; the launcher's hand-off does not use it and still asks 127.0.0.1 alone (#2983).
- * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, and `interfaces` replaces os.networkInterfaces()
- * in a test.
+ * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, `interfaces` replaces os.networkInterfaces()
+ * and `platform` replaces process.platform, in a test.
  */
-async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces) {
+async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces, platform) {
   const look = typeof probeOne === 'function' ? probeOne : probeBoard;
-  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces)).map(async (host) => {
+  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces, platform)).map(async (host) => {
     let answer;
     try {
       answer = { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
@@ -762,4 +788,5 @@ async function decideHandOff(o) {
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader, SERVE_HERE_SIGNAL_ENV, signalServingHere,
+  windowsZoneAsLibuvReadsIt,
 };
