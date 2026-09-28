@@ -47,4 +47,15 @@ read as a NEW family every run (a false red). Full run 2 is the measurement.
   Allowlist rebuilt from runs 1 and 3 (258 lines). `(unnamed)` is allowlisted TEMPORARILY: one fully random
   entry per run, source not found; the guard now prints a raw example per reported family to trace it.
   Run 2 had 4 failures, all load flakes (none of the 4 files uses tmpscope; alone they pass 339/339).
+- Round 2 (sonnet): B the no-separator branch of leak_family stripped the last 6 characters UNCONDITIONALLY, so a
+  real name (`readme`, `status`) became `(unnamed)` and was hidden by the temporary allowlist line -> the last 6
+  go only when they look random; test cases readme/status/logfile. W an all-one-case random TAIL made a family
+  flaky -> the trailing 6/10 token after a separator is stripped whatever its case (the case-mix test stays for
+  mid-name tokens only); test codex-forget-abcdef. W a bare root given as its own argument was not matched ->
+  matched. W TERM then KILL after 1s could kill a load-starved process mid-cleanup -> 3s. W the two
+  browser-check helpers re-raised over another handler -> they stand aside, as tmpscope does. DEFERRED NITs: the
+  note's plural (cosmetic); a launchd label containing a space (launchd labels do not contain spaces in
+  practice); tmpscope's source pin of the `kts-` name (kept on purpose: the socket-length budget depends on that
+  exact literal). Guard test 42/42 under /bin/bash 3.2 and brew bash. Full run 4 (before these) was green:
+  10996 tests, 0 fail, no leak.
 
