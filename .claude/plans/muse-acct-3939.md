@@ -193,3 +193,12 @@ stopped over later polls.
   task) both use it, so the two paths cannot drift again. Arms for both races on the picker
   path; each re-check, removed, fails one arm on EACH path.
 - NIT FIXED: the redundant acctAddPickSay('') is gone (acctPick already empties the line).
+
+## Review round 13 (opus): 0 blockers, 0 warnings, 2 nits -- CONVERGED
+Reviewer traced every delayed and asynchronous write on these paths (both timers, the 3 s
+/api/muse wait, museAsk, the logo picker's commit order with the real keyboard, Enter and
+Space, the poll): all re-check before acting.
+- N1 FIXED (test only): the visit re-check had no arm that could fail; a close in the same
+  step as the press now asserts nothing is written, and removing the re-check fails it.
+- N2 FIXED (comment only): acctFocusRunningSignin's comment sits on its own function again.
+Neither changes behaviour, so the loop ends here.

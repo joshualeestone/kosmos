@@ -26233,9 +26233,6 @@ async function acctGeminiSignInAgain() {
   ACCT_AGY_SUB.next = 'open';
   ACCT_AGY_SUB.start();
 }
-/* #3939 slice 3c-2: focus for a running Claude sign-in brought back on screen, by openAcctAdd's own rule: the
-   code field if it shows, else Stop. Never the page behind (#1918): if that control cannot take focus (its panel
-   not painted yet), the picker can. One rule for Sign in again and for Meta picked in the picker (round 10). */
 /* #3939 slice 3c-2 (review round 12): the ONE delayed "Claude sign-in first" line. It speaks a moment after the
    step shows (so it is announced, round 7) and checks everything again when it speaks (round 8): the same
    visit of Add a provider, a Claude sign-in still running, the picker still on Claude. Both the Meta row's Sign
@@ -26251,6 +26248,9 @@ function museBusySayLater(delayMs) {
     acctFocusRunningSignin();
   }, delayMs);
 }
+/* #3939 slice 3c-2: focus for a running Claude sign-in brought back on screen, by openAcctAdd's own rule: the
+   code field if it shows, else Stop. Never the page behind (#1918): if that control cannot take focus (its panel
+   not painted yet), the picker can. One rule for Sign in again and for Meta picked in the picker (round 10). */
 function acctFocusRunningSignin() {
   const codeRow = document.getElementById('acct-code-row');
   const target = codeRow && !codeRow.hidden ? document.getElementById('acct-code') : document.getElementById('acct-cancel');

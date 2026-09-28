@@ -504,6 +504,12 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 50)); mo.disconnect(); return seen;
   });
   chk(changes.includes('') && /Claude sign-in first/.test(changes[changes.length - 1]), 'picking Meta again is announced again (emptied, then said)', JSON.stringify(changes));
+  // Round 13: a dialog closed before the line speaks (the visit re-check): nothing is written into it.
+  await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
+  await q(() => { openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+  await q(() => { closeAcctAdd(); document.querySelector('#set-accounts [data-muse-reauth]').click(); closeAcctAdd(); });
+  await page.waitForTimeout(200);
+  chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'a dialog closed before the line speaks gets nothing written into it');
   // Round 12: the picker path's delayed line checks again too: another provider picked, or the sign-in ended,
   // before it speaks, leaves nothing stale.
   for (const [how, act] of [['another provider picked', "const s2 = document.getElementById('acct-provider-pick'); s2.value = 'openai'; s2.dispatchEvent(new Event('change'));"], ['the sign-in ended', "acctFlowPaint({ phase: 'failed', because: 'Claude closed before the sign-in finished' });"]]) {
