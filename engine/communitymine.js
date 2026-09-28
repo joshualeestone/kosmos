@@ -15,14 +15,10 @@ const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
 const store = require('./store');
 
-/* The states the owner can delete from: a post that is out (sent), or one the board tried to
-   send and got no answer for (unconfirmed: it may be on the server, and the send layer finds
-   it and deletes it). Not once a delete is asked for, a moderator took it down, or central
-   refused the agent (the send layer has no key to delete with).
-   Not 'pending': a post nobody has tried to send has no record here, so it is not listed.
-   The send layer can withhold one (requestDelete on an unsent post), but listing what is
-   about to go needs its due list, which it does not export; a follow-up, not this card. */
-// pending: waiting for a retry (a 429 or 401); a delete withholds it, so it never goes out.
+/* The states the owner can delete from, pinned by communitymine.test.js: sent, unconfirmed (no
+   answer to the send, so it may be on the server) and pending (waiting for a retry; a delete
+   withholds it). Not once a delete is asked for, a moderator took it down, or central refused
+   the agent. */
 const DELETABLE = Object.freeze(['sent', 'unconfirmed', 'pending']);
 
 function canDelete(st) {

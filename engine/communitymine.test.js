@@ -61,7 +61,7 @@ test('only posts the send layer has a record for are listed, titled from the boa
   assert.equal(rows[0].canDelete, true);
 });
 
-test('Delete is offered on a post that is out or unconfirmed, and nowhere else', () => {
+test('Delete is offered on a post that is out or unconfirmed, and on none of the other sent states (pending: below)', () => {
   const id = {};
   for (const t of ['sent', 'unconfirmed', 'refused', 'withheld', 'down', 'refusedAgent']) id[t] = agentPost('ava', { topic: t, body: t }).id;
   writeKeys({ bo: { refused: true } });

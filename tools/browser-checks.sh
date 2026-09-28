@@ -1232,7 +1232,7 @@ if boot_board "$sb7" "$P8"; then
   # a click). Every /api/community-setting request is answered at the browser, so it writes nothing.
   run_one "render-community-switch-4288" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-switch-4288.js
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
-  # a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
+  # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js
   # #2047: the auto-update, engineering-mode and run-limits switches are 403-safe
   # (a gated read draws could-not-read, never a false Off). The 403 arm is simulated

@@ -7,8 +7,8 @@
  * /api/community/mine and /api/community/delete are both answered at the browser (page.route),
  * so this check writes nothing to the board and each arm sees exactly the state it names:
  *   EMPTY     no posts: the list is hidden and the empty line says none have gone out.
- *   ROWS      three rows (one out, one deleted, one taken down): three items, each with its
- *             state in words, and Delete on ONLY the one still out.
+ *   ROWS      nine rows: each says its state in words, and
+ *             Delete shows on ONLY the sent, unconfirmed and pending ones.
  *   ASK       pressing Delete asks inside the row, Keep it takes focus, and nothing is sent yet.
  *   KEEP      Keep it closes the ask, sends nothing, and puts focus back on Delete.
  *   DELETE    Delete it POSTs exactly {id}, then repaints from the board: the row says it is
