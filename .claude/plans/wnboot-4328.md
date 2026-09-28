@@ -29,8 +29,10 @@ Addresses #4328 (claimed:raiden, Liu Kang m2362). Found by Renet while building 
   - Measured: the cover test FAILS against main's page ("the window opened under the boot cover"), and the
     control passes on both.
 - `docs/browser-checks/render-boot-no-flash.js` (the check the surface gate maps to `boot-cover`) gains arms C and D.
-  - Arm C holds `/api/first-run`, with `/api/whats-new` answering a newer version at once. At 2 s, inside the
-    3 s fallback, the cover must be up with no window and no seen POST; after the cover lifts, one of each.
+  - Arm C holds `/api/first-run`, with `/api/whats-new` answering a newer version at once. It looks 700 ms after
+    `/api/whats-new` is answered (review iteration 1: the 3 s fallback starts before domcontentloaded, so a fixed
+    2 s wait from load left under a second of margin). The cover must be up with no window and no seen POST; after
+    the cover lifts, one of each.
   - Arm D is the control, with no hold.
   - The seen POST is answered in the page and never reaches the shared board, and tips are switched off so the
     tour cannot be what holds the window.
@@ -40,6 +42,12 @@ Addresses #4328 (claimed:raiden, Liu Kang m2362). Found by Renet while building 
       A, B and D.
 
 ## Weakest part
-- Arm C depends on the 3 s fallback: it observes at 2 s. On a very slow CI runner the page might not have fetched
-  `/api/whats-new` by 2 s, and then main would pass that arm by accident. The fix side cannot false-pass that way.
-  The unit test does not depend on timing.
+- Arm C races the 3 s fallback in both directions.
+  - If the page is slow to fetch `/api/whats-new`, main could pass the arm by accident. It now reads 700 ms after
+    the answer, which bounds this.
+  - If the fallback lifts the cover before the read, correct code fails with "the cover was already down when the
+    arm looked". That is a loud false red, never a false green.
+  - The unit test does not depend on timing.
+- Not covered by this fix, and unreachable today (review iteration 1): first-run answering not-done after the 3 s
+  fallback would lift the cover, let What's New open, then paint the first-run overlay over it. A fresh install
+  has no `seen` and returns before any window, so that path does not occur now.

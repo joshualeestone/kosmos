@@ -123,18 +123,25 @@ async function whatsNewArm(browser, label, hold) {
   if (!hold) released();
   let seen = 0;
   await page.route('**/api/first-run', async (route) => { await gate; route.fulfill({ json: { done: true } }); });
-  await page.route('**/api/tips', (route) => (route.request().method() === 'GET'
+  await page.route((u) => u.pathname === '/api/tips', (route) => (route.request().method() === 'GET'
     ? route.fulfill({ json: { ok: true, seen: [], off: true } }) : route.fulfill({ json: { ok: true } })));
   await page.route('**/api/whats-new/seen', (route) => { seen += 1; route.fulfill({ json: { ok: true } }); });
-  await page.route('**/api/whats-new', (route) => route.fulfill({ json: {
-    current, seen: '0.0.1', highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] } }));
+  let answered;
+  const newsAnswered = new Promise((r) => { answered = r; });
+  await page.route((u) => u.pathname === '/api/whats-new', async (route) => {
+    await route.fulfill({ json: {
+      current, seen: '0.0.1', highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] } });
+    answered();
+  });
   await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
   const wnUp = () => page.evaluate(() => !!document.getElementById('whatsnew'));
   if (hold) {
-    // Well inside the 3 s fallback that lifts the cover on its own; /api/whats-new has long answered by now.
-    await page.waitForTimeout(2000);
+    // Read shortly after /api/whats-new is answered, not at a fixed time from load: the 3 s fallback that lifts the
+    // cover starts while the page script runs, before domcontentloaded, so a fixed wait eats the margin.
+    await newsAnswered;
+    await page.waitForTimeout(700);
     const during = await coverIsOccluding(page);
-    check(during.up, `${label}: #boot-cover was not up at 2 s, so this arm observed nothing`);
+    check(during.up, `${label}: #boot-cover was already down when the arm looked (the 3 s fallback beat it), so this arm observed nothing`);
     check(!(await wnUp()), `${label}: What's New opened under the boot cover, where nobody can see it`);
     check(seen === 0, `${label}: the version was recorded as seen (${seen}) while the boot cover was up`);
     released();
@@ -166,5 +173,5 @@ async function whatsNewArm(browser, label, hold) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-boot-no-flash PASS: no agents-view flash on either arm; cover held through the gate and came down onto the right destination.');
+  console.log('render-boot-no-flash PASS: no agents-view flash on either first-run arm (A, B); the cover held through the gate and came down onto the right destination; What\'s New waited out the cover and opened after it (C), and opens at once without it (D).');
 })().catch((e) => { console.error('FAIL  render-boot-no-flash crashed:', e && e.message); process.exit(1); });
