@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { makeFakeTunnel, tripwire } = require('../test-support/fake-mac-request');
+const { makeFakeTunnel, tripwire, waitForCalls: waitForFakeCalls } = require('../test-support/fake-mac-request');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-macstanding-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
@@ -98,11 +98,8 @@ test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing 
 /* kosmos#4277: a board whose switch is ON but which believes it is NOT enrolled never asks
    for a relay ticket, and this report is the only way the reason reaches us. It goes signed
    with the key alone, at most every five minutes, and never when off or keyless. */
-async function waitForCalls(n, ms) {
-  const until = Date.now() + (ms || 3000);
-  while (fake.calls().length < n && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
-  return fake.calls();
-}
+// The shared helper, with room for a loaded box (a spawned fake tunnel can take seconds there).
+const waitForCalls = (n) => waitForFakeCalls(fake, n, 15000);
 function keyOnly(on) {
   unenroll();
   for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(STATE, f), 'x');

@@ -94,16 +94,17 @@ const CODES = [
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket.
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
+  // (`invalid peer certificate: <reason>` is rustls's wording, under the tunnel's `relay TLS handshake`.)
   // A certificate the Mac does not trust is a trust or configuration fault, not an outage.
   ['relay-certificate', /relay TLS handshake: invalid peer certificate/i],
   // `relay did not answer AUTH` is session.rs's AUTH read timeout: the relay never answered.
   ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH|relay did not take AUTH/i],
   ['relay-refused', /relay refused|relay answered AUTH/i],
   // A write error sending AUTH: the connection broke mid-handshake (kosmos#4315's tunnel wording).
-  // A bare frame error can only come from AUTH (mid-session ones carry `relay connection lost:`):
+  // A bare frame error (header or payload) can only come from AUTH (mid-session ones carry `relay connection lost:`):
   // the relay closed the connection while this Mac authenticated. Tunnels already shipped write
   // it this way.
-  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay|^writing AUTH to the relay|^(reading|writing) frame header/i],
+  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay|^writing AUTH to the relay|^(reading|writing) frame (header|payload)/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
   // close): routine, not a failure.
   ['reconnecting', /the connection closed/i],

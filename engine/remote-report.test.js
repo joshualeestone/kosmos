@@ -120,6 +120,8 @@ test('classify: each known failure kind gets its code, anything else is other, n
     // proto frame.rs, bare: the relay closed the connection during AUTH (tunnels already shipped).
     ['reading frame header: early eof', 'relay-dropped'],
     ['writing frame header: Broken pipe (os error 32)', 'relay-dropped'],
+    ['reading frame payload: early eof', 'relay-dropped'],
+    ['writing frame payload: Broken pipe (os error 32)', 'relay-dropped'],
     // coordinator.rs, verbatim: an answer that is not the coordinator's.
     ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
     ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],

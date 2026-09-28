@@ -22,13 +22,18 @@ Rejected:
 - `node --test engine/remote-report.test.js`: 13 of 13 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 18 of 18, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
 - `engine/remote-standing-refresh.test.js`: 9 of 9, including a future standing_at (a clock stepped back) read as stale.
-- `engine/remote.test.js`: 111 of 111, including ten #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 111 of 111 (a full run at load 10 or more can flake the pre-existing #3827 timing tests, which also flake on main; they pass on re-run), including ten #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2), since resolved
 - Resolved in review 17: clearHalfIdentity waits for signed calls already out (as Forget does) before it retires and wipes; the key-only report fires exactly when a person is likely to sign in again, so the race was no longer rare. Tested; a mutant without the wait fails.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 27
+- mac-standing.test.js used its own waitForCalls with a 3 s default, a second derivation of the shared test-support helper, and it flaked under load. It now uses the shared helper with 15 s.
+- An AUTH-time frame PAYLOAD error (`reading frame payload` / `writing frame payload`, frame.rs) also reads relay-dropped, like the header one. Verbatim tests.
+- relay-certificate's sentence is rustls's `invalid peer certificate: <reason>` under the tunnel's `relay TLS handshake`; said at the pattern.
 
 ## Review 26
 - A relay closing the connection during AUTH reads relay-dropped, for tunnels already shipped: the proto frame error arrives bare (`reading frame header: early eof`, `writing frame header: ...`), while mid-session frame errors carry `relay connection lost:`. Verbatim tests.
