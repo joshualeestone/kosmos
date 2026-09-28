@@ -29,6 +29,12 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 11
+- The three later coordinator patterns were dead: every coordinator sentence starts with `Kosmos+` and is taken by the anchored pair first. Removed; `Kosmos+ said no` joined the anchored refusal.
+- The enrolment file list is one list: remote.js ENROL_FILES, which enrolled() reads; remote-report.js keeps its copy (so it loads without remote.js) and a remote.test.js test asserts the two are equal (an added-file mutant fails it).
+- The register-overlap fix now has a test: a rename re-runs setup on an enrolled Mac while a crashed tunnel's restart timer fires inside it; reverting the fix makes it fail.
+- A second stray stderr line in a mac-standing test silenced.
+
 ## Review 10
 - heal is judged by the supervisor's PROCESS (remote.supervisorState: alive, waiting, none), not status(): status() reads `restarting` for the tunnel's own in-process reconnects too, so a routine reconnect after any relaunch read `relaunch-failed`, and a relaunched tunnel stuck dialling read `none` forever.
 - A restart timer firing while a register is out no longer leaves the register's own start counted as a relaunch.
@@ -42,9 +48,6 @@ Rejected:
 - CODES order no longer carries the healthy sentences: a test asserts each healthy dialling sentence matches `starting` and no other pattern (a loosened relay-unreachable mutant fails it).
 - mac-standing's home-directory assertion could not fail (the fixtures live under tmpdir); it now asserts the state dir path and its basename are absent (a path-leak mutant fails it).
 - Nits: the unused `home` test parameter removed, a backwards assertion message fixed, a stray stderr line in one test silenced.
-
-## Deferred (review 10)
-- The register-overlap fix in ensure() (clear restartPending while a register is out) has no test: reproducing it needs a restart timer to fire inside a register window. It is one line, and its effect is only on the heal count.
 
 ## Deferred (review 8)
 - The ten-minute report timer in server.js has no behavioural test (server.js boot is not unit-tested here). What it calls, refreshStandingIfStale, is covered, and the timer is two lines beside the ensure tick.

@@ -624,6 +624,38 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
   remote.resetForTests();
 });
 
+test('#4277: the report names the same enrolment files enrolled() checks', () => {
+  assert.deepEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
+    'the not-enrolled report would name files enrolled() does not check');
+});
+
+/* kosmos#4277 review 10/11: a restart timer that fires while a register is out defers to the
+   register, which starts the tunnel itself; that start is the register's, not a relaunch. */
+test('#4277: a restart timer firing during a register does not count the register\'s start as a relaunch', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9447';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.ensure(4330);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  // A rename re-runs setup on an enrolled Mac and keeps its id (the fake writes the same mac_id), so
+  // the register neither stops the tunnel nor lets ensure() start one while it is out. The next
+  // tunnel runs; the setup holds long enough for the 1 s restart timer to fire inside it.
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  process.env.FAKE_REGISTER_MS = '3000';
+  const before = remote.restartCount();
+  try {
+    const racing = remote.setupComplete('123456', 'theirs');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out');
+    assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
+    const r = await racing;
+    assert.equal(r.ok, true, r.because);
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up');
+    assert.equal(remote.restartCount(), before, 'the register\'s own start was counted as a supervisor relaunch');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
   /* Until 2026-08-24 this asserted "no relay set is off with the reason, not
      a spawn into nowhere": the relay's domain was undecided, so a default

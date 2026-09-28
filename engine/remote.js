@@ -442,9 +442,10 @@ function write(patch, opts) {
     certificate. Half a state dir is not enrolled. */
 /* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
    halfRegistered() whether it holds a key the coordinator knows (#3827). */
+const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 function enrolled() {
   const dir = STATE_DIR();
-  return ['mac_id', 'address', 'tls.crt', 'tls.key'].every((f) =>
+  return ENROL_FILES.every((f) =>
     fs.existsSync(path.join(dir, f)));
 }
 
@@ -1872,6 +1873,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */
   supervisorState: () => (restartTimer ? 'waiting' : (child ? 'alive' : 'none')),
   KEY_ONLY_ROUTE,
+  ENROL_FILES,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge

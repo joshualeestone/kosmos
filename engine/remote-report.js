@@ -63,10 +63,13 @@ const CODES = [
   // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
   ['ticket-mismatch', /ticket does not verify|ticket names /i],
   ['cert-renewal', /renewal/i],
-  // The coordinator's own sentences (coordinator.rs) start with `Kosmos+`, so they are taken before
-  // the relay patterns, which a gateway error page in their detail could otherwise match (review 10).
+  // The coordinator's own sentences (coordinator.rs) all start with `Kosmos+`, so they are taken
+  // before the relay patterns, which a gateway error page in their detail could otherwise match
+  // (review 10). A 4xx is a refusal and a 5xx an outage; coordinator.rs writes `Kosmos+ refused this
+  // Mac: <why> (HTTP <code> on <path>)` for ANY status whose body parses as a refusal, 5xx included,
+  // so the 5xx form is taken first (review 9). These are the only coordinator patterns (review 11).
   ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
-  ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
+  ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d|said no)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
@@ -76,12 +79,6 @@ const CODES = [
   ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH/i],
   ['relay-refused', /relay refused|relay answered AUTH/i],
   ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
-  // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable. The tunnel
-  // (coordinator.rs) writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for ANY status
-  // whose body parses as a refusal, 5xx included, so a 5xx is taken out first (review 9).
-  ['coordinator-unreachable', /\bHTTP 5\d\d\b|Kosmos\+ answered 5\d\d/i],
-  ['coordinator-refused', /Kosmos\+ refused|Kosmos\+ answered 4\d\d|said no|\bHTTP 4\d\d\b/i],
-  ['coordinator-unreachable', /unreachable|Kosmos\+ answered 5\d\d|connect(ion)? refused|timed out|timeout/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
   // close): routine, not a failure (review 5).
   ['reconnecting', /the connection closed/i],
@@ -96,7 +93,9 @@ function classify(text) {
   return 'other';
 }
 /* The enrolment files enrolled() needs, by their FIXED names: which are missing is the reason a
-   board with its switch on and a key in hand still believes it is not enrolled. */
+   board with its switch on and a key in hand still believes it is not enrolled. The same list as
+   remote.js ENROL_FILES, which enrolled() reads; remote.test.js asserts the two are equal (review
+   11). Not required from remote.js here, so this module stays loadable without it. */
 const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
@@ -165,4 +164,4 @@ function commitHeal(report) {
   if (report && typeof report.healBaseline === 'number') lastRestarts = Math.max(lastRestarts, report.healBaseline);
 }
 
-module.exports = { build, commitHeal, tunnelState, classify, CODES, resetForTests: () => { lastRestarts = 0; } };
+module.exports = { build, commitHeal, tunnelState, classify, CODES, ENROL_FILES, resetForTests: () => { lastRestarts = 0; } };

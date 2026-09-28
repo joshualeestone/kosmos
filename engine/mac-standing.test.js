@@ -191,6 +191,8 @@ test('#4277: the not-enrolled report commits its heal baseline only when it went
   const rr = require('../engine/remote-report');
   const realCommit = rr.commitHeal;
   const realReq = remote.macRequest;
+  const realWrite = process.stderr.write;
+  process.stderr.write = () => true;   // the refused report logs a line; keep it out of the output
   const committed = [];
   rr.commitHeal = (report) => { committed.push(report); };
   let release;
@@ -213,7 +215,7 @@ test('#4277: the not-enrolled report commits its heal baseline only when it went
     await remote.refreshStandingIfStale({ now: t0 + 30 * 60 * 1000, ttlMs: 0 });
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(committed.length, 1, 'a report that went out did not commit its heal baseline');
-  } finally { rr.commitHeal = realCommit; remote.macRequest = realReq; }
+  } finally { rr.commitHeal = realCommit; remote.macRequest = realReq; process.stderr.write = realWrite; }
 });
 
 test('#4277: key-only signing still needs the key and id on disk', async () => {
