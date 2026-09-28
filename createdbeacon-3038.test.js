@@ -137,3 +137,29 @@ test('the create form carries the default-checked, hardcoded beacon checkbox', (
 test('cleanup the sandbox', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
+
+/* kosmos#4253 rule C: our own machines say so in their pings, and nobody else's ever does. */
+test('#4253 rule C: internal:true rides the payload only when the data root holds {"internal": true}', () => {
+  const root = require('./engine/store').ROOT;
+  const f = path.join(root, 'internal.json');
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    fs.rmSync(f, { force: true });
+    assert.equal('internal' in beacon.payload(1), false, 'no marker: a normal install, contract keys unchanged');
+    for (const body of ['{not json', '{"internal":"true"}', '{"internal":1}', '[true]', 'null', '{}']) {
+      fs.writeFileSync(f, body);
+      assert.equal('internal' in beacon.payload(1), false, `a marker that is not exactly {"internal": true} (${body}) marks nothing`);
+    }
+    fs.writeFileSync(f, JSON.stringify({ internal: true }));
+    const p = beacon.payload(3);
+    assert.equal(p.internal, true, 'the marked machine says it is ours');
+    assert.deepEqual(Object.keys(p).sort(), ['count', 'installId', 'internal', 'os', 'version']);
+    const calls = capture();
+    beacon.send(3);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.internal, true, 'the flag reaches the wire, not just payload()');
+  } finally {
+    fs.rmSync(f, { force: true });
+    beacon.setSender(null);
+  }
+});
