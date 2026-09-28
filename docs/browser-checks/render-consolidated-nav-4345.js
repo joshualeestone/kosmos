@@ -179,11 +179,22 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
           $('detail-back').click();
           res['b_' + label] = document.body.classList.contains('consolidated') && lit() === 'agents' && vis($('grid')) && $('panel-cons-agents').parentElement === $('panel-projects');
         }
+        // (b2) New Agent's own "All agents" goes to the same place (review round 3).
+        tab('projects').click();
+        $('rail-agents-new').click();
+        $('create-back').click();
+        res.b_create = document.body.classList.contains('consolidated') && lit() === 'agents' && vis($('grid'));
+        // (b3) Focus after a removal lands on the lit item, so focus and the highlight agree.
+        tab('projects').click();
+        focusBoardHome();
+        res.f_lit = document.activeElement === document.querySelector('#tabs .tab[data-tab="projects"]');
         // CONTROL: in the tab layout "All agents" is the ordinary Agents tab (no consolidated class).
         document.documentElement.setAttribute('data-layout', 'tabs');
         showTab('projects'); showTab('detail');
         $('detail-back').click();
         res.b_tabs = document.body.classList.contains('consolidated') === false && lit() === 'agents' && vis($('grid'));
+        showTab('create'); $('create-back').click();
+        res.b_createTabs = document.body.classList.contains('consolidated') === false && lit() === 'agents' && vis($('grid'));
         document.documentElement.setAttribute('data-layout', 'consolidated');
         showTab('projects');
         // (c) The column's switch: Org chart shows the chart and saves the choice; Grid brings the grid back.
@@ -213,6 +224,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' "All agents" opens the Agents view (lit, grid visible) when the agent came from the Agents view', r0 && r1.b_fromAgents === true, R1);
     ok(t + ' "All agents" opens the Agents view too when the agent was opened from the board', r0 && r1.b_fromBoard === true, R1);
     ok(t + ' CONTROL: in the tab layout "All agents" is the ordinary Agents tab', r0 && r1.b_tabs === true, R1);
+    ok(t + ' New Agent\'s "All agents" opens the Agents view too (same label, same place)', r0 && r1.b_create === true, R1);
+    ok(t + ' CONTROL: in the tab layout New Agent\'s "All agents" is the ordinary Agents tab', r0 && r1.b_createTabs === true, R1);
+    ok(t + ' focus after a removal lands on the lit nav item', r0 && r1.f_lit === true, R1);
     ok(t + ' the column\'s Org chart switch shows the chart and saves the choice', r0 && r1.s_org === true, R1);
     ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
     ok(t + ' a saved list layout shows the grid and presses neither switch button', r0 && r1.l_neither === true, R1);

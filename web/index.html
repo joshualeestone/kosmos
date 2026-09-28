@@ -28381,9 +28381,8 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   // Same reason as the back button: a tab click is also walking away from a
   // creation in flight.
   /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
-     switching to the tab view. Agents and Tasks open there; Projects takes the normal path below
-     (top-of-section reset + showTab('projects')), which keeps the consolidated class and puts the
-     board back -- the "easy way to get back". */
+     switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
+     way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
   /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
      the full Tasks page drop the class while the person's layout is still consolidated, and from
      there Agents must still land on the Agents view, not the board (review round 1). The burger
@@ -28454,7 +28453,10 @@ function focusBoardHome() {
      the fallback there (round 4: the vh h1 was a focus point nobody can
      see at exactly the width it fired). The h1 stays as the true last
      resort; it still holds tabindex for the a11y name. */
-  const tab = document.querySelector('.tab[data-tab="agents"]');
+  /* #4345: the nav shows in the consolidated view now, where the lit item is not always Agents;
+     focus the item that is lit, so focus and the highlight agree, else Agents as before. */
+  const lit = document.querySelector('#tabs .tab.on');
+  const tab = (lit && lit.getClientRects().length) ? lit : document.querySelector('.tab[data-tab="agents"]');
   if (tab && tab.getClientRects().length) { tab.focus(); return; }
   const burger = document.getElementById('burger');
   if (burger && burger.getClientRects().length) { burger.focus(); return; }
@@ -45087,7 +45089,12 @@ document.addEventListener('click', (e) => {
 // ⚠️ Leaving the panel STOPS THE WATCH. `openCreate` bumps the token and this
 // did not, so walking away mid-creation left the loop polling /api/status every
 // two seconds and repainting a hidden panel for the rest of the thirty seconds.
-document.getElementById('create-back').addEventListener('click', () => { WATCH += 1; showTab('agents'); });
+/* #4345 (review round 3): the same label as the agent page's back button, so the same place: in the
+   consolidated layout "All agents" is the Agents view in the display column, not the board. */
+document.getElementById('create-back').addEventListener('click', () => {
+  WATCH += 1;
+  if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
+});
 /* ⚠️ NO `create-prev` LISTENER: the Back button it belonged to was removed
    (Josh, 2026-08-19), and leaving this behind threw "Cannot read properties of
    null" at page load, which killed every listener registered after it. A

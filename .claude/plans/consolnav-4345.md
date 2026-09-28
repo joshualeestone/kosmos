@@ -93,3 +93,14 @@ helpers), 28361 (tab click). Re-check with `git merge-tree` before the PR.
 - WARNING (reproduced) a saved 'list' showed Grid as pressed, so clicking it silently overwrote 'list'.
   Pressed now means exactly the saved layout, so 'list' presses neither.
 - Browser check 44 -> 48; both fixes mutation-checked.
+
+## Review round 3 (opus, blind): 0 BLOCKER, 1 WARNING, 2 NIT
+- WARNING (reproduced) New Agent's "← All agents" (#create-back) still landed on the board while the agent
+  page's identical button opens the Agents view. Same label, same place now. FIXED, with a tab-layout control.
+- NIT a comment in the #tabs handler still described the round-0 Projects path. FIXED.
+- NIT focusBoardHome focused the Agents tab while Projects was lit. It now focuses the lit item. FIXED.
+- KEPT: the first-run guide's "Take me to my agents" / "Show me my agents" still land on the board in the
+  consolidated layout. The reviewer called it a judgement call, not a defect; the guide's screens are
+  their own flow, and "my agents" is visible in the rail there. What would change it: Josh asking.
+- Every other showTab('agents') caller was traced by the reviewer and lands where it did before.
+- Browser check 48 -> 54; both fixes mutation-checked.
