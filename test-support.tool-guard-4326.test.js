@@ -1,9 +1,9 @@
 'use strict';
 /*
  * #4326: test-support/tool-guard.js refuses a REAL gh / vercel / cloudflared and fails the file.
- * Nothing real is ever spawned here: every child that might reach a tool runs with an EMPTY PATH,
- * so even a guard that regressed could not find the operator's install, and the fakes it allows
- * are this repo's own.
+ * Nothing real is ever spawned here: the children run with a PATH of a harmless stand-in dir plus
+ * /usr/bin and /bin (never the operator's install dirs), and KOSMOS_TOOL_GUARD_REAL_DIRS makes the
+ * guard treat the stand-in as a real install; if the guard regressed, only the stand-in would run.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,8 +18,19 @@ const FAKE = path.join(__dirname, 'test-support', 'fake-cli-signed-out.sh');
 const { refusedTool, realToolInScript } = require('./test-support/tool-guard');
 
 test('#4326 the guard names a real CLI and leaves the fakes alone', () => {
-  assert.equal(refusedTool('vercel'), 'vercel', 'a bare name resolves to the operator\'s install');
-  assert.equal(refusedTool('gh'), 'gh');
+  // A bare name is judged by the call's PATH (via realToolInScript's env): found in a real install
+  // dir, refused; found only in a stub dir, or nowhere, allowed.
+  const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-stub-'));
+  try {
+    fs.writeFileSync(path.join(stub, 'gh'), '#!/bin/sh\n'); fs.chmodSync(path.join(stub, 'gh'), 0o755);
+    assert.equal(realToolInScript('gh auth status', undefined, { PATH: stub }), null, 'a PATH-stub fake must be allowed');
+    assert.equal(realToolInScript('gh auth status', undefined, { PATH: '/nonexistent' }), null, 'a name found nowhere runs nothing');
+    process.env.KOSMOS_TOOL_GUARD_REAL_DIRS = stub;
+    assert.equal(realToolInScript('gh auth status', undefined, { PATH: stub }), 'gh', 'a name found in a real install dir is refused');
+  } finally {
+    delete process.env.KOSMOS_TOOL_GUARD_REAL_DIRS;
+    fs.rmSync(stub, { recursive: true, force: true });
+  }
   assert.equal(refusedTool('/opt/homebrew/bin/vercel'), 'vercel');
   assert.equal(refusedTool('/usr/local/bin/cloudflared'), 'cloudflared');
   assert.equal(refusedTool(FAKE), null, 'the repo\'s own fake is not a real CLI');
@@ -31,10 +42,12 @@ test('#4326 the guard names a real CLI and leaves the fakes alone', () => {
 });
 
 test('#4326 shell commands are checked at command position, not in arguments', () => {
-  assert.equal(realToolInScript('vercel whoami'), 'vercel');
-  assert.equal(realToolInScript('cd /x && gh auth status'), 'gh');
-  assert.equal(realToolInScript('FOO=1 env A=b vercel ls'), 'vercel');
-  assert.equal(realToolInScript('echo $(gh api user)'), 'gh');
+  // Absolute paths, so these do not depend on what this machine has installed.
+  assert.equal(realToolInScript('/opt/x/vercel whoami'), 'vercel');
+  assert.equal(realToolInScript('cd /x && /opt/x/gh auth status'), 'gh');
+  assert.equal(realToolInScript('FOO=1 env A=b /opt/x/vercel ls'), 'vercel');
+  assert.equal(realToolInScript('echo $(/opt/x/gh api user)'), 'gh');
+  assert.equal(realToolInScript('git commit -m "fix; gh door"'), null, 'a separator inside quotes starts no command');
   assert.equal(realToolInScript('git commit -m "fix the gh door"'), null, 'a tool named in an argument must not be refused');
   assert.equal(realToolInScript('ls | grep vercel'), null);
   assert.equal(realToolInScript('"$TMPDIR"/fake/gh x', undefined, { TMPDIR: os.tmpdir() }), null, 'a variable-built fake path resolves');
@@ -55,20 +68,31 @@ test('#4326 promisify(execFile) keeps its { stdout, stderr } shape under the gua
 // sweep swallows a door's error. The guard must still fail the file.
 function runFile(body) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-4326-'));
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-path-'));
+  // A stand-in "real install": a harmless `vercel` (and gh) that only leaves a marker if it ever
+  // runs. KOSMOS_TOOL_GUARD_REAL_DIRS makes the guard treat this dir as a real install, so the
+  // refusal is proven without the operator's CLI being reachable at all.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-toolguard-bin-'));
+  const marker = path.join(dir, 'RAN');
+  for (const tool of ['vercel', 'gh']) {
+    fs.writeFileSync(path.join(bin, tool), `#!/bin/sh\necho ran > '${marker}'\n`);
+    fs.chmodSync(path.join(bin, tool), 0o755);
+  }
   try {
     const f = path.join(dir, 'probe.test.js');
     fs.writeFileSync(f, "'use strict';\nconst test = require('node:test');\nconst cp = require('node:child_process');\n" +
       "test('swallows it', () => { " + body + " });\n");
     // Without NODE_TEST_CONTEXT: a `node --test` started from inside a test process inherits it
     // and reports to that parent instead of exiting non-zero, so its failure would be invisible.
-    // An EMPTY PATH: if the guard ever stopped refusing, a bare `vercel` finds nothing to run.
-    const env = { ...process.env, PATH: empty };
+    // PATH is the stand-in dir plus the system dirs the shells live in, NEVER the operator's
+    // install dirs: a regressed guard can reach only the harmless stand-in.
+    const env = { ...process.env, PATH: [bin, '/usr/bin', '/bin'].join(path.delimiter), KOSMOS_TOOL_GUARD_REAL_DIRS: bin };
     delete env.NODE_TEST_CONTEXT;
-    return spawnSync(process.execPath, ['--test', '--require', GUARD, f], { encoding: 'utf8', timeout: 60000, env });
+    const r = spawnSync(process.execPath, ['--test', '--require', GUARD, f], { encoding: 'utf8', timeout: 60000, env });
+    r.ran = fs.existsSync(marker);
+    return r;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
-    fs.rmSync(empty, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
   }
 }
 
@@ -84,6 +108,7 @@ for (const [label, body] of [
 ]) {
   test(`#4326 a file that reaches a real CLI via ${label} FAILS, even when its test swallows the error`, () => {
     const r = runFile(body);
+    assert.equal(r.ran, false, `the stand-in "real" vercel RAN via ${label}: the guard did not refuse it`);
     assert.notEqual(r.status, 0, `the file passed although it reached the real vercel via ${label}`);
     assert.match(r.stdout + r.stderr, /#4326: a test tried to run the REAL vercel/, 'the failure does not say why');
     assert.match(r.stdout + r.stderr, /AGENT_WORKFORCE_VERCEL_BIN/, 'the failure does not name the override to set');

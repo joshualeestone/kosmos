@@ -196,6 +196,8 @@ return { PHASE, state, start, cancel, status, ghBin, setRunner, setSpawner, rese
    ⚠️ NOT detached, on purpose: the probe stays in the board's own process group, so when the
    board exits (a restart, an update, launchd stopping the job) the probe is reaped with it.
    A detached probe would outlive the board, and with it the timers that were to kill it.
+   The signals go to the direct child only: a grandchild it started keeps running until the
+   board's group goes. `gh` and `vercel whoami` are single processes, so this is noted, not fixed.
    Kept from execFile: the answer is (exit code, stdout then stderr); a stream past 1 MB stops
    the child at once (execFile's maxBuffer) and answers -1; `done` is called exactly once, with
    -1 on a timeout, an overflow or a spawn error. */
@@ -224,8 +226,10 @@ function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, d
     killTimer = setTimeout(() => kill('SIGKILL'), graceMs);
   };
   // Over the cap, stop it at once, as execFile's maxBuffer did (not only stop reading it).
-  child.stdout.on('data', (d) => { out += d; if (out.length > PROBE_MAX_BUFFER) { out = out.slice(0, PROBE_MAX_BUFFER); stop(); } });
-  child.stderr.on('data', (d) => { err += d; if (err.length > PROBE_MAX_BUFFER) { err = err.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  // Once answered, stop collecting: a flood that ignores SIGTERM must not keep copying on the
+  // board's thread through the grace.
+  child.stdout.on('data', (d) => { if (answered) return; out += d; if (out.length > PROBE_MAX_BUFFER) { out = out.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  child.stderr.on('data', (d) => { if (answered) return; err += d; if (err.length > PROBE_MAX_BUFFER) { err = err.slice(0, PROBE_MAX_BUFFER); stop(); } });
   const timer = setTimeout(stop, timeoutMs);
   child.on('error', () => {
     clearTimeout(timer);

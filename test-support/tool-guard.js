@@ -26,9 +26,14 @@
  * cloudflared is listed although nothing in the repo spawns it today (the Cloudflare door checks
  * its token over HTTP): #4326 asked for it, and a future door that shells out is covered first.
  *
- * NOT SEEN: a tool reached through another interpreter's own process API (a python or node
- * child that spawns it), a name built at runtime inside a shell script FILE, and spawns made by
- * child processes (like launch-guard.js, it guards only this process). execFile and exec keep
+ * NOT SEEN (measured in review, accepted): a tool behind a launcher the guard does not parse,
+ * given as a FILE (`/usr/bin/env vercel`, `npx vercel`, `timeout 5 vercel`, `node .../vercel`)
+ * or in a script after a keyword it does not skip (`if gh ...; then`, `! vercel`,
+ * `xargs vercel`); any shell script FILE (`bash x.sh`: the file is never read); a tool reached
+ * through another interpreter's process API (python, a node child); a shell function named
+ * like a tool (`gh() {...}; gh`, refused though it runs no CLI); and spawns made by child
+ * processes (like launch-guard.js, it guards only this process). A bare name is judged by the
+ * CALL's PATH: refused only when that PATH finds a real install. execFile and exec keep
  * their util.promisify.custom, so a promisify caller still gets { stdout, stderr }.
  */
 
@@ -78,18 +83,57 @@ function realToolIn(word, cwd, env) {
     .replace(/['"]/g, '').replace(/^\(+|[);]+$/g, '');
   const base = path.basename(w);
   if (!Object.prototype.hasOwnProperty.call(TOOLS, base)) return null;
-  if (!w.includes('/')) return base;   // a bare name resolves through PATH: the operator's install
-  const where = real(path.resolve(cwd || process.cwd(), w));
+  let where;
+  if (!w.includes('/')) {
+    // A bare name runs whatever the CALL's PATH finds first. Refuse only if that is a real
+    // install; a PATH-stub dir of fakes (the standard pattern) is allowed, and a name found
+    // nowhere would not run at all.
+    const found = onPath(w, vars.PATH);
+    if (!found) return null;
+    where = real(found);
+  } else {
+    where = real(path.resolve(cwd || process.cwd(), w));
+  }
+  // Test seam (the guard's own test only): dirs whose tools count as REAL installs even under the
+  // temp dir, so the refusal can be proven with a harmless stand-in instead of the operator's CLI.
+  const realDirs = String(process.env.KOSMOS_TOOL_GUARD_REAL_DIRS || '').split(path.delimiter).filter(Boolean).map(real);
+  if (realDirs.some((r) => where === r || where.startsWith(r + path.sep))) return base;
   if (ALLOWED_ROOTS.some((r) => where === r || where.startsWith(r + path.sep))) return null;
   return base;
+}
+function onPath(name, pathVar) {
+  for (const dir of String(pathVar || '').split(path.delimiter)) {
+    if (!dir) continue;
+    const p = path.join(dir, name);
+    try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+  }
+  return null;
 }
 // A shell script: the COMMAND word of each segment (split on ; && || | newlines, backticks and
 // $( ), skipping VAR=value assignments and env/exec/command/nohup/time prefixes. Only command
 // position counts, so `git commit -m "fix the gh door"` is not refused for its argument.
 const PREFIXES = new Set(['env', 'exec', 'command', 'nohup', 'time', 'sudo']);
+// Split on ; && || | newline ` and $( OUTSIDE quotes only, so a separator inside a quoted
+// argument (git commit -m "fix; gh door") does not start a new command.
+function segments(script) {
+  const out = [];
+  let cur = '';
+  let q = null;
+  for (let i = 0; i < script.length; i += 1) {
+    const c = script[i];
+    if (q) { if (c === q) q = null; cur += c; continue; }
+    if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    const two = script.slice(i, i + 2);
+    if (two === '&&' || two === '||' || two === '$(') { out.push(cur); cur = ''; i += 1; continue; }
+    if (c === ';' || c === '|' || c === '\n' || c === '`') { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out;
+}
 function realToolInScript(script, cwd, env) {
   if (typeof script !== 'string') return null;
-  for (const seg of script.split(/;|&&|\|\||\||\n|`|\$\(/)) {
+  for (const seg of segments(script)) {
     const words = seg.trim().replace(/^[({\s]+/, '').split(/\s+/).filter(Boolean);
     let i = 0;
     while (i < words.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]) || PREFIXES.has(words[i]))) i += 1;

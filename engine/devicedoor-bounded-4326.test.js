@@ -3,7 +3,8 @@
  * #4326: the door's status probe must ALWAYS end. execFile's `timeout` sent SIGTERM and nothing
  * after it, so a CLI that ignored SIGTERM kept running with its callback never called (a
  * `vercel whoami` orphan ran 2h39m at ~600 MB on 2026-09-28). runBounded answers at the timeout
- * and then kills the child's whole process group, SIGTERM then SIGKILL.
+ * and then kills the child, SIGTERM then SIGKILL; the child stays in the board's process group so
+ * it also dies with the board.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -91,7 +92,8 @@ test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever orde
 });
 
 test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s maxBuffer did', async () => {
-  // Prints ~2 MB, then would hang: it must be answered and killed long before the timeout.
+  // Prints ~2 MB (of NUL bytes: the tr only maps backslash and 0, which is fine, the size is what
+  // counts), then would hang: it must be answered and killed long before the timeout.
   const flood = script('flood.sh', "trap '' TERM\nhead -c 2200000 /dev/zero | tr '\\\\0' 'x'\nwhile :; do sleep 1; done");
   const r = await run(flood, [], { timeoutMs: 20000, graceMs: 300 });
   try {
