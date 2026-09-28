@@ -6,8 +6,9 @@ Card: #3743 (reopened 2026-09-27), after #3967 / PR #3988 removed the first edge
 
 An unread agent message in a Direct Message, a project room and the setup guide carries a 1px gold
 outline that follows the whole bubble including the tail, fades over 1.2s once read, and a read
-bubble looks exactly as it does on main. Measured by render-unread-edge-3743.js (U1, U2, U14, U15,
-U17, U18), with the old inset-shadow edge as a control that must go red on U17.
+bubble looks exactly as it does on main. Measured by render-unread-edge-3743.js (every arm; the outline
+itself by U1, U1b, U2, U5, U5b, U14, U15, U17, U17b, U17c, U17d, U18, U18b), with the old inset-shadow edge as a
+control that must go red on U17.
 
 ## Why the first edge was removed
 

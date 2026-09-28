@@ -113,11 +113,18 @@ function chk(ok, label, extra) {
     chk(boxCorner === 0, 'U17b the outline follows the tail\'s curve, not the wing\'s box (no gold at the box\'s top-left corner)', 'gold=' + boxCorner);
     // U17c: the bottom stroke runs unbroken where the tail meets the bubble (a rounded inner wing corner left a notch
     // there, which the outline traced as a V-shaped kink).
-    const junction = async (h) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x - 2, y: bb.y + bb.height - 0.5, width: 10, height: 2 }); };
-    const joinRow = await junction(bds[3]);
-    // A 2px band, as a stroke can land on either row by subpixel position (WebKit and Chromium differ). Measured on
-    // this branch: 10 with the square corner in both engines; 6 (Chromium) and 8 (WebKit) with it rounded (the kink).
-    chk(joinRow >= 9, 'U17c the bottom stroke has no kink where the tail meets the bubble', 'gold pixels=' + joinRow + ' (10 unbroken)');
+    const junction = async (h, dx) => { const bb = await h.boundingBox(); return goldIn({ x: bb.x + dx, y: bb.y + bb.height - 0.5, width: 10, height: 2 }); };
+    const joinRow = await junction(bds[3], -2);
+    const refRow = await junction(bds[3], 40);   // the same band further along the same bottom stroke: same row, same metrics
+    // Compared with the same band further along the bottom stroke, so what a font or an engine does to the row
+    // moves both. Measured on this branch: equal with the square corner in both engines; 6 (Chromium) and 8 (WebKit)
+    // of 10 at the junction with it rounded (the kink).
+    chk(refRow >= 8 && joinRow >= refRow - 1, 'U17c the bottom stroke has no kink where the tail meets the bubble', JSON.stringify({ joinRow, refRow }));
+    // U17d: the wing's mask carves the same ellipse the ground mask (::after) does, so a read bubble is unchanged.
+    // The two are written separately; this pins them together (radii 12px and 16px).
+    const carve = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd');
+      return { after: getComputedStyle(b, '::after').borderBottomRightRadius, mask: getComputedStyle(b, '::before').webkitMaskImage || getComputedStyle(b, '::before').maskImage }; });
+    chk(carve.after === '12px 16px' && /radial-gradient\(12px 16px at -4px 0px/.test(carve.mask), 'U17d the wing\'s mask and the ground mask carve the same ellipse', JSON.stringify(carve));
 
     // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
     // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
@@ -172,6 +179,9 @@ function chk(ok, label, extra) {
     const tr5 = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd');
       return { dur: getComputedStyle(b).transitionDuration, maskDelay: getComputedStyle(b, '::after').transitionDelay, wingDelay: getComputedStyle(b, '::before').transitionDelay }; });
     chk(tr5.dur.split(',').every((d) => d.trim() === '0s') && tr5.maskDelay === '0s' && tr5.wingDelay === '0s', 'U5 with reduced motion there is no fade and nothing waits for one', JSON.stringify(tr5));
+    const tr5b = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd'); b.setAttribute('data-unread', '');
+      const d = getComputedStyle(b).transitionDuration; b.removeAttribute('data-unread'); return d; });
+    chk(tr5b.split(',').every((d) => d.trim() === '0s'), 'U5b with reduced motion an UNREAD bubble has no transition either (its rule outranks the read one)', tr5b);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
 
     // U6: the project room, through pjMarkSeen and paintRoom: three unread, the newest three agent posts have it.

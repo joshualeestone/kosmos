@@ -6055,7 +6055,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    block the filter would outline). So:
      1. the wing carves ITSELF with a mask, the same curve the ::after mask carves (a crescent outside
         the ellipse of radii 12px and 16px whose centre is 12px out from the bubble edge and 16px up
-        from its bottom, seen from the wing's box as 4px left of it and 4px down). This is on every agent
+        from its bottom; in the mask's 8px by 16px tile at the wing's bottom left, that is 4px left of the tile's
+        top-left corner, `at -4px 0`). This is on every agent
         bubble, read or not: it only removes wing that the ::after mask paints over anyway, so a read
         bubble looks exactly as before;
      2. while unread, the ::after mask is hidden (the wing no longer needs it) and the bubble carries
@@ -6085,7 +6086,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* A jump to an unread message flashes its own ring; the outline would trace round that ring too. */
 .msg-flash:not(.you) .msg-bd[data-unread] { filter: none; }   /* at once: the [data-unread] rule's transition is outline-color only (U1b) */
 @media (prefers-reduced-motion: reduce) {
-  .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after, .msg:not(.you) .msg-bd::before { transition: none; }
+  .msg:not(.you) .msg-bd, .asp-m.him, .msg:not(.you) .msg-bd::after, .msg:not(.you) .msg-bd::before,
+  .msg:not(.you) .msg-bd[data-unread], .asp-m.him[data-unread] { transition: none; }   /* the unread rule outranks the first list */
 }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
