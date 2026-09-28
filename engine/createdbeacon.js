@@ -37,7 +37,7 @@
  *     more, rather than climbing +1 forever.
  * The contract with the collector is exactly:
  *   POST <endpoint>  application/json
- *   { installId, count, version, os }
+ *   { installId, count, version, os }       plus `internal: true` on our own machines only (rule C, #4253)
  *   200 { ok: true }
  * payload() below is the single source of that shape; a test pins the keys so
  * the two sides cannot drift.
@@ -90,7 +90,26 @@ function payload(count) {
   let install = null;
   try { install = ping.installId(); } catch { install = null; }
   const n = Number.isInteger(count) && count >= 0 ? count : 0;
-  return { installId: install || 'unknown', count: n, version: version(), os: osTag() };
+  const data = { installId: install || 'unknown', count: n, version: version(), os: osTag() };
+  if (isInternal()) data.internal = true;
+  return data;
+}
+
+/**
+ * kosmos#4253 (rule C): is this one of OUR OWN machines (the team's fleet, the operator's laptop)? Then its
+ * pings say so, and the site files it apart from the public count. The mark is a file in the data root,
+ * `internal.json`, holding exactly `{"internal": true}`, written by whoever sets up a fleet machine (it
+ * survives restarts and upgrades; an env var on the board would not reach a launchd-started board).
+ * STRICT: only a readable file whose `internal` is the boolean true counts. A missing, unreadable or
+ * malformed file is a normal install, so a person's install can never be dropped from the count by accident.
+ * Nothing else about the install changes: an internal install pings, counts its agents and reports as before.
+ */
+function isInternal() {
+  try {
+    const f = require('node:path').join(require('./store').ROOT, 'internal.json');
+    const parsed = JSON.parse(require('node:fs').readFileSync(f, 'utf8'));
+    return Boolean(parsed) && parsed.internal === true;
+  } catch { return false; }
 }
 
 /**
@@ -157,6 +176,6 @@ function pingAgentCreated(count) {
 function setSender(f) { sender = f; }
 
 module.exports = {
-  payload, send, pingInstall, pingAgentCreated,
+  payload, send, pingInstall, pingAgentCreated, isInternal,
   version, osTag, underTest, setSender, DEFAULT_ENDPOINT,
 };
