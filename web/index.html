@@ -26240,7 +26240,14 @@ async function acctMuseSignInAgain(ev) {
     acctClaudeShowSub();
     /* Round 7: written a moment after the dialog appears, not in the same step, so the region is already
        in the tree when it speaks and a screen reader announces it. Only for this visit. */
-    setTimeout(() => { if (visit === ACCT_ADD_VISIT) acctAddPickSay(MUSE_BUSY); }, 60);
+    /* Round 8: everything is checked again when it speaks, as the other branch checks after its wait: a Stop,
+       the sign-in's end or another provider picked in those 60 ms leaves nothing stale behind. */
+    setTimeout(() => {
+      if (visit !== ACCT_ADD_VISIT) return;
+      if (!frConnActive((ACCT_FLOW_LAST || '').split('|')[0])) return;
+      if ((document.getElementById('acct-provider-pick') || {}).value !== 'claude') return;
+      acctAddPickSay(MUSE_BUSY);
+    }, 60);
     /* Round 6: openAcctAdd tried to focus Stop while its step was still hidden, so focus stayed on the page
        behind the dialog (#1918). Place it now, by openAcctAdd's own rule: the code field if it shows, else Stop. */
     const codeRow = document.getElementById('acct-code-row');

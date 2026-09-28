@@ -3,7 +3,7 @@
 ## What finished looks like
 With Muse turned on (AGENT_WORKFORCE_MUSE=1, a Mac), installed, and signed in (GET
 /api/muse signedIn, which slice 3c-1 made trustworthy), Settings, AI Models lists a
-"Meta" group with one row: "Meta account, through Muse Code on this computer", a muted
+"Meta" group with one row: "Meta account" with the tag "through Muse Code on this computer", a muted
 "Signed in" (Kosmos's record, not a live check), and a "Sign in again" that opens Add a
 provider on Meta's sign-in step. The row never behaves as a Claude account anywhere on
 the page. Flag off, not installed, or not signed in: no row, the page exactly as today.
@@ -135,3 +135,14 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
   sign-in's code step. N2 FIXED: the old busy arm reaches its state through the page's own
   functions (a painted flow, picker left on Claude) and asserts the step shows and Stop has
   focus.
+
+## Review round 8 (sonnet): 1 blocker, 0 warnings, 1 nit
+- BLOCKER FIXED: round 7's delayed "under way" write re-checked only the visit, so a Stop,
+  the sign-in's end, or another provider picked inside those 60 ms was overwritten by a
+  stale line; the provider case never healed (the poll dedupes an unchanged phase).
+  Reproduced by the reviewer with the real 1 s poll. The write now re-checks a sign-in is
+  still running and the picker is still on Claude, as the other branch checks after its
+  wait. Two arms (a provider picked, the sign-in ended, both inside the moment); each goes
+  red with its re-check removed.
+- NIT FIXED: the plan's copy matched to the shipped row (name "Meta account", tag "through
+  Muse Code on this computer", the Gemini subscription row's shape).

@@ -417,6 +417,15 @@ const chk = (ok, label, extra) => {
   await page.waitForTimeout(300);
   const later = await q(() => document.getElementById('acct-add-pick-say').textContent);
   chk(sameStep === '' && /under way/.test(later), 'the "under way" line is written after the dialog appears, not in the same step', JSON.stringify({ sameStep, later }));
+  // Round 8: another provider picked, or the sign-in ended, inside that moment: nothing stale is written.
+  for (const [how, act] of [['another provider picked', "const s = document.getElementById('acct-provider-pick'); s.value = 'openai'; s.dispatchEvent(new Event('change'));"], ['the sign-in ended', 'ACCT_FLOW_LAST = null;']]) {
+    await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
+    await q(() => { openAcctAdd(); ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
+    await q((a) => { closeAcctAdd(); document.querySelector('#set-accounts [data-muse-reauth]').click(); (0, eval)(a); }, act);
+    await page.waitForTimeout(300);
+    const stale = await q(() => document.getElementById('acct-add-pick-say').textContent);
+    chk(stale === '', 'with ' + how + ' inside that moment, the "under way" line is not written', JSON.stringify(stale));
+  }
   // Round 4: when that sign-in ends (here in failure), the line no longer asks to finish or stop it.
   await q(() => acctFlowPaint({ phase: 'failed', because: 'Claude closed before the sign-in finished' })); await settle();
   chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'the "under way" line goes when that sign-in ends in failure');
