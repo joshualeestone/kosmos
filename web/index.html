@@ -12171,7 +12171,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="acct-grok-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
-    <!-- #3939 slice 3b: Meta Muse, behind AGENT_WORKFORCE_MUSE=1 on a Mac (GET /api/muse says enabled).
+    <!-- #3939 slice 3b: Meta Muse, behind the Muse switch (GET /api/muse says enabled).
          Muse Code's own sign-in is a device code, run out of sight (engine/musesignin.js): the page shows
          Meta's page and the code in the #3952 boxes, offers a new code when one expires, and stops it.
          Off, the Meta option stays "coming soon" exactly as before and this never shows. -->
@@ -22611,7 +22611,7 @@ function agyAsk() {
 }
 /* #3939 slice 3c-3b: Meta Muse in the Create Agent form. Muse has no Kosmos account to pick and picks its own
    model, like Gemini on a Google subscription, so its option is gated on GET /api/muse: offered only when
-   Muse is turned on here (AGENT_WORKFORCE_MUSE=1 on a Mac), installed, and signed in. null = not read yet or
+   Muse is switched on here (GET /api/muse says enabled), installed, and signed in. null = not read yet or
    the read failed: the option keeps today's "Coming soon", never a guess, so a board with the flag off
    looks exactly as before. On the agent page (#d-provider) Meta is selectable only as the agent's CURRENT
    provider: switching an agent onto Muse is not offered yet. */
@@ -22629,9 +22629,9 @@ function paintMuseOption(sel, current) {
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function museCreateAsk() {
-  /* Asked again on every paint while Muse is turned on here (the read is a file check): a person who
-     signs in to Meta with the board open sees the option turn on without a reload. Turned off here is
-     settled for this page: the flag is read when the board starts. One read in flight at a time. */
+  /* Asked again on every paint while Muse is switched on here (the read is a file check): a person who
+     signs in to Meta with the board open sees the option turn on without a reload. Switched off is not
+     asked again on this page (a reload asks again). One read in flight at a time. */
   if (MUSE_CREATE_ASKING) return MUSE_CREATE_ASKING;
   if (MUSE_CREATE && MUSE_CREATE.on === false) return Promise.resolve();
   MUSE_CREATE_ASKING = fetch('/api/muse', { cache: 'no-store' })
@@ -26394,7 +26394,7 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
   go.focus();
 });
 /* #3939 slice 3b: Meta Muse in Settings, AI Models, Add a provider. Only when GET /api/muse says enabled
-   (AGENT_WORKFORCE_MUSE=1 on a Mac); otherwise the Meta option stays "coming soon" as before. The sign-in
+   (GET /api/muse says enabled); otherwise the Meta option stays "coming soon" as before. The sign-in
    runs out of sight on the engine (engine/musesignin.js); this starts it, polls it, shows Meta's page and
    the code (#3952 boxes), offers a new code when one expires, and stops it. The id it keeps is the one its
    OWN start answered, never one read back from the poll (another tab's start replaces the sign-in, and

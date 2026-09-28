@@ -83,16 +83,17 @@ function version() {
 /* ---- #3939 slice 3: the flag and the sign-in -------------------------------------------------- */
 
 /** Whether Meta Muse shows anywhere: on a Mac (the only platform the runner is built for), turned on by
-    AGENT_WORKFORCE_MUSE=1 or by the preview marker file in this board's data folder. Off by default, so
+    AGENT_WORKFORCE_MUSE=1 or by the preview marker file in the Kosmos data folder (store.ROOT). Off by default, so
     every screen is as before until someone turns it on. */
 function enabled(platform = process.platform) {
   if (platform !== 'darwin') return false;
   if (process.env.AGENT_WORKFORCE_MUSE === '1') return true;
   try { return fs.existsSync(previewMarker()); } catch { return false; }
 }
-/* #3939: the marker that turns the preview on for one computer. The board's launchd job is rewritten on
-   every install and update with a fixed list of variables, so an environment variable set there does not
-   last; this file does. Read on every check: creating or deleting it needs no restart. */
+/* #3939: the preview marker. The board's launchd job is rewritten on every install and update with a
+   fixed list of variables, so an environment variable set there does not last; this file does. Read on
+   every check: creating or deleting it needs no restart. store.ROOT is read at call time on purpose, so
+   the path follows the AGENT_WORKFORCE_HOME / _DATA seams (a module-level constant would freeze it). */
 const PREVIEW_MARKER = 'muse-preview-on';
 function previewMarker() { return path.join(require('./store').ROOT, PREVIEW_MARKER); }
 

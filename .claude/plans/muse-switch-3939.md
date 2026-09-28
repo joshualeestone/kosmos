@@ -28,8 +28,9 @@ function (create.museEnabled, discover, server /api/muse and the accounts row), 
   dev.meta.ai/install.sh with MUSE_NO_MODIFY_PATH=1 MUSE_LOGIN=0, as run on the Mortals Mac 09-26),
   then creates the marker. That line is given to Splinter, not built into Kosmos.
 - Weakest premise: that the data folder the board uses on Josh's Mac is the default one. A board with
-  AGENT_WORKFORCE_DATA set reads the marker from that folder instead (store.ROOT follows it); Josh's
-  install is the default.
+  AGENT_WORKFORCE_DATA set reads <AGENT_WORKFORCE_DATA>/Kosmos/muse-preview-on instead (dataRootFor
+  appends the app folder); Josh's install is the default. The marker is per macOS user: every board that
+  user runs with the default data folder shares it.
 
 ## Tests
 engine/musestatus.test.js: marker alone turns it on (Mac), not on another platform, removing it turns

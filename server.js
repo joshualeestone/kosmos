@@ -8317,7 +8317,7 @@ const server = http.createServer((req, res) => {
     // (every one of the four addresses was answered above; any other falls through to the board 404)
     return;
   }
-  /* #3939 slice 3: Meta's Muse Code. Behind AGENT_WORKFORCE_MUSE=1 on a Mac (engine/musestatus.enabled):
+  /* #3939 slice 3: Meta's Muse Code. Behind the Muse switch (engine/musestatus.enabled decides):
      off, /api/muse says only { enabled: false } and nothing can start. The sign-in is `muse login`
      driven out of sight (engine/musesignin.js); the screen starts it, reads the code, retries an
      expired one, and stops it. Exact addresses (#3957). With the flag off, the three sign-in routes
