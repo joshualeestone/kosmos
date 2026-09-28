@@ -102,6 +102,14 @@ function check(name, pass, detail) {
   check('the client exposes kosmosPhoneNotifyToggle()', wiring.toggleFn === 'function', wiring.toggleFn);
   check('the client exposes kosmosRegisterServiceWorker()', wiring.registerFn === 'function', wiring.registerFn);
   check('the Phone notifications control is in the page', wiring.button && wiring.msg);
+  /* #4194: the ship gate is open, so the board says phone notifications are available and the section shows; and a Mac
+     user without the phone app is told it is in testing (not in the stores yet), so the switch does not mislead. */
+  const pnShown = await page.waitForFunction(() => { const sec = document.getElementById('phone-notify'); return !!sec && !sec.hidden; }, null, { timeout: 8000 })
+    .then(() => true, () => false);
+  check('#4194: with the ship gate open, the Phone notifications section is not hidden', pnShown);
+  const pnNote = await page.evaluate(() => { const n = document.getElementById('phone-notify-testing'); return n ? n.textContent : ''; });
+  check('#4194: the section says the phone app is in testing and not in the stores yet',
+    /still in testing/.test(pnNote) && /not in the App Store or Google Play/.test(pnNote), JSON.stringify(pnNote));
 
   /* --- 3. the worker registers, activates, and CONTROLS the page ------------ */
   /* The client registers on load. Wait for an active worker, then reload so the
