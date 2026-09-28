@@ -12,7 +12,7 @@ the Kosmos K, "Kosmos requires a full restart" (Josh's words, verbatim), and how
   "not show anything else but just a nice clean centered graphic").
 - Everything behind it is inert; the first answering poll removes it and gives back exactly the
   inert state it took.
-- Not shown for a Kosmos+ remote view, a device that is offline, a running update, or a page no
+- Not shown for a Kosmos+ remote view, a device that is offline, a running update, a world switch, or a page no
   board served (file://).
 - render-restart-screen-4343.js asserts all of that in light and dark, wired in gated.txt with a
   README row.
@@ -32,7 +32,12 @@ the Kosmos K, "Kosmos requires a full restart" (Josh's words, verbatim), and how
   flag, which matches #268's rule that a board that answered is not absent.
 - While up: page scroll and the scrollbar gutter are off, nodes added to <body> are made inert, and
   focus goes back where it was on recovery. Both painter calls are try-isolated.
-- Windows copy is a constant in windowsCopyTable (restartHow); the hermetic check runs the Mac branch.
+- Windows copy is a constant in windowsCopyTable (restartHow), Homer's wording; the check's baked
+  Windows page (/win) asserts it.
+- While it is up, one window capture keydown listener stops every key reaching the page behind it
+  (first run, the update dialog, the notices, every modal and picker), without preventDefault, so
+  Command-Q works. The notice (cnHeld), What's New (wnCovered) and tips (tipModalOpen) also treat it
+  as covering, so none opens behind it.
 
 ## Timing, stated plainly
 The 15 s clock starts at the first poll that RETURNS a failure. The poll's fetch has no timeout, so

@@ -14,12 +14,14 @@
  *   - down, before the wait is up: only the small note (positive control: the poll really failed);
  *   - down, after it: the screen. Exact headline, the Mac remedy and nothing else (details logged), opaque, full
  *     window, centered, page scroll off, everything behind it inert (including a node added while it
- *     is up), focus on it, and a K that is drawn and does not move;
+ *     is up), focus on it, a K that is drawn and does not move, and Escape/Tab doing nothing to a
+ *     dialog left open under it;
  *   - up again: the real poll removes it, gives back exactly the inert elements it took, and puts
  *     the page scroll back;
  *   - broken (a 200 whose painting throws): never the screen, because the board did answer;
- *   - it stays away while an update runs and when the device is offline, and on a file:// page
- *     (where the note shows first, so the poll is known to be failing there).
+ *   - it stays away while an update runs, during a world switch, when the device is offline, and on a
+ *     file:// page (where the note shows first, so the poll is known to be failing there);
+ *   - a baked Windows page: the Windows remedy, and the version in the logged details.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-restart-screen-4343.js
  */
@@ -107,9 +109,10 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     ok(t + ' the poll failed and the small note shows (the harness really has no board)', noted);
     ok(t + ' before the wait is up there is no restart screen, only the note', !(await shown(page)));
 
-    // The exact elements already inert for their own reasons, kept on the page to compare by identity.
-    await page.evaluate(() => { window.__inertBefore = [...document.querySelectorAll('body > *')].filter((el) => el.inert); });
 
+    // A dialog left open under it (the update confirm): its own Escape and Tab must not act from behind.
+    // __inertBefore: the exact elements already inert for their own reasons, to compare by identity.
+    await page.evaluate(() => { document.getElementById('updconfirm').hidden = false; window.__inertBefore = [...document.querySelectorAll('body > *')].filter((el) => el.inert); });
     // ── Once the wait is up, the next real poll draws the screen. ──
     await ageIt(page);
     const drawn = await page.waitForSelector('.restart-back', { timeout: 8000 }).then(() => true, () => false);
@@ -153,8 +156,14 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' it is a modal alert dialog named by its headline and described by its how-to', s.role === 'alertdialog' && s.modal === 'true'
         && s.name === 'Kosmos requires a full restart' && /Command-Q/.test(s.desc || ''), JSON.stringify({ role: s.role, modal: s.modal, name: s.name, desc: s.desc }));
       ok(t + ' the page behind does not scroll or keep its scrollbar gutter', s.scrollOff === true);
-      const covered = await page.evaluate(() => ({ wn: wnCovered(), tip: tipModalOpen() }));
-      ok(t + ' the What\'s New window and the tips know they are covered (their keys stand down)', covered.wn === true && covered.tip === true, JSON.stringify(covered));
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Escape');
+      const keys = await page.evaluate(() => ({ dialogOpen: document.getElementById('updconfirm').hidden === false,
+        screen: !!document.querySelector('.restart-back'), inertKept: [...document.querySelectorAll('body > *')].filter((el) => el !== document.querySelector('.restart-back')).every((el) => el.inert) }));
+      ok(t + ' Escape and Tab do nothing behind the screen: the dialog under it stays open and everything stays inert', keys.dialogOpen && keys.screen && keys.inertKept, JSON.stringify(keys));
+      const covered = await page.evaluate(() => ({ wn: wnCovered(), tip: tipModalOpen(), notice: cnHeld() }));
+      ok(t + ' the What\'s New window and the tips know they are covered (their keys stand down)', covered.wn === true && covered.tip === true && covered.notice === true, JSON.stringify(covered));
       const late = await page.evaluate(() => {
         const d = document.createElement('div'); d.tabIndex = 0; window.__late4343 = d; document.body.appendChild(d);
         return new Promise((r) => setTimeout(() => r(d.inert === true), 50));
@@ -184,6 +193,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
         const late = window.__late4343;
         const same = now.length === was.length && now.every((el) => was.includes(el));
         if (late) late.remove();
+        document.getElementById('updconfirm').hidden = true;
         return { same, now: now.length, was: was.length, lateFree: !!late && late.inert === false,
           since: BOARD_NO_ANSWER_SINCE, scrollBack: !document.documentElement.classList.contains('restart-up'), readOk: BOARD_LOOK_FAILED === null };
       });

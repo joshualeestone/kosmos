@@ -19953,12 +19953,12 @@ document.getElementById('updconfirm').addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!document.getElementById('updconfirm').hidden && !document.querySelector('.restart-back')) closeUpdConfirm();   // #4343: not from behind the restart screen
+  if (!document.getElementById('updconfirm').hidden) closeUpdConfirm();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const back = document.getElementById('updconfirm');
-  if (back.hidden || document.querySelector('.restart-back')) return;   // #4343: behind the restart screen it is inert
+  if (back.hidden) return;
   const no = document.getElementById('uc-no');
   const go = document.getElementById('uc-go');
   // ⚠️ Intercept at the LAST element in the traversal direction and wrap to
@@ -20382,6 +20382,11 @@ function paintOfflineNote(down, deviceIsOffline) {
  * The page cannot restart the board itself, so there is no button: it says how.
  */
 const RESTART_SCREEN_AFTER_MS = 15000;
+/* While the restart screen is up, no key reaches the page behind it. Every dialog's Escape and Tab
+   handler (first run, updates, the notices, the modals, the pickers) listens on document, and a
+   window capture listener runs before all of them, so one guard covers the ones that exist and the
+   ones added later. It does not preventDefault, so Command-Q and the browser's own keys still work. */
+window.addEventListener('keydown', (e) => { if (document.querySelector('.restart-back')) e.stopPropagation(); }, true);
 let BOARD_NO_ANSWER_SINCE = null;
 let RESTART_SCREEN_INERTED = [];
 let RESTART_SCREEN_WATCH = null;    // inerts anything added to <body> while the screen is up
@@ -28320,7 +28325,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, dialog[open], #boot-cover:not([hidden])');
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
