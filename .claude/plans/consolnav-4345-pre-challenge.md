@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 5
 **Converged:** Yes (iterations 4 and 5 raised no BLOCKER or WARNING)
-**Total findings:** 21 (1 BLOCKERs, 6 WARNINGs, 1 CONVENTIONs, 13 NITs; counted from the reviewers' reports)
-**Fixed:** 1 BLOCKER, 6 WARNINGs, 9 NITs | **Deferred:** 5 (a URL for the Agents view, aria-selected on a panel-less tab, the first-run guide's "my agents", and round 5's comment and README NITs, which #4377 fixes on top of this branch) | **Asked (awaiting user):** 0
+**Total findings:** 18 (1 BLOCKER, 5 WARNINGs, 1 CONVENTION, 11 NITs; summed from the per-iteration lines below)
+**Fixed:** 1 BLOCKER, 5 WARNINGs, 5 NITs | **Deferred or kept:** 7 (round 1: a URL for the Agents view, aria-selected on a tab with no panel; round 4: its test-shape note; round 5: the comment, the README detail, the pin's 48-character margin, and the README row's closing pipe, the last four fixed on #4377, which stacks on this branch) | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
