@@ -29080,6 +29080,10 @@ function orgStep(nodes, hub, alpha, box) {
 function orgPlanarRepair(nodes, hub) {
   const tree = nodes.filter((n) => n.home);
   if (!tree.length) return false;
+  /* Never while something is held: a held node (or hub) is the person's, and snapping it away from the
+     pointer is worse than any crossing (review it3: a drag held still let the animation stop and the repair
+     moved the held node 515px). The next rest after the release repairs. */
+  if (hub.fixed || nodes.some((n) => n.fixed)) return false;
   const o = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
   const segs = nodes.map((n) => ({ a: n.parent || hub, b: n }));
   let crossed = false;
@@ -29794,7 +29798,7 @@ function orgLiveRun() {
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
     else {
       L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
-      if (orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing
+      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing (and never mid-drag)
     }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
