@@ -23548,7 +23548,7 @@ function acctFocusAfterFlow(startBtn) {
   if (startBtn && !startBtn.disabled && startBtn.getClientRects().length) { startBtn.focus(); return; }
   const sel = document.getElementById('acct-provider-pick');
   const trig = sel && sel.parentElement && sel.parentElement.querySelector('.pcombo-trigger');
-  if (trig) trig.focus();
+  if (trig && trig.getClientRects().length) trig.focus();
 }
 function acctFlowPaint(st) {
   const flow = document.getElementById('acct-flow');
@@ -23684,7 +23684,11 @@ async function acctAddStart(installConfirmed) {
        Confirm handler put focus on #acct-add-note first to bridge the await
        without dropping to <body>; this moves it onto the story once it exists. */
     const say = document.getElementById('acct-flow-say');
-    if (say) say.focus();
+    /* #4271: the start can answer with a phase that has already ended, and then the panel
+       is hidden and say.focus() is a no-op. Connected is acctShowSuccess's; any other
+       ending goes to the note that says what happened, as the failure paths above do. */
+    if (say && !document.getElementById('acct-flow').hidden) say.focus();
+    else if (!(out && out.phase === 'connected')) (note.textContent ? note : btn).focus();
   } catch {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
