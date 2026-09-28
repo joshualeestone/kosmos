@@ -26228,16 +26228,19 @@ async function acctMuseSignInAgain(ev) {
   openAcctAdd(ev);
   const visit = ACCT_ADD_VISIT;
   const pickAtOpen = (document.getElementById('acct-provider-pick') || {}).value || '';
-  /* Round 3: openAcctAdd keeps a sign-in that is already under way on screen, with its provider picked.
-     Meta's step is not laid over it; the line beside the picker says what to do instead. */
-  if (pickAtOpen !== '') {
-    /* Round 5: the person may have moved the picker off Claude mid-sign-in, which hid its step and Stop.
-       Put it back on screen as acctFlowPaint does while a sign-in runs, then speak (acctPick clears the line).
-       Only a Claude sign-in outlives a close (closeAcctAdd stops every other flow), so a non-empty picker
-       here means Claude's sign-in, whatever the picker was moved to. */
+  /* Round 3: a sign-in already under way is kept on screen; Meta's step is not laid over it and the line
+     beside the picker says what to do instead. Round 7: "under way" is decided as openAcctAdd decides it
+     (frConnActive), never from the picker, which the person may have set back to "Choose a provider".
+     Only a Claude sign-in outlives a close (closeAcctAdd stops every other flow), so it is Claude's. */
+  const running = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
+  if (running) {
+    /* Round 5: the picker may have been moved off Claude (or emptied) mid-sign-in, hiding its step and
+       Stop. Put it back on screen as acctFlowPaint does while a sign-in runs. */
     if (pickAtOpen !== 'claude') acctPick('claude', { focus: false });
     acctClaudeShowSub();
-    acctAddPickSay(MUSE_BUSY);
+    /* Round 7: written a moment after the dialog appears, not in the same step, so the region is already
+       in the tree when it speaks and a screen reader announces it. Only for this visit. */
+    setTimeout(() => { if (visit === ACCT_ADD_VISIT) acctAddPickSay(MUSE_BUSY); }, 60);
     /* Round 6: openAcctAdd tried to focus Stop while its step was still hidden, so focus stayed on the page
        behind the dialog (#1918). Place it now, by openAcctAdd's own rule: the code field if it shows, else Stop. */
     const codeRow = document.getElementById('acct-code-row');

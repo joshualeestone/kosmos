@@ -121,3 +121,17 @@ picker lists only the Claude row. Both arms go red when acctProvider forgets Met
   made it pass 3/3 (traced with focus events, the fallback itself was correct).
 - N1: commented why a non-empty picker here always means Claude's sign-in. N2 ACCEPTED:
   role=status with aria-live=polite is redundant but matches the page's pattern.
+
+## Review round 7 (opus): 0 blockers, 2 warnings, 2 nits
+- W1 FIXED: with the picker set back to "Choose a provider" mid-sign-in, Sign in again
+  laid Meta's step over a running Claude sign-in, and a later poll then stopped the Muse
+  sign-in the person had started (reproduced). "Under way" is now decided as openAcctAdd
+  decides it (frConnActive of ACCT_FLOW_LAST), never from the picker. Arm, including
+  that no Muse stop is sent.
+- W2 FIXED: the "under way" line was written in the same step the dialog appeared, so it
+  might not be announced. It is written a moment later (60 ms), for this visit only. Arm:
+  empty in the same step, present after.
+- N1 FIXED: the moved arm asserts exactly Stop, and a new arm asserts the code field at the
+  sign-in's code step. N2 FIXED: the old busy arm reaches its state through the page's own
+  functions (a painted flow, picker left on Claude) and asserts the step shows and Stop has
+  focus.
