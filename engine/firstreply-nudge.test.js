@@ -1,9 +1,12 @@
 'use strict';
 
 /* #3226: the one-time first-reply nudge. Rosters come from test-support/fleet and the REAL status
-   snapshot (fixture discipline: no hand-built cards). owes and deliver are injected, so no real
-   agent is ever typed into and no real message log is read. */
+   snapshot (fixture discipline: no hand-built cards). deliver is injected, so no real agent is ever
+   typed into. The planner tests hand-build a DIRECT thread's rows; the integration tests at the end
+   do NOT: they write the person's DM and the agent's reply through the real chat store in a
+   sandboxed data root, and let the sweep read it through its own default reader. */
 
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,6 +19,8 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
+const chat = require('./chat');
+const messageLog = require('./messages');
 const nudge = require('./firstreply-nudge');
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -25,11 +30,31 @@ const NOW = Date.parse('2026-09-28T12:00:00.000Z');
 const HEARD = new Date(NOW - 90 * 1000).toISOString(); // 90 s ago: past the minute
 const rosterOf = (state) => fleet.install([fleet.agent('mara', { screen: state === 'working' ? fleet.SCREEN.working : fleet.SCREEN.idle, state })]).agents;
 const idleCard = () => rosterOf('idle')[0];
-const owesFirst = () => ({ state: 'owes', lastHeardAt: HEARD, lastSentAt: null, because: null });
+/* Row shapes as the two writers store them (server.js: the DM route and keepAgentReply). */
+const personRow = (at = HEARD, state = 'placed') => ({ at, text: 'hello, are you there?', from: null, wire: null, delivery: { state, because: null } });
+const agentRow = (session, at = HEARD) => ({ at, text: 'yes, here', from: session });
+const fcOf = (rows) => nudge.firstContact({ messages: rows });
+const owesFirst = () => fcOf([personRow()]);
 
 test('#3226 fixture: the idle fleet card really reads idle', () => {
   assert.equal(idleCard().state, 'idle');
   assert.equal(rosterOf('working')[0].state, 'working');
+});
+
+test('#3226 firstContact: a placed person message and no agent row owes; each other shape does not', () => {
+  const s = idleCard().sessionName;
+  assert.deepEqual(owesFirst(), { state: 'owes', heardAt: HEARD, because: null });
+  assert.equal(fcOf([personRow(), agentRow(s), personRow()]).state, 'clear', 'an agent that answered once is not on first contact');
+  assert.equal(fcOf([personRow(), agentRow('someone-else')]).state, 'clear', 'a row we cannot place is never read as silence');
+  assert.equal(fcOf([]).state, 'clear', 'nobody has written');
+  assert.equal(fcOf([personRow(HEARD, 'could_not')]).state, 'clear', 'a message that never reached the pane is not owed');
+  assert.equal(fcOf([personRow(HEARD, 'unconfirmed')]).state, 'clear');
+  assert.equal(fcOf([{ ...personRow(), delivery: null }]).state, 'clear');
+  assert.equal(fcOf([{ ...personRow(), wire: '1' }]).state, 'clear', 'a menu answer is not a message');
+  // Kosmos's own derived rows are not the agent speaking, and are not the person either.
+  assert.equal(fcOf([personRow(), { at: HEARD, text: 'x', from: s, kind: 'question' }]).state, 'owes');
+  assert.equal(nudge.firstContact(null).state, 'unknown');
+  assert.equal(nudge.firstContact({ messages: 'x' }).state, 'unknown');
 });
 
 test('#3226 plan: every condition true nudges', () => {
@@ -47,27 +72,22 @@ test('#3226 plan: owing nothing does not nudge (clear and unknown)', () => {
   assert.notEqual(nudge.plan(idleCard(), null, undefined, NOW).act, 'nudge');
 });
 
-test('#3226 plan: an agent that has replied before is not nudged (first contact only)', () => {
-  const owes = { ...owesFirst(), lastSentAt: new Date(NOW - 5 * 60 * 1000).toISOString() };
-  assert.notEqual(nudge.plan(idleCard(), owes, undefined, NOW).act, 'nudge');
-});
-
-test('#3226 plan: an owed message under a minute old waits', () => {
-  const owes = { ...owesFirst(), lastHeardAt: new Date(NOW - 30 * 1000).toISOString() };
-  assert.equal(nudge.plan(idleCard(), owes, undefined, NOW).act, 'wait');
+test('#3226 plan: a person message under a minute old waits', () => {
+  assert.equal(nudge.plan(idleCard(), fcOf([personRow(new Date(NOW - 30 * 1000).toISOString())]), undefined, NOW).act, 'wait');
   // the boundary: exactly a minute is enough
-  const edge = { ...owesFirst(), lastHeardAt: new Date(NOW - nudge.MIN_QUIET_MS).toISOString() };
-  assert.equal(nudge.plan(idleCard(), edge, undefined, NOW).act, 'nudge');
+  assert.equal(nudge.plan(idleCard(), fcOf([personRow(new Date(NOW - nudge.MIN_QUIET_MS).toISOString())]), undefined, NOW).act, 'nudge');
 });
 
 test('#3226 plan: an unreadable heard time does not nudge', () => {
-  assert.notEqual(nudge.plan(idleCard(), { ...owesFirst(), lastHeardAt: null }, undefined, NOW).act, 'nudge');
+  assert.notEqual(nudge.plan(idleCard(), { ...owesFirst(), heardAt: null }, undefined, NOW).act, 'nudge');
+  assert.notEqual(nudge.plan(idleCard(), { ...owesFirst(), heardAt: 1234 }, undefined, NOW).act, 'nudge', 'a bare number is not a time');
 });
 
-test('#3226 plan: a recorded nudge means none, ever', () => {
+test('#3226 plan: a recorded nudge means none, ever; so does a spent try budget', () => {
   assert.equal(nudge.plan(idleCard(), owesFirst(), { nudgedAt: NOW - 1000 }, NOW).act, 'none');
   // a try that did not reach the pane is not a spent nudge
   assert.equal(nudge.plan(idleCard(), owesFirst(), { nudgedAt: null, tries: 1 }, NOW).act, 'nudge');
+  assert.equal(nudge.plan(idleCard(), owesFirst(), { nudgedAt: null, tries: nudge.MAX_TRIES }, NOW).act, 'none');
 });
 
 test('#3226 nudge text names the reply verb the CLI ships and has no em dash', () => {
@@ -82,7 +102,7 @@ function sweepWith(opts) {
   const logs = [];
   const o = {
     roster: opts.roster || rosterOf('idle'), book: opts.book || new Map(), now: opts.now || NOW,
-    owes: opts.owes || (() => owesFirst()),
+    thread: opts.thread || (() => ({ messages: [personRow()] })),
     deliver: opts.deliver || ((session, text) => { sent.push({ session, text }); return { state: DELIVERY.PLACED }; }),
     DELIVERY, log: (r) => logs.push(r),
   };
@@ -101,7 +121,7 @@ test('#3226 sweep: delivers once, and a second sweep sends nothing', () => {
   assert.equal(sent.length, 1, 'one nudge per session, ever');
 });
 
-test('#3226 sweep: a could_not delivery records no nudge and is tried again', () => {
+test('#3226 sweep: a could_not delivery is tried again, at most MAX_TRIES times, then left alone', () => {
   const book = new Map();
   let calls = 0;
   const { o, logs } = sweepWith({ book, deliver: () => { calls++; return { state: DELIVERY.COULD_NOT }; } });
@@ -109,8 +129,12 @@ test('#3226 sweep: a could_not delivery records no nudge and is tried again', ()
   const session = o.roster[0].sessionName;
   assert.equal(book.get(session).nudgedAt, null);
   nudge.sweepOnce(o);
-  assert.equal(calls, 2);
-  assert.equal(logs.length, 1, 'a refusing pane is logged once, not every sweep');
+  assert.equal(calls, 2, 'a try that reached nothing is tried again');
+  for (let i = 0; i < 5; i++) nudge.sweepOnce(o);
+  assert.equal(calls, nudge.MAX_TRIES, 'a refusing pane is not retried every minute forever');
+  assert.equal(nudge.MAX_TRIES, 3);
+  assert.equal(logs.length, 2, 'logged on the first try and when given up on, not every sweep');
+  assert.match(logs[1].because, /left alone/);
 });
 
 test('#3226 sweep: an unconfirmed delivery counts as spent (re-sending may duplicate it)', () => {
@@ -122,13 +146,13 @@ test('#3226 sweep: an unconfirmed delivery counts as spent (re-sending may dupli
   assert.equal(calls, 1);
 });
 
-test('#3226 sweep: a throwing deliver or owes does not throw out and records no nudge', () => {
+test('#3226 sweep: a throwing deliver or thread read does not throw out and records no nudge', () => {
   const book = new Map();
   const { o } = sweepWith({ book, deliver: () => { throw new Error('boom'); } });
   assert.doesNotThrow(() => nudge.sweepOnce(o));
   assert.equal(book.get(o.roster[0].sessionName).nudgedAt, null);
   const b2 = new Map();
-  const { o: o2, sent } = sweepWith({ book: b2, owes: () => { throw new Error('log unreadable'); } });
+  const { o: o2, sent } = sweepWith({ book: b2, thread: () => { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } });
   assert.doesNotThrow(() => nudge.sweepOnce(o2));
   assert.equal(sent.length, 0);
   assert.doesNotThrow(() => nudge.sweepOnce({ ...o, log: () => { throw new Error('log'); } }));
@@ -139,7 +163,8 @@ test('#3226 sweep: a throwing deliver or owes does not throw out and records no 
 test('#3226 sweep: a working agent and an agent that replied before are not typed into', () => {
   const { o, sent } = sweepWith({ roster: rosterOf('working') });
   nudge.sweepOnce(o);
-  const { o: o2, sent: sent2 } = sweepWith({ owes: () => ({ ...owesFirst(), lastSentAt: HEARD }) });
+  const s = idleCard().sessionName;
+  const { o: o2, sent: sent2 } = sweepWith({ thread: () => ({ messages: [personRow(), agentRow(s), personRow()] }) });
   nudge.sweepOnce(o2);
   assert.equal(sent.length + sent2.length, 0);
 });
@@ -148,7 +173,7 @@ test('#3226 tick: inert unless live execution is allowed, and the brake stops it
   let delivered = 0;
   const deps = (allowed, env) => ({
     allowed: () => allowed, env, roster: () => rosterOf('idle'), book: new Map(), now: () => NOW,
-    owes: () => owesFirst(), deliver: () => { delivered++; return { state: DELIVERY.PLACED }; }, DELIVERY,
+    thread: () => ({ messages: [personRow()] }), deliver: () => { delivered++; return { state: DELIVERY.PLACED }; }, DELIVERY,
   });
   assert.equal(nudge.makeTick(deps(false, {}))(), null);
   assert.equal(nudge.makeTick(deps(true, { AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF: '1' }))(), null);
@@ -159,4 +184,65 @@ test('#3226 tick: inert unless live execution is allowed, and the brake stops it
   // an unreadable roster skips the tick; a throwing roster never throws out
   assert.equal(nudge.makeTick({ ...deps(true, {}), roster: () => null })(), null);
   assert.equal(nudge.makeTick({ ...deps(true, {}), roster: () => { throw new Error('x'); } })(), null);
+});
+
+/* ── integration: the REAL chat store, read by the sweep's own default reader ─────────────────
+   No `thread` is injected below, so what is exercised is the production read path
+   (directThread -> chat.readThread(chat.DIRECT, sessionName)). Rows are written with
+   chat.appendMessage exactly as server.js writes them: the DM route stores the person's row with
+   no `from` and the delivery verdict, keepAgentReply stores the agent's with from: sessionName. */
+
+function freshStore(session) {
+  fs.rmSync(chat.threadFile(chat.DIRECT, session), { force: true });
+  fs.rmSync(messageLog.LOG, { force: true });
+}
+function personDm(session, at = HEARD) {
+  const kept = chat.appendMessage(chat.DIRECT, session, { text: 'hello, are you there?', wire: null, at, delivery: { state: 'placed', at, because: null } });
+  assert.equal(kept.recorded, true, 'the fixture did not record the person\'s DM: ' + (kept.because || ''));
+}
+function realSweep(roster) {
+  const sent = [];
+  const r = nudge.sweepOnce({
+    roster, book: new Map(), now: NOW, DELIVERY,
+    deliver: (session, text) => { sent.push({ session, text }); return { state: DELIVERY.PLACED }; },
+  });
+  return { sent, r };
+}
+
+test('#3226 real store: a person\'s unanswered first DM, a minute old, is nudged', () => {
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  personDm(s);
+  // Why owesReply could never have seen this: the person's DM is not in the message log.
+  assert.equal(messageLog.owesReply(s).state, 'clear', 'premise: a DM leaves the message log untouched');
+  const { sent } = realSweep(roster);
+  assert.equal(sent.length, 1, 'the card\'s own case was not nudged');
+  assert.equal(sent[0].session, s);
+});
+
+test('#3226 real store CONTROL: once the agent has replied (keepAgentReply\'s write), no nudge', () => {
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  personDm(s, new Date(NOW - 10 * 60 * 1000).toISOString());
+  const kept = chat.appendMessage(chat.DIRECT, s, { text: 'yes, here', at: new Date(NOW - 9 * 60 * 1000).toISOString(), from: s });
+  assert.equal(kept.recorded, true);
+  personDm(s); // the person's SECOND message, also unanswered: not first contact
+  const { sent } = realSweep(roster);
+  assert.equal(sent.length, 0, 'an agent that has answered its person was told it never had');
+});
+
+test('#3226 real store CONTROL: a colleague `kosmos msg` with an empty DIRECT thread does not nudge', () => {
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  fs.mkdirSync(path.dirname(messageLog.LOG), { recursive: true });
+  fs.writeFileSync(messageLog.LOG, JSON.stringify({ kind: 'message', id: 'c1', from: 'leo', to: s, text: 'are you free?', at: HEARD }) + '\n');
+  // Positive control: this row IS what the first build read as "owes its first reply".
+  const owes = messageLog.owesReply(s);
+  assert.equal(owes.state, 'owes', 'the fixture did not reach the message log');
+  assert.equal(owes.lastSentAt, null);
+  const { sent } = realSweep(roster);
+  assert.equal(sent.length, 0, 'a colleague\'s message was read as the person\'s');
 });

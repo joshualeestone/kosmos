@@ -17131,8 +17131,10 @@ function start(port = PORT) {
       /* #3226: a brand-new agent that read its first message and never ran `kosmos reply` (about
          1 in 10 first contacts; the same session answers its second message) gets ONE typed
          reminder to answer with `kosmos reply` (engine/firstreply-nudge.js). Only when the card is
-         idle, it owes a reply, it has never sent one, and the owed message is a minute old; one
-         per session per board run. Same gating as the sweeps above: inert under `node --test` and
+         idle, its DIRECT thread with the person (the store the DM route and keepAgentReply write)
+         holds no row from it at all, and the person's latest message there was placed a minute ago;
+         one per session per board run, at most 3 tries that reach nothing. NOT messageLog.owesReply:
+         that log never holds the person's DM or the agent's `kosmos reply`. Same gating as the sweeps above: inert under `node --test` and
          before the live-execution opt-in, operator brake AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF=1,
          own ~1-min timer, unref'd, best-effort. */
       const FIRSTREPLY_BOOK = new Map();
@@ -17140,7 +17142,6 @@ function start(port = PORT) {
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
         book: FIRSTREPLY_BOOK,
-        owes: (session) => messageLog.owesReply(session),
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
