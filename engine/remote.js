@@ -278,6 +278,7 @@ async function refreshStandingIfStale(opts) {
 const NOT_ENROLLED_REPORT_MS = 5 * 60 * 1000;
 let notEnrolledReportAt = 0;
 let notEnrolledReportInFlight = false;
+let notEnrolledLastLogged = null;   // one stderr line per distinct reason, not one every five minutes
 function reportNotEnrolledIfDue(now) {
   // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
   try {
@@ -293,8 +294,12 @@ function reportNotEnrolledIfDue(now) {
     // Through the export, so a test can observe the call without any binary being run.
     module.exports.macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
       .then((r) => {
-        if (r && r.ok) { require('./remote-report').commitHeal(report); return; }
-        process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
+        if (r && r.ok) { notEnrolledLastLogged = null; require('./remote-report').commitHeal(report); return; }
+        const why = (r && r.because) || 'unknown';
+        if (why !== notEnrolledLastLogged) {
+          notEnrolledLastLogged = why;
+          process.stderr.write('kosmos#4277: the remote report did not go: ' + why + '\n');
+        }
       })
       .catch(() => {})
       .finally(() => { notEnrolledReportInFlight = false; });
@@ -1864,7 +1869,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { notEnrolledReportAt = 0; notEnrolledReportInFlight = false; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

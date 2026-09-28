@@ -129,9 +129,8 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
     assert.equal(body.remote.macId, true);
     assert.equal(body.remote.macKey, true);
     assert.equal(body.remote.tunnel, 'starting', 'ON and not enrolled is status() "connecting", reported as starting');
-    assert.ok(body.remote.error && /sign-in|code sent/.test(body.remote.error), 'the report did not say why: ' + body.remote.error);
+    assert.equal(body.remote.error, 'not-enrolled; missing: address, tls.crt, tls.key', 'the report did not say which enrolment files are missing');
     assert.ok(!c.stdin.includes('her@example.com'), 'the sign-in email left the Mac in the report');
-    assert.match(body.remote.error, /<email>/, 'the email was not written as <email>');
     assert.deepEqual(wire.dialled, [], 'the report went out unsigned');
     // Within the five minutes: no second report.
     await remote.refreshStandingIfStale({ now: t0 + 60 * 1000, ttlMs: 0 });
@@ -183,6 +182,48 @@ test('#4277: the enrolled standing call commits the heal baseline only when the 
     assert.equal(committed.length, 1, 'a successful send did not commit the heal baseline');
     assert.equal(typeof committed[0].healBaseline, 'number', 'the committed report is not the one that was built');
   } finally { rr.commitHeal = real; }
+});
+
+test('#4277: the not-enrolled report commits its heal baseline only when it went out, and never overlaps itself', async () => {
+  const rr = require('../engine/remote-report');
+  const realCommit = rr.commitHeal;
+  const realReq = remote.macRequest;
+  const committed = [];
+  rr.commitHeal = (report) => { committed.push(report); };
+  let release;
+  let calls = 0;
+  try {
+    remote.resetForTests();
+    keyOnly(true);
+    remote.macRequest = () => { calls++; return new Promise((res) => { release = res; }); };
+    const t0 = Date.now() + 90 * 60 * 1000;
+    await remote.refreshStandingIfStale({ now: t0, ttlMs: 0 });
+    // While one is out, another tick past the throttle does NOT start a second (the in-flight guard).
+    await remote.refreshStandingIfStale({ now: t0 + 10 * 60 * 1000, ttlMs: 0 });
+    assert.equal(calls, 1, 'a second report started while one was in flight');
+    release({ ok: false, because: 'refused' });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(committed.length, 0, 'a failed report committed its heal baseline');
+    remote.resetForTests();
+    keyOnly(true);
+    remote.macRequest = async () => { calls++; return { ok: true, data: {} }; };
+    await remote.refreshStandingIfStale({ now: t0 + 30 * 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(committed.length, 1, 'a report that went out did not commit its heal baseline');
+  } finally { rr.commitHeal = realCommit; remote.macRequest = realReq; }
+});
+
+test('#4277: key-only signing still needs the key and id on disk', async () => {
+  remote.resetForTests();
+  keyOnly(true);
+  fs.rmSync(path.join(STATE, 'mac_key'), { force: true });
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    const r = await remote.macRequest('POST', remote.KEY_ONLY_ROUTE, { remote: {} }, { keyOnly: true });
+    assert.equal(r.ok, false, 'key-only signing went ahead with no mac_key');
+    assert.equal(fake.calls().length, 0, 'the tunnel was asked to sign with no key');
+  } finally { delete process.env.FAKE_MAC_REQUEST_MODE; }
 });
 
 test('#4277: key-only signing opens the report route and nothing else', async () => {

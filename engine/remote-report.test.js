@@ -54,37 +54,46 @@ test('every status maps to the coordinator vocabulary, and off follows the switc
   }
 });
 
-test('the error is status()\'s sentence, with the home directory written as ~ and no user name left', () => {
+test('the error is a CODE classified from status()\'s sentence; the sentence never leaves the Mac', () => {
   report.resetForTests();
   const dir = stateDir([]);
-  const because = `${HOME}/Library/Application Support/AgentWorkforce/remote does not look like a Mac state dir (no mac_id); run setup first`;
+  const because = '/Users/somebody/Library/x does not look like a Mac state dir (no mac_id); run setup first';
   const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {}, home: HOME });
-  assert.equal(r.error, '<path> does not look like a Mac state dir (no mac_id); run setup first');
-  assert.ok(!r.error.includes('somebody'), 'the user name left the Mac');
+  assert.equal(r.error, 'state-dir-invalid');
+  assert.ok(!JSON.stringify(r).includes('somebody'), 'text from the sentence left the Mac');
 });
 
-test('an email in the sentence is never sent: status() names the sign-in email while it waits for the code', () => {
+test('classify: each known failure kind gets its code, anything else is other, never the text', () => {
+  const cases = [
+    ['the switch is off', 'switch-off'],
+    ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
+    ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'state-dir-invalid'],
+    ['reading mac_key from /Users/j/remote: No such file', 'state-file-unreadable'],
+    ['relay refused the tunnel: bad ticket', 'relay-refused'],
+    ['relay said go away: replaced', 'relay-dropped'],
+    ['Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)', 'coordinator-refused'],
+    ['Kosmos+ unreachable for /v1/mac/relay-ticket: dns error', 'coordinator-unreachable'],
+    ['restarting after a crash (exit 3)', 'crashed'],
+    ['waiting for the code sent to josh@stuff.io', 'awaiting-sign-in'],
+    ['the board has not started the tunnel', 'not-started'],
+    ["Josh's MacBook Pro at 192.168.1.23 said something new", 'other'],
+  ];
+  for (const [text, want] of cases) assert.equal(report.classify(text), want, text);
+  for (const code of report.CODES.map(([c]) => c)) assert.match(code, /^[a-z-]+$/, 'a code is not a fixed token: ' + code);
+});
+
+test('classify is bounded: a 100k-character hostile line classifies fast', () => {
+  const t0 = Date.now();
+  assert.equal(report.classify('a1'.repeat(50000)), 'other');
+  assert.ok(Date.now() - t0 < 200, 'classify took ' + (Date.now() - t0) + ' ms on a long line');
+});
+
+test('switch on, key held, not enrolled: the error names the missing enrolment files, not the sign-in sentence', () => {
   report.resetForTests();
-  const dir = stateDir([]);
+  const dir = stateDir(['mac_id', 'mac_key']);
   const r = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'waiting for the code sent to josh@stuff.io' }), env: {}, home: HOME });
-  assert.equal(r.error, 'waiting for the code sent to <email>');
-  assert.ok(!JSON.stringify(r).includes('@'), 'an email left the Mac');
-  assert.equal(report.scrub('a.b+c@d-e.co.uk said no', HOME), '<email> said no');
-});
-
-test('the home directory is matched in any letter case (macOS paths are case-insensitive)', () => {
-  const home = '/Users/Somebody';
-  assert.equal(report.scrub('/users/somebody/Library/x; and /USERS/SOMEBODY/y', home), '<path>; and <path>');
-  assert.ok(!report.scrub('/users/somebody/x', home).toLowerCase().includes('somebody'), 'the user name left the Mac');
-});
-
-test('the error is cut to its bound, never mid-character, and loses control characters', () => {
-  report.resetForTests();
-  const dir = stateDir([]);
-  const because = 'line one\nline\u0007two ' + 'é'.repeat(report.ERROR_MAX_CHARS + 40);
-  const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {}, home: HOME });
-  assert.equal(Array.from(r.error).length, report.ERROR_MAX_CHARS);
-  assert.ok(!/[\u0000-\u001f\u007f]/.test(r.error), 'a control character was sent');
+  assert.equal(r.error, 'not-enrolled; missing: address, tls.crt, tls.key');
+  assert.ok(!JSON.stringify(r).includes('@'), 'the email left the Mac');
 });
 
 test('stateDir: custom when AGENT_WORKFORCE_TUNNEL_STATE is set, missing when the directory is not there', () => {
@@ -101,7 +110,9 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
   let last = null;
   const at = (restarts, state) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {}, home: HOME }); return last.heal; };
   const commit = () => report.commitHeal(last);
-  assert.equal(at(3, 'up'), 'none', 'the first report cannot know what happened before it');
+  // The baseline is 0 (restarts counts from process start), so relaunches before the first
+  // successful send are not lost.
+  assert.equal(at(3, 'up'), 'relaunched', 'relaunches before the first send were lost');
   commit();
   assert.equal(at(4, 'up'), 'relaunched');
   // Not sent (no commitHeal): the relaunch is still news for the next report.
@@ -116,45 +127,13 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
   assert.equal(at(6, 'restarting'), 'relaunch-failed');
 });
 
-test('adversarial sentences: no email, path, or login name survives', () => {
-  const home = '/Users/Somebody';
-  const cases = [
-    ['waiting for the code sent to josh@localhost', { email: 'josh@localhost' }, 'waiting for the code sent to <email>'],
-    ['waiting for the code sent to josh@gmailcom', {}, 'waiting for the code sent to <email>'],
-    ['sent to jo:sh@stuff.io now', {}, 'sent to <email> now'],
-    ['/Volumes/Josh Stone Drive/Kosmos/remote does not look like a Mac state dir (no mac_id)', {}, '<path> does not look like a Mac state dir (no mac_id)'],
-    ['reading mac_key from /Volumes/X Y/remote: No such file or directory', {}, 'reading mac_key from <path>: No such file or directory'],
-    ['spawn /Users/Somebody/.local/bin/kosmos-tunnel ENOENT', {}, 'spawn <path> ENOENT'],
-    ['C:\\Users\\Josh\\AppData\\x does not look like one', {}, '<path> does not look like one'],
-    ['the tunnel for somebody stopped', { user: 'somebody' }, 'the tunnel for <user> stopped'],
-    ['restarting after a crash (exit 3)', {}, 'restarting after a crash (exit 3)'],
-    ['reading /Users/somebody/state failed to load', {}, 'reading <path> failed to load'],
-    ['auth failed: Authorization: Bearer sk-ABCDEF1234567890', {}, 'auth failed: Authorization: Bearer <token>'],
-    ['refused with a1b2c3d4e5f6a7b8c9d0e1f2 today', {}, 'refused with <token> today'],
-    ['sign-in failed (josh@stuff.io) try again', {}, 'sign-in failed (<email>) try again'],
-    ['Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)', {}, 'Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)'],
-  ];
-  for (const [text, extra, want] of cases) assert.equal(report.scrub(text, home, extra), want, text);
-  // A decomposed (NFD) spelling of the home, as some file systems return it.
-  assert.equal(report.scrub('/Users/Jose\u0301/x does not work', '/Users/Jos\u00e9'), '<path> does not work');
-});
-
-test('a symlinked home: its real path is redacted too', () => {
-  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-real-home-'));
-  const link = real + '-link';
-  fs.symlinkSync(real, link);
-  const realPath = fs.realpathSync.native(real);
-  assert.equal(report.scrub(realPath + '/Library/x; done', link), '<path>; done');
-  assert.ok(!report.scrub(realPath + '/Library/x; done', link).includes(path.basename(realPath)), 'the real home name left the Mac');
-});
-
 test('a remote that throws gives no report, never an exception', () => {
   report.resetForTests();
   const broken = { read: () => { throw new Error('boom'); }, status: () => ({}), stateDir: () => '/x' };
   assert.equal(report.build({ remote: broken, env: {}, home: HOME }), null);
 });
 
-test('the report carries no path, address or email: only the known fields', () => {
+test('the report carries only the known fields, each a fixed value', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id']);
   const r = report.build({ remote: fakeRemote({ dir }), env: {}, home: HOME, appVersion: '0.7.05' });

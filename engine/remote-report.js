@@ -11,23 +11,19 @@
  * deploy/mac-remote-report.sh). This module only builds it, and never throws: a report
  * that cannot be built is not sent, and nothing here can cost the board its standing.
  *
- * What it carries, and what it does not:
+ * What it carries (fixed values only; no free text ever leaves the Mac, review 4):
  *   on        the remote-access switch
  *   tunnel    running | starting | crashed | stopped | off, from remote.status()
- *   error     remote.status()'s own sentence when not up, cut to ERROR_MAX_CHARS, with
- *             this person's home directory written as `~` (any letter case) and every
- *             email address written as `<email>`: status() names the sign-in email while
- *             the board waits for its code, exactly the state this report is for
+ *   error     a CODE from the fixed list in CODES, classified on the Mac from status()'s own
+ *             sentence (the sentence itself is never sent); or, for a board whose switch is
+ *             on and which holds a key but is not enrolled, `not-enrolled; missing: <files>`
+ *             naming the missing enrolment files by their fixed names
  *   stateDir  default | custom (AGENT_WORKFORCE_TUNNEL_STATE is set) | missing
  *   macId     whether the state dir holds mac_id; macKey whether it holds mac_key
  *   app       this build's version
- *   heal      what the board's supervisor did since the last report: relaunched (the
- *             tunnel came back), relaunch-failed (it restarted it and it is still not
- *             up), or none. The supervisor itself is remote.js's ensure()/scheduleRestart,
- *             which already relaunches a dead tunnel every 15 s with backoff; this
- *             reports it rather than adding a second relauncher.
- * Never a home path, an email or a key. The Mac's own address may appear in a sentence;
- * the coordinator already holds it.
+ *   heal      what the board's supervisor did since the last report that WENT OUT
+ *             (relaunched | relaunch-failed | none); the supervisor is remote.js's
+ *             ensure()/scheduleRestart, which already relaunches a dead tunnel
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -44,64 +40,45 @@ function tunnelState(state, on) {
   return on ? 'stopped' : 'off';
 }
 
-/* A sentence safe to send (review 2 of #4277 widened this from "the home directory"):
-   - every known sensitive string, in any letter case and Unicode spelling, first: the sign-in
-     email -> <email>; the home, the state dir and their real paths -> <path>; the login name,
-     as a whole word -> <user>;
-   - then ANY remaining absolute path (a `/`, `~`, `C:\` or `\\` start) -> <path>, up to where
-     the clause ends (" does not", " (", ": ", ";", a quote, an error code like ENOENT, or the
-     end), so a path with spaces in it (an external drive named after a person) goes whole;
-   - then ANY word with an `@` in it -> <email> (the coordinator accepts emails with no dot);
-   - control characters dropped, cut to the bound, never mid-character.
-   It over-redacts rather than under-redacts: a lost word costs a little diagnosis, a leaked
-   name costs a person. */
-function escapeRe(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function spellings(x) {
-  if (typeof x !== 'string' || x.length < 2) return [];
-  const out = new Set([x, x.normalize('NFC'), x.normalize('NFD')]);
-  const real = safeRealpath(x);
-  if (real) for (const r of [real, real.normalize('NFC'), real.normalize('NFD')]) out.add(r);
-  return Array.from(out);
+/* kosmos#4277 review 4: NO free text leaves the Mac. Four rounds of review kept finding
+   identifying text that a scrubber missed (hostnames, device names, LAN addresses, phone
+   numbers, file:// and relative paths), and a scrubber that grows forever also destroys the
+   diagnosis. So the board's own sentence is CLASSIFIED here, on the Mac, into one code from a
+   fixed list, and only the code is sent. The input is cut to CLASSIFY_MAX_CHARS first, and every
+   pattern is a short literal, so nothing here can run long on a hostile line. */
+const CLASSIFY_MAX_CHARS = 2000;
+const CODES = [
+  ['switch-off', /the switch is off/i],
+  ['settings-unreadable', /settings could not be read/i],
+  ['no-relay-address', /no relay address/i],
+  ['binary-missing', /could not be started|ENOENT|EACCES|unrecognized subcommand/i],
+  ['state-dir-invalid', /does not look like a Mac state dir/i],
+  ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key/i],
+  ['cert-renewal', /renewal/i],
+  ['relay-refused', /relay refused|relay answered AUTH|relay did not answer AUTH/i],
+  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone/i],
+  ['coordinator-refused', /Kosmos\+ (refused|answered)|said no|\bHTTP 4\d\d\b/i],
+  ['coordinator-unreachable', /unreachable|connect(ion)? refused|timed out|timeout/i],
+  ['crashed', /crash|killed|restarting/i],
+  ['awaiting-sign-in', /waiting for the (code|sign-in)/i],
+  ['not-started', /has not started the tunnel/i],
+  ['starting', /starting the connection|connecting to the relay/i],
+];
+function classify(text) {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  const t = text.slice(0, CLASSIFY_MAX_CHARS);
+  for (const [code, re] of CODES) if (re.test(t)) return code;
+  return 'other';
 }
-function scrub(text, home, extra) {
-  if (typeof text !== 'string') return null;
-  extra = extra || {};
-  let s = text.normalize('NFC');
-  const swap = (literal, placeholder, wholeWord) => {
-    const lit = literal.normalize('NFC');
-    const re = wholeWord ? new RegExp('\\b' + escapeRe(lit) + '\\b', 'gi') : new RegExp(escapeRe(lit), 'gi');
-    s = s.replace(re, placeholder);
-  };
-  if (typeof extra.email === 'string' && extra.email.includes('@')) swap(extra.email, '<email>');
-  const paths = [...spellings(home), ...spellings(extra.stateDir)]
-    .filter((x) => x.length > 1)
-    .sort((a, b) => b.length - a.length);
-  for (const p of paths) swap(p, '<path>');
-  if (typeof extra.user === 'string' && extra.user.length >= 3) swap(extra.user, '<user>', true);
-  // An absolute path, carried across a space only while a LATER word still has a slash in it
-  // (so "/Volumes/Josh Stone Drive/Kosmos/remote" goes whole, and "…/state failed to load" keeps
-  // its words): the diagnosis is the prose, the identifying part is the path. A coordinator
-  // route (`/v1/...`) names nobody and says which call was refused, so it is kept.
-  const P = '[^\\s:;"\'()<>]';
-  s = s.replace(new RegExp('(?<=^|[\\s(\\[{"\'=>])(?:~|[A-Za-z]:\\\\|\\\\\\\\|/(?!v1/))(?!path>)' + P + '*(?:(?:\\s+' + P + '+)*?\\s+' + P + '*[\\\\/]' + P + '*)*', 'g'), '<path>');
-  // An email: any run with an @ in it, punctuation around it kept.
-  s = s.replace(/[^\s()<>"',;]*@[^\s()<>"',;]*/g, '<email>');
-  // An opaque secret: a bearer value, or any long run mixing letters and digits (keys, tokens).
-  // A run starting with `/` is left: real paths are already redacted, so it is a /v1 route.
-  s = s.replace(/\b(Bearer|Token|token|key|Key)(\s*[:=]?\s+)\S+/g, '$1$2<token>');
-  s = s.replace(/[A-Za-z0-9_+/=.-]{20,}/g, (m) => (!m.startsWith('/') && /[A-Za-z]/.test(m) && /[0-9]/.test(m) ? '<token>' : m));
-  s = s.replace(/(?:<path>)+/g, '<path>');
-  s = Array.from(s).filter((c) => c >= ' ' && c !== '\u007f').join('').trim();
-  if (!s) return null;
-  return Array.from(s).slice(0, ERROR_MAX_CHARS).join('');
-}
-function safeRealpath(p) { try { return fs.realpathSync.native(p); } catch { return null; } }
+/* The enrolment files enrolled() needs, by their FIXED names: which are missing is the reason a
+   board with its switch on and a key in hand still believes it is not enrolled. */
+const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
    baseline; commitHeal() adopts it once a report is sent, so a refused or failed send does
    not swallow a relaunch. A relaunch whose tunnel is still starting is not yet a result:
    it reads `none` and stays pending for the next report. */
-let lastRestarts = null;
+let lastRestarts = 0;   // restarts counts from process start, so 0 is the true baseline
 
 /**
  * The report, or null when it cannot be built. `deps` replaces remote.js and the
@@ -111,9 +88,6 @@ function build(deps) {
   try {
     const remote = (deps && deps.remote) || require('./remote');
     const env = (deps && deps.env) || process.env;
-    const home = (deps && deps.home) || os.homedir();
-    let user = deps && deps.user;
-    if (user === undefined) { try { user = os.userInfo().username; } catch { user = null; } }
     const settings = remote.read();
     const on = settings && settings.ok === true && settings.on === true;
     const st = remote.status() || {};
@@ -134,7 +108,7 @@ function build(deps) {
     const r = {
       on,
       tunnel,
-      error: tunnel === 'running' ? null : scrub(st.because, home, { email: settings && settings.email, stateDir: dir, user }),
+      error: tunnel === 'running' ? null : errorCode(st.because, on, exists),
       stateDir: !dirThere ? 'missing' : (env.AGENT_WORKFORCE_TUNNEL_STATE ? 'custom' : 'default'),
       macId: exists('mac_id'),
       macKey: exists('mac_key'),
@@ -150,9 +124,18 @@ function build(deps) {
   }
 }
 
+/* The code sent as `error`. A board whose switch is on but which is not enrolled says which
+   enrolment files are missing (fixed names), not status()'s sign-in sentence, which would
+   blame the person for what may be a half-written state dir. */
+function errorCode(because, on, exists) {
+  const missing = ENROL_FILES.filter((f) => !exists(f));
+  if (on && missing.length && exists('mac_key')) return 'not-enrolled; missing: ' + missing.join(', ');
+  return classify(because);
+}
+
 /** Call with the report that was SENT, so its heal baseline counts. */
 function commitHeal(report) {
   if (report && typeof report.healBaseline === 'number') lastRestarts = report.healBaseline;
 }
 
-module.exports = { build, commitHeal, tunnelState, scrub, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = null; } };
+module.exports = { build, commitHeal, tunnelState, classify, CODES, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = 0; } };
