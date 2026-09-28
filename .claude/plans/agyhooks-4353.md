@@ -6,7 +6,7 @@ board adopts running agents rather than restarting them, so its card said "Can't
 ## Design
 - `engine/agyrefresh.js`: for every RUNNING agent of this Kosmos (create.runningJobs) whose job
   runner is 'antigravity' AND whose launch folder has no Kosmos entry in `.agents/hooks.json`
-  yet (an object entry; a malformed one is repaired), call
+  yet (an object entry whose node and bridge still exist; a malformed or stale one is repaired), call
   agyhooks.ensureHooks(folder, allowance.stableNode(), create.agyBridgePath(), false).
   - The folder is argument 3 of the agent's own plist (what the running supervisor was started
     with), decoded with create.unxml, falling back to create.workerDir(name).
@@ -22,8 +22,8 @@ board adopts running agents rather than restarting them, so its card said "Can't
     win32. Never throws.
 - Only agents with no entry: rewriting an existing one would make the board and the supervisor
   take turns (different node spellings).
-- server.js: once at board start, after installSupervisor, not under AGENT_WORKFORCE_DRY_RUN;
-  fire-and-forget; logs each agent it hooked and each failure (not the git-project refusal).
+- server.js: once at board start, after installSupervisor, not under AGENT_WORKFORCE_DRY_RUN,
+  deferred with setImmediate (its reads and writes happen after start, not in it); logs each agent it hooked and each failure (not the git-project refusal).
 - readJob is NOT changed.
 
 ## Evidence the write is enough without a restart

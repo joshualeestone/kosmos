@@ -76,6 +76,9 @@ test('#4353 nothing here throws: a missing folder, a throwing write and an unrea
 
 test('#4353 with the REAL ensureHooks and hasKosmosHook: written once, then left alone', async () => {
   const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyrefresh-wd-'));
+  // Real paths: an entry naming a node or bridge that does not exist counts as absent.
+  const bridge = path.join(wd, 'agy-report-bridge.js');
+  fs.writeFileSync(bridge, '');
   try {
     const deps = {
       names: () => ['gem'],
@@ -83,8 +86,8 @@ test('#4353 with the REAL ensureHooks and hasKosmosHook: written once, then left
       workdir: () => wd,
       hasHook: (d) => agyrefresh.hasKosmosHook(d, agyhooks.HOOK_NAME),
       ensureHooks: agyhooks.ensureHooks,
-      nodeBin: '/n/node',
-      bridge: '/b/agy-report-bridge.js',
+      nodeBin: process.execPath,
+      bridge,
       bridgeExists: () => true,
     };
     const rows = await agyrefresh.refreshRunningAgyHooks(deps);
@@ -95,7 +98,7 @@ test('#4353 with the REAL ensureHooks and hasKosmosHook: written once, then left
     assert.ok(entry && entry.Stop && entry.PreInvocation, 'the Kosmos entry was not written');
     assert.equal(entry.PreToolUse, undefined, 'tool hooks were hot-written');
     assert.match(entry.Stop[0].command, /agy-report-bridge\.js' Stop$/);
-    const again = await agyrefresh.refreshRunningAgyHooks({ ...deps, nodeBin: '/other/node' });
+    const again = await agyrefresh.refreshRunningAgyHooks({ ...deps, nodeBin: '/usr/bin/true' });
     assert.equal(again[0].changed, false, 'a second start rewrote an entry that was already there');
     assert.equal(again[0].why, 'already hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
@@ -145,5 +148,20 @@ test('#4353 a malformed Kosmos entry (null, a string, a list) is not "already ho
     // CONTROL: a real entry does read as hooked.
     fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: { Stop: [] } }));
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true);
+  } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+});
+
+test('#4353 an entry whose node or bridge no longer exists counts as absent, so it is written again', () => {
+  const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agystale-'));
+  try {
+    const bridge = path.join(wd, 'bridge.js');
+    fs.writeFileSync(bridge, '');
+    // A real entry pointing at a node that exists and a bridge that exists: hooked.
+    agyhooks.ensureHooks(wd, process.execPath, bridge, false);
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true, 'CONTROL: a live entry must read as hooked');
+    // The same entry after an upgrade removed the node it names: absent.
+    const f = path.join(wd, '.agents', 'hooks.json');
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').split(process.execPath).join('/gone/node'));
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'an entry naming a missing node read as hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });

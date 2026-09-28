@@ -32,7 +32,12 @@ function hasKosmosHook(workdir, hookName) {
     const e = j && typeof j === 'object' ? j[hookName] : null;
     // Only an object entry counts (a null, a string or a list there is malformed, and
     // ensureHooks replaces it, so it must not read as "already hooked").
-    return !!(e && typeof e === 'object' && !Array.isArray(e));
+    if (!(e && typeof e === 'object' && !Array.isArray(e))) return false;
+    // An entry whose node or bridge no longer exists (a node an upgrade removed) fails on every
+    // turn; it counts as absent so it is written again.
+    const cmd = e.Stop && e.Stop[0] && typeof e.Stop[0].command === 'string' ? e.Stop[0].command : '';
+    const quoted = [...cmd.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1].replace(/'\\''/g, "'"));
+    return quoted.length < 2 || quoted.slice(0, 2).every((p) => fs.existsSync(p));
   } catch { return false; }
 }
 

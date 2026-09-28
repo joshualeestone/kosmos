@@ -17593,9 +17593,12 @@ if (require.main === module) {
      restarting it, so its card said "Can't tell" until someone restarted it. Write the hook for
      every running agy agent now: agy picks up a hooks.json written while it runs, on its next
      turn (measured, #4353). After the refresh above, so the bridge the hook runs is current
-     (and nothing is written if it is missing). Only agents with no Kosmos entry yet, and Working/Idle hooks only (the tool
-     hooks wait for a current supervisor's next start). Never under the test dry run. Best effort. */
+     (and nothing is written if it is missing). Only agents with no Kosmos entry yet, and
+     Working/Idle hooks only (the tool hooks wait for a current supervisor's next start). Never
+     under the test dry run. Best effort. */
   if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
+    // setImmediate: its work (launchctl list, file reads and writes) happens after start, not in it.
+    setImmediate(() => {
     try {
       require('./engine/agyrefresh').refreshAtBoardStart()
         .then((rows) => {
@@ -17607,6 +17610,7 @@ if (require.main === module) {
         })
         .catch(() => { /* best effort: the supervisor still writes it at the next launch */ });
     } catch { /* best effort */ }
+    });
   }
   /**
    * #570 BLOCKER 4: make sure something brings the BOARD back at logon on Windows.

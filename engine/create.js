@@ -1291,7 +1291,6 @@ function trustAgentFolder(name, opts) {
     : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
 }
 
-/* The launchd arm of readJob, unchanged. */
 /* The decoded ProgramArguments of an agent's plist, or null (a bad name, no plist). #4353: the
    one reader of that list, shared by readPlistJob and agyrefresh's launch folder. The text is
    returned too, for readPlistJob's environment reads. */
@@ -1304,6 +1303,7 @@ function plistArgs(name, worldId) {
   return { args, text };
 }
 
+/* The launchd arm of readJob. */
 function readPlistJob(name, worldId) {
   const read = plistArgs(name, worldId);
   if (!read) return null;
