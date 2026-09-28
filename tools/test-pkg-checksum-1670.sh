@@ -176,8 +176,9 @@ fi
 EXEC_INNER="$T/inner-exec.sh"
 /usr/bin/sed 's|^   /bin/sh "\$d/setup"$|   exec /bin/sh "$d/setup"|' "$INNER" > "$EXEC_INNER"
 if cmp -s "$INNER" "$EXEC_INNER"; then fail "CONTROL #4319: could not restore exec in the lifted script; re-anchor this control"
+elif [ -z "$FPORT" ]; then fail "CONTROL #4319: the ARM 4 origin never started, so this control could not run"
 else
-  printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
+  # The ARM 4 origin is still up and, past its first hit, serves the matching checksum.
   rm -f "$T/RAN" "$T/DIR"
   /bin/sh -c "$(cat "$EXEC_INNER")" "http://127.0.0.1:$FPORT/setup" 0 >/dev/null 2>&1
   _vd=$(cat "$T/DIR" 2>/dev/null)
