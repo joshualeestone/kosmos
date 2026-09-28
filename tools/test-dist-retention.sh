@@ -595,7 +595,7 @@ echo "$js" | grep -q '"pruned":true' && ok "json: pruned true when versions were
 if command -v openssl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   TLS="$TMP/tls"; mkdir -p "$TLS"
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TLS/k.pem" -out "$TLS/c.pem" -days 1 \
-    -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2>&1
+    -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2> "$TLS/openssl.err"
   cat > "$TLS/srv.py" <<'PYEOF'
 import http.server, ssl, sys, os
 root = sys.argv[3]
@@ -616,7 +616,8 @@ s.socket = ctx.wrap_socket(s.socket, server_side=True)
 print(s.server_address[1], flush=True); s.serve_forever()
 PYEOF
   python3 "$TLS/srv.py" "$TLS/c.pem" "$TLS/k.pem" "$MIRROR" > "$TLS/port" 2> "$TLS/srv.err" & SRV=$!
-  # Up to 30s: a cold python on a loaded CI runner took longer than the first 5s allowed.
+  # About 30s (60 half-second passes, a little more with the fork per pass), ending at once if the
+  # server dies. CI's first failure came 5s after launch, which fits either a slow or a dead start.
   for _ in $(seq 1 60); do [ -s "$TLS/port" ] && break; kill -0 "$SRV" 2>/dev/null || break; sleep 0.5; done
   PORT="$(cat "$TLS/port" 2>/dev/null)"
   if [ -n "$PORT" ]; then
@@ -628,7 +629,10 @@ PYEOF
     { absent "$D" kosmos-0.6.08-arm64.tar.gz && absent "$D" kosmos-0.6.09-arm64.manifest.json; } \
       && ok "gate redirect (control): the same copy served directly over https is proven and pruned" || no "gate redirect control: https harness cannot prove a copy -- $out"
   else
-    no "gate redirect: the local https server did not start -- $( [ -s "$TLS/c.pem" ] && echo 'cert made' || echo 'NO cert (openssl failed)' ); server stderr: $(tr '\n' ' ' < "$TLS/srv.err" 2>/dev/null | cut -c1-400)"
+    # Name WHICH failure: still starting, or exited (rc 137/143 = killed by a signal, which a
+    # runner's memory limit or watchdog would do and which leaves nothing on stderr).
+    if kill -0 "$SRV" 2>/dev/null; then srv_state="still running after ~30s with no port"; else wait "$SRV" 2>/dev/null; srv_state="exited rc=$?"; fi
+    no "gate redirect: the local https server did not start -- $srv_state; $( [ -s "$TLS/c.pem" ] && echo 'cert made' || echo "NO cert (openssl: $(tr '\n' ' ' < "$TLS/openssl.err" 2>/dev/null | cut -c1-200))" ); server stderr: $(tr '\n' ' ' < "$TLS/srv.err" 2>/dev/null | cut -c1-400)"
   fi
   kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 else
