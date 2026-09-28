@@ -2575,12 +2575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// With the new app ready, how long words left in a box hold the restart before the person is asked.
     static let relaunchAskAfter: TimeInterval = 600
     static func relaunchStep(freshFound: Bool, waited: TimeInterval, freshFor: TimeInterval,
-                             page: PageSays, toldGaveUp: Bool = false) -> RelaunchStep {
+                             page: PageSays, toldGaveUp: Bool = false, askedBefore: Bool = false) -> RelaunchStep {
         // Once the person has been told the app did not update, keep looking quietly: a late app still wins.
         guard freshFound else { return (waited >= relaunchWaitLimit && !toldGaveUp) ? .giveUp : .wait }
         switch page {
         case .safe: return .relaunchNow
-        case .cannotTell: return .askPerson
+        // After a Not Now, even a page that cannot tell waits the ask-after time before the next question.
+        case .cannotTell: return (askedBefore && freshFor < relaunchAskAfter) ? .wait : .askPerson
         case .wouldLose, .noReply: return freshFor >= relaunchAskAfter ? .askPerson : .wait
         }
     }
@@ -2609,29 +2610,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #4347: one step of the wait-then-restart. Re-arms itself until it relaunches, asks, or gives up.
-    private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?, toldGaveUp: Bool) {
+    private func stepRelaunch(mine: String, theirs: String, since: Date, freshSince: Date?, toldGaveUp: Bool,
+                              askedBefore: Bool = false) {
         let target = Self.freshAppURL(theirs: theirs)
         let now = Date()
         let waited = now.timeIntervalSince(since)
-        let freshAt = target == nil ? nil : (freshSince ?? now)
+        let freshAt = freshSince ?? (target == nil ? nil : now)
         let freshFor = freshAt.map { now.timeIntervalSince($0) } ?? 0
         var decided = false
         let decide = { [weak self] (page: PageSays) in
             guard !decided, let self else { return }
             decided = true
             switch Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page,
-                                     toldGaveUp: toldGaveUp) {
+                                     toldGaveUp: toldGaveUp, askedBefore: askedBefore) {
             case .wait:
                 let again = target != nil ? Self.relaunchPollForPage
                     : (toldGaveUp ? Self.relaunchPollAfterGiveUp : Self.relaunchPollForApp)
                 DispatchQueue.main.asyncAfter(deadline: .now() + again) { [weak self] in
-                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: freshAt, toldGaveUp: toldGaveUp)
+                    self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: freshAt, toldGaveUp: toldGaveUp,
+                                       askedBefore: askedBefore)
                 }
             case .relaunchNow:
                 self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false)
             case .askPerson:
-                self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
-                                  wordsWaiting: page == .wouldLose)
+                let restarted = self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
+                                                  wordsWaiting: page == .wouldLose)
+                if !restarted {
+                    /* Not Now: keep watching. Once the words are sent the page says safe and the restart
+                       happens with no question; the ask-after clock starts again from now. */
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
+                        self?.stepRelaunch(mine: mine, theirs: theirs, since: since, freshSince: Date(), toldGaveUp: toldGaveUp,
+                                           askedBefore: true)
+                    }
+                }
             case .giveUp:
                 logLine("relaunch: \(ISO8601DateFormatter().string(from: Date())) no app on disk reached \(theirs) "
                         + "after \(Int(waited))s; not reopening")
@@ -2661,7 +2672,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #4347: when the page cannot say whether a restart is safe, or words have waited in a box for
     /// relaunchAskAfter. Restart is the default (Josh: the recommended action is the blue one).
-    private func askToRestart(mine: String, theirs: String, target: URL, waited: TimeInterval, wordsWaiting: Bool) {
+    @discardableResult
+    private func askToRestart(mine: String, theirs: String, target: URL, waited: TimeInterval, wordsWaiting: Bool) -> Bool {
         window?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         alert.messageText = "Restart Kosmos to finish updating"
@@ -2675,8 +2687,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             alert.addButton(withTitle: title).keyEquivalent = keys[i]
         }
         let clicked = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        guard clicked == spec.restartIndex else { return }
+        guard clicked == spec.restartIndex else { return false }
         relaunch(mine: mine, theirs: theirs, target: target, waited: waited, asked: true)
+        return true
     }
 
     private func relaunch(mine: String, theirs: String, target: URL, waited: TimeInterval, asked: Bool) {
@@ -3905,6 +3918,12 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     stepCheck(step(true, 900, AppDelegate.relaunchAskAfter, .noReply), .askPerson,
               "a page that never answers is asked about after the same time")
     stepCheck(step(true, 5, 0, .cannotTell), .askPerson, "the page cannot tell: ask, with Restart as the default")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .cannotTell, askedBefore: true), .wait,
+              "after Not Now, a page that cannot tell is not asked again at once (no nag every 15 s)")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: AppDelegate.relaunchAskAfter, page: .cannotTell,
+                                       askedBefore: true), .askPerson, "after Not Now, asked again only after the ask-after time")
+    stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .safe, askedBefore: true), .relaunchNow,
+              "after Not Now, once the words are sent the restart happens with no question")
     stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .wait,
               "after telling the person once, keep looking quietly: never a second notice")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .relaunchNow,
