@@ -4,18 +4,23 @@ An agy agent launched before #4043 keeps its old supervisor (which has no hook s
 board adopts running agents rather than restarting them, so its card said "Can't tell".
 
 ## Design
-- `engine/agyrefresh.js`: for every RUNNING agent (create.runningJobs) whose job runner is
-  'antigravity' AND whose `create.workerDir(name)` (the folder plistFor passes the supervisor as
-  argument 3; a test pins that) has NO Kosmos entry in `.agents/hooks.json` yet, call
-  agyhooks.ensureHooks(workdir, process.execPath, create.agyBridgePath(), toolHooksSafe(version)).
-  The version is `<agy> --version`, async execFile, killed at 5 s, first line whatever the exit
-  status (as the supervisor reads it), asked once per binary. Nothing is written when the bridge
-  is missing (an empty PreToolUse answer is a DENY on agy). Never throws.
-- Only agents with no entry: the board's node path is not spelled the way the supervisor spells
-  it, so rewriting an existing entry would make the two take turns rewriting a running file.
-- server.js: runs it once at board start, after installSupervisor (so the bridge is current),
-  not under AGENT_WORKFORCE_DRY_RUN; the promise is fire-and-forget with its rows logged.
-- readJob is NOT changed (an earlier version added `workdir` to it and broke a strict test).
+- `engine/agyrefresh.js`: for every RUNNING agent of this Kosmos (create.runningJobs) whose job
+  runner is 'antigravity' AND whose launch folder has no Kosmos entry in `.agents/hooks.json`
+  yet (an object entry, the same test ensureHooks applies), call
+  agyhooks.ensureHooks(folder, allowance.stableNode(), create.agyBridgePath(), toolHooksSafe(v)).
+  - The folder is argument 3 of the agent's own plist (what the running supervisor was started
+    with), decoded with create.unxml, falling back to create.workerDir(name).
+  - The node is stableNode(), not process.execPath: a versioned Homebrew path dies at upgrade.
+  - The version `v` is `<agy> --version`, async execFile killed at VERSION_TIMEOUT_MS, first line
+    whatever the exit status, once per binary; the has-hook check is repeated after that await
+    (narrows, does not close, the race with the supervisor; both writes are working entries).
+  - Nothing is written when the bridge is missing (an empty PreToolUse answer is a DENY). Not on
+    win32. Never throws.
+- Only agents with no entry: rewriting an existing one would make the board and the supervisor
+  take turns (different node spellings).
+- server.js: once at board start, after installSupervisor, not under AGENT_WORKFORCE_DRY_RUN;
+  fire-and-forget; logs each agent it hooked and each failure (not the git-project refusal).
+- readJob is NOT changed.
 
 ## Evidence the write is enough without a restart
 Measured on the card (comment 5872366045): hooks.json written mid-session fired on the next

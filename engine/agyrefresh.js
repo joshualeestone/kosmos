@@ -16,8 +16,10 @@
  * supervisor: the board's node path is not spelled the way the supervisor spells it, and
  * rewriting the entry at every board start (then back at every launch) would churn the file of
  * a running agent for nothing. Only running agents are visited; a stopped one is hooked when it
- * starts. Nothing is written when the bridge the hook would run is missing: agy reads an empty
- * answer from a PreToolUse hook as a DENY, which is worse than "Can't tell".
+ * starts. Only this Kosmos's agents (runningJobs is world-scoped): an agy agent kept running in
+ * another Kosmos is hooked when that Kosmos's board starts. Nothing is written when the bridge
+ * the hook would run is missing: agy reads an empty answer from a PreToolUse hook as a DENY,
+ * which is worse than "Can't tell".
  * Never throws.
  */
 const fs = require('node:fs');
@@ -31,7 +33,10 @@ const VERSION_TIMEOUT_MS = 5000;
 function hasKosmosHook(workdir, hookName) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(workdir, '.agents', 'hooks.json'), 'utf8'));
-    return !!(j && typeof j === 'object' && Object.prototype.hasOwnProperty.call(j, hookName));
+    const e = j && typeof j === 'object' ? j[hookName] : null;
+    // The same test ensureHooks applies: only an object entry counts (a null or a string there
+    // is malformed, and ensureHooks would replace it, so it must not read as "already hooked").
+    return !!(e && typeof e === 'object' && !Array.isArray(e));
   } catch { return false; }
 }
 
@@ -70,8 +75,11 @@ async function refreshRunningAgyHooks(deps) {
       let v = '';
       try { v = String((await deps.versionOf(job.claude)) || ''); } catch { v = ''; }
       versions.set(job.claude, v);
-      // The await is a window in which the supervisor could have launched it and written its own
-      // entry; look again rather than overwrite that.
+      // The await is the widest window in which the supervisor could have launched it and written
+      // its own entry, so look again. This narrows the race, it does not close it: the supervisor
+      // is another process and can still write between this check and the write below. Both
+      // writes produce a working Kosmos entry (only the node spelling differs), so the loser
+      // costs nothing.
       try { has = !!deps.hasHook(wd); } catch { has = false; }
       if (has) { rows.push({ name, ok: true, changed: false, why: 'already hooked' }); continue; }
     }
@@ -106,7 +114,7 @@ function versionOf(bin) {
     create.workerDir(name) (what plistFor writes there) when the plist cannot be read. */
 function launchDir(create, name) {
   try {
-    const text = require('node:fs').readFileSync(create.plistPath(name), 'utf8');
+    const text = fs.readFileSync(create.plistPath(name), 'utf8');
     const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
     const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]) : [];
     if (args[3]) return create.unxml(args[3]);
@@ -116,6 +124,8 @@ function launchDir(create, name) {
 
 /** The production wiring: create.js for the agents and bridge, agyhooks for the write. */
 function refreshAtBoardStart() {
+  // agy hooks are Unix only (agyhooks' sh -c quoting) and Kosmos runs no agy agent on Windows.
+  if (process.platform === 'win32') return Promise.resolve([]);
   const create = require('./create');
   const agyhooks = require('./agyhooks');
   const bridge = create.agyBridgePath();

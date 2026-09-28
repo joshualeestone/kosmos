@@ -171,3 +171,18 @@ test('#4353 a version probe whose grandchild holds the pipe still settles (a han
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('#4353 a malformed Kosmos entry (null, a string, a list) is not "already hooked", so it gets repaired', () => {
+  const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyhas-'));
+  try {
+    fs.mkdirSync(path.join(wd, '.agents'));
+    const f = path.join(wd, '.agents', 'hooks.json');
+    for (const bad of [null, 'x', []]) {
+      fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: bad }));
+      assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, JSON.stringify(bad) + ' read as hooked');
+    }
+    // CONTROL: a real entry does read as hooked.
+    fs.writeFileSync(f, JSON.stringify({ [agyhooks.HOOK_NAME]: { Stop: [] } }));
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true);
+  } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+});
