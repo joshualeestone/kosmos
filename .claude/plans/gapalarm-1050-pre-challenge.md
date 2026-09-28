@@ -16,14 +16,15 @@ converged: true
 **Converged:** Yes, at review 15 (strict bar: no BLOCKER, WARNING or CONVENTION); validation then passed
 **Fixed:** every BLOCKER and WARNING from reviews 1 to 14, and the validation finding | **Deferred:** NITs listed per round in `.claude/plans/gapalarm-1050.md` | **Asked (awaiting user):** 0
 
-Each fix below has a test that was run red with the fix removed, unless the round says otherwise. The plan's "Review rounds" section has the full record.
+From review 2 on, each fix below has a test that was run red with the fix removed, except where the round says otherwise (12's probe cleanup, 14 which removes a call). Review 1's fixes were tested but not recorded as run red. The plan's "Review rounds" section has the full record.
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
 **Reviewer model:** opus
-- [BLOCKER] tools/gap-alarm.js: claude-msg refuses without $TMUX, which a launchd job never has --> FIXED: TMUX points at the default tmux socket; tested.
-- [WARNING] (five, recorded in the plan: staging hours from the cut time, pointer fields, the fetch, and the post rules) --> FIXED.
+- [BLOCKER] tools/gap-alarm.js: claude-msg refuses without $TMUX, which a launchd job never has, so the pane post always failed while the card counted as told --> FIXED: TMUX points at the default tmux socket, and a failed pane message is said on the card; tested.
+- [WARNING] (five; the plan's "Review 1" section records the fixes) --> FIXED: the plist's node is the stable Homebrew link, not a Cellar path an upgrade deletes; --install refuses a linked worktree; staging's hours run from the build's built.at (a manifest without it is could-not-tell); tests for the exact 24 h and 48 h boundaries, the daily could-not-tell repost, and a real fetch from a moved origin.
+- [NIT] (three) a dead ternary, the "measurable again" all-clear, the header's --check note --> FIXED.
 
 #### Iteration 2
 **Reviewer model:** sonnet
