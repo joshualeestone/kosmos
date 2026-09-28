@@ -19554,6 +19554,7 @@ if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
 /* #4408: the board is restarting itself onto the code on disk. While set, the stale toast stays as
    "Restarting" and the did-not-answer screen stands down (the board is away on purpose, as in an update). */
 let ENGINE_RESTARTING = false;
+const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the restarted board before saying so
 async function engineRestartClick() {
   const btn = document.getElementById('ut-engine-restart');
   const small = btn && btn.closest('.utoast') ? btn.closest('.utoast').querySelector('small') : null;
@@ -19564,7 +19565,7 @@ async function engineRestartClick() {
     const out = await r.json().catch(() => ({}));
     if (!r.ok) {
       /* Already current (another page, or a restart that just finished): nothing to restart, so show it. */
-      if (r.status === 409 && out && /already running the code on disk/.test(String(out.because || ''))) { location.reload(); return; }
+      if (r.status === 409 && out && out.current === true) { location.reload(); return; }
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
       if (small) small.textContent = 'Kosmos could not restart itself. Restarting your computer picks up the change.';
@@ -19578,7 +19579,7 @@ async function engineRestartClick() {
   }
   ENGINE_RESTARTING = true;
   /* Back when a board with a different start time answers; then the page itself reloads onto it. */
-  const until = Date.now() + 120 * 1000;
+  const until = Date.now() + ENGINE_RESTART_WAIT_MS;
   while (Date.now() < until) {
     await new Promise((res) => setTimeout(res, 1000));
     try {

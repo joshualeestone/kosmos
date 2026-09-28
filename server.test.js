@@ -539,8 +539,11 @@ test('the board reports when its own engine is behind the disk, and says nothing
   /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
      is, and the changed file is named. A throwaway module under engine/ (never a real source file:
      another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
-  const probe = nodePath.join(__dirname, 'engine', `.freshness-probe-${process.pid}.js`);
-  const rel = 'engine/' + nodePath.basename(probe);
+  /* In its own folder under engine/: other suites list engine/ flat and read every file, in parallel. */
+  const dir = nodePath.join(__dirname, 'engine', `.probe-freshness-${process.pid}`);
+  const probe = nodePath.join(dir, 'x.js');
+  const rel = 'engine/' + nodePath.basename(dir) + '/x.js';
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
     require(probe);
@@ -559,7 +562,7 @@ test('the board reports when its own engine is behind the disk, and says nothing
     assert.equal(again.startedAt, first.startedAt, 'startedAt moved, so it is not the process start');
   } finally {
     delete require.cache[probe];
-    fs.rmSync(probe, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

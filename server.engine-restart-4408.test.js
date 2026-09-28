@@ -49,13 +49,17 @@ test('#4408: a current board is not restarted, and the page is told no button', 
   const r = await post();
   assert.equal(r.status, 409);
   assert.match(r.body.because, /already running the code on disk/);
+  assert.equal(r.body.current, true, 'the page reads `current` to reload rather than matching the sentence');
   await wait(700);
   assert.deepEqual(spawned, [], 'a current board restarted itself');
 });
 
 test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once', async () => {
   /* A throwaway module under engine/, never a real source file (server.test.js edits its own beside this). */
-  const probe = path.join(__dirname, 'engine', `.restart-probe-${process.pid}.js`);
+  /* In its own folder under engine/: other suites list engine/ flat and read every file, in parallel. */
+  const dir = path.join(__dirname, 'engine', `.probe-restart-${process.pid}`);
+  const probe = path.join(dir, 'x.js');
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
     require(probe);
@@ -65,7 +69,7 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     await wait(5200);
     const e = await status();
     assert.ok(e.staleSince, 'CONTROL: the edited module made the board stale');
-    assert.deepEqual(e.changed, ['engine/' + path.basename(probe)], 'the edited file is not named');
+    assert.deepEqual(e.changed, ['engine/' + path.basename(dir) + '/x.js'], 'the edited file is not named');
     assert.equal(e.canRestart, true, 'a stale board that can restart itself did not offer the button');
 
     // CONTROL first: with no way to bring itself back, it refuses and spawns nothing.
@@ -85,6 +89,6 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     assert.deepEqual(spawned, [['/fake/home/bin/kosmos', 'restart']], 'not exactly one `kosmos restart` for two presses');
   } finally {
     delete require.cache[probe];
-    fs.rmSync(probe, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

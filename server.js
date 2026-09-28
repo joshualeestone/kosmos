@@ -234,20 +234,21 @@ const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, requir
  * still serving the morning's file.
  *
  * ⚠️ NOT A VERSION COMPARISON. The merges that caused it never bumped
- * `package.json`, so served and disk versions were equal the whole time. This
- * compares the mtime of every loaded module under the repo root to when the
- * process started, which is the same comparison `engine/instructions.js`
- * makes for an agent's own file.
- *
- * 📌 One stat sweep per five seconds, not per request (the poll's own
- * cadence), over repo-root entries of `require.cache` only; `node_modules` is
- * excluded by path even though nothing there is loaded today. `staleSince` is
- * ALWAYS present, null when current, so the status shape never grows a field
- * conditionally. Never throws: an unreadable stat counts as not stale.
+ * `package.json`, so served and disk versions were equal the whole time. It
+ * compares the CONTENT of every loaded module under the app folder with what
+ * this process loaded (see engineSeen below), over repo-root entries of
+ * `require.cache` only; `node_modules` is excluded by path. `staleSince` is
+ * ALWAYS present, null when current. Never throws: an unreadable file counts as
+ * not stale.
  */
 const ENGINE_STARTED_AT = new Date();
 const ENGINE_ROOT = __dirname + path.sep;
 let engineLook = { at: 0, staleSince: null, changed: [], canRestart: false };
+const ENGINE_SWEEP_MS = 5000;                 // how long one sweep's answer is reused
+const ENGINE_RESTART_CHECK_MS = 90 * 1000;    // a board still here this long after its restart started: log it
+/* Whether this board can restart itself, asked once: it does not change while the process runs, and on
+   Windows the answer costs two blocking schtasks calls, which must not repeat every sweep. */
+let engineCanRestart = null;
 let engineRestartAsked = false;   // #4408: a restart from the button is already on its way
 /* #4408 (an external tester on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
    installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
@@ -457,7 +458,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
 }
 function engineFreshness() {
   const now = Date.now();
-  if (now - engineLook.at > 5000) {
+  if (now - engineLook.at >= ENGINE_SWEEP_MS) {
     let newest = 0;
     const changed = [];
     for (const file of engineLoadedFiles()) {
@@ -475,10 +476,10 @@ function engineFreshness() {
     const staleSince = changed.length ? new Date(newest || now).toISOString() : null;
     /* #4408: whether the page may offer one Restart Kosmos button. Asked only while stale, so a
        current board never pays for the launchctl read behind it. */
-    let canRestart = false;
-    if (staleSince) {
-      try { canRestart = require('./engine/boardrestart').canSelfRestart().canRestart === true; } catch { canRestart = false; }
+    if (staleSince && engineCanRestart === null) {
+      try { engineCanRestart = require('./engine/boardrestart').canSelfRestart().canRestart === true; } catch { engineCanRestart = false; }
     }
+    const canRestart = staleSince ? engineCanRestart === true : false;
     engineLook = { at: now, staleSince, changed, canRestart };
   }
   /* `changed`: the loaded files whose content differs from what this board is running, relative to the app
@@ -4029,7 +4030,7 @@ const server = http.createServer((req, res) => {
      is actually stale and can bring itself back; otherwise it says why and does nothing. */
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
-    if (!fresh.staleSince) { sendJson(res, 409, { ok: false, because: 'the board is already running the code on disk' }); return; }
+    if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
     let can;
     try { can = require('./engine/boardrestart').canSelfRestart(); } catch (e) { can = { canRestart: false, because: String((e && e.message) || e) }; }
     if (!can.canRestart) { sendJson(res, 409, { ok: false, because: can.because || 'this board cannot restart itself' }); return; }
@@ -4047,7 +4048,7 @@ const server = http.createServer((req, res) => {
       setTimeout(() => {
         engineRestartAsked = false;
         console.error('FAIL /api/engine/restart: this board is still running 90 s after its restart was started');
-      }, 90 * 1000).unref();
+      }, ENGINE_RESTART_CHECK_MS).unref();
     }, 500);
     return;
   }
@@ -17025,7 +17026,7 @@ function start(port = PORT) {
   for (const f of engineLoadedFiles()) engineRemember(f);
   /* And a sweep on its own clock, not only when a page polls, so a module required later is remembered
      within a sweep of loading rather than whenever a page next asks (review iteration 2). */
-  setInterval(() => { try { engineFreshness(); } catch { /* never throws; belt and braces */ } }, 5000).unref();
+  setInterval(() => { try { engineFreshness(); } catch { /* never throws; belt and braces */ } }, ENGINE_SWEEP_MS).unref();
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
      start() runs after every top-level require, which is too late for the ~27 modules
