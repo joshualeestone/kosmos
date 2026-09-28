@@ -171,9 +171,10 @@ function applyPatch(profile, patch, now = Date.now()) {
 /** What the person is told when a message cannot go to a paused swarm. */
 function pausedSentence(name, pausedBecause) {
   const who = String(name || 'This swarm');
-  if (pausedBecause === 'limit') return `${who} paused itself at today's token limit. It starts again tomorrow, or switch it back on to send it work now.`;
-  if (pausedBecause === 'stopped') return `${who} was stopped. Switch it back on to send it work.`;
-  return `${who} is paused. Switch it back on to send it work.`;
+  /* #4433: the switch is no longer above the conversation, so the sentence names where it is and the word it wears. */
+  if (pausedBecause === 'limit') return `${who} paused itself at today's token limit. It starts again tomorrow, or set it to Active in Swarm Settings to send it work now.`;
+  if (pausedBecause === 'stopped') return `${who} was stopped. Set it to Active in Swarm Settings to send it work.`;
+  return `${who} is paused. Set it to Active in Swarm Settings to send it work.`;
 }
 
 /* ---- the lead's instructions --------------------------------------------------- */

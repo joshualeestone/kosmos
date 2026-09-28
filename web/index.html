@@ -9951,7 +9951,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
@@ -10944,8 +10944,9 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="swarm" aria-controls="d-sec-swarm" class="dnav-swarm" id="d-nav-swarm" data-st="active" hidden>
       <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="13" r="6"/><circle cx="19" cy="6" r="2.5"/><circle cx="20" cy="15.5" r="2.5"/></svg></span>
       <span class="dnav-lab">Swarm Settings</span>
-      <span class="swpill" aria-hidden="true"><i></i><span id="d-nav-swarm-word">Active</span></span>
-      <span class="vh" id="d-nav-swarm-vh">, Active</span>
+      <!-- The pill's word IS the box's spoken state (the button's name reads "Swarm Settings Active"). Not a .vh copy:
+           the .snav rule hides any .vh on a button without data-dot, which silenced the first version (review round 5). -->
+      <span class="swpill"><i aria-hidden="true"></i><span id="d-nav-swarm-word">Active</span></span>
     </button>
   </nav>
   <!-- #3614 (Josh, 2026-09-24): the files this agent makes for you in a Direct Message, under the
@@ -11726,7 +11727,7 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="dfiles-title" id="d-swarm-h">Swarm Settings</h2>
     <p class="fhint swsub">Choose how this swarm works, how many helpers it brings in, and how much it can use.</p>
     <p class="dhint" id="d-swarm-none" hidden>Swarm settings are not available for this agent right now.</p>
-    <section class="swpanel" id="d-swarm-panel" hidden aria-labelledby="d-swarm-h">
+    <section class="swpanel" id="d-swarm-panel" hidden>
       <!-- 🔑 A CUSTOM radio group, not native radios: a native radio picks on an arrow key, and a pick here applies at
            once, so arrowing from Active past Paused would pause a live swarm. Arrow keys move, Space or Enter picks
            (Mona's spec); a click picks. -->
@@ -45275,7 +45276,6 @@ function swarmPillPaint(st, limitPaused) {
   const word = st === 'active' ? 'Active' : st === 'stopped' ? 'Stopped' : limitPaused ? 'Paused (limit)' : 'Paused';
   navBox.dataset.st = st;
   document.getElementById('d-nav-swarm-word').textContent = word;
-  document.getElementById('d-nav-swarm-vh').textContent = ', ' + word;
 }
 function swarmCardsPaint(st) {
   const cards = swarmCards();

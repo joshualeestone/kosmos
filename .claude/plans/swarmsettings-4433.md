@@ -73,3 +73,11 @@ That removing Stop now from the phone chat header costs nothing important. A per
 ## Review round 4 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
 - WARNING Nothing tested round 3's per-swarm busy fix. Added to S16: with crew's stop in flight, a pick on crew2's view sends crew2's PUT. The mutant restoring the global `if (SWARM_BUSY) return` goes red (crew2 sent nothing).
 - NIT The "already stopped" line has no null guard on #d-swarm-msg. KEPT: unreachable without the view (swarmPick returns first without SWARM_ROW), and it matches swarmSend's convention.
+
+## Review round 5 (opus, blind): 0 BLOCKERs, 1 WARNING, 2 NITs, all fixed
+- **WARNING** A screen reader never heard the box's state. An older `.snav button:not([data-dot]) .vh { display: none }` rule hid my `.vh` state copy, and the visible pill was aria-hidden. My round-1 note ("the word stays for a screen reader") was false.
+  - Fixed: the pill's word is the spoken state, so the button's name is "Swarm Settings Active".
+  - S42 and S8 now assert the accessible NAME via getByRole, not a span's text.
+  - A mutant re-hiding the pill turns both red.
+- **NIT** The chat's paused refusal said "switch it back on", but the switch is no longer above the conversation. It now says "set it to Active in Swarm Settings" (engine/swarm.js pausedSentence; engine tests 171/171).
+- **NIT** Two nested landmarks shared one name. The inner panel's name is removed.

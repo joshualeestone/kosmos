@@ -561,6 +561,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
         viewHidden: document.getElementById('d-sec-swarm').hidden }; });
     chk(s42.shown && s42.below && s42.word === 'Active' && s42.st === 'active' && !s42.inHeader && s42.viewHidden,
       'S42 a swarm has a Swarm Settings box below the four-pack saying Active, and no swarm control in the header', JSON.stringify(s42));
+    /* Review round 5: the accessible NAME, as a screen reader computes it, not the text of one span (a .snav rule hid the
+       first version's spoken copy while this span still read "Active"). */
+    chk(await page.getByRole('button', { name: /^Swarm Settings\s*Active$/ }).count() === 1, 'S42 a screen reader hears the state: the box is named "Swarm Settings Active"',
+      await page.evaluate(() => document.getElementById('d-nav-swarm').textContent.replace(/\s+/g, ' ').trim()));
     await openSwarm();
     // S30 (#3946, now #4433): three state cards, each saying what it does, as one radio group; Active is chosen.
     const s30 = await page.evaluate(() => ({ group: document.getElementById('d-swarm-states').getAttribute('role'),
@@ -852,6 +856,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       && document.getElementById('d-nav-swarm-word').textContent === 'Paused (limit)', null, 15000),
       'S8 paused at the limit with an idle lead: Paused is chosen and says it resumes tomorrow, with the way to the limit; the box says Paused (limit)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-limit.png') });
+    chk(await page.getByRole('button', { name: /^Swarm Settings\s*Paused \(limit\)$/ }).count() === 1, 'S8 and a screen reader hears "Swarm Settings Paused (limit)"');
     chk(await stopAsks(), 'S8 from a limit pause, picking Stopped still asks: it is a real change (a stop does not resume tomorrow)');
     await page.click('#d-swarm-tolimit');
     chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-swarm-cap'), 'S8 Change today\'s limit takes the person to the limit');
