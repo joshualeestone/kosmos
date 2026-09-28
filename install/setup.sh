@@ -2764,7 +2764,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         if _kosmos_mode_keeps_board_off; then
           info "another Kosmos is answering on port $PORT; it is not this install's, and this computer does not run a board, so it is left alone"
         else
-        die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
+          die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
       fi
       ;;
