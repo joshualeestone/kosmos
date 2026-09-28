@@ -1357,7 +1357,16 @@ test('#3827: when the switch cannot be saved, the Mac is still registered and th
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });
-  fs.mkdirSync(remote.FILE + '.tmp', { recursive: true });   // write() goes through FILE + '.tmp'
+  /* #4308: write() now saves through a temporary file with a UNIQUE name (FILE.<pid>.<random>.tmp), so a directory
+     planted at FILE + '.tmp' no longer blocks it. Fail the save where it now happens: opening a temporary file for
+     remote.json. Every other file keeps opening normally. */
+  const realOpen = fs.openSync;
+  fs.openSync = function (p, ...rest) {
+    if (typeof p === 'string' && p.startsWith(remote.FILE + '.') && p.endsWith('.tmp')) {
+      const err = new Error('EACCES: simulated, the settings folder refuses writes'); err.code = 'EACCES'; throw err;
+    }
+    return realOpen.call(this, p, ...rest);
+  };
   try {
     const logged = [];
     const realWrite = process.stderr.write;
@@ -1367,7 +1376,7 @@ test('#3827: when the switch cannot be saved, the Mac is still registered and th
     assert.equal(done.ok, true, 'the Mac IS registered; the sign-in did not fail: ' + done.because);
     assert.equal(remote.read().on, false, 'fixture: the switch really is off');
     assert.ok(logged.some((l) => /could not switch Kosmos\+ on/.test(l)), 'a failed switch save was not logged');
-  } finally { fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true }); }
+  } finally { fs.openSync = realOpen; }
 });
 
 test('#3827: two Forgets at once retire the Mac once and both get the same answer', async () => {
