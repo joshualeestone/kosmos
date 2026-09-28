@@ -29,6 +29,16 @@ test('#4356: the instrument is reading the app', () => {
   assert.ok(SRC.length > 40000, 'main.swift read back only ' + SRC.length + ' bytes');
 });
 
+test('#4356: the release switch (KOSMOS_FIRSTRUN_CHOICE) is OFF on main, and off means first run as before', () => {
+  // Liu Kang m2647: Connect must not reach any release until a connect Mac can update (#4382), whose
+  // PR turns this on. Off, the app treats every Mac as run: no ?mode= (so no first screen), no choice
+  // heard (pageChoseMode needs unset/unreadable), no connect.
+  assert.match(SRC, /\nlet kosmosFirstRunChoice = false\n/, 'the first-run choice is switched on in this build');
+  assert.match(body('private func readLaunchComputerMode()'), /^[^\n]*\n[^\n]*\n\s+guard kosmosFirstRunChoice else \{ computerMode = \.run; return \}/,
+    'the switch is not the first thing the launch-time read checks');
+  assert.equal((SRC.match(/kosmosFirstRunChoice/g) || []).length, 2, 'the switch is read in more than one place, so off may not mean off everywhere');
+});
+
 test('#4356: the choice is read before anything starts, and a connect computer never starts its board at launch', () => {
   const launch = body('func applicationDidFinishLaunching(_ notification: Notification)');
   const read = launch.indexOf('readLaunchComputerMode()');

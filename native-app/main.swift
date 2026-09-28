@@ -207,6 +207,13 @@ enum ComputerMode: String {
     case unset, run, connect, both, unreadable
 }
 
+/* 🚦 KOSMOS_FIRSTRUN_CHOICE: the release switch for the whole of #4356 (Liu Kang m2647). OFF, first
+   run is exactly today's: the app never asks, never reads a choice, never connects, so nothing
+   below this line changes a Mac. ON, the full three-button screen Josh approved. It stays off until
+   a connect Mac can update itself (#4382), whose PR turns it on; a test pins it off on main
+   (native-app.computer-mode-4356.test.js). */
+let kosmosFirstRunChoice = false
+
 func computerModePath(kosmosHome: String) -> String { kosmosHome + "/mode" }
 
 /// PURE, so --kosmos-app-mode-selftest can drive it. nil is "no file". Trailing newlines are
@@ -1865,6 +1872,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Once, at launch, before anything starts. The KOSMOS_URL test path has no install to read,
     /// and an install that cannot be resolved is loadBoard's to explain: both behave as today.
     private func readLaunchComputerMode() {
+        // The release switch (KOSMOS_FIRSTRUN_CHOICE): off, every Mac runs agents, as before #4356.
+        guard kosmosFirstRunChoice else { computerMode = .run; return }
         guard ProcessInfo.processInfo.environment["KOSMOS_URL"] == nil,
               let install = try? resolveInstall(config: KosmosInstallConfig.load())
         else { computerMode = .run; return }
