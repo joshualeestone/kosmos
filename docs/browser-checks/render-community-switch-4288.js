@@ -16,6 +16,9 @@
  *             community spend of 0 renders "none".
  *   CLICK     pressing the knob PUTs on:false and paints what the board answered.
  *   CLICK-FAIL  a refused save shows its message and leaves the knob where it was.
+ *   NOTICE    (part B) a pending one-time notice opens once, records itself as seen once, and closes on
+ *             Got it, Escape and the backdrop; Change in Settings lands on the switch. A seen notice, an
+ *             OFF switch and an unread setting open nothing.
  * The DEFAULT arm is also the control for the others: it proves the row is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -26,6 +29,7 @@ const { chromium } = require('playwright');
 
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const ROUTE = '**/api/community-setting';
+const SEEN = '**/api/community-setting/notice-seen';
 
 const fails = [];
 function check(name, pass, detail) {
@@ -179,6 +183,65 @@ async function run() {
     check('CLICK-FAIL: a refused save shows its message', /could not save that setting/i.test(f.msg), JSON.stringify(f.msg));
     check('CLICK-FAIL: the knob still reads ON and the OFF note stays hidden', f.checked === 'true' && f.offNoteHidden === true, JSON.stringify(f));
     await p6.close();
+
+    // NOTICE (part B): a pending notice opens once and records itself as seen once.
+    const noticeFor = async (body) => {
+      const pg = await page();
+      const posts = [];
+      await pg.route(ROUTE, answer(body));
+      await pg.route(SEEN, (route) => { posts.push(route.request().method()); return answer({ ...body, noticeSeen: true })(route); });
+      await pg.goto(BASE, { waitUntil: 'networkidle' });
+      if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+      await pg.waitForTimeout(1500);
+      return { pg, posts };
+    };
+    const noticeState = (pg) => pg.evaluate(() => {
+      const b = document.getElementById('cmnotice');
+      return { open: Boolean(b), title: b ? (b.querySelector('#cn-title') || {}).textContent : '', body: b ? (b.querySelector('#cn-body') || {}).textContent : '', focus: document.activeElement ? document.activeElement.id : '' };
+    });
+    const pending = { on: true, ok: true, share: null, noticeSeen: false };
+    const n1 = await noticeFor(pending);
+    const a = await noticeState(n1.pg);
+    check('NOTICE: a pending notice opens', a.open === true, JSON.stringify(a));
+    check('NOTICE: it carries Mona\'s title and the release promise', a.title === 'Your agents can join the Kosmos community' && /Nothing goes out until you release it\.$/.test(a.body), JSON.stringify(a));
+    check('NOTICE: focus starts on Got it', a.focus === 'cn-ok', a.focus);
+    check('NOTICE: it records itself as seen exactly once, when it opens', n1.posts.length === 1 && n1.posts[0] === 'POST', JSON.stringify(n1.posts));
+    await n1.pg.click('#cn-ok');
+    await n1.pg.waitForTimeout(200);
+    check('NOTICE: Got it closes it and removes it from the page', (await noticeState(n1.pg)).open === false);
+    await n1.pg.close();
+
+    const n2 = await noticeFor(pending);
+    await n2.pg.keyboard.press('Escape');
+    await n2.pg.waitForTimeout(200);
+    check('NOTICE: Escape closes it', (await noticeState(n2.pg)).open === false);
+    await n2.pg.close();
+
+    const n3 = await noticeFor(pending);
+    await n3.pg.mouse.click(8, 8);
+    await n3.pg.waitForTimeout(200);
+    check('NOTICE: a click on the backdrop closes it', (await noticeState(n3.pg)).open === false);
+    await n3.pg.close();
+
+    const n4 = await noticeFor(pending);
+    await n4.pg.click('#cn-settings');
+    await n4.pg.waitForTimeout(500);
+    const t = await n4.pg.evaluate(() => {
+      const sec = document.getElementById('s-sec-automation');
+      const tog = document.getElementById('community-toggle');
+      const box = sec && sec.getBoundingClientRect();
+      return { open: Boolean(document.getElementById('cmnotice')), automation: Boolean(box && box.width > 0 && box.height > 0), focus: document.activeElement ? document.activeElement.id : '', tog: tog ? tog.hidden : null };
+    });
+    check('NOTICE: Change in Settings closes it and shows Settings > Automation', t.open === false && t.automation === true, JSON.stringify(t));
+    check('NOTICE: Change in Settings puts focus on the Community switch', t.focus === 'community-toggle', JSON.stringify(t));
+    await n4.pg.close();
+
+    for (const [label, body] of [['a seen notice', { on: true, ok: true, share: null, noticeSeen: true }], ['an OFF switch', { on: false, ok: true, share: null, noticeSeen: false }], ['an unread setting', { on: false, ok: false, share: null, noticeSeen: false }]]) {
+      const n = await noticeFor(body);
+      const st = await noticeState(n.pg);
+      check('NOTICE: ' + label + ' opens nothing and records nothing', st.open === false && n.posts.length === 0, JSON.stringify([st, n.posts]));
+      await n.pg.close();
+    }
   } finally {
     await browser.close();
   }

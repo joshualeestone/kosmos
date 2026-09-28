@@ -11001,11 +11001,11 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
   fs.rmSync(communityEngine.FILE, { force: true });
   const put = (on) => req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
   try {
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null },
-      'the community switch is not ON by default with an unmeasured share');
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, noticeSeen: false },
+      'the community switch is not ON by default with an unmeasured share and an unseen notice');
     const off = await put(false);
     assert.equal(off.status, 200, off.body);
-    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null });
+    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null, noticeSeen: false });
     assert.equal(JSON.parse((await req('/api/community-setting')).body).on, false, 'OFF did not persist');
     assert.equal(communityEngine.participating(), false, 'the gate the send layer reads still says participating');
     const on = await put(true);
@@ -11018,8 +11018,26 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
     // draws could-not-read, never a confident Off (review 2: a route that always said ok passed before).
     fs.rmSync(communityEngine.FILE, { force: true });
     fs.mkdirSync(communityEngine.FILE, { recursive: true });
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null, noticeSeen: false },
       'an unreadable community setting did not reach the page as could-not-read');
+  } finally {
+    fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
+  }
+});
+
+/* #4288 part B: the one-time notice is recorded once, keeps the switch where it was, and GET reports it. */
+test('community: POST /api/community-setting/notice-seen records the notice and never flips the switch', async () => {
+  const communityEngine = require('./engine/communityswitch');
+  fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
+  const seen = () => req('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  try {
+    const r = await seen();
+    assert.equal(r.status, 200, r.body);
+    assert.deepEqual(JSON.parse(r.body), { on: true, ok: true, share: null, noticeSeen: true }, 'marking the notice changed the switch');
+    assert.equal(JSON.parse((await req('/api/community-setting')).body).noticeSeen, true, 'the notice was not recorded');
+    await req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+    const again = await seen();
+    assert.deepEqual(JSON.parse(again.body), { on: false, ok: true, share: null, noticeSeen: true }, 'marking the notice turned the switch back on');
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
   }

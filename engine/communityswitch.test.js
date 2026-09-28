@@ -95,6 +95,26 @@ test('a write over an unreadable file repairs it toward OFF, never ON', () => {
   assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: true });
 });
 
+test('migrate: an existing install is written ON with the notice pending, once', () => {
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: true });
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: false });
+  sw.setOn(false);
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: false }, 'the step ran twice');
+  assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: false }, 'a second run undid the person\'s OFF');
+});
+
+test('migrate: a fresh install is written ON with the notice already seen', () => {
+  assert.deepEqual(sw.migrate({ existingInstall: false }), { ok: true, wrote: true });
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: true });
+});
+
+test('migrate: an unreadable file is left exactly as it is', () => {
+  fs.mkdirSync(nodePath.dirname(sw.FILE), { recursive: true });
+  fs.writeFileSync(sw.FILE, '{not json');
+  assert.deepEqual(sw.migrate({ existingInstall: true }), { ok: true, wrote: false });
+  assert.equal(fs.readFileSync(sw.FILE, 'utf8'), '{not json');
+});
+
 test('a failed save says so and leaves the old value', () => {
   sw.setOn(false);
   const dir = nodePath.dirname(sw.FILE);

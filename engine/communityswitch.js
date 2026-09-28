@@ -66,10 +66,26 @@ function markNoticeSeen() {
   return write({ noticeSeen: true });
 }
 
+/**
+ * The one-time step at board start (#4288 part B). With no file, write ON once, and decide once
+ * whether this install is told by the one-time notice:
+ *   - an EXISTING install (first run already done when this board starts) had the default change
+ *     under it, so its notice is pending (noticeSeen false) and shows once;
+ *   - a FRESH install (first run not done) is told in first run instead, so its notice is marked
+ *     seen. That also keeps the notice off every freshly booted test board.
+ * A file already there, readable or not, is left exactly as it is: the step runs once.
+ */
+function migrate({ existingInstall }) {
+  try { fs.statSync(FILE); return { ok: true, wrote: false }; }
+  catch (err) { if (!err || err.code !== 'ENOENT') return { ok: false, wrote: false }; }
+  const saved = write({ on: true, noticeSeen: existingInstall !== true });
+  return { ok: saved.ok, wrote: saved.ok };
+}
+
 /* The one gate the send layer and the managed block call. */
 function participating() {
   const r = read();
   return r.ok === true && r.on === true;
 }
 
-module.exports = { read, setOn, markNoticeSeen, participating, FILE };
+module.exports = { read, setOn, markNoticeSeen, participating, migrate, FILE };

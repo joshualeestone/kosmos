@@ -27789,6 +27789,90 @@ async function communityToggleClick() {
 }
 document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
 
+/* #4288 part B: the one-time Community notice. It opens only for a board that says the setting was read,
+   is ON, and the notice is pending (an existing install; a fresh one is told in first run), and only
+   once nothing else is on screen: first run, the tour, What's New, the update overlay or another
+   dialog. It is recorded as seen when it OPENS (What's New's rule), so two tabs do not both show it. */
+let CN_OPENER = null;
+/* Made when it opens and removed when it closes, like What's New's window: the body's direct children
+   are the consolidated grid's rows (web.consolidated-980), and a window shown once is not worth a
+   permanent one. The markup lives in this string so the modal sweep names it. */
+const CN_HTML = '<div class="rm-back" id="cmnotice">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="cn-title" aria-describedby="cn-body">'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="cn-title">Your agents can join the Kosmos community</h2>'
+  + '<p class="rm-small" id="cn-body">Your agents can post to the public Kosmos community. Nothing goes out until you release it.</p>'
+  + '<div class="rm-acts">'
+  + '<button class="btn" type="button" id="cn-settings">Change in Settings</button>'
+  + '<button class="btn uprime" type="button" id="cn-ok">Got it</button>'
+  + '</div></div></div>';
+function cnHeld() {
+  if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) return true;
+  if (document.getElementById('whatsnew')) return true;
+  if (document.querySelector('.fr-back:not([hidden]), .upd-back')) return true;
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice)');
+}
+function cnOpen() {
+  if (document.getElementById('cmnotice')) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = CN_HTML;
+  const back = tmp.firstElementChild;
+  document.body.appendChild(back);
+  back.querySelector('#cn-ok').addEventListener('click', cnClose);
+  back.querySelector('#cn-settings').addEventListener('click', cnToSettings);
+  back.addEventListener('click', (e) => { if (e.target === back) cnClose(); });
+  CN_OPENER = (document.activeElement && document.activeElement !== document.body) ? document.activeElement : null;
+  back.querySelector('#cn-ok').focus();
+}
+function cnClose() {
+  const back = document.getElementById('cmnotice');
+  if (back) back.remove();
+  const to = (CN_OPENER && document.contains(CN_OPENER)) ? CN_OPENER : null;
+  CN_OPENER = null;
+  if (to) to.focus();
+}
+function cnToSettings() {
+  CN_OPENER = null;   // focus goes to the switch, not back to where it was
+  cnClose();
+  showTab('settings');
+  const nav = document.querySelector('#s-nav button[data-go="automation"]');
+  if (nav) nav.click();
+  const tog = document.getElementById('community-toggle');
+  const row = document.getElementById('community-row');
+  const target = (tog && !tog.hidden) ? tog : row;
+  if (!target) return;
+  if (target === row) row.tabIndex = -1;
+  target.focus();
+}
+async function communityNoticeCheck() {
+  try {
+    const res = await fetch('/api/community-setting', { cache: 'no-store' });
+    if (!res.ok) return;
+    const r = await res.json();
+    if (!r || r.ok !== true || r.on !== true || r.noticeSeen !== false) return;
+    // An hour, looked at each second, like What's New; still held after that, it waits for the next load.
+    const until = Date.now() + 60 * 60 * 1000;
+    while (Date.now() < until && cnHeld()) await new Promise((ok) => setTimeout(ok, 1000));
+    if (cnHeld()) return;
+    fetch('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      .then((x) => x.text()).catch(() => { /* shown again next load */ });
+    cnOpen();
+  } catch { /* the notice can wait */ }
+}
+/* Escape leaves; Tab stays between its two buttons (the plus-gate machinery). */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('cmnotice')) cnClose();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const back = document.getElementById('cmnotice');
+  if (!back) return;
+  const order = e.shiftKey ? [document.getElementById('cn-ok'), document.getElementById('cn-settings')] : [document.getElementById('cn-settings'), document.getElementById('cn-ok')];
+  if (!back.contains(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
+  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
+});
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -33929,7 +34013,8 @@ function wnWire(back) {
 /* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+  // #4288 part B: and the one-time Community notice, so the two windows never stack.
+  return !!document.querySelector('.fr-back:not([hidden]), .upd-back, #cmnotice');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -34002,6 +34087,7 @@ async function whatsNewCheck() {
   } catch { /* news can wait */ }
 }
 whatsNewCheck();
+communityNoticeCheck();   // #4288 part B: each of the two windows waits while the other is up
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');

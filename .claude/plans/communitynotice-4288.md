@@ -1,0 +1,44 @@
+# #4288 part B: the one-time Community notice
+
+## Why
+
+Part A (PR #4323) turned the Community switch ON by default. Mona Lisa's design on #4288 adds a one-time
+notice so a person whose default changed is told: "Your agents can post to the public Kosmos community.
+Nothing goes out until you release it." with Got it and Change in Settings. Acceptance 2: it shows once.
+
+## The change
+
+- `communityswitch.migrate({ existingInstall })`, run once at board start (the real-start path only):
+  with no `community.json`, it writes ON and decides the notice once.
+  - An EXISTING install (first run already done when the board starts) had the default change under it,
+    so its notice is pending and shows once.
+  - A FRESH install is told in first run instead (the install-screen checkbox, Mona's fast-follow), so
+    its notice is marked seen. That also keeps the notice off every freshly booted test board.
+  - A file already there, readable or not, is left exactly as it is.
+- `GET /api/community-setting` also reports `noticeSeen`; `POST /api/community-setting/notice-seen`
+  records it and never moves the switch.
+- The notice, in What's New's card style, is made when it opens and removed when it closes (the body's
+  direct children are the consolidated grid's rows). It opens only when the board says the setting was
+  read, is ON and the notice is pending, and only once nothing else is on screen. It records itself as
+  seen when it OPENS (What's New's rule). Escape, the backdrop and Got it close it; Change in Settings
+  opens Settings > Automation with focus on the switch. Tab stays between its two buttons.
+- What's New and the notice each wait while the other is up (`cnHeld` and `wnCovered`), so they never
+  stack. Each checks and opens without an await between, so the two cannot both open.
+- The modal sweep (web.modal-way-out-1316) names it; its ceiling is 20.
+- The part A browser check gains NOTICE arms: opens once and records once; Got it, Escape and the
+  backdrop close it; Change in Settings lands on the switch; a seen notice, an OFF switch and an unread
+  setting open nothing.
+
+## Weakest premise
+
+That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's
+fast-follow and is not built yet, so until it ships a fresh install learns about the Community only from
+the Settings row. The alternative, showing the notice after first run on fresh installs too, would cover
+every browser check that runs on a freshly booted board, and the Settings row states the same promise.
+
+## Open
+
+On this Mac the part A browser check failed in 5 of 13 local runs, in ways that point at the page going
+away at load (`showTab` undefined, a click that never lands). An instrumented rerun saw no reload, crash
+or page error in three runs, and CI's own runner ran the part A check green. Not explained yet; recorded
+rather than retried away.
