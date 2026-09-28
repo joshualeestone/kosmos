@@ -19554,6 +19554,9 @@ if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
    "Restarting" and the did-not-answer screen stands down (the board is away on purpose, as in an update). */
 let ENGINE_RESTARTING = false;
 const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the restarted board before saying so
+/* A detached restart that fails to start (spawn's error is asynchronous) is only logged by the board, which
+   keeps answering with its old start time, so the page learns of it here, at the end of this wait. That is
+   the world-switch path's behaviour too (engine/boardrestart). */
 const ENGINE_RESTART_POLL_MS = 1000;         // how often it asks whether the restarted board is back
 const ENGINE_SAID_HOLD_MS = 15 * 1000;       // how long a failure stays in the toast before the next poll repaints it
 async function engineRestartClick() {
@@ -19628,7 +19631,7 @@ function renderUpdateToast(u) {
        an installed file, not an update, so "finish updating" would have been false. */
     const changed = Array.isArray(ENGINE_STALE.changed) ? ENGINE_STALE.changed.filter((f) => typeof f === 'string' && f) : [];
     const what = changed.length
-      ? 'A Kosmos file was changed ' + where + ' (' + esc(changed[0]) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '')
+      ? (changed.length > 1 ? 'Kosmos files were changed ' : 'A Kosmos file was changed ') + where + ' (' + esc(changed[0]) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '')
         + '), and Kosmos is still running the old copy.'
       : 'A Kosmos file was changed ' + where + ', and Kosmos is still running the old copy.';
     const key = can ? 'engine-btn' : 'engine';

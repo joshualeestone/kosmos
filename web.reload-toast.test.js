@@ -64,7 +64,7 @@ test('#4408: a stale board that can restart itself offers ONE Restart Kosmos but
   assert.equal(t.v, 'engine-btn');
   assert.match(t.html, /<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos<\/button><\/div>/, "the button is the house gold action");
   // #4408: it names what changed and says it changed here (the tester's was an agent's edit, not an update).
-  assert.match(t.html, /A Kosmos file was changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
+  assert.match(t.html, /Kosmos files were changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
   assert.match(t.html, /A restart picks it up\. Your agents keep running\./);
   assert.doesNotMatch(t.html, /finish updating/, 'it said "updating" about a file an agent edited');
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal/i);
