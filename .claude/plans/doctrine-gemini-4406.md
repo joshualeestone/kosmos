@@ -73,3 +73,9 @@ him the way back (the previous version), which is the part that matters.
   cannot tie it, which is why the route answered 404 there. Stated in the check.
 - The first (6.0) validation run was stopped before it finished: iteration 1's findings needed code changes,
   so it would have validated a superseded tree; the validation after these fixes is the baseline.
+
+## Review round 2 (sonnet, 15:27)
+- The unsaved-typing guard ran only before the fetch, so typing during it was still replaced (round 1's own
+  code): it is asked again after the wait. Arm: the read is held, the person types, the typing stays.
+- Round 1's CSS move left the #3731 comment trailing the new rule: the first-run lines are back as they were
+  and the #d-instr-prev rule sits above #d-instr.

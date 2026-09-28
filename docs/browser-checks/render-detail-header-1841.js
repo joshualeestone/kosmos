@@ -417,6 +417,19 @@ function chk(ok, label, extra) {
     const kept = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent }));
     chk(kept.value === 'something typed and not saved yet, by the person' && /changes that are not saved/.test(kept.msg), '#4406: unsaved typing in the box is never replaced by the previous version', JSON.stringify(kept));
     await page.evaluate((t) => { document.getElementById('d-instr').value = t; }, MINE.text);
+    // Typing while the previous version is being read is kept too (the guard is asked again after the wait).
+    await page.unroute(PREV_URL);
+    const heldPrev = [];
+    await page.route(PREV_URL, async (route) => { await new Promise((r) => { heldPrev.push(r); }); await answer(route, { exists: true, text: PREV, because: null }); });
+    await page.click('#d-instr-prev-load'); await page.waitForTimeout(150);
+    await page.evaluate(() => { document.getElementById('d-instr').value = 'typed while it was being read'; });
+    while (heldPrev.length) heldPrev.shift()();
+    await page.waitForTimeout(300);
+    const during = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent }));
+    chk(during.value === 'typed while it was being read' && /changes that are not saved/.test(during.msg), '#4406: typing while the previous version is being read is not replaced either', JSON.stringify(during));
+    await page.unroute(PREV_URL);
+    await page.route(PREV_URL, (route) => answer(route, { exists: true, text: PREV, because: null }));
+    await page.evaluate((t) => { document.getElementById('d-instr').value = t; }, MINE.text);
     await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
     const restored = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
     await page.locator('#d-sec-instr').screenshot({ path: path.join(OUT, 'instr-previous-4406.png') });
