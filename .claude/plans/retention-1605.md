@@ -62,5 +62,26 @@ turn the suite red.
   already says whether the gate ran, so absence is unambiguous for a consumer that reads it.
 - Tests 135 -> 141.
 
-- [ ] challenge loop (round 2 fixed; round 3 next)
+## Review round 3 (opus, blind): 0 BLOCKER, 2 WARNING, 4 NIT
+- WARNING promote during the gate (reproduced by the reviewer): the keep set was computed before
+  minutes of downloads; a promote that repointed latest.json at a candidate got it deleted, exit 0.
+  Now every top-level pointer json and --referenced-by file is fingerprinted (sha256) before any
+  family runs and re-checked before each family's deletion; a change deletes nothing and exits 1.
+  Gate 12 (curl shim that repoints mid-gate). Removing the check turns it red.
+  Not done: a lock shared with the promote tooling. The re-check narrows the window to the
+  delete loop itself (milliseconds, not minutes); it does not close it.
+- WARNING file_id failed open under GNU stat (BSD `-f` first): GNU reads `-f` as --file-system,
+  prints a report and exits 1, so the id never matched and the same-file refusal never fired.
+  Now GNU `-c` first, and the answer must be digits:digits or the file is refused. Gate 13 (a GNU
+  stat stub); the reviewer's exact code turns it red.
+- NIT upstream never fetched: DEFERRED. An unfetched checkout reads as current, but the copy gate
+  still has to prove every deletion, and fetching from inside a prune tool is a side effect.
+- NIT any file:/// base accepted (same disk): DEFERRED. file:// exists for the tests; the report
+  names the base, and the same-file refusal covers links to the dist itself.
+- NIT reference scan matches only the primary artifact name: DEFERRED. A page linking only a
+  sidecar is not a shape any current page has.
+- NIT Gate 10 server leak on interrupt: FIXED (EXIT trap kills it).
+- Tests 141 -> 146.
+
+- [ ] challenge loop (round 3 fixed; round 4 next)
 - [ ] PR, merge, card comment

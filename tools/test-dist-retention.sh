@@ -58,7 +58,8 @@ assert_invariants(){ # $1=dir label $2=dir
   [ "$bad" -eq 0 ] && ok "$lbl: all protected invariants intact" || no "$lbl: an invariant was deleted"
 }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"; SRV=""
+trap '[ -z "$SRV" ] || kill "$SRV" 2>/dev/null; rm -rf "$TMP"' EXIT
 MIRROR="$TMP/mirror"
 LEGACY=(--prod-history 0 --copy-base "file://$MIRROR")
 
@@ -628,7 +629,7 @@ PYEOF
   else
     no "gate redirect: the local https server did not start"
   fi
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 else
   no "gate redirect: needs openssl and python3 to run (not skipped silently)"
 fi
@@ -642,6 +643,49 @@ out="$(bash "$TOOL" --dist "$D" --keep 5 --prod-history 0 --copy-base "file://$M
 { present "$D" kosmos-0.6.18-win-x64.zip && present "$D" kosmos-0.6.18-win-x64.zip.sha256 && present "$D" kosmos-0.6.18-win-x64.manifest.json; } \
   && ok "win gate: a win zip whose copy DIFFERS is kept, whole triple" || no "win gate: deleted a win version whose copy differs -- $out"
 absent "$D" kosmos-0.6.19-win-x64.zip && ok "win gate (control): an exactly-copied win version is pruned" || no "win gate control: -- $out"
+
+# --- Gate 12: a promote DURING the copy gate stops the deletion ---------------
+# A curl shim repoints latest.json at a prune candidate the first time the gate
+# fetches, standing in for a promote that lands while slow downloads run.
+REAL_CURL="$(command -v curl)"; SHIM="$TMP/g12shim"; mkdir -p "$SHIM"
+D="$TMP/g12"; make_fixture "$D" 0.6.17 $(ten)
+cat > "$SHIM/curl" <<SHEOF
+#!/bin/bash
+if [ ! -e "$SHIM/fired" ]; then : > "$SHIM/fired"
+  printf '{"version":"0.6.08","artifact":"kosmos-0.6.08-arm64.tar.gz"}\\n' > "$D/latest.json"; fi
+exec "$REAL_CURL" "\$@"
+SHEOF
+chmod +x "$SHIM/curl"
+out="$(PATH="$SHIM:$PATH" bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$MIRROR" --prune --yes 2>&1)"; rc=$?
+[ -e "$SHIM/fired" ] && ok "promote race: the shim fired (the arm exercised the race)" || no "promote race: shim never ran, arm proves nothing"
+{ present "$D" kosmos-0.6.08-arm64.tar.gz && present "$D" kosmos-0.6.09-arm64.tar.gz; } && ok "promote race: nothing deleted after the pointer moved" || no "promote race: DELETED what the new pointer serves -- $out"
+[ "$rc" -ne 0 ] && echo "$out" | grep -q "changed while the copies were being checked" && ok "promote race: exits non-zero and says why" || no "promote race: rc $rc -- $out"
+
+# --- Gate 13: the same-file refusal holds where stat is GNU ------------------
+# A stub that behaves like GNU stat: -f is --file-system (report + exit 1), -c works.
+GS="$TMP/g13gnu"; mkdir -p "$GS"
+cat > "$GS/stat" <<'SHEOF'
+#!/bin/bash
+f=""; fmt=""; mode=""
+while [ $# -gt 0 ]; do case "$1" in
+  -L) shift ;; -f) mode=f; shift ;; -c) mode=c; fmt="$2"; shift 2 ;; -c*) mode=c; fmt="${1#-c}"; shift ;;
+  *) f="$1"; shift ;; esac; done
+if [ "$mode" = f ]; then printf '  File: "%s"\n    ID: 0 Namelen: 255\n' "$f"; echo "stat: cannot read file system information for '%d:%i'" >&2; exit 1; fi
+python3 - "$fmt" "$f" <<'PYEOF'
+import os, sys
+st = os.stat(sys.argv[2])
+print(sys.argv[1].replace('%d', str(st.st_dev)).replace('%i', str(st.st_ino)).replace('%s', str(st.st_size)))
+PYEOF
+SHEOF
+chmod +x "$GS/stat"
+D="$TMP/g13"; make_fixture "$D" 0.6.17 $(ten); L="$TMP/g13-links"; mkdir -p "$L"
+for f in "$D"/kosmos-0.6.*; do ln -s "$f" "$L/$(basename "$f")"; done
+before="$(count_files "$D")"
+out="$(PATH="$GS:$PATH" bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$L" --prune --yes 2>&1)"
+[ "$before" = "$(count_files "$D")" ] && ok "gnu stat: links to itself still refused, nothing pruned" || no "gnu stat: PRUNED against links to itself -- $out"
+D="$TMP/g13ctl"; make_fixture "$D" 0.6.17 $(ten)
+PATH="$GS:$PATH" bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$MIRROR" --prune --yes >/dev/null 2>&1
+absent "$D" kosmos-0.6.08-arm64.tar.gz && ok "gnu stat (control): a real copy is still proven and pruned" || no "gnu stat control: the stub broke the real path"
 
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"

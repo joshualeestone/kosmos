@@ -195,8 +195,35 @@ read_pointer_versioned() {
 }
 
 # file_id <file>: "device:inode" after following symlinks, or non-zero status.
+# GNU first, then BSD, and the answer must LOOK like dev:inode: GNU stat reads BSD's
+# `-f FMT` as "--file-system" plus a second file, prints a filesystem report and exits
+# 1, so a fallback chain in the other order returns that report plus the real id,
+# which never equals the other file's and silently disables the same-file refusal.
 file_id() {
-  stat -L -f '%d:%i' "$1" 2>/dev/null || stat -L -c '%d:%i' "$1" 2>/dev/null
+  local id
+  id="$(stat -L -c '%d:%i' "$1" 2>/dev/null)" || id="$(stat -L -f '%d:%i' "$1" 2>/dev/null)" || return 1
+  case "$id" in
+    *[!0-9:]*|'') return 1 ;;
+    [0-9]*:[0-9]*) printf '%s' "$id" ;;
+    *) return 1 ;;
+  esac
+}
+
+# pointer_state: a fingerprint of everything that decides what is kept -- every
+# top-level pointer json and every --referenced-by file, by name and sha256. Taken
+# before any family runs and re-taken before each deletion: a promote that lands
+# during the (minutes-long) copy gate repoints a pointer at what the stale keep
+# list would delete.
+pointer_state() {
+  local jf h
+  shopt -s nullglob
+  for jf in "$DIST"/*.json "${REFERENCED_BY[@]:-}"; do
+    [ -n "$jf" ] || continue
+    case "$(basename "$jf")" in *.manifest.json) continue ;; esac
+    h="$(sha256_of "$jf" 2>/dev/null)" || h="unreadable"
+    printf '%s %s\n' "$jf" "$h"
+  done
+  shopt -u nullglob
 }
 
 # sha256_of <file>: the hex digest, or non-zero status. No pipe, so a failing
@@ -290,6 +317,7 @@ prior_served_versions() {
   return 0
 }
 
+POINTER_STATE_AT_START="$(pointer_state)"
 if [ -n "$COPY_BASE" ]; then GATE_TMP="$(mktemp -d)" || { echo "dist-retention: cannot create a scratch directory for the second-copy gate" >&2; exit 1; }; fi
 
 # ---------------------------------------------------------------------------
@@ -607,6 +635,14 @@ process_family() {
       [ -e "$DIST/kosmos-${v}-${ARCH}.${ext_i}" ] && KEPT_BEFORE="${KEPT_BEFORE}kosmos-${v}-${ARCH}.${ext_i}"$'\n'
     done
   done
+
+  # A pointer or reference list changed while the gate ran (a promote or rollback
+  # landed): the keep set was computed from the old one, so delete nothing here.
+  if [ "$(pointer_state)" != "$POINTER_STATE_AT_START" ]; then
+    echo "dist-retention [$ARCH]: REFUSING to delete -- a pointer or reference file changed while the copies were being checked (a promote in progress?). Nothing deleted; re-run." >&2
+    ANY_FAIL=1
+    return 0
+  fi
 
   # Delete ONLY the whitelisted prunable-triple files, and only for versions the
   # second-copy gate PROVED. A refused version is never touched.
