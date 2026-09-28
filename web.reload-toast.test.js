@@ -46,7 +46,8 @@ test('a board running older engine code than the disk says so, and outranks both
   // #4408: plain words, no Terminal command (#996), no "running code from 9:59".
   assert.match(t.html, /Kosmos needs a quick restart/);
   assert.match(t.html, /A Kosmos file was changed on this computer, and Kosmos is still running the old copy\./);
-  assert.match(t.html, /Restarting your computer picks it up\./);
+  assert.match(t.html, /Kosmos cannot restart itself here, so it keeps running the old copy until it is next started\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /restart your computer|Restarting your computer/i, 'a remedy that is false for the boards that reach this arm');
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal|changed on disk|running code from/i);
   assert.doesNotMatch(t.html, /ut-engine-restart/, 'a board that cannot restart itself offered a button that would fail');
   assert.doesNotMatch(t.html, /previous version|ut-reload|0\.2\.77/, 'a lower state rendered beside the one that settles it');

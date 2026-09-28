@@ -17352,9 +17352,6 @@ function windowsCopyTable() {
        the one remedy that is true is a fresh sign-in. */
     updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
-    /* #4408: NOT restartKosmos, for the reason updateAbortRemedy gives: double-clicking Kosmos.exe while the
-       same build runs only says "already running". A fresh sign-in restarts the board from its logon task. */
-    engineStaleRemedy: 'Signing out of Windows and signing back in picks it up.',
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
     /* The Copy button beside a command a person must paste (W-14). */
@@ -19574,12 +19571,9 @@ async function engineRestartClick() {
       if (r.status === 409 && out && out.current === true) { location.reload(); return; }
       try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
-      /* Windows keeps its own remedy (its copy table), never "restart your computer". Static copy, so innerHTML. */
+      /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
       said('Kosmos could not restart itself');
-      if (small) {
-        if (onWindows()) small.innerHTML = 'Kosmos could not restart itself. ' + windowsCopy('engineStaleRemedy');
-        else small.textContent = 'Kosmos could not restart itself. Restarting your computer picks up the change.';
-      }
+      if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
       return;
     }
   } catch (e) {
@@ -19602,7 +19596,7 @@ async function engineRestartClick() {
   ENGINE_RESTARTING = false;
   if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
   said('Kosmos is taking longer than it should');
-  if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again, or restart your computer.';
+  if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again in a moment.';
 }
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
@@ -19633,8 +19627,9 @@ function renderUpdateToast(u) {
       + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>'
       + what + ' '
       + (can ? 'A restart picks it up. Your agents keep running.'
-        : onWindows() ? windowsCopy('engineStaleRemedy')
-          : 'Restarting your computer picks it up.')
+        /* No remedy promised: this is a board that cannot restart itself, and which step would work
+           (a sign-in, a login item, a hand start) depends on how it was started. */
+        : 'Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.')
       + '</small></div>'
       + (can ? '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div>' : '')
       + '</div>';

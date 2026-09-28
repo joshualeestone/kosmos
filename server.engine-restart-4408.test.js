@@ -56,7 +56,7 @@ test('#4408: a current board is not restarted, and the page is told no button', 
 });
 
 test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once', async () => {
-  /* A throwaway module under engine/, never a real source file (server.test.js edits its own beside this). */
+  /* A throwaway module at the app root, never a real source file (server.test.js edits its own beside this). */
   /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
   const dir = path.join(__dirname, `.probe-restart-${process.pid}`);
   const probe = path.join(dir, 'x.js');

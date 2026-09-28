@@ -12,7 +12,7 @@ board process, so it never cleared.
 1. server.js engineFreshness: each loaded file's content is hashed when the board starts (and when a later-loaded
    module is first seen). A moved mtime only triggers a re-hash; a file counts as changed only when its content
    differs, and `engine.changed` names those files (relative to the app folder). Tested in server.test.js with a
-   throwaway module under engine/: touched (not stale, the tester's case) then edited (stale, named). Mutation to the old
+   throwaway module at the app root: touched (not stale, the tester's case) then edited (stale, named). Mutation to the old
    time-only rule turns it red.
 2. server.js POST /api/engine/restart: restarts through engine/boardrestart (the world-switch path). 409 when current
    or when the board cannot bring itself back. One restart at a time (a second press, e.g. another open page, gets 202
