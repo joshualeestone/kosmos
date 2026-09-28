@@ -27187,6 +27187,7 @@ document.getElementById('acct-code-go').addEventListener('click', async () => {
       return;
     }
     ACCT_FLOW_LAST = null; // the next poll repaints whatever the code caused
+    acctFlowWatch(); // #4275: make sure there IS a next poll (a no-op while one runs)
   } catch {
     say.textContent = 'We could not reach Kosmos to send that code. It is still waiting; try again.';
   }
@@ -27201,6 +27202,8 @@ document.getElementById('acct-cancel').addEventListener('click', async () => {
     note.textContent = 'Stopped. Nothing changed; start the sign-in again whenever you like.';
   } catch { note.textContent = 'We could not reach Kosmos to stop it. It is still waiting; try again.'; }
   ACCT_FLOW_LAST = null;
+  // #4275: the poll paints the stop and then ends itself; start it if nothing is polling.
+  acctFlowWatch();
 });
 
 /* The conversation limit card: painted from the engine's read, and the

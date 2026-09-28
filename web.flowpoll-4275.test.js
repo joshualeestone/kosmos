@@ -96,7 +96,8 @@ test('#4275 control: a start answering an ACTIVE phase keeps polling until the f
 });
 
 test('#4275: a watch started over an already-painted ENDED phase stops on its first poll', async () => {
-  // Every caller of acctFlowWatch, not only acctAddStart: the dedup check must not hide an ending.
+  // Any watch, not only the start's (the code and cancel handlers start one too): the dedup
+  // check must not hide an ending.
   const ended = { phase: 'interrupted' };
   const h = harness({ start: ended, connect: ended });
   h.page.acctFlowPaint(ended);
@@ -106,4 +107,15 @@ test('#4275: a watch started over an already-painted ENDED phase stops on its fi
   await h.tick();
   assert.equal(h.timers.size, 0, 'a repeated ended phase did not stop the poll');
   assert.equal(h.polls.n, 1);
+});
+
+test('#4275: the code and cancel handlers reset the dedup key AND make sure a poll runs to read it', () => {
+  // Resetting ACCT_FLOW_LAST only helps if something polls; they must not rely on the start having left one running.
+  for (const id of ['acct-code-go', 'acct-cancel']) {
+    const at = SCRIPT.indexOf(`getElementById('${id}').addEventListener`);
+    assert.ok(at > -1, `the ${id} handler moved; restate this pin`);
+    const end = SCRIPT.indexOf('\n});', at);
+    const handler = SCRIPT.slice(at, end);
+    assert.match(handler, /ACCT_FLOW_LAST = null;[\s\S]*acctFlowWatch\(\);/, `the ${id} handler resets the key without making sure a poll runs`);
+  }
 });

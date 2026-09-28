@@ -23,3 +23,10 @@
   shows a live flow.
 
 ## Review record
+
+#### Iteration 1 (sonnet, blind, 2026-09-27 23:32 CDT)
+- [WARNING] web/index.html acct-code-go / acct-cancel handlers reset ACCT_FLOW_LAST but rely on a poll the start left running (an unasserted one-caller invariant). FIXED: both handlers now call acctFlowWatch() after the reset (a no-op while one runs). Pinned in web.flowpoll-4275.test.js; removing either call turns the pin red (perturbed, each arm).
+- [WARNING] frConnActive is a hand copy of engine ACTIVE_PHASES, and the fix raises what rides on it. NOT CHANGED: parity is already asserted by server.connect.test.js:134, and a phase missing from the copy already stopped the poll on its FIRST paint before this change (the ended branch calls acctFlowStop), so the change adds no new failure.
+- [NIT] a test comment said "every caller" when acctAddStart was the only one. FIXED (the handlers are callers now; comment reworded).
+- The reviewer also mutated both guards and a stop-on-any-repeat variant; the control test caught the last.
+- Validation: 79/79 across web.flowpoll-4275, web.accounts-add, web.connect-success-1656, web.reauth-1492, server.connect.
