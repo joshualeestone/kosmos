@@ -33170,7 +33170,7 @@ const SVC_DOORS = {
   'GitHub': 'Where your code lives. Connect it and your agents can read your repositories, open pull requests, and watch the checks, working as you.',
   'Vercel': 'Where your sites deploy. Connect it and your agents can ship a site and tell you when it is live. It needs GitHub connected first.',
   'Cloudflare': 'Your domains and DNS. Connect it and your agents can point a domain at a site when you ask them to.',
-  'Gmail': 'Connect an address you choose and your agents can send and read the email you approve, never your personal inbox unless you say so.',
+  'Gmail': 'Your Google email.',   // #529: no Gmail design is chosen, so the door describes the service and promises no flow (SVC_SOON says the rest)
   /* The token-service pills (#529): one line each, same shape as the four
      above, so a person meets a plain "what this is and what connecting lets
      your agents do" instead of a bare service name. A "the X you allow /
@@ -33221,10 +33221,19 @@ const SVC_TOOL = {
   'GitHub': { cli: 'the GitHub CLI', install: 'https://cli.github.com', installText: 'cli.github.com', page: 'the GitHub page', device: 'github.com/login/device', site: 'GitHub’s own page' },
   'Vercel': { cli: 'the Vercel CLI', install: 'https://vercel.com/docs/cli', installText: 'vercel.com/docs/cli', page: 'the Vercel page', device: 'vercel.com/oauth/device', site: 'Vercel’s own page' },
 };
+/* #529: a coming-soon door whose generic line would promise a design nobody has chosen gets its own honest words here.
+   Gmail: no Gmail flow exists in the engine, and the choice (a Google sign-in app, which needs Google's review to read
+   mail, or an app password, which would mean Kosmos holding the person's mail password) is not made. So the door says
+   plainly it cannot connect yet, and points at the road that works today: Postmark or SendGrid under Sending email.
+   Text only, like every coming-soon door: no control (web.svc-doors.test.js pins it). */
+const SVC_SOON = {
+  'Gmail': 'Coming soon. Kosmos cannot connect to Gmail yet, so no agent can read or send from your Gmail. '
+    + 'To let an agent send email for you today, connect Postmark or SendGrid under Sending email, further down this page.',
+};
 function svcDoorText(name) {
   const own = SVC_DOORS[name];
-  const how = 'Coming soon. When it opens up here, you sign in on ' + name
-    + '’s own page, this computer holds the key, and Kosmos never sees a password.';
+  const how = SVC_SOON[name] || ('Coming soon. When it opens up here, you sign in on ' + name
+    + '’s own page, this computer holds the key, and Kosmos never sees a password.');
   return (own ? '<b>' + esc(name) + '.</b> ' + esc(own) + ' ' : '<b>' + esc(name) + '.</b> ') + esc(how);
 }
 /* GitHub's door, painted from what gh says (#529). Four states a person can
