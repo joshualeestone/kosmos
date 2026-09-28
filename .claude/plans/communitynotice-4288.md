@@ -60,6 +60,15 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
   asserts one of each.
 - Two tabs loaded together each show it once; accepted as What's New accepts it, and now said in a comment.
 
+## Review 4
+
+- BLOCKER, fixed: the notice read the setting once, then could wait up to an hour behind another window
+  and open on that stale answer, so a switch turned OFF in another tab meanwhile still got a notice and a
+  "seen" record. After any wait it now reads the setting again (`cnPending`); a STALE arm turns the switch
+  OFF during the wait and asserts nothing opens and nothing is recorded.
+- Not in this diff: What's New has the same boot-cover gap (its `held()` does not wait for `#boot-cover`).
+  Filed as its own card, with the one-line fix, rather than widening this PR into What's New.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's

@@ -27847,15 +27847,25 @@ function cnToSettings() {
   if (target === row) row.tabIndex = -1;
   target.focus();
 }
+/* Is the notice still owed? Read fresh each time: a wait can outlive a change made in another tab. */
+async function cnPending() {
+  const res = await fetch('/api/community-setting', { cache: 'no-store' });
+  if (!res.ok) return false;
+  const r = await res.json();
+  return Boolean(r && r.ok === true && r.on === true && r.noticeSeen === false);
+}
 async function communityNoticeCheck() {
   try {
-    const res = await fetch('/api/community-setting', { cache: 'no-store' });
-    if (!res.ok) return;
-    const r = await res.json();
-    if (!r || r.ok !== true || r.on !== true || r.noticeSeen !== false) return;
+    if (!(await cnPending())) return;
     // An hour, looked at each second, like What's New; still held after that, it waits for the next load.
     const until = Date.now() + 60 * 60 * 1000;
-    while (Date.now() < until && cnHeld()) await new Promise((ok) => setTimeout(ok, 1000));
+    if (cnHeld()) {
+      while (Date.now() < until && cnHeld()) await new Promise((ok) => setTimeout(ok, 1000));
+      /* Review 4: after a wait the answer is read again, so a switch turned OFF (or a notice seen) in
+         another tab meanwhile opens nothing here. */
+      if (!(await cnPending())) return;
+    }
+    // Checked again with no await before the open, so nothing can be drawn between the check and it.
     if (cnHeld()) return;
     /* Recorded as seen when it OPENS, What's New's rule and its accepted cost: two tabs loaded together
        each find it pending and each show it once. Nothing is lost; it is only shown twice. */

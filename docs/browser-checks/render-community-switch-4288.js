@@ -234,6 +234,22 @@ async function run() {
       await nh.close();
     }
 
+    // STALE: the switch is turned OFF (elsewhere) while the notice waits behind a cover; when the cover goes,
+    // the notice reads the setting again and opens nothing.
+    const ns = await page();
+    let staleGets = 0; let stalePosts = 0;
+    await ns.addInitScript(() => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = 'rm-back'; d.id = 'planted-cover'; document.body.appendChild(d); }); });
+    await ns.route(ROUTE, (route) => { staleGets++; return answer(staleGets <= 2 ? pending : { on: false, ok: true, share: null, noticeSeen: false })(route); });
+    await ns.route(SEEN, (route) => { stalePosts++; return answer({ ...pending, noticeSeen: true })(route); });
+    await load(ns);
+    await ns.waitForTimeout(2500);
+    const gotBefore = staleGets;
+    await ns.evaluate(() => document.getElementById('planted-cover').remove());
+    await ns.waitForTimeout(3000);
+    const st = await ns.evaluate(() => Boolean(document.getElementById('cmnotice')));
+    check('STALE: a switch turned OFF during the wait opens nothing and records nothing', gotBefore === 2 && staleGets >= 3 && st === false && stalePosts === 0, JSON.stringify({ gotBefore, staleGets, st, stalePosts }));
+    await ns.close();
+
     // BOOT: while the boot cover is up the notice waits, so "seen" is only recorded once it can be seen.
     const nb = await page();
     let bootPosts = 0;
