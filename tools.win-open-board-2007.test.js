@@ -138,6 +138,30 @@ function makeAppDir({ withToken }) {
   return { appDir, dataRoot };
 }
 
+// A stand-in opener that writes the url it is handed to <dir>/opened.txt. #4267: on
+// Windows spawn() without a shell runs only a real program (a script is EFTYPE, a
+// .cmd is EINVAL), so there it is a tiny exe built with the .NET Framework compiler,
+// as tools.win-launcher-native.test.js does. Production never sets the seam: its
+// Windows opener is `cmd /c start`. Returns null when Windows has no compiler.
+function makeOpener(dir) {
+  const out = path.join(dir, 'opened.txt');
+  if (process.platform !== 'win32') {
+    const stub = path.join(dir, 'opener.sh');
+    fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out)}\n`);
+    fs.chmodSync(stub, 0o755);
+    return stub;
+  }
+  const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  if (!fs.existsSync(csc)) return null;
+  const src = path.join(dir, 'Opener.cs');
+  const stub = path.join(dir, 'opener.exe');
+  fs.writeFileSync(src, 'class Opener { static void Main(string[] a) { System.IO.File.WriteAllText('
+    + JSON.stringify(out) + ', a.Length > 0 ? a[0] : ""); } }\n');
+  const built = require('node:child_process').spawnSync(csc, ['/nologo', '/target:exe', '/out:' + stub, src], { encoding: 'utf8', windowsHide: true });
+  assert.equal(built.status, 0, 'the stand-in opener did not compile: ' + built.stdout + built.stderr);
+  return stub;
+}
+
 test('enforcing board (token present): opens the nonced url', async () => {
   const { server, port } = await startFixtureBoard();
   const { appDir } = makeAppDir({ withToken: true });
@@ -227,14 +251,13 @@ test('CONTROL: a non-hex nonce is refused, url falls back to plain', async () =>
   } finally { server.close(); }
 });
 
-test('openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)', async () => {
+test('openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)', async (t) => {
   // Proves the browser actually gets opened with the url the resolver chose, via
-  // the same seam production uses. A recorder script writes the url it is handed.
+  // the same seam production uses. A recorder writes the url it is handed.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kob-open-'));
   const out = path.join(dir, 'opened.txt');
-  const stub = path.join(dir, 'opener.sh');
-  fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out)}\n`);
-  fs.chmodSync(stub, 0o755);
+  const stub = makeOpener(dir);
+  if (!stub) { t.skip('no .NET Framework compiler on this machine'); return; }
   const url = 'http://127.0.0.1:16180/?boot=deadbeef';
   const prev = process.env.KOSMOS_OPEN_BIN;
   process.env.KOSMOS_OPEN_BIN = stub;
@@ -311,7 +334,7 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
   } finally { server.close(); }
 });
 
-test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url', async () => {
+test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url', async (t) => {
   // main() holds the security-relevant coupling "print the plain url (nonce stays
   // out of logs), open the nonced url". resolveOpenUrl/openInBrowser are tested in
   // isolation but nothing exercises main(), so a regression that printed the nonced
@@ -323,9 +346,8 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
   const { appDir } = makeAppDir({ withToken: true });        // enforcing (token present)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kob-main-'));
   const out = path.join(dir, 'opened.txt');
-  const stub = path.join(dir, 'opener.sh');
-  fs.writeFileSync(stub, `#!/bin/bash\nprintf '%s' "$1" > ${JSON.stringify(out)}\n`);
-  fs.chmodSync(stub, 0o755);
+  const stub = makeOpener(dir);
+  if (!stub) { server.close(); t.skip('no .NET Framework compiler on this machine'); return; }
   try {
     const stdout = await new Promise((resolve, reject) => {
       execFile(
