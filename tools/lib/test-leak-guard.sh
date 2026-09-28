@@ -13,11 +13,12 @@
 # EACH CHECK IS SCOPED TO THIS RUN'S TEMP ROOT, so a suite running beside another
 # one (another checkout, another agent) never blames the other's leftovers or kills
 # the other's processes: a job whose plist lives under THIS root, an ORPHANED
-# process whose command line or environment names THIS root, an entry INSIDE it.
+# process whose command line names THIS root, an entry INSIDE it.
 #
 # ⚠️ WHAT IT DOES NOT SEE: a job or process that never touched the run's temp root
-# (a load generator started with no fixture path or env, a job bootstrapped from a
-# plist outside it), a leaked process still parented by something alive, and anything
+# (a load generator started with no fixture path, a job bootstrapped from a plist
+# outside it), a process that names the root only in its ENVIRONMENT (macOS ps cannot
+# read it), a leaked process still parented by something alive, and anything
 # a test file makes when it is run directly, outside run-tests.sh
 # (test-support/tmpscope.js is the fix for that one).
 #
@@ -53,7 +54,7 @@ leak_launchd_check() {
 }
 
 # leak_process_check <root>: an ORPHANED process (parent pid 1: whatever started it
-# has exited) whose command line or environment names <root> outlived the suite. It
+# has exited) whose command line names <root> outlived the suite. It
 # is sent TERM, then KILL if it is still there, and printed. Orphaned only: a process
 # something alive still owns (an operator's `tail -f` on a log in the root, another
 # suite's child) is never touched.
@@ -62,8 +63,12 @@ leak_process_check() {
   [ -n "$root" ] || return 0
   real=$(cd "$root" 2>/dev/null && pwd -P) || real="$root"
   # Snapshot FIRST, filter after (a `ps | grep root` pipeline lists the grep itself).
-  # -E appends each process's environment, where a child's TMPDIR names the root.
-  snap=$(ps -Eo pid=,ppid=,command= 2>/dev/null)
+  # -A: EVERY process. Without it ps lists only processes with a controlling terminal,
+  # and an orphaned daemon has none, so the leaks this exists for were invisible
+  # (measured). -ww stops long command lines being cut. The ENVIRONMENT is not
+  # readable: `ps -E` shows none on macOS 26.7, even for this user's own processes
+  # (measured), so a child that names the root only in its TMPDIR is not seen.
+  snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null)
   while IFS= read -r line; do
     # `read`, not `set -- $line`: the latter would also glob-expand a `*` in a command.
     read -r pid ppid cmd <<< "$line"
@@ -76,7 +81,7 @@ leak_process_check() {
   done <<< "$snap"
   if [ "$found" -eq 1 ]; then
     sleep 1
-    snap=$(ps -Eo pid=,ppid=,command= 2>/dev/null)
+    snap=$(ps -Awwo pid=,ppid=,command= 2>/dev/null)
     while IFS= read -r line; do
       read -r pid ppid cmd <<< "$line"
       [ "$ppid" = "1" ] || continue
