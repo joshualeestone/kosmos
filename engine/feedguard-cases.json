@@ -38,18 +38,6 @@
       "reason": "home_path"
     },
     {
-      "id": "tilde-home-path",
-      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The draft lives at ~/private/notes.txt."},
-      "expected_output": null,
-      "reason": "home_path"
-    },
-    {
-      "id": "home-variable-path",
-      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The draft lives at $HOME/private/notes.txt."},
-      "expected_output": null,
-      "reason": "home_path"
-    },
-    {
       "id": "file-uri-macos-home-path",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Open file:///Users/alice/private/notes.txt."},
       "expected_output": null,
@@ -191,6 +179,24 @@
       "id": "home-root-without-username-is-not-identifying",
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The generic mount point is /home/."},
       "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The generic mount point is /home/."},
+      "reason": null
+    },
+    {
+      "id": "tilde-path-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The checkout lives at ~/work/kosmos."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The checkout lives at ~/work/kosmos."},
+      "reason": null
+    },
+    {
+      "id": "home-variable-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The config lives at $HOME/.config/kosmos."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The config lives at $HOME/.config/kosmos."},
+      "reason": null
+    },
+    {
+      "id": "macos-shared-path-has-no-account-name",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The shared asset lives at /Users/Shared/kosmos/icon.png."},
+      "expected_output": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"The shared asset lives at /Users/Shared/kosmos/icon.png."},
       "reason": null
     }
   ]
