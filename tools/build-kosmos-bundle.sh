@@ -399,7 +399,7 @@ _menu_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/k
 # skip line names what went unchecked so it is never silent.
 if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   _fp_rc=0
-  _fp_out="$(perl -e 'alarm 65; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || _fp_rc=$?
+  _fp_out="$(perl -e 'alarm 80; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-filepanel-selftest 2>&1)" || _fp_rc=$?
   printf '%s\n' "$_fp_out" | sed 's/^/    /'
   # ⚠️ THE CAUSE DECIDES THE SENTENCE, because most non-zero exits here are not
   # a broken product. A drifted hatch flag falls through to app.run() and gets
@@ -422,7 +422,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   # that printed none of them never got going and is the only case where the
   # product is genuinely not implicated.
   _fp_missing=""
-  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes" "press:dropped-callback	no-abort:yes asked:yes" "press:after-a-dropped-callback	reaches-the-app-again:yes" "press:after-a-hung-picker	reaches-the-app-again:yes" "rule:picker-still-up	shown+here:up gone+here:gone shown+away:up gone+away:up"; do
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes" "press:dropped-callback	no-abort:yes asked:yes" "press:after-a-dropped-callback	reaches-the-app-again:yes" "press:after-a-hung-picker	reaches-the-app-again:yes" "rule:picker-still-up	shown+here:up gone+here:gone shown+away:up gone+away:up" "press:still-up-past-first-look	left-alone:yes" "press:gone-once-then-back	left-alone:yes"; do
     case "$_fp_out" in
       *"$_fp_want"*) ;;
       *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;

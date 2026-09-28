@@ -48,10 +48,23 @@ every later press was refused with nil and no picker opened again. The watch ans
   real NSOpenPanel each time): create-form Change picture opens, opens after a cancel, and opens after a picker that
   dropped its callback; the agent page and profile Change picture open too. Switching apps cannot be driven from an
   agent (macOS refuses programmatic activation), so that step is covered by the dropped/hung arms, not by a click.
-- Timing: selftest now ~29 s; its watchdog 50 s; the bundle gate's alarm 65 s (15 s above the watchdog, as before, so a slow run still reports its own timeout).
+- Timing: selftest ~43 s; its watchdog 65 s; the bundle gate's alarm 80 s. tools.filepanel-gate.test.js reads both
+  numbers and pins the alarm at least 15 s above the watchdog, so a slow run still reports its own timeout.
 - The real panel's rule (openPanelStillUp: on screen, or Kosmos in the background, counts as up) is a function the
   selftest prints for all four cases and the gate requires. NOT covered: that the watch passes the real panel's
   isVisible and NSApp.isActive into it (a shell-launched selftest is never the active app); that wiring is the
   out-of-tree probe above. NSOpenPanel does not hide on deactivate (hidesOnDeactivate=false), so the away clause
   defers answering while the person is away rather than protecting a hidden panel.
 - The re-look is 0.5 s, so a picker that closes without answering is answered within half a second.
+
+## Review iteration 5
+- A picker still in use is now tested: two arms keep one up past the first look, and one that reads gone, back,
+  gone again; the watch must answer neither (openPanelWatchAnswers counts its nil answers). Each arm is judged
+  after the watch has looked a set number of times, not after a fixed wait. Mutations: without the re-arm both
+  arms read "no"; carrying the first gone reading over, the second arm reads "no".
+- When the watch answers nil for a real panel, it also closes that panel (panel.cancel), so no picker is left on
+  screen that WebKit was told is gone, and a second press cannot open one beside it.
+- A picker that stays up is logged once after 10 minutes. Not answered: the person may still be choosing, and
+  answering under them is the defect the two-look rule exists to prevent. Weakest premise: a dropped panel that
+  still reads visible would keep later presses refused until Kosmos is restarted; the log line is what shows it.
+- The #2807 comment no longer says begin always calls its completion.

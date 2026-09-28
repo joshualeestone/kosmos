@@ -1732,6 +1732,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// answered nil under the person, the accepted cost of never leaving WebKit's handler unanswered.
     static let openPanelFirstLook: TimeInterval = 5
     static let openPanelLookEvery: TimeInterval = 0.5
+    /// #4412: how many pickers the watch has answered nil itself. Only the selftest reads it: a picker still in
+    /// use must never be counted here.
+    static var openPanelWatchAnswers = 0
+    /// #4412: after this many looks at a picker that stays up, the watch logs once, so a picker that never goes
+    /// away (and keeps every later press refused) leaves a trace. It does not answer: the person may still be
+    /// choosing a file. 1200 looks is 10 minutes.
+    static let openPanelLongLooks = 1200
     /// #4412: whether a real NSOpenPanel still counts as up. A panel on screen is left alone. While
     /// Kosmos is not the active app the answer is deferred, whatever the panel reports: NSOpenPanel does
     /// not hide on deactivate (measured: hidesOnDeactivate=false, isVisible stays true), so this is not
@@ -1794,15 +1801,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         openPanelHeld = respond
         /* #4412: if the picker never appears, or goes away without answering, answer nil ourselves.
-           A picker the person is still using is left alone. */
+           A picker the person is still using is left alone. `giveUp` closes a real panel the watch has
+           answered for, so the screen matches what WebKit was told and no second picker opens beside it. */
+        var looks = 0
+        var giveUp: (() -> Void)?
         func watch(after: TimeInterval, goneBefore: Bool = false, _ showing: @escaping () -> Bool) {
             DispatchQueue.main.asyncAfter(deadline: .now() + after) {
                 if answered { return }
+                looks += 1
+                if looks == AppDelegate.openPanelLongLooks {
+                    logLine("runOpenPanelWith: the file picker has been up 10 minutes and has not answered (#4412)")
+                }
                 if showing() { watch(after: AppDelegate.openPanelLookEvery, showing); return }
                 /* Gone once: look again before answering, in case its own answer is on the way. */
                 if !goneBefore { watch(after: AppDelegate.openPanelLookEvery, goneBefore: true, showing); return }
                 logLine("runOpenPanelWith: the file picker is not showing and never answered; answering nil (#4412)")
+                AppDelegate.openPanelWatchAnswers += 1
                 respond(nil)
+                giveUp?()
             }
         }
         if let present = AppDelegate.openPanelPresenter {
@@ -1832,10 +1848,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            picture.
 
            So present with the app-modal `panel.begin`, NOT beginSheetModal:
-           begin does not attach to a window, so no window state can silently
-           drop it -- it ALWAYS presents and ALWAYS calls its completion, which
-           closes the ENTIRE abort class rather than the one attached-sheet
-           instance a `host.attachedSheet == nil` guard would cover. The cost is
+           begin does not attach to a window, so no window state can drop it.
+           It was expected to always call its completion too, and #4412 showed
+           it does not: Josh's 0.7.06 window aborted when begin dropped it. So
+           begin alone no longer closes the abort class; the answer held past
+           begin plus the watch above do, for any presenter. The cost is
            the picker is app-modal (centred) rather than a sheet on the window;
            for a path that otherwise aborts the app that is the right trade.
            `answer` routes through the call-once `respond`, so OK and Cancel each
@@ -1844,6 +1861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             respond(resp == .OK ? panel.urls : nil)
         }
         panel.begin(completionHandler: answer)
+        giveUp = { panel.cancel(nil) }   // its own answer then arrives at a respond that has already answered
         /* See openPanelStillUp: on screen, or Kosmos in the background, counts as still up. */
         watch(after: AppDelegate.openPanelFirstLook) {
             AppDelegate.openPanelStillUp(visible: panel.isVisible, appActive: NSApp.isActive)
@@ -3652,12 +3670,12 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        the exact defect the commit that added this poll set out to remove. The
        fix removed one instance and shipped another. `filepanel selftest TIMED
        OUT` is the unique string the shell keys its gate-fault arm on.
-       Budget: 150 x 0.1s = 15s, inside the hatch's own 50s watchdog and the
-       shell's 65s alarm. The page loads in well under half a second here, so
-       this is ~30x the observed margin rather than the ~12x it was. The whole
-       run is about 29s (the #2807 with-a-sheet-up arm added a sheet poll plus a
-       wait, and #4412's two arms each wait out the picker's first look), so a
-       run whose page takes the full 15s still ends inside the watchdog. */
+       Budget: 150 x 0.1s = 15s, inside the hatch's own 65s watchdog and the
+       shell's 80s alarm. The page loads in well under half a second here, so
+       this is ~30x the observed margin rather than the ~12x it was. The run's
+       length is not restated here (it goes stale with every arm): the watchdog
+       has to cover the arms plus this 15s, and tools.filepanel-gate.test.js
+       pins the alarm at least 15s above the watchdog. */
     func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
         web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
             if (r as? Bool) == true { go(); return }
@@ -3794,8 +3812,39 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                                                             let rule = "shown+here:\(r(true, true)) gone+here:\(r(false, true)) shown+away:\(r(true, false)) gone+away:\(r(false, false))"
                                                             print("rule:picker-still-up\t\(rule)")
                                                             let ruleOK = rule == "shown+here:up gone+here:gone shown+away:up gone+away:up"
-                                                            AppDelegate.openPanelPresenterShowing = nil   // no later arm inherits the stub
-                                                            exit(afterHung && ruleOK ? 0 : 1)
+                                                            /* 🛑 #4412: A PICKER STILL IN USE IS LEFT ALONE. The arms above only ever see a
+                                                               picker that is gone. These two keep one up past the first look (and one that
+                                                               reads gone, then back, then gone again), and the watch must not answer either: a watch
+                                                               that did would throw away the person's pick. */
+                                                            /* Judged after the watch has looked `looks` times (not after a fixed wait, which
+                                                               can land before the look under test), within a 12 s budget. */
+                                                            func leftAlone(_ label: String, looks: Int, _ showing: @escaping (Int) -> Bool, then: @escaping (Bool) -> Void) {
+                                                                let before = AppDelegate.openPanelWatchAnswers
+                                                                var keep: (([URL]?) -> Void)?
+                                                                var seen = 0
+                                                                AppDelegate.openPanelPresenterShowing = { seen += 1; return showing(seen) }
+                                                                AppDelegate.openPanelPresenter = { _, done in keep = done }
+                                                                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                                                func judge(tries: Int) {
+                                                                    if seen < looks && tries > 0 {
+                                                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { judge(tries: tries - 1) }
+                                                                        return
+                                                                    }
+                                                                    let ok = keep != nil && seen >= looks && AppDelegate.openPanelWatchAnswers == before
+                                                                    print("press:\(label)\tleft-alone:\(ok ? "yes" : "no")")
+                                                                    keep?(nil)   // the person closes it; the next arm starts clean
+                                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { then(ok) }
+                                                                }
+                                                                judge(tries: 120)
+                                                            }
+                                                            leftAlone("still-up-past-first-look", looks: 3, { _ in true }) { up in
+                                                                /* Gone, back, gone again: each gone reading is a first look again once it was back, so a watch that
+                                                               carried the first one over would answer on the second. */
+                                                            leftAlone("gone-once-then-back", looks: 4, { n in n != 1 && n != 3 }) { back in
+                                                                    AppDelegate.openPanelPresenterShowing = nil   // no later arm inherits the stub
+                                                                    exit(afterHung && ruleOK && up && back ? 0 : 1)
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -3818,8 +3867,8 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
             }
         }
     }
-    // A hung run loop must fail, not hang a release cut. (#4412's two arms add ~16 s; the shell's alarm is 65, so this fires first even on a slow box.)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 50) {
+    // A hung run loop must fail, not hang a release cut. The shell's alarm stays 15 s above this, so this fires first.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 65) {
         print("filepanel selftest TIMED OUT")
         exit(1)
     }

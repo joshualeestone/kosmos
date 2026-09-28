@@ -78,6 +78,8 @@ const GOOD = [
   'press:after-a-dropped-callback\treaches-the-app-again:yes',
   'press:after-a-hung-picker\treaches-the-app-again:yes',
   'rule:picker-still-up\tshown+here:up gone+here:gone shown+away:up gone+away:up',
+  'press:still-up-past-first-look\tleft-alone:yes',
+  'press:gone-once-then-back\tleft-alone:yes',
 ].join('\n');
 
 test('the gate passes the output a working file picker produces', () => {
@@ -194,7 +196,8 @@ test('#4412: a run that dies at the dropped-callback arm (the abort itself) fail
 /* The #4412 test above ends at 134, and a non-zero exit fails the gate whether or not its required-line
    list knows the new lines, so that test cannot show the gate requires them. At exit 0 only that list can
    refuse, so each new line is dropped in turn and the gate must name it. */
-for (const want of ['press:dropped-callback', 'press:after-a-dropped-callback', 'press:after-a-hung-picker', 'rule:picker-still-up']) {
+for (const want of ['press:dropped-callback', 'press:after-a-dropped-callback', 'press:after-a-hung-picker', 'rule:picker-still-up',
+  'press:still-up-past-first-look', 'press:gone-once-then-back']) {
   test(`#4412: a clean exit without ${want} fails the gate and names it`, () => {
     const v = verdict(GOOD.split('\n').filter((l) => !l.startsWith(want + '\t')).join('\n'), 0);
     assert.equal(v.ok, false, `the gate passed a run that never printed ${want}`);
@@ -205,4 +208,17 @@ for (const want of ['press:dropped-callback', 'press:after-a-dropped-callback', 
 test('#4412: a picker rule that answers under a person who is away fails the gate', () => {
   const v = verdict(GOOD.replace('shown+away:up gone+away:up', 'shown+away:up gone+away:gone'), 0);
   assert.equal(v.ok, false, 'the gate passed a rule that answers a picker while Kosmos is in the background');
+});
+
+test('#4412: the gate\'s alarm stays at least 15 s above the selftest\'s own watchdog', () => {
+  /* The watchdog prints its TIMED OUT token (the gate-fault verdict); if the alarm fired first, a slow run
+     would be killed without it and read as a crash. Read both numbers, so the rule is pinned, not restated. */
+  const repo = require('node:path').join(__dirname);
+  const sh = fs.readFileSync(require('node:path').join(repo, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
+  const sw = fs.readFileSync(require('node:path').join(repo, 'native-app', 'main.swift'), 'utf8');
+  const alarm = Number((sh.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-filepanel-selftest/) || [])[1]);
+  const hatch = sw.slice(sw.indexOf('"--kosmos-app-filepanel-selftest"'));
+  const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\s*print\("filepanel selftest TIMED OUT"\)/) || [])[1]);
+  assert.ok(alarm > 0 && watchdog > 0, `could not read both numbers (alarm ${alarm}, watchdog ${watchdog})`);
+  assert.ok(alarm >= watchdog + 15, `alarm ${alarm} s is not 15 s above the watchdog ${watchdog} s`);
 });
