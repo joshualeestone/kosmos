@@ -160,17 +160,20 @@ function writeState(s) {
   fs.writeFileSync(statePath(), JSON.stringify(s) + '\n');
 }
 
-/* Both channels best effort; true when at least one post went. PATH is the caller's (the plist sets
-   it for launchd); it is never rewritten here, so whatever is first on PATH is what runs. Under the test runner only through
-   seams a test supplies, so no test can message a real pane or comment on the real card. */
-function post(text) {
+/* The channels that are due, best effort; returns which of them went, per channel ({pane, card}).
+   Each channel keeps its own clock (main), so one channel's delivery never counts as the other's:
+   a failing card comment keeps retrying hourly even while the pane is told (review 4). PATH is the
+   caller's (the plist sets it for launchd); it is never rewritten here, so whatever is first on PATH
+   is what runs. Under the test runner only through seams a test supplies, so no test can message a
+   real pane or comment on the real card. */
+function post(text, want = { pane: true, card: true }) {
   const underTest = !!env.NODE_TEST_CONTEXT;
-  let sent = false;
+  const went = { pane: false, card: false };
   const to = env.GAP_ALARM_TO || 'barondraxum-discord:0.0';
   let paneFailed = null;
   let paneUnsure = null;
   const msgCmd = env.GAP_ALARM_MSG_CMD || (underTest ? null : path.join(os.homedir(), '.claude', 'scripts', 'claude-msg'));
-  if (msgCmd) {
+  if (want.pane && msgCmd) {
     try {
       // claude-msg refuses without $TMUX, which a launchd job never has: point it at the default
       // tmux server socket, as the fleet's slack relay does (the other fields are unused by -t).
@@ -180,13 +183,13 @@ function post(text) {
         stdio: ['pipe', 'ignore', 'pipe'], timeout: 30000,
         env: Object.assign({}, env, { TMUX: tmux }),
       });
-      sent = true;
+      went.pane = true;
     } catch (err) {
       // Exit 8 is claude-msg's known false negative (#1909): the recipient was busy and the message
-      // usually did land. Counted as told, and said on the card as uncertain, never as "did not go",
-      // so a busy pane plus a failed comment cannot repost the same message every hour.
+      // usually did land. Counted as told FOR THE PANE ONLY (the card keeps its own clock), and said
+      // on the card as uncertain, never as "did not go", so a busy pane is not re-messaged every hour.
       if (err && err.status === 8) {
-        sent = true;
+        went.pane = true;
         paneUnsure = 'claude-msg exit 8, which usually means the pane was busy and the message landed (#1909)';
         process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
       } else {
@@ -196,7 +199,7 @@ function post(text) {
     }
   }
   const ghCmd = env.GAP_ALARM_GH_CMD || (underTest ? null : 'gh');
-  if (ghCmd) {
+  if (want.card && ghCmd) {
     try {
       // A pane message that did not go is said on the card, so the one channel is never silently lost.
       const body = paneFailed ? text + '\n\n(The pane message to ' + to + ' did not go: ' + paneFailed + ')'
@@ -204,14 +207,24 @@ function post(text) {
       execFileSync(ghCmd, ['issue', 'comment', env.GAP_ALARM_ISSUE || '1050', '--repo', 'joshualeestone/kosmos', '--body', body], {
         stdio: ['ignore', 'ignore', 'pipe'], timeout: 30000,
       });
-      sent = true;
+      went.card = true;
     } catch (err) {
       // gh's own first stderr line says why (auth, keychain, network); err.message would echo the body.
       const why = String((err && err.stderr && String(err.stderr).trim()) || (err && err.code) || 'exit ' + (err && err.status)).split('\n')[0];
       process.stderr.write('gap-alarm: the #1050 comment did not go: ' + why + '\n');
     }
   }
-  return sent;
+  return went;
+}
+
+/* The last post per channel. A state file from before per-channel clocks ({key, at}) is read as both
+   channels, so an installed alarm does not repost everything on its first run after an upgrade. */
+const CHANNELS = ['pane', 'card'];
+function lastFor(state, ch) {
+  if (!state || typeof state !== 'object') return null;
+  if (state[ch] && typeof state[ch] === 'object') return state[ch];
+  if (typeof state.key === 'string') return { key: state.key, at: state.at };
+  return null;
 }
 
 function xml(s) {
@@ -268,16 +281,35 @@ async function main(argv) {
   const v = await gather();
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
-  const last = readState();
-  const d = decidePost(v, last, v.now);
-  if (d.post) {
-    const text = message(d.post, Object.assign({}, v, { after: last && last.key }));
-    process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + text + '\n');
-    // The clock advances only on a post that went, or a dead channel would count as told.
-    if (post(text)) writeState({ key: d.key, at: v.now });
-  } else if (!last || last.key !== d.key) {
-    writeState({ key: d.key, at: v.now });
+  const state = readState();
+  const next = {};
+  let changed = false;   // written only when a channel records a post or a new resting key
+  const due = {};
+  for (const ch of CHANNELS) {
+    const last = lastFor(state, ch);
+    next[ch] = last;
+    const d = decidePost(v, last, v.now);
+    due[ch] = d;
+    // Nothing to say, but a new resting key (clear after clear, say) is recorded without a post.
+    if (!d.post && (!last || last.key !== d.key)) { next[ch] = { key: d.key, at: v.now }; changed = true; }
   }
+  /* One text for both channels when they agree on what to say (the usual case); otherwise each its
+     own, since what a channel says depends on what IT last said (an all-clear after its own unknown). */
+  const texts = {};
+  for (const ch of CHANNELS) {
+    if (!due[ch].post) continue;
+    const last = lastFor(state, ch);
+    texts[ch] = message(due[ch].post, Object.assign({}, v, { after: last && last.key }));
+  }
+  const sendAt = [...new Set(Object.values(texts))];
+  for (const text of sendAt) {
+    const want = { pane: texts.pane === text, card: texts.card === text };
+    process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + text + '\n');
+    const went = post(text, want);
+    // A channel's clock advances only on its OWN post that went, or a dead channel would count as told.
+    for (const ch of CHANNELS) if (want[ch] && went[ch]) { next[ch] = { key: due[ch].key, at: v.now }; changed = true; }
+  }
+  if (changed) writeState({ pane: next.pane, card: next.card });
   return code;
 }
 

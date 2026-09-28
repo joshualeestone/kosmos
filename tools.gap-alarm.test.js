@@ -194,14 +194,32 @@ test('claude-msg exit 8 (#1909) is told-but-uncertain: it counts as posted and t
   assert.match(r.err, /may not have gone: claude-msg exit 8/);
   assert.doesNotMatch(r.err, /pane message .* did not go/);
   assert.match(r.err, /the #1050 comment did not go: claude-msg: no tmux here/, 'gh\'s own stderr line is what the log says');
-  // Counted as told: the next hour does not post the same thing again.
+  // Counted as told FOR THE PANE: the next hour does not message the pane again...
   const before = s.busyMsg.read();
+  const ghBefore = s.failGh.read();
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));
   assert.equal(s.busyMsg.read(), before, 'an exit-8 post was treated as not told and repeated an hour later');
+  // ...but the card keeps its own clock: its failed comment is retried (review 4, per-channel clocks).
+  assert.ok(s.failGh.read().length > ghBefore.length, 'the pane\'s exit 8 suppressed the retry of a card comment that really failed');
   // With a working gh, the card carries the uncertainty.
   const s2 = stubs();
   run([], Object.assign({}, env, { GAP_ALARM_STATE: s2.state, GAP_ALARM_GH_CMD: s2.gh.bin }));
   assert.match(s2.gh.read(), /may not have gone: claude-msg exit 8/);
+});
+
+test('a state file from before per-channel clocks is read as both channels: no repost on the first run after an upgrade', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  fs.writeFileSync(s.state, JSON.stringify({ key: 'alarm:staging-hours', at: NOW - H }) + '\n');
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) };
+  assert.equal(run([], env).code, 1, 'fixture: the alarm is standing');
+  assert.equal(s.msg.read() + s.gh.read(), '', 'an old-format state was not honoured and the standing alarm reposted');
+  // A day later both channels repost, and the file is now per channel.
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 24 * H) }));
+  assert.match(s.msg.read(), /staging-hours/); assert.match(s.gh.read(), /staging-hours/);
+  const st = JSON.parse(fs.readFileSync(s.state, 'utf8'));
+  assert.deepEqual(Object.keys(st).sort(), ['card', 'pane']);
 });
 
 test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
