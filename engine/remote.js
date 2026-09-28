@@ -1698,6 +1698,11 @@ const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be starte
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
+  // kosmos#4277 (review 17): a half-registered board sends a key-only report every five minutes,
+  // and this is exactly when a person signs in again. Let a signed call already out finish before
+  // the retire and the wipe below, as Forget does. Bounded: each tracked call carries its own kill
+  // timeout. No new one starts meanwhile: the register is out, and macRequest refuses while busy().
+  if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
   const r = await retireHere();
   // No answer (timed out, unreachable, the program would not start, a server
   // error) may work a moment later, and only this key can do it: keep it, and the

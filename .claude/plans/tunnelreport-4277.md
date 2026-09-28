@@ -21,13 +21,17 @@ Rejected:
 ## Evidence
 - `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
-- `engine/remote.test.js`: 107 of 107, including six #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 108 of 108, including seven #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
 
-## Deferred (review 2)
-- A register does not wait for an in-flight key-only report (only Forget waits on signedInFlight), so clearHalfIdentity can race one. The class is pre-existing for enrolled renames, and the worst outcome is a stray file or a 401.
+## Deferred (review 2), since resolved
+- Resolved in review 17: clearHalfIdentity waits for signed calls already out (as Forget does) before it retires and wipes; the key-only report fires exactly when a person is likely to sign in again, so the race was no longer rare. Tested; a mutant without the wait fails.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 17
+- clearHalfIdentity waits on signedInFlight before retiring and wiping a half identity (see Deferred (review 2)). New remote.test.js test: a key-only report hung for 700 ms finishes before the sign-in's retire.
+- The coordinator half is two PRs: kosmos-relay #187 (macremote-4277, merged and deployed: stores the report) and #190 (reportonly-4277: a not-enrolled report does not refresh last_seen), which must be deployed before this merges.
 
 ## Review 16
 - The `Kosmos+` coordinator patterns now come straight after the healthy sentences, before every other pattern: a gateway page inside a coordinator answer (`error reading body from upstream`, `certificate renewal in progress`) read as a local Mac fault. status-unreadable, binary-missing, cert-renewal and coordinator-bad-answer are anchored to their sentence starts (the tunnel writes `{e:#}` of run_session's error, so each starts the line). Tests use gateway bodies.

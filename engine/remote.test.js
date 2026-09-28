@@ -2464,6 +2464,35 @@ test('#3827: Forget lets a signed mac-request already out finish before it retir
   }
 });
 
+test('#4277: a sign-in over a half-registered Mac lets its key-only report already out finish before the retire', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // Half-registered: the key and id stay, the enrolment files go.
+  for (const f of ['address', 'tls.crt', 'tls.key']) fs.rmSync(nodePath.join(remote.stateDir(), f), { force: true });
+  assert.equal(remote.enrolled(), false, 'fixture: not enrolled');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  process.env.FAKE_TUNNEL_MODE = 'hung-macreq';
+  process.env.FAKE_DEVICE_HANG_MS = '700';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const asking = remote.macRequest('POST', remote.KEY_ONLY_ROUTE, { remote: {} }, { keyOnly: true });
+    await new Promise((r) => setTimeout(r, 100));
+    const reg = await remote.signinRegister('mine');
+    await asking;
+    const calls = recorded().map((c) => c[0]);
+    assert.ok(calls.includes('retire'), 'fixture: the half identity was never retired: ' + JSON.stringify(calls) + ' ' + JSON.stringify(reg));
+    assert.ok(calls.indexOf('macreq-done') >= 0 && calls.indexOf('macreq-done') < calls.indexOf('retire'), 'the register retired and wiped while a key-only report was still out: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
 test('#3827: Forget lets a hosted-assistant call already out finish before it retires', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
