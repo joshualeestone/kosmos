@@ -27,6 +27,16 @@ rooms only (a DM is already one agent), per the card.
 - An SVG arrow, not an emoji, so it takes the button's colour and matches the app's icons.
 - The keyboard focus ring stays the bar's 2px ink ring; only hover and focus border go gold.
 
+- Cursor: after the mention, unless the box was unchanged and the cursor is already in the person's
+  own words (a repeat Reply); with no mention it stays on the same letter.
+- Only a mention Reply WROTE is Reply's to remove (on x, or on a Reply to another post). A mention
+  the person typed is theirs and is never taken out.
+- A box holding only Reply's mention has no words yet: Enter says "Say something first.", and an
+  attach-only send puts the file names after the mention.
+- The screen reader hears that the mention is in the box and how to reply to the room instead.
+- Because the mention goes through the input event, it is saved as the room's draft like typing,
+  so a Reply left open counts as unsent words for the update auto-reload guard. That is on purpose:
+  the box is not empty.
 - The .pj-replying-h CSS rule stays: render-no-left-bars-3692 renders synthetic markup with it.
 
 ## Weakest premise

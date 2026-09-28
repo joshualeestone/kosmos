@@ -167,9 +167,14 @@ function chk(ok, label, extra) {
       const box = document.getElementById('pj-post');
       pjReplyStart('agent-4359');
       const first = { value: box.value, caret: box.selectionStart, hint: !!document.querySelector('#pj-reply .pj-replying-h') };
+      const said = document.getElementById('pj-room-say').textContent;
       box.value = '@roomer looks good'; box.setSelectionRange(box.value.length, box.value.length);
       pjReplyStart('agent-4359');   // Reply again: the mention is not stacked
       const again = box.value;
+      const againCaret = box.selectionStart;   // the cursor was in the person's words, so it stays there
+      box.setSelectionRange(2, 2);
+      pjReplyStart('agent-4359');   // ... but a cursor inside the mention goes to just after it
+      const insideCaret = box.selectionStart;
       box.setSelectionRange(box.value.length, box.value.length);
       pjReplyStart(PJ_REPLY_ORIGINAL_ID);   // then to your own post: the mention Reply put there is taken back out
       const own = box.value;
@@ -189,14 +194,53 @@ function chk(ok, label, extra) {
       const afterX = box.value;
       PJ_ROOM_POSTS.delete('agent-4359');
       box.value = '';
-      return { first, again, own, ownCaret, kept, stranger, afterX };
+      // A mention the person TYPED is theirs: Reply records none, so nothing later takes it back out.
+      delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT);
+      PJ_ROOM_POSTS.set('agent-4359', { id: 'agent-4359', from: 'roomer', text: 'Can you check the copy?' });
+      box.value = '@roomer hi'; box.setSelectionRange(10, 10);
+      pjReplyStart('agent-4359');
+      const typedRec = PJ_REPLY[PJ_CURRENT].mention;
+      pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+      const typedKept = box.value;
+      PJ_ROOM_POSTS.delete('agent-4359');
+      delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
-    chk(ment.again === '@roomer looks good', 'a second Reply to the same agent does not add the mention twice', JSON.stringify(ment.again));
+    chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
+    chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
+    chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
+    chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
     chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
     chk(ment.kept.value === 'half a thought' && ment.kept.caret === 14, 'Reply to your own post with a draft in the box moves neither the draft nor the cursor', JSON.stringify(ment.kept));
     chk(ment.stranger.value === 'draft' && ment.stranger.caret === 5, 'a post from someone not on the project gets no mention, and the cursor stays put', JSON.stringify(ment.stranger));
     chk(ment.afterX === '', 'x on a reply whose box holds only the mention empties the box', JSON.stringify(ment.afterX));
+    // The real click: make the second post read as roomer's (its row is on screen), hover it, click its Reply.
+    const secondId = await p.evaluate(() => {
+      const box = [...document.querySelectorAll('#pj-room .rxns[data-post]')].find((b) => /Unrelated second post/.test(b.closest('.msg').textContent));
+      const id = box && box.getAttribute('data-post');
+      const m = id && PJ_ROOM_POSTS.get(id);
+      if (!m) return null;
+      window.__was4359 = { from: m.from, operator: m.operator };
+      m.from = 'roomer'; m.operator = false;
+      return id;
+    });
+    chk(!!secondId, 'CONTROL: the second post is on screen to click');
+    if (secondId) {
+      const row = p.locator('#pj-room .msg').filter({ hasText: 'Unrelated second post' }).filter({ hasNot: p.locator('.msg-replyto, .vh') }).first();
+      await row.hover();
+      await row.locator('.rxn-reply').click();
+      const clicked = await p.evaluate(() => { const b = document.getElementById('pj-post'); return { value: b.value, caret: b.selectionStart, focused: document.activeElement === b }; });
+      chk(clicked.value === '@roomer ' && clicked.caret === 8 && clicked.focused, 'a real Reply click on an agent\'s post leaves "@roomer " in the focused box with the cursor after it', JSON.stringify(clicked));
+      // Enter with only the mention in the box: nothing is said yet, so nothing is sent.
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(300);
+      const bare = await p.evaluate(() => ({ msg: document.getElementById('pj-room-msg').textContent, value: document.getElementById('pj-post').value }));
+      chk(bare.msg === 'Say something first.' && bare.value === '@roomer ', 'Enter with only the mention sends nothing and says "Say something first."', JSON.stringify(bare));
+      await p.evaluate((id) => { const m = PJ_ROOM_POSTS.get(id); Object.assign(m, window.__was4359); document.getElementById('pj-room-msg').textContent = '';
+        document.querySelector('#pj-reply .pj-replying-x').click(); }, secondId);
+      chk(await p.evaluate(() => document.getElementById('pj-post').value) === '', 'x after that empties the box again');
+    }
     await firstRow.hover();
     await firstRow.locator('.rxn-reply').click();
     // Pressing x while the post is on its way does not pretend to cancel: the reply already left.

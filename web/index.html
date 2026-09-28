@@ -6312,6 +6312,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
+/* No longer drawn by the room (#4359 removed its "Add @name" hint); kept because render-no-left-bars-3692 renders markup with it. */
 .pj-replying-h { flex: 0 1 auto; min-width: 0; color: var(--k-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pj-replying-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-replying-x { font: inherit; font-size: 1rem; line-height: 1; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; padding: 0; min-width: 24px; min-height: 24px; border-radius: 4px; }
@@ -53096,7 +53097,9 @@ function pjReplyStart(postId) {
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
-  pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words);   // the strip itself is not a live region
+  const added = PJ_REPLY[PJ_CURRENT].mention;
+  pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words
+    + (added ? ' ' + added.trim() + ' is in the box; delete it to reply to the whole room.' : ''));   // the strip itself is not a live region
   const input = document.getElementById('pj-post');
   if (input) input.focus();
 }
@@ -53115,14 +53118,20 @@ function pjReplyMention(p, m, previous) {
   if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
   const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
   const ins = agent ? '@' + agent.key + ' ' : '';
-  if (ins && text.startsWith(ins)) { text = text.slice(ins.length); cut += ins.length; }   // already there by hand: not twice
-  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
+  /* The mention is Reply's to take back out later (on x, or on a Reply to another post) only if Reply
+     wrote it: now, or on an earlier Reply whose mention is still at the front. One the person typed
+     is theirs, and nothing here ever removes it. */
+  const typed = !!ins && text.startsWith(ins) && cut === 0;
+  if (ins && text.startsWith(ins)) { text = text.slice(ins.length); cut += ins.length; }   // already there: not twice
+  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins && !typed ? ins : null;
   const after = ins + text;
-  if (after === before) return;   // nothing to change: leave the draft and the caret exactly as they are
-  input.value = after;
-  // With a mention, the cursor goes right after it (the card). Without one, it stays where it was.
-  const at = ins ? ins.length : Math.max(0, caret - cut);
+  if (after !== before) input.value = after;
+  /* With a mention, the cursor goes right after it (the card), unless the box was unchanged and the
+     cursor is already past it, in the person's own words. Without a mention it stays on the same
+     letter it was on (a selected range collapses to its start). */
+  const at = ins ? (after === before && caret >= ins.length ? caret : ins.length) : Math.max(0, caret - cut);
   input.setSelectionRange(at, at);
+  if (after === before) return;   // nothing changed, so nothing to repaint
   // The same path typing takes, so the mention highlight and the box's height follow.
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -54047,7 +54056,10 @@ async function pjPostSend(attachment) {
   /* Files with no words go as their names (the card hides the duplicate).
      The text is read AFTER that, or an empty body goes out under a box that
      visibly holds the names. */
-  if (!input.value.trim() && pendingIds.length) input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
+  /* #4359: a box holding nothing but the mention Reply put there has no words in it yet. */
+  const replyMention = PJ_REPLY[PJ_CURRENT] && PJ_REPLY[PJ_CURRENT].mention;
+  const onlyMention = !!replyMention && input.value.trim() === replyMention.trim();
+  if ((!input.value.trim() || onlyMention) && pendingIds.length) input.value = (onlyMention ? replyMention : '') + attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
   const text = input.value;
   /* #2922: the attach-only fill above sets #pj-post.value directly with no input event, so repaint
      the live-mention mirror or it is left stale (blank) under the injected filenames while
@@ -54056,7 +54068,7 @@ async function pjPostSend(attachment) {
      guard keeps it to attach sends. Placed AFTER `text` is read so the fill stays adjacent to its
      capture (the room reads its text after the names are substituted in). */
   if (pendingIds.length) pjGrowComposer(input);
-  if (!text.trim()) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
+  if (!text.trim() || (onlyMention && !pendingIds.length)) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
   /* The flight can outlive the page state (a fan-out is seconds of tmux
      per recipient), so the sibling composer's discipline applies whole:
      the TAKEOFF project is captured, verdicts land only if the person is
