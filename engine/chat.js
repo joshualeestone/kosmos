@@ -2932,7 +2932,7 @@ const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
  * bounded by the fleet size. A cache would need invalidation on every reply
  * append, which is the complexity the room precedent deliberately does without.
  */
-function dmUnreadAll() {
+function dmSummaryAll() {
   const seen = dmSeenRead();
   if (seen === null) return null;
   let files;
@@ -2955,17 +2955,33 @@ function dmUnreadAll() {
     }
     const since = seen[agent] ? Date.parse(seen[agent]) : -Infinity;
     let n = 0;
+    let lastAt = null;
+    let lastAgentAt = null;
     for (const msg of thread.messages) {
+      const at = Date.parse(msg && msg.at);
+      if (Number.isFinite(at)) {
+        if (lastAt === null || at > lastAt) lastAt = at;
+        if (typeof msg.from === 'string' && msg.from && (lastAgentAt === null || at > lastAgentAt)) lastAgentAt = at;
+      }
       // A present string `from` is the agent's reply; an absent one is the
       // operator's own message and never counts (readThread's own contract).
       if (!msg || typeof msg.from !== 'string' || !msg.from) continue;
-      const at = Date.parse(msg.at);
       if (!Number.isFinite(at) || at <= since) continue;
       n += 1;
     }
-    out[agent] = n;
+    out[agent] = {
+      unread: n,
+      lastAt: lastAt === null ? null : new Date(lastAt).toISOString(),
+      lastAgentAt: lastAgentAt === null ? null : new Date(lastAgentAt).toISOString(),
+    };
   }
   return out;
+}
+
+function dmUnreadAll() {
+  const summary = dmSummaryAll();
+  if (summary === null) return null;
+  return Object.fromEntries(Object.entries(summary).map(([agent, row]) => [agent, row === null ? null : row.unread]));
 }
 
 /** Unread DM replies for one agent. null when unknown (see dmUnreadAll). */
@@ -3169,7 +3185,7 @@ module.exports = {
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
-  dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,
+  dmSeenRead, markDmSeen, dmSummaryAll, dmUnreadAll, dmUnread, DM_SEEN,
   setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
