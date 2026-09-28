@@ -19476,38 +19476,66 @@ if (typeof document !== 'undefined' && document.addEventListener) {
     UPDATE_TYPED.add(e.target);
   }, true);   // (contenteditable fires input too)
 }
+/* #4347: the "nothing to lose" half of updateSafeReload, on its own so the Mac window can ask it before it
+   restarts itself onto a new version (kosmosSafeToRestart, below). True only when a reload or restart right
+   now would drop nothing the person has on the way or has typed. */
+function updateNothingToLose() {
+  const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
+    typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
+    typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+    /* Round 12: an agent being created or started, or a restore running: a reload would drop the
+       answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
+       board on load, so those are not held for.) */
+    typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
+    typeof RST_BUSY !== 'undefined' && RST_BUSY,
+    // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
+    typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
+    typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
+  if (busy.some(Boolean)) return false;
+  const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
+  if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
+    typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
+  for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
+  /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
+     words when closed, #766), so any typed box with words waits for the person's Reload. */
+  if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
+  const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
+  if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
+  if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+  return true;
+}
 function updateSafeReload(servedVersion) {
   try {
     if (!document.hidden || !servedVersion) return false;
     /* The key is written here, not as a page const: tests lift this function alone (round 12). */
     if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
-    const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
-      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
-      typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
-      /* Round 12: an agent being created or started, or a restore running: a reload would drop the
-         answer the person is waiting for. (A Settings switch's save is a moment and repaints from the
-         board on load, so those are not held for.) */
-      typeof CREATING !== 'undefined' && CREATING, typeof START_FLIGHT !== 'undefined' && !!START_FLIGHT,
-      typeof RST_BUSY !== 'undefined' && RST_BUSY,
-      // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
-      typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
-      typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
-    if (busy.some(Boolean)) return false;
-    const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
-    if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
-      typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
-    for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
-    /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
-       words when closed, #766), so any typed box with words waits for the person's Reload. */
-    if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
-    const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
-    if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
-    if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
+    if (!updateNothingToLose()) return false;
     sessionStorage.setItem('kosmos-auto-reloaded', servedVersion);
     window.location.reload();
     return true;
   } catch { return false; }
 }
+/* #4347: asked by the Mac window (native-app/main.swift) before it restarts itself after an update.
+   'hold': nothing would be lost, but not now (What's New is deciding or open, or the person did something
+   in the last 30 s); the window waits and never asks the person about it. */
+const RESTART_QUIET_MS = 30 * 1000;
+if (typeof window !== 'undefined') window.kosmosLastActivity = 0;
+if (typeof document !== 'undefined' && document.addEventListener) {
+  for (const t of ['pointerdown', 'keydown', 'wheel']) {
+    document.addEventListener(t, () => { window.kosmosLastActivity = Date.now(); }, { capture: true, passive: true });
+  }
+}
+/* whatsNewCheck waits at most an hour for the boot cover; a check pending longer than that (a fetch that never
+   answered) no longer holds the restart. */
+const RESTART_WN_HOLD_MS = 65 * 60 * 1000;
+function restartHold() {
+  if (window.kosmosWhatsNewPending === true && Date.now() - (window.kosmosWhatsNewSince || 0) < RESTART_WN_HOLD_MS) return true;
+  if (document.getElementById('whatsnew')) return true;   // removed on close, so present means open
+  return Date.now() - (window.kosmosLastActivity || 0) < RESTART_QUIET_MS;
+}
+if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
+  try { return restartHold() ? 'hold' : updateNothingToLose(); } catch { return 'unknown'; }
+};
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -34611,6 +34639,9 @@ function wnNewer(a, b) {
   return false;
 }
 async function whatsNewCheck() {
+  /* #4347: while this is deciding (it can wait an hour for the boot cover), the Mac window must not restart,
+     or the old page records the version as seen and the new window never shows What's New. */
+  if (typeof window !== 'undefined') { window.kosmosWhatsNewPending = true; window.kosmosWhatsNewSince = Date.now(); }
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;
@@ -34654,7 +34685,9 @@ async function whatsNewCheck() {
     if (typeof SERVED_VERSION !== 'undefined' && SERVED_VERSION && SERVED_VERSION !== got.current) return;
     record();
     wnOpen(got.current, got.highlights);
-  } catch { /* news can wait */ }
+  } catch { /* news can wait */ } finally {
+    if (typeof window !== 'undefined') window.kosmosWhatsNewPending = false;
+  }
 }
 whatsNewCheck();
 communityNoticeCheck();   // #4288 part B: each of the two windows waits while the other is up
