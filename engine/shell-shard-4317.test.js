@@ -39,9 +39,25 @@ test('every test:shell command is in exactly one shard, for the shard count CI u
 test('a command\'s shard depends on the command alone, not on its place in the list', () => {
   const all = sh.commands();
   const reversed = [...all].reverse();
-  for (const c of all.slice(0, 20)) assert.equal(sh.shardOf(c, 2), sh.shardOf(c, 2));
+  assert.equal(sh.shardOf('bash tools/test-run-tests-codexhome-2858.sh', 2), 1, 'a fixed command keeps its fixed shard');
   assert.deepEqual(sh.select(reversed, 1, 2).sort(), sh.select(all, 1, 2).sort());
   assert.deepEqual(sh.commands({ scripts: { 'test:shell': 'bash a.sh && sh -n b.sh' } }), ['bash a.sh', 'sh -n b.sh']);
+});
+
+test('every command is one plain script call whose script exists, so the split on && cannot mis-cut one', () => {
+  for (const c of sh.commands()) {
+    const m = c.match(/^(bash|sh)(?: -n)? (\S+)$|^node (tools\/\S+\.js)(?: \S+)?$/);
+    assert.ok(m, `not a plain script call (a quote, a ; or a nested && would be mis-split): ${c}`);
+    const file = m[2] || m[3];
+    assert.ok(fs.existsSync(path.join(ROOT, file)), `test:shell names ${file}, which does not exist`);
+  }
+});
+
+test('a shard runs its commands in order and stops at the first failure, with its exit status', () => {
+  const list = ['exit 3', 'exit 5'];
+  assert.equal(sh.runShard(list, 1, 1, 'ignore'), 3, 'the first failure is the result, and nothing after it runs');
+  assert.equal(sh.runShard(['true', 'true'], 1, 1, 'ignore'), 0);
+  assert.equal(sh.runShard(['exit 0'].concat(['exit 7']), 1, 1, 'ignore'), 7);
 });
 
 test('a bad shard is refused, not read as a subset', () => {
@@ -68,7 +84,7 @@ test('test.yml runs the node part once and every shell shard once, and `test` ne
   const agg = wf.jobs.test;
   assert.ok(agg, 'the check named test is gone');
   assert.equal(agg.needs, 'suite');
-  assert.equal(agg.if, 'always()', 'a failed shard must still produce a red test check, not a skipped one');
+  assert.equal(agg.if, '${{ !cancelled() }}', 'a failed shard must still give a red test check, and a cancel must read as a cancel');
   assert.match(agg.steps.map((s) => s.run).join('\n'), /needs\.suite\.result \}\}" = success/);
 });
 
@@ -90,4 +106,7 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
   assert.match(src, /else\n\s+yarn -s test:shell\n\s+fi/);
+  assert.match(src, /if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]; then\n\s+node "\$REPO\/tools\/shell-shard\.js" run "\$\{KOSMOS_SHELL_SHARD%\/\*\}" "\$\{KOSMOS_SHELL_SHARD#\*\/\}"/, 'the shard arm must RUN its shard');
+  assert.match(src, /grep -Eq '\^\[0-9\]\+\/\[0-9\]\+\$'/, 'a shard that is not i/n is refused');
+  assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
 });

@@ -30,7 +30,8 @@
   - Measured balance at 2 shards: 464 s and 557 s of shell time (a greedy split would be 511/511,
     but it needs the timings kept up to date).
 - tools/run-tests.sh: KOSMOS_TEST_PART = all (the default, what `yarn test` runs, unchanged), node or
-  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. An unknown part exits 2 before running anything.
+  shell; KOSMOS_SHELL_SHARD = i/n runs one shard. An unknown part, a shard that is not i/n, or a
+  shard outside a shell-only run exits 2 before running anything.
   Every part keeps the coverage, launchd, temp-root and leak guards.
 - .github/workflows/test.yml:
   - a `suite` job over a matrix (node; shell 1/2; shell 2/2), fail-fast off, each with
@@ -38,12 +39,17 @@
   - a "how close to the limit" step (if: always()) that writes the job's wall time against
     SUITE_TIMEOUT_MIN to the job summary and raises a ::warning:: at 70% or more; the clock starts
     in the job's first step;
-  - a `test` job that needs `suite` (if: always()) and is green only when every suite job was. So
-    the check named `test` that people and tools read is still there.
+  - a `test` job that needs `suite` (if: !cancelled(), so a superseded run still reads as
+    cancelled) and is green only when every suite job was. So the check named `test` that people and
+    tools read is still there.
 - engine/shell-shard-4317.test.js:
   - the partition (at SHELL_SHARDS and at 2, 3 and 4 shards, disjoint and complete, no empty
     shard);
   - order-independence, and the refusals;
+  - every command is one plain script call whose script exists (so a quote, a ; or a nested && fails
+    the test rather than being mis-cut);
+  - a shard runs in order and stops at the first failure with its exit status (runShard);
+  - run-tests.sh's shard arm RUNS the shard, and refuses a bad shard;
   - that the matrix runs the node part once and shards 1..SHELL_SHARDS once each;
   - that SUITE_TIMEOUT_MIN equals timeout-minutes, and the warning's 70% and always();
   - run-tests.sh's default of all.
@@ -73,6 +79,11 @@
   - Lowering timeout-minutes: the card's bar is a share of the limit; 45 keeps the hang-guard.
 
 ## Weakest part
+- The timings are one run of this branch (36416362440), through a temporary push trigger, not yet
+  main. The first main runs after merge are the confirmation, and each job's summary line reports
+  its share.
+- A run now holds three macos-latest runners instead of one (#3499's contention was about those).
+  Queue time is not part of timeout-minutes, so it cannot cancel a job; it can delay the result.
 - A hash does not balance by time. A new slow shell test could land on the larger shard, and the 70%
   warning is what catches that before it cancels.
 - Running each shell command with sh -c rather than inside yarn's single `sh -c` of the whole chain.

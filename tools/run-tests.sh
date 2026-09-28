@@ -286,6 +286,14 @@ case "$KOSMOS_TEST_PART" in
   all|node|shell) ;;
   *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
 esac
+# A shard is only ever part of a shell-only run, and only in the form i/n. Anything else refuses:
+# a stray value would otherwise turn `yarn test` into the node suite plus one shard, green.
+if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+  if [ "$KOSMOS_TEST_PART" != shell ] || ! printf '%s' "$KOSMOS_SHELL_SHARD" | grep -Eq '^[0-9]+/[0-9]+$'; then
+    echo "run-tests: KOSMOS_SHELL_SHARD must be i/n and only with KOSMOS_TEST_PART=shell (got part '$KOSMOS_TEST_PART', shard '$KOSMOS_SHELL_SHARD')" >&2
+    exit 2
+  fi
+fi
 # ⚠️ The node --test line stays FLUSH LEFT: three guards find the suite by `^node --test`
 # (#1934's count-and-run pin, #3605's preload pin, #4273's guard-after-suite order).
 NODE_STATUS=0
