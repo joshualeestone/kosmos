@@ -27,7 +27,11 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
   The route resolves the sender by pane (a live snapshot) and launch token; a pane seconds old should resolve like any
   hook's, but a {recorded:false} would be discarded silently. To be checked live after release (needs-release).
 - Timing: the seed is sent synchronously as the pane starts and agy takes seconds to boot, but it is not guaranteed
-  to land before a turn a launch prompt starts; then the next Stop replaces it.
+  to land before a turn a launch prompt starts. If it lands mid-turn the card reads idle until agy's next hook:
+  PreInvocation fires before each model call, so normally within one model call, at worst until that turn's Stop.
+- Named worlds: the signed-in read (agystatus.lastKnown, via store.ROOT) relies on the supervisor exporting the
+  world's AGENT_WORKFORCE_* roots, which it does when KOSMOS_WORLD is set; if that export fails it reads the default
+  store, the same fallback the launch-token mint already accepts (review 2, deferred as a known limit).
 - "Signed in" is the board's LAST check, not a live one; a sign-out since then would seed an idle for an agy on its
   sign-in screen until the person signs in and a turn runs.
 

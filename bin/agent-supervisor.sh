@@ -807,10 +807,9 @@ if [ -z "$adopt" ]; then
     #     a hooks.json left alone, the person's switch off) a seeded idle would stay on the card while agy works;
     #   - the board's last Antigravity check found it signed in (agystatus.lastKnown): a signed-out agy sits on
     #     Google's sign-in in this pane, waiting on the person, which is not idle.
-    # Sent as the new pane (its pane id) with only the env the bridge reads (KOSMOS_*, AGENT_WORKFORCE_*, HOME: the
-    # launch token, port, world and store root), never the API keys the pane was also given. It is not guaranteed to
-    # land before agy's first hook: if a turn has already begun, the next Stop replaces this idle. `auto`, so it never
-    # erases a deliberate blocked. Best-effort and bounded by the bridge's own timeout.
+    # Sent as the new pane (its pane id). Of the pane's own env list, only the KOSMOS_*, AGENT_WORKFORCE_* and HOME
+    # entries are added (the launch token, port, world and store root the bridge reads). `auto`, so it never erases a
+    # deliberate blocked. Best-effort and bounded by the bridge's own timeout.
     if [ -n "${NODE_BIN:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] && [ "${_AGY_HOOKED:-}" = hooked ]; then
       _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
       _AGY_PANE="$("$TMUX_BIN" display-message -p -t "$SESSION" '#{pane_id}' 2>/dev/null || true)"
