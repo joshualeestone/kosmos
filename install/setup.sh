@@ -3128,6 +3128,12 @@ build_app_bundle() {
        fire this ahead of time; the grant is now acquired at runtime, but the
        shared string still covers both uses.) Do NOT re-narrow it to Open-Terminal
        only -- the tmux runtime automation still needs it. -->
+  <!-- #4409: the mic button in the composers. Each string is the ONE plain line macOS shows in its
+       prompt. Both are REQUIRED before the app may ask: with either missing, macOS kills the app at the
+       request (the native bridge checks for both and refuses instead). The entitlement that lets the
+       hardened-runtime binary reach the mic is on its signature (native-app/kosmos-app.entitlements). -->
+  <key>NSMicrophoneUsageDescription</key><string>Kosmos listens only while the microphone button is on, and turns your words into text on this Mac. No audio is kept or sent anywhere.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Kosmos turns what you say into text on this Mac, only while the microphone button is on. No audio is kept or sent anywhere.</string>
   <key>NSAppleEventsUsageDescription</key><string>Kosmos uses this so you can allow tmux (the tool that runs your agents) in your Accessibility settings, and to open a Terminal window with your agent's session when you choose Open Terminal.</string>
 </dict></plist>
 PLIST

@@ -40,6 +40,8 @@ import Cocoa
 import WebKit
 import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTrustedWithOptions
 import UserNotifications    // #3996: whether the person turned Kosmos's badges off
+import Speech               // #4409: dictation, on-device only
+import AVFoundation         // #4409: the microphone, while the mic button is on
 
 // MARK: - Install-time configuration
 //
@@ -1015,6 +1017,188 @@ final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+/* #4409: talking to an agent. The page's mic button asks this bridge to listen; the words come back
+   into the composer as text, and nothing is sent. ON-DEVICE ONLY, by construction:
+   `requiresOnDeviceRecognition = true`, and a language with no on-device model is REFUSED rather than
+   handed to Apple's servers. Audio goes from the input tap straight to the recognizer and is never
+   written anywhere.
+
+   Why not the page's own `webkitSpeechRecognition`: it exists in our web view (measured on #4409), but the
+   host app still needs the same two permissions and the same entitlement, and the page cannot ask for
+   on-device recognition. Same cost, weaker promise.
+
+   🛑 THE APP NEEDS THREE THINGS OUTSIDE THIS FILE, and missing any one fails SILENTLY:
+     - `com.apple.security.device.audio-input` on the hardened-runtime signature
+       (native-app/kosmos-app.entitlements, applied in tools/build-kosmos-bundle.sh);
+     - `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription` in the Info.plist that
+       install/setup.sh writes. With a usage string missing, macOS KILLS the process at the request, so
+       `start` checks for both first and refuses with `not-set-up` instead of crashing.
+
+   Same guard as the badge: only the board's own page, in the main frame, can start the mic. */
+final class VoiceBridge: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    weak var webView: WKWebView?
+    private var engine: AVAudioEngine?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    /// Which start the callbacks belong to. A callback from an older start is dropped, so a stop
+    /// followed by a quick start can never be finished by the first one's late answer.
+    private var session = 0
+    private var limit: DispatchWorkItem?
+    init(_ owner: AppDelegate) { self.owner = owner }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
+        guard let body = message.body as? [String: Any], let op = body["op"] as? String else { return }
+        switch op {
+        case "start": start()
+        case "stop": stop()
+        case "cancel": cancel()
+        default: return
+        }
+    }
+
+    /// The first language the person prefers that has an ON-DEVICE model, else nil. PURE, so
+    /// --kosmos-app-voice-selftest drives it. `en-US` is the last resort only because it is the one
+    /// on-device model every Mac we measured carries; it is still asked, never assumed.
+    static func pickLocale(preferred: [String], onDevice: (String) -> Bool) -> String? {
+        var seen = Set<String>()
+        for raw in preferred + ["en-US"] {
+            let id = raw.replacingOccurrences(of: "_", with: "-")
+            if id.isEmpty || !seen.insert(id).inserted { continue }
+            if onDevice(id) { return id }
+        }
+        return nil
+    }
+
+    /// What the page is told when listening ends on an error. PURE for the selftest. 1110 is the
+    /// recognizer's "no speech detected", which is an ordinary silence, not a fault.
+    static func endReason(domain: String, code: Int) -> String {
+        if domain == "kAFAssistantErrorDomain" && code == 1110 { return "nothing-heard" }
+        if domain == "kAFAssistantErrorDomain" && (code == 203 || code == 216 || code == 301) { return "" }   // cancelled or stopped by us
+        return "recognizer"
+    }
+
+    static func usageStringsPresent(_ info: [String: Any]?) -> Bool {
+        guard let info else { return false }
+        return (info["NSMicrophoneUsageDescription"] as? String)?.isEmpty == false
+            && (info["NSSpeechRecognitionUsageDescription"] as? String)?.isEmpty == false
+    }
+
+    private func emit(_ event: [String: Any]) {
+        guard let web = webView,
+              let data = try? JSONSerialization.data(withJSONObject: event),
+              let json = String(data: data, encoding: .utf8) else { return }
+        web.evaluateJavaScript("window.kosmosVoiceEvent && window.kosmosVoiceEvent(" + json + ")", completionHandler: nil)
+    }
+
+    private func refuse(_ reason: String) {
+        logLine("voice: not listening (" + reason + ")")
+        emit(["kind": "error", "reason": reason])
+        emit(["kind": "stopped"])
+    }
+
+    private func start() {
+        stopAudio(); task?.cancel(); task = nil; request = nil
+        session += 1
+        let mine = session
+        guard Self.usageStringsPresent(Bundle.main.infoDictionary) else { refuse("not-set-up"); return }
+        SFSpeechRecognizer.requestAuthorization { status in
+            DispatchQueue.main.async {
+                guard mine == self.session else { return }
+                guard status == .authorized else { self.refuse(status == .notDetermined ? "speech-unanswered" : "speech-denied"); return }
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    DispatchQueue.main.async {
+                        guard mine == self.session else { return }
+                        guard granted else { self.refuse("mic-denied"); return }
+                        self.begin(mine)
+                    }
+                }
+            }
+        }
+    }
+
+    private func begin(_ mine: Int) {
+        let preferred = Locale.preferredLanguages + [Locale.current.identifier]
+        guard let id = Self.pickLocale(preferred: preferred, onDevice: { SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true }),
+              let recognizer = SFSpeechRecognizer(locale: Locale(identifier: id)), recognizer.isAvailable else {
+            refuse("no-on-device"); return
+        }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.requiresOnDeviceRecognition = true   // 🛑 the whole promise: never the network
+        req.shouldReportPartialResults = true
+        req.addsPunctuation = true
+        let eng = AVAudioEngine()
+        let input = eng.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else { refuse("no-mic"); return }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
+        eng.prepare()
+        do { try eng.start() } catch {
+            input.removeTap(onBus: 0)
+            refuse("no-mic"); return
+        }
+        engine = eng
+        request = req
+        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal == true
+            let ns = error.map { $0 as NSError }
+            DispatchQueue.main.async {
+                guard let self, mine == self.session else { return }
+                if let text { self.emit(["kind": isFinal ? "final" : "partial", "text": text]) }
+                if ns != nil || isFinal { self.finish(ns) }
+            }
+        }
+        logLine("voice: listening, on-device, " + id)
+        emit(["kind": "listening", "lang": id])
+        // A mic left on by mistake does not listen forever.
+        let cap = DispatchWorkItem { [weak self] in if mine == self?.session { self?.stop() } }
+        limit = cap
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300, execute: cap)
+    }
+
+    /// Stop listening and let the recognizer deliver what it heard (a final result follows).
+    private func stop() {
+        guard let req = request else { session += 1; stopAudio(); emit(["kind": "stopped"]); return }
+        stopAudio()
+        req.endAudio()
+    }
+
+    /// Stop and throw away anything still coming (the person pressed Send).
+    private func cancel() {
+        session += 1
+        stopAudio()
+        task?.cancel(); task = nil; request = nil
+        emit(["kind": "stopped"])
+    }
+
+    private func finish(_ error: NSError?) {
+        stopAudio()
+        task = nil; request = nil
+        session += 1
+        if let error {
+            let reason = Self.endReason(domain: error.domain, code: error.code)
+            if !reason.isEmpty {
+                logLine("voice: ended, " + error.domain + " " + String(error.code))
+                emit(["kind": "error", "reason": reason])
+            }
+        }
+        emit(["kind": "stopped"])
+    }
+
+    private func stopAudio() {
+        limit?.cancel(); limit = nil
+        if let eng = engine {
+            eng.stop()
+            eng.inputNode.removeTap(onBus: 0)
+        }
+        engine = nil
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
@@ -1685,7 +1869,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let config = WKWebViewConfiguration()
         // #3996: the page hands the app its waiting count each time it polls the board.
         config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
+        // #4409: the mic button's bridge. Its presence is how the page knows it may draw the button.
+        let voice = VoiceBridge(delegate)
+        config.userContentController.add(voice, name: "kosmosVoice")
         let web = WKWebView(frame: frame, configuration: config)
+        voice.webView = web
         web.navigationDelegate = delegate
         // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
         // On macOS a WKWebView does not open a file picker itself: it ASKS the
@@ -4334,6 +4522,37 @@ if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
     }
     if bad > 0 { print("\nbadge-check: \(bad) row(s) wrong"); exit(1) }
     print("\nbadge-check: all good (\(ran) rows)")
+    exit(0)
+}
+
+/* #4409: the dictation bridge's decisions that need no microphone and no permission: which language it
+   listens in (on-device only, never a network fallback), what an ending is called, and the refusal that
+   stands in for a crash when the bundle lacks a usage string. */
+if CommandLine.arguments.contains("--kosmos-app-voice-selftest") {
+    var bad = 0
+    var ran = 0
+    func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
+    let here: Set<String> = ["en-US", "en-GB"]
+    let has = { (id: String) in here.contains(id) }
+    row(VoiceBridge.pickLocale(preferred: ["en-GB", "en-US"], onDevice: has) == "en-GB", "the person's first language, when it has an on-device model")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR", "en-GB"], onDevice: has) == "en-GB", "a language with no on-device model is skipped, not sent to a server")
+    row(VoiceBridge.pickLocale(preferred: ["en_GB"], onDevice: has) == "en-GB", "Locale.current's en_GB spelling is the same language")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR"], onDevice: has) == "en-US", "en-US is the last resort")
+    row(VoiceBridge.pickLocale(preferred: ["fr-FR"], onDevice: { _ in false }) == nil, "NO ON-DEVICE MODEL AT ALL REFUSES: nil, never a network recognizer")
+    row(VoiceBridge.pickLocale(preferred: [], onDevice: has) == "en-US", "no preference at all still asks for en-US")
+    row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 1110) == "nothing-heard", "silence is not a fault")
+    row(VoiceBridge.endReason(domain: "kAFAssistantErrorDomain", code: 216) == "", "a stop we asked for says nothing")
+    row(VoiceBridge.endReason(domain: "NSOSStatusErrorDomain", code: -1) == "recognizer", "anything else is a recognizer error")
+    let both: [String: Any] = ["NSMicrophoneUsageDescription": "x", "NSSpeechRecognitionUsageDescription": "y"]
+    row(VoiceBridge.usageStringsPresent(both), "both usage strings present")
+    row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "x"]), "A MISSING SPEECH STRING REFUSES (macOS would kill the app at the request)")
+    row(!VoiceBridge.usageStringsPresent(["NSSpeechRecognitionUsageDescription": "y"]), "a missing mic string refuses")
+    row(!VoiceBridge.usageStringsPresent(["NSMicrophoneUsageDescription": "", "NSSpeechRecognitionUsageDescription": "y"]), "an empty string is missing")
+    row(!VoiceBridge.usageStringsPresent(nil), "no Info.plist at all (an unbundled binary) refuses")
+    let expected = 14
+    if ran != expected { print("\nvoice-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
+    if bad > 0 { print("\nvoice-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nvoice-check: all good (\(ran) rows)")
     exit(0)
 }
 

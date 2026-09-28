@@ -6441,7 +6441,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar */
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -6462,7 +6462,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -6868,6 +6868,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
    full strength. Same technique as the `.pmark.dim svg` precedent below. */
 .emojibtn-glyph { filter: grayscale(1) opacity(.6); }
+/* #4409: the mic in the composers, drawn only where on-device dictation exists (the Mac app sets
+   html.has-voice). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
+   aria-pressed says so to a screen reader. */
+.micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
+html.has-voice .micbtn { display: grid; }
+.micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
+.micbtn.asking { opacity: .6; }
+@media (prefers-reduced-motion: no-preference) { .micbtn[aria-pressed="true"] svg { animation: micpulse 1.2s ease-in-out infinite; } }
+@keyframes micpulse { 50% { opacity: .45; } }
+.asp-in .micbtn { width: 28px; height: 28px; background: none; color: var(--k-ink-2); }
+.asp-in .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
+/* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
+.rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
+html.has-speak .rxn-speak { display: inline-flex; }
+.rxn-speak:hover, .rxn-speak:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-speak:focus-visible, .asp-speak:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.rxn-speak[aria-pressed="true"], .asp-speak[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-bright); }
+.asp-speak { display: none; float: right; margin: -2px -4px 0 6px; width: 24px; height: 24px; place-items: center; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--k-ink-2); cursor: pointer; }
+html.has-speak .asp-speak { display: grid; }
+.asp-speak:hover { color: var(--k-ink); border-color: var(--k-rule); }
 .emojipanel { position: absolute; right: 12px; bottom: calc(100% - 6px); z-index: 5;
   width: 18rem; max-height: 15rem; overflow-y: auto;
   background: var(--k-surface); border: 0.5px solid var(--separator); border-radius: 10px;
@@ -10816,6 +10839,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
+      <!-- #4409: the mic. Drawn only in the Mac app, where the on-device dictation bridge exists (html.has-voice). -->
+      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
       <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
@@ -14437,6 +14462,7 @@ window.kosmosMeasureScrollbarWidth();
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
+                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
@@ -31563,8 +31589,8 @@ function dmRow(m, name, replyAdjacent) {
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
-      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
-        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '" data-speak>' + rxnsInner(m.reactions,
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
@@ -54404,7 +54430,7 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
    (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
    panel already uses, opened beside whichever post's smiley was clicked. */
-function rxnsInner(list, withReply) {
+function rxnsInner(list, withReply, withSpeak) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -54430,23 +54456,235 @@ function rxnsInner(list, withReply) {
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
     + 'Reply</button>' : '';
+  /* #4409: read an agent's message aloud, last in the same bar. Drawn for agents' messages only, and shown
+     only where the page can speak (html.has-speak). */
+  const speak = withSpeak ? '<button class="rxn-speak" type="button" aria-label="Read this message aloud" aria-pressed="false" title="Read aloud">'
+    + '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>' : '';
   return pills
     + '<span class="rxn-quick">' + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
-    + reply
+    + reply + speak
     + '</span>';
 }
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
-  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true) + '</div>';
+  const agent = !!m && m.operator !== true;   // #4409: an agent's post can be read aloud; the person's own cannot
+  return '<div class="rxns" data-post="' + esc(id) + '"' + (agent ? ' data-speak' : '') + '>' + rxnsInner(m && m.reactions, true, agent) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'));   // a room row and a DM row (#4256) keep their Reply
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'), box.hasAttribute('data-speak'));   // #4409: and its read-aloud   // a room row and a DM row (#4256) keep their Reply
 }
+
+/* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
+   Josh, 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak
+   to them through Kosmos". Built-in engines only, no paid service, no audio kept.
+
+   TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
+   `kosmosVoice` bridge. The mic is drawn only where that bridge exists. 🛑 NOT the page's own
+   webkitSpeechRecognition as a fallback in a browser: in Chrome it sends the audio to Google, which is the
+   one thing this feature promises not to do. The words land in the box at the caret for the person to
+   read and send; nothing is sent by talking.
+
+   HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
+   on-device voice is used; a page with none says so rather than using a network voice. */
+const VOICE = { btn: null, box: null, before: '', after: '' };
+const VOICE_SAYS = {
+  'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
+  'speech-denied': 'Kosmos is not allowed to use speech recognition. You can turn it on in System Settings, Privacy & Security, Speech Recognition.',
+  'speech-unanswered': 'Speech recognition was not allowed, so nothing was heard.',
+  'no-on-device': 'This Mac has no on-device speech model for your language, and Kosmos never sends your voice off this Mac.',
+  'no-mic': 'No microphone was found.',
+  'not-set-up': 'This copy of Kosmos is not set up for the microphone yet. Updating Kosmos fixes it.',
+  'nothing-heard': 'Nothing was heard.',
+  'recognizer': 'Listening stopped because of an error. Try again.',
+};
+function voiceBridge() {
+  try { return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice) || null; } catch { return null; }
+}
+/* Where the heard words go: between what was before the caret and what was after it, with one space on
+   each side where the neighbours need it. PURE, for the node suite. */
+function voiceSplice(before, heard, after, max) {
+  const b = String(before || ''), a = String(after || ''), h = String(heard || '').trim();
+  if (!h) return { text: b + a, caret: b.length };
+  const lead = b && !/\s$/.test(b) ? ' ' : '';
+  const tail = a && !/^\s/.test(a) ? ' ' : '';
+  let text = b + lead + h + tail + a;
+  let caret = b.length + lead.length + h.length;
+  if (max > 0 && text.length > max) { text = text.slice(0, max); caret = Math.min(caret, max); }   // the box's own cap still holds
+  return { text, caret };
+}
+function voicePaint(btn, state) {
+  if (!btn) return;
+  btn.classList.toggle('asking', state === 'asking');
+  btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+  const label = state === 'off' ? 'Talk instead of typing' : 'Stop listening';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+function voiceSay(btn, line) {
+  const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
+  if (el) el.textContent = line;
+}
+function voiceToggle(btn) {
+  const h = voiceBridge();
+  if (!h || !btn) return;
+  if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (VOICE.btn) voiceCancel();
+  const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+  if (!box || box.disabled) return;
+  const v = box.value;
+  const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
+  const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1) });
+  voiceSay(btn, '');
+  voicePaint(btn, 'asking');
+  h.postMessage({ op: 'start' });
+}
+/* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
+function voiceCancel() {
+  if (!VOICE.btn) return;
+  const btn = VOICE.btn;
+  VOICE.btn = null; VOICE.box = null;
+  voicePaint(btn, 'off');
+  const h = voiceBridge();
+  if (h) h.postMessage({ op: 'cancel' });
+}
+window.kosmosVoiceEvent = function (ev) {
+  if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
+  const btn = VOICE.btn;
+  if (ev.kind === 'listening') { voicePaint(btn, 'on'); return; }
+  if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
+    const box = VOICE.box;
+    const out = voiceSplice(VOICE.before, ev.text, VOICE.after, box.maxLength);
+    box.value = out.text;
+    try { box.setSelectionRange(out.caret, out.caret); } catch { /* not focused */ }
+    box.dispatchEvent(new Event('input', { bubbles: true }));   // the box grows, the counter and the @ mirror follow
+    return;
+  }
+  if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
+  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; voicePaint(btn, 'off'); }
+};
+document.addEventListener('click', (e) => {
+  const mic = e.target.closest && e.target.closest('.micbtn');
+  if (mic) { e.preventDefault(); voiceToggle(mic); return; }
+  /* Send while listening: what is in the box is what goes, and nothing arrives after it. */
+  if (VOICE.btn && e.target.closest && e.target.closest('#d-send, #pj-post-go, #asp-send')) voiceCancel();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (!VOICE.btn || e.target !== VOICE.box) return;
+  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) h.postMessage({ op: 'stop' }); return; }
+  if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
+  voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
+}, true);
+window.addEventListener('pagehide', () => voiceCancel());
+window.addEventListener('hashchange', () => voiceCancel());
+window.addEventListener('popstate', () => voiceCancel());
+try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
+
+/* ---- read aloud ---- */
+const SPEAK = { btn: null };
+function speakCan() {
+  try { return !!(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function'); } catch { return false; }
+}
+try { if (speakCan()) document.documentElement.classList.add('has-speak'); } catch { /* as above */ }
+/* What a message says, as words to hear. PURE, for the node suite. A code block is announced, not
+   spelled out; an address is "link"; markdown marks are not read as punctuation. */
+function speechTidy(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?(```|$)/g, ' Code block. ')
+    .replace(/\[([^\]]+)\]\((?:[^)\s]+)\)/g, '$1')
+    .replace(/\bhttps?:\/\/\S*[^\s.,;:!?)'"]/gi, 'link')   // the sentence's own full stop stays
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/(\*\*|__|~~)/g, '')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+/* Long text in pieces at sentence ends: one very long utterance can stall WebKit's synthesizer. PURE. */
+function speechChunks(text, max) {
+  const cap = max > 0 ? max : 220;
+  const out = [];
+  let cur = '';
+  for (const part of (String(text || '').match(/[^.!?]+(?:[.!?]+|$)/g) || []).map((x) => x.trim()).filter(Boolean)) {   // no lookbehind: a parse error here would take the whole page down on an older WebKit
+    for (let p = part; p;) {
+      const piece = p.length > cap ? (p.slice(0, cap).replace(/\s+\S*$/, '') || p.slice(0, cap)) : p;
+      p = p.slice(piece.length).trim();
+      if (cur && (cur + ' ' + piece).length > cap) { out.push(cur); cur = piece; } else cur = cur ? cur + ' ' + piece : piece;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+/* The words of a rendered message: its body without the name, the time, the reply header, cards or buttons. */
+function speechTextOfRow(row) {
+  const src = row && (row.querySelector('.msg-bd') || row);
+  if (!src) return '';
+  const c = src.cloneNode(true);
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
+  c.querySelectorAll('pre').forEach((n) => n.replaceWith(document.createTextNode(' Code block. ')));
+  return speechTidy(c.textContent);
+}
+function speakVoice() {
+  const all = (window.speechSynthesis.getVoices() || []).filter((v) => v.localService);   // on-device only
+  const lang = String(navigator.language || 'en-US').toLowerCase();
+  return all.find((v) => v.default && v.lang.toLowerCase() === lang)
+    || all.find((v) => v.lang.toLowerCase() === lang)
+    || all.find((v) => v.lang.toLowerCase().slice(0, 2) === lang.slice(0, 2))
+    || null;
+}
+function speakPaint(btn, on) {
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.setAttribute('aria-label', on ? 'Stop reading aloud' : 'Read this message aloud');
+  btn.title = on ? 'Stop reading' : 'Read aloud';
+}
+function speakStop() {
+  const was = SPEAK.btn;
+  SPEAK.btn = null;
+  speakPaint(was, false);
+  try { window.speechSynthesis.cancel(); } catch { /* nothing to stop */ }
+}
+function speakRow(btn) {
+  if (!speakCan() || !btn) return;
+  if (SPEAK.btn === btn) { speakStop(); return; }   // the second press stops it
+  speakStop();
+  const row = btn.closest('.msg, .asp-m');
+  const text = speechTextOfRow(row);
+  if (!text) return;
+  const voice = speakVoice();
+  if (!voice) { btn.title = 'No voice on this computer can read this aloud'; btn.setAttribute('aria-label', btn.title); return; }
+  SPEAK.btn = btn;
+  speakPaint(btn, true);
+  const parts = speechChunks(text, 220);
+  parts.forEach((part, i) => {
+    const u = new SpeechSynthesisUtterance(part);
+    u.voice = voice; u.lang = voice.lang;
+    if (i === parts.length - 1) {
+      const done = () => { if (SPEAK.btn === btn) { SPEAK.btn = null; speakPaint(btn, false); } };
+      u.onend = done; u.onerror = done;
+    }
+    window.speechSynthesis.speak(u);
+  });
+}
+function speakButtonEl() {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'asp-speak';
+  b.setAttribute('aria-label', 'Read this message aloud');
+  b.setAttribute('aria-pressed', 'false');
+  b.title = 'Read aloud';
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+  return b;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.rxn-speak, .asp-speak');
+  if (b) { e.preventDefault(); speakRow(b); }
+});
+window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
    naming every held agent (see the refused-group branch in pjRoomRow) instead
@@ -64169,6 +64407,7 @@ function asbLayerEnsure() {
     +     '<button type="button" id="asp-hide-no">Keep it</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* Josh's words for this (#3758) */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
+    +   '<button class="micbtn" id="asp-mic" type="button" data-voice-for="asp-say" data-voice-msg="asp-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>'   /* #4409 */
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
@@ -64455,6 +64694,7 @@ function asbPaintThread(rows, session) {
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
     if (m.id || m.at) d.dataset.mid = String(m.id || m.at);   // #3743: the guide's replies, by the same id a DM uses
     d.textContent = String(m.text || '');
+    if (m.from === session) d.appendChild(speakButtonEl());   // #4409: the guide's answers can be read aloud
     th.appendChild(d);
   }
   if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
