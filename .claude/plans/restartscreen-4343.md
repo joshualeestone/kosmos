@@ -7,8 +7,9 @@ the Kosmos K, "Kosmos requires a full restart" (Josh's words, verbatim), and how
 ## Done looks like
 - After the board has not answered for 15 s, the real status poll draws `.restart-back`: opaque
   page ground, full window, centered, still K mark, headline, the platform's remedy (Mac: Command-Q
-  then the Applications folder; Windows: close the window, then Kosmos.exe), and a small details
-  line (version, the address that did not answer).
+  then the Applications folder; Windows: close the window, then Kosmos.exe), and nothing else.
+  The version and the address that did not answer go to the console log (Josh via Splinter, 10:39:
+  "not show anything else but just a nice clean centered graphic").
 - Everything behind it is inert; the first answering poll removes it and gives back exactly the
   inert state it took.
 - Not shown for a Kosmos+ remote view, a device that is offline, a running update, or a page no
