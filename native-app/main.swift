@@ -314,13 +314,16 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 /// not warned, because in the usual case nothing of theirs is running (review rounds 15, 16).
 enum StopOutcome: Equatable {
     case stopped, notOurs, failed
+    // No bin/kosmos to ask: nothing of this install could have started a board, and nothing can
+    // stop one, so it is logged, not put to the person as "still running here" (review round 18).
+    case missing
 }
 
 func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome {
     let kosmosBin = kosmosHome + "/bin/kosmos"
     guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
         logLine("#4356: cannot stop the board: \(kosmosBin) is missing")
-        return .failed
+        return .missing
     }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: kosmosBin)
@@ -1985,6 +1988,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         computerMode = .connect
         stopsInFlight += 1
         logLine("#4356: switching this computer to connect")
+        // The local board's port stops being this window's: #4347's stale-app check keys on it, and
+        // the pages from here on are Kosmos Plus's (ensureBoardRunning falls back to modePort).
+        resolvedPort = nil
         // A Reload still in flight must not fall through to a board start when the stop kills its page.
         recoverOnReloadFailure = false
         reloadNavigation = nil
@@ -2891,6 +2897,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Ask the board what version it is, once, after the page has loaded.
     private func checkWhetherThisAppIsBehind(port: Int) {
         guard !staleAppNoticeShown else { return }
+        // #4356: a connect computer runs no board of its own, so there is nothing here to be behind;
+        // a board answering on this port is another install's, and its "restart to update, your
+        // agents keep running" would be about agents this computer does not have (review round 18).
+        guard computerMode != .connect else { return }
         guard let mine = runningAppVersion() else {
             sayQuietStaleReason("this app carries no CFBundleShortVersionString, so there is nothing to compare")
             return

@@ -210,6 +210,16 @@ test('#4356: Reload on a connect computer never starts the board', () => {
   assert.match(reload, /if computerMode == \.connect \{\n\s+if webView\.backForwardList\.currentItem == nil \|\| lastLoadFailed \{ loadConnect\(\) \} else \{ webView\.reload\(\) \}\n\s+return\n\s+\}/);
 });
 
+test('#4356: a connect computer is not offered #4347\'s restart-to-update for a board that is not its own', () => {
+  assert.match(body('private func checkWhetherThisAppIsBehind(port: Int)'), /guard computerMode != \.connect else \{ return \}/);
+  assert.match(body('private func switchToConnect(home: String)'), /resolvedPort = nil/, 'the stale-app check stays armed on the local port after Connect');
+});
+
+test('#4356: a missing CLI is logged, not said as "still running here"', () => {
+  const at = SRC.indexOf('func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome');
+  assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /is missing"\)\n\s+return \.missing/);
+});
+
 test('#4356: the connect navigation policy is pinned to WebKit\'s selector, so a signature drift cannot switch it off', () => {
   assert.match(SRC, /@objc\(webView:decidePolicyForNavigationAction:decisionHandler:\)\n\s+func webView\(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,/);
 });

@@ -4268,7 +4268,7 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
   # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
   # advice would start a board on a computer that connects elsewhere.
   if [ "$_kosmos_mode_word" = connect ]; then
-    printf '\n  Kosmos is installed. No board runs on this computer, on purpose (see above).\n'
+    printf '\n  Kosmos is installed. No board runs on this computer, on purpose: it connects to agents on another computer.\n'
     printf '  Open the Kosmos app from your Applications folder.\n\n'
   else
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
