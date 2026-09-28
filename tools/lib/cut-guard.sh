@@ -70,7 +70,9 @@ _kosmos_drop_self_subtree() {
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 _kosmos_drop_test_fixtures() {
-  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
+  # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
+  # a Homebrew bash is dropped by its script path too (#4410 review 13).
+  local line pid script re='^[0-9]+ +([^ ]*/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
@@ -368,8 +370,7 @@ kosmos_refuse_if_browser_run_live() {
 # and two things wanting it is not a slow test, it is a failed release step
 # blamed on whatever the cut was doing then. So the CUT asks, at its own start,
 # whether a harness is already live. A harness is a process (tools/test-install.sh)
-# for as long as it runs; there is no lock file, same as a cut. (Every harness run probes a free
-# port from 4460 up and boots real boards on it.)
+# for as long as it runs; there is no lock file, same as a cut.
 # 📌 THE PROCESS, NOT THE WORDS: only a bash/sh whose own command line IS
 # tools/test-install.sh counts, so a peer shell that merely MENTIONS the script (a
 # grep, a git log, the pkill that cleared the box during the 0.6.20 window) does

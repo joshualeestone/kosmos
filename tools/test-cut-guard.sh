@@ -483,6 +483,10 @@ out="$(KOSMOS_SUITE_PROBE="$T/probe-dead" kosmos_refuse_if_suite_live "a full in
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-kt" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh fixture in the kt<digits> sandbox is not a live suite (control: the live arm above)" \
   || fail "#4410 a sandboxed run-tests.sh fixture refused the harness (rc=$rc, $out)"
+printf '#!/bin/sh\nprintf "%s /opt/homebrew/bin/bash %s/tools/run-tests.sh\\n"\n' "$DEAD" "$KTD" > "$T/sprobe-kt-brew"; chmod +x "$T/sprobe-kt-brew"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-kt-brew" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4410 a sandboxed run-tests.sh fixture started by a Homebrew bash is dropped too (the fixture rule's interpreter is as wide as the suite arm's)" \
+  || fail "#4410 a Homebrew-bash sandboxed fixture refused the harness (rc=$rc, $out)"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh with a node --test ancestor is not a live suite (control: the live arm above)" \
   || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"

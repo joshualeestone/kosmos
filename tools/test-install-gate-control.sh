@@ -46,9 +46,13 @@ if [ "$hg_rc" -ne 0 ]; then
   else why="heavy-gate could not read the box (exit $hg_rc)"; fi
   echo "SKIP: $why, so this control cannot answer; run it again when the box is quiet."; exit 3
 fi
+# The refusals test-install.sh makes before it judges anything: a busy box (a suite, a cut, a release
+# reservation), a guard that could not tell (#4410 review 13), or a disk too full to start. None is the
+# gate's verdict, so each is a SKIP with exit 3.
+REFUSED_RE='is already running on this Mac|a cut is running on this Mac|reserved for a release|could not tell whether|could not read free space|MB free on'
 busy_refusal() {
-  grep -qE 'is already running on this Mac|a cut is running on this Mac|reserved for a release' "$1" || return 1
-  echo "SKIP: a gate run was refused because the box became busy, not judged: $(grep -E 'already running on this Mac|cut is running|reserved for a release' "$1" | head -1 | cut -c1-160)"
+  grep -qE "$REFUSED_RE" "$1" || return 1
+  echo "SKIP: a gate run was refused before it judged anything, so this control cannot answer: $(grep -E "$REFUSED_RE" "$1" | head -1 | cut -c1-160)"
   exit 3
 }
 # CONTROL OF THE CONTROL: the untouched copy must be green, or the red below
