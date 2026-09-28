@@ -129,7 +129,7 @@ function world({ search = '', bridge = true, throws = false, windows = false } =
       : { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
-  vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
+  vm.runInContext(['var FR_CHOICE_WATCH = null;', lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
   return { ctx, posted, btns, el, cover, replaced, siblings };
 }
 
@@ -207,12 +207,16 @@ test('#4356: if the app cannot be told, Connect does nothing rather than leave d
 test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"', () => {
   const ctx = { location: { search: '' }, URLSearchParams, calls: [] };
   vm.createContext(ctx);
-  vm.runInContext(lift('frPlusLast') + '\n' + lift('frPlusSignIn')
+  vm.runInContext('var FR_FORCED = false;\n' + lift('frPlusLast') + '\n' + lift('frPlusSignIn')
     + '\nfunction showTab(t) { calls.push("tab:" + t); } function settingsGo(s) { calls.push("sec:" + s); } function plusSiEnter() { calls.push("signin"); }', ctx);
   for (const [search, want] of [['?mode=both', true], ['?mode=both&token=t', true], ['', false], ['?mode=run', false], ['?mode=unset', false], ['?mode=connect', false]]) {
     ctx.location.search = search;
     assert.equal(ctx.frPlusLast(), want, search || '(no query)');
   }
+  ctx.location.search = '?mode=both';
+  vm.runInContext('FR_FORCED = true', ctx);
+  assert.equal(ctx.frPlusLast(), false, 'a re-run of setup from Settings ends at the sign-in again on every both computer');
+  assert.match(lift('firstRunBoot'), /FR_FORCED = !!force;/);
   ctx.frPlusSignIn();
   assert.deepEqual(ctx.calls, ['tab:settings', 'sec:plus', 'signin'], 'not the Settings sign-in that already exists');
   assert.match(lift('frEnd'), /frClose\(\);\n\s+if \(frPlusLast\(\)\) frPlusSignIn\(\); else then\(\);/,
@@ -224,9 +228,13 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
   assert.doesNotMatch(lift('frFinish'), /frClose\(\); then\(\)/, 'a way out of first run skips the last step');
 });
 
-test('#4356: tips, the Community notice and What\'s New all count the first screen as covering the board', () => {
-  // The tour started under the screen, took focus and was recorded as seen unseen (review round 3).
+test('#4356: tips, the Community notice, What\'s New and the setup assistant all count the first screen as covering the board', () => {
+  // The tour started under the screen, took focus and was recorded as seen unseen (review round 3);
+  // the setup assistant's layer did the same (round 4).
   for (const fn of ['tipModalOpen', 'cnHeld', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
+  assert.match(lift('asbShows'), /const frc = document\.getElementById\('fr-choice'\);\n\s+if \(frc && !frc\.hidden\) return false;/, 'asbShows does not know the first screen');
+  // And anything appended to <body> while the screen is up goes inert too.
+  assert.match(lift('frChoiceInert'), /new MutationObserver\([\s\S]*n\.inert = true;[\s\S]*observe\(document\.body, \{ childList: true \}\)/);
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {

@@ -1748,7 +1748,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // stop did. Undo it, before the stale-generation check below drops the result.
                 if self.computerMode == .connect {
                     logLine("#4356: a board start finished after Connect; stopping it again")
-                    DispatchQueue.global(qos: .utility).async { _ = stopBoard(kosmosHome: resolved.kosmosHome) }
+                    // Retire this start as finished, or the 300 s watchdog says "still starting" on a
+                    // computer that runs no board; and hold Run agents until this stop is done.
+                    if let s = self.inFlightStart, s.generation == generation { self.inFlightStart = nil }
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.connectSwitchInFlight = true
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: resolved.kosmosHome)
+                        DispatchQueue.main.async { self?.connectSwitchInFlight = false }
+                    }
                     return
                 }
                 // This generation's process is no longer the watchdog's
@@ -1852,8 +1861,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardLoadNavigation = webView.load(URLRequest(url: kosmosPlusSignIn))
     }
 
-    /// The first screen's button. Heard only while the app is asking (unset or unreadable), so a
-    /// board page cannot change this computer's mode at any other time.
+    /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
+    /// is, no page can change it. Note an install from before #4356 has no file, so it counts as
+    /// unset for its whole life; only the board's own page in the main frame can post here.
     func pageChoseMode(_ body: Any) {
         guard let choice = body as? String, let home = modeHome,
               computerMode == .unset || computerMode == .unreadable

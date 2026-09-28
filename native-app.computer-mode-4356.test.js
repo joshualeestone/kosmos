@@ -89,7 +89,10 @@ test('#4356: loadBoard itself refuses on a connect computer, so no path into it 
   assert.notEqual(guard, -1, 'loadBoard can run kosmos start on a connect computer');
   assert.ok(guard < load.indexOf('startBoard('), 'the guard comes after the start');
   // A start already running when Connect was chosen is stopped again when it lands.
-  assert.match(load, /if self\.computerMode == \.connect \{\n[^\n]*\n\s+DispatchQueue\.global\(qos: \.utility\)\.async \{ _ = stopBoard\(kosmosHome: resolved\.kosmosHome\) \}\n\s+return\n\s+\}/);
+  const late = load.slice(load.indexOf('if self.computerMode == .connect {'));
+  assert.match(late, /self\.boardStartInFlight = false\n\s+self\.boardStartGeneration \+= 1\n\s+self\.connectSwitchInFlight = true/,
+    'a start that landed after Connect leaves the 300 s watchdog armed, or its stop races Run agents');
+  assert.match(late, /_ = stopBoard\(kosmosHome: resolved\.kosmosHome\)\n\s+DispatchQueue\.main\.async \{ self\?\.connectSwitchInFlight = false \}/);
   assert.ok(load.indexOf('if self.computerMode == .connect {') < load.indexOf('guard self.boardStartGeneration == generation'),
     'the stale-generation check drops a start that landed after Connect before it can be undone');
 });

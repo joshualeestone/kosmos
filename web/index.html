@@ -62148,8 +62148,10 @@ function frClose() {
 /* #4356: "Run agents here and connect to other computers" is today's first run, then Kosmos Plus
    sign-in as its last step: the Settings sign-in that already exists (plusSiEnter), not a new one.
    The app says so with ?mode=both, so a first run finished after a relaunch still ends there. */
+let FR_FORCED = false;   // first run opened by hand (Settings' re-run, ?first-run=1), not first-time setup
 function frPlusLast() {
-  return new URLSearchParams(location.search).get('mode') === 'both';
+  // The first-time setup of a both computer only: a re-run from Settings does not push the sign-in again.
+  return !FR_FORCED && new URLSearchParams(location.search).get('mode') === 'both';
 }
 function frPlusSignIn() {
   showTab('settings');
@@ -63202,6 +63204,9 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
+  // #4356: nor under the first screen, which covers the board as first run does.
+  const frc = document.getElementById('fr-choice');
+  if (frc && !frc.hidden) return false;
   return !!asbGuideRow() || asbIsHosted() || asbStepping();
 }
 /* The hosted assistant has just ended, and the person has yet to read why: folded with the dot, or open for the
@@ -63863,8 +63868,19 @@ function frChoiceForget(mode) {
   } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
 }
 
+/* #4356: the page under the first screen is inert while it is up, INCLUDING what arrives later: seven
+   places append to <body> (the setup assistant's layer, toasts, tips), and a layer added after the
+   screen went up would take Tab and screen-reader focus from behind it (review round 4). */
+let FR_CHOICE_WATCH = null;
 function frChoiceInert(on) {
   document.querySelectorAll('body > *:not(#fr-choice)').forEach((n) => { n.inert = on; });
+  if (FR_CHOICE_WATCH) { FR_CHOICE_WATCH.disconnect(); FR_CHOICE_WATCH = null; }
+  if (on && typeof MutationObserver === 'function') {
+    FR_CHOICE_WATCH = new MutationObserver((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1 && n.id !== 'fr-choice') n.inert = true;
+    });
+    FR_CHOICE_WATCH.observe(document.body, { childList: true });
+  }
 }
 
 /* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
@@ -63920,6 +63936,7 @@ async function firstRunBoot(force, step) {
     const chose = frChoiceWanted(state.done) ? await frChoose() : null;
     if (chose === 'connect') return;
     if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }
+    FR_FORCED = !!force;
     FR = state;
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot

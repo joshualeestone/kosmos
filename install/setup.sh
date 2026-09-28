@@ -4016,6 +4016,10 @@ if [ "$_board_ok" = yes ]; then
     info "sandboxed run: the login job file was written; registering it with launchd was skipped on purpose (the real machine's domain is not this run's to touch)"
   elif [ "$_board_ok" = later ]; then
     info "note: macOS did not accept the background item just now; it is written and loads at your next login"
+  elif [ "$_kosmos_board_off" = yes ]; then
+    # #4356: the job is installed so "Run agents on this computer" works later, but board.stopped
+    # keeps it from starting anything while the board is off on purpose.
+    info "the login item is installed, and stays off while Kosmos does not run a board on this computer"
   else
     info "Kosmos will start itself when you log in"
   fi
@@ -4025,7 +4029,7 @@ else
   # Everything else about this install works; the person loses exactly one
   # thing, and the thing they would do instead is the thing they already do.
   info "note: could not write $_board_plist, so Kosmos will not start itself after a restart."
-  info "Opening the Kosmos icon starts it, as it always has."
+  [ "$_kosmos_board_off" = yes ] || info "Opening the Kosmos icon starts it, as it always has."
 fi
 
 # #2955: THE BOARD WATCHDOG login job.

@@ -804,6 +804,7 @@ chk "it says why it did not start Kosmos" "grep -q 'connects to agents on anothe
 chk "its summary says no board runs here, on purpose" "grep -q 'No board runs on this computer, on purpose' \"$SB/update-connect.log\""
 chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
 chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
+chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'stays off while Kosmos does not run a board on this computer' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
 # ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
