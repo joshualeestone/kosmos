@@ -22,6 +22,8 @@ const fleet = require('../test-support/fleet');
 const chat = require('./chat');
 const messageLog = require('./messages');
 const nudge = require('./firstreply-nudge');
+/* #4354 writes profiles here too: prove the store is this sandbox, against the real data root. */
+require('../test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [require('./store').ROOT]);
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -217,7 +219,9 @@ test('#3226 real store: a person\'s unanswered first DM, a minute old, is nudged
   // Why the message log could never have seen this: the person's DM is not in it. (#4340 deleted owesReply, which
   // read that log; the premise is checked on the log itself.)
   const logged = messageLog.record();
-  assert.ok(!(logged.ok && logged.rows.some((r) => r.to === s)), 'premise: a DM leaves the message log untouched');
+  // An unreadable log proves nothing about what is in it (Scorpion's NIT on #4365), so it must read first.
+  assert.ok(logged.ok, 'premise: the message log could not be read, so this proves nothing');
+  assert.ok(!logged.rows.some((r) => r.to === s), 'premise: a DM leaves the message log untouched');
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 1, 'the card\'s own case was not nudged');
   assert.equal(sent[0].session, s);
@@ -249,4 +253,56 @@ test('#3226 real store CONTROL: a colleague `kosmos msg` with an empty DIRECT th
   assert.ok(!logged.rows.some((r) => r.from === s), 'fixture: the agent has already written in the log');
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 0, 'a colleague\'s message was read as the person\'s');
+});
+
+/* #4354: Kosmos's daily-limit notice is written in the agent's name. It must not count as the agent answering
+   once it runs again, and while it is paused the sweep must leave it alone (its pane refuses the text, and each
+   refused try spends the budget). Through the REAL store, the REAL profile read (no `paused` injected) and
+   swarm.pausedFor, the sweep's own pause writer. */
+test('#4354 real store: a first DM behind the daily-limit notice is left alone while paused and nudged once running', () => {
+  const store = require('./store');
+  const swarm = require('./swarm');
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  const pausedAt = NOW - 60 * 1000;
+  try {
+    store.writeProfile(s, swarm.birthProfile({ dailyTokenLimit: 1000 }));
+    store.writeProfile(s, { swarm: swarm.pausedFor(swarm.settingsOf(store.readProfile(s)), 'limit', pausedAt) });
+    assert.equal(swarm.pauseOf(store.readProfile(s)).paused, true, 'fixture: the swarm is not paused');
+    personDm(s);
+    const kept = chat.appendMessage(chat.DIRECT, s, { text: 'I paused myself at today\'s token limit', at: new Date(pausedAt).toISOString(), from: s, kosmos: true });
+    assert.equal(kept.recorded, true);
+    const paused = realSweep(roster);
+    assert.equal(paused.sent.length, 0, 'a paused swarm was nudged (its pane refuses the text and the tries run out)');
+    assert.equal(paused.r.results.length, 0, 'the sweep spent a try on a paused swarm');
+    store.writeProfile(s, { swarm: { ...swarm.settingsOf(store.readProfile(s)), active: true, pausedBecause: null, pausedAt: null } });
+    const running = realSweep(roster);
+    assert.equal(running.sent.length, 1, 'running again and still unanswered, but the notice read as its first answer');
+  } finally {
+    fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
+  }
+});
+
+test('#4354 real store: a swarm the PERSON switched off (no notice) is left alone, and no try is spent on it', () => {
+  const store = require('./store');
+  const swarm = require('./swarm');
+  const roster = rosterOf('idle');
+  const s = roster[0].sessionName;
+  freshStore(s);
+  try {
+    store.writeProfile(s, swarm.birthProfile({ dailyTokenLimit: 1000 }));
+    store.writeProfile(s, { swarm: swarm.applyPatch(store.readProfile(s), { active: false }, NOW - 60 * 1000) });
+    assert.equal(swarm.pauseOf(store.readProfile(s)).paused, true, 'fixture: the person\'s pause did not take');
+    personDm(s);
+    const book = new Map();
+    const sent = [];
+    nudge.sweepOnce({ roster, book, now: NOW, DELIVERY, deliver: (session) => { sent.push(session); return { state: DELIVERY.COULD_NOT }; } });
+    assert.equal(sent.length, 0, 'a switched-off swarm was tried');
+    assert.equal(book.get(s), undefined, 'a try was spent on a switched-off swarm, and three of them leave it never nudged');
+    store.writeProfile(s, { swarm: swarm.applyPatch(store.readProfile(s), { active: true }, NOW) });
+    assert.equal(realSweep(roster).sent.length, 1, 'CONTROL: switched back on, the same first message is nudged');
+  } finally {
+    fs.rmSync(path.join(require('./store').ROOT, require('./store').PROFILES_DIRNAME), { recursive: true, force: true });
+  }
 });

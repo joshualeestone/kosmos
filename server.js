@@ -2786,7 +2786,9 @@ function swarmSweepDeps(roster) {
     writeProfile: (n, patch) => store.writeProfile(n, patch),
     interrupt: (n) => chat.interrupt(n, roster),
     stopHelpers: (n) => chat.stopHelpers(n, roster),
-    say: (n, text) => keepAgentReply(n, text),
+    /* #4354: Kosmos speaking, not the agent (marked), and stamped with the sweep's own `now`, the clock the pause's
+       pausedAt was written with, so chat.noticeStands can never see the notice as older than its own pause. */
+    say: (n, text, now) => keepAgentReply(n, text, Number.isFinite(now) ? new Date(now).toISOString() : undefined, { kosmos: true }),
   };
 }
 
@@ -2839,12 +2841,15 @@ messages.setSenderTextFilter(guideMasked);
 
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
-   `at` is the original send time for a drained reply, now for the route. */
-function keepAgentReply(who, text, at) {
+   `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
+   for its notice (#4354: the clock the pause's pausedAt is written with). */
+function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
+    // #4354: Kosmos's own words in the agent's name (the daily-limit notice), so dmOwes can tell them from a reply
+    ...(opts && opts.kosmos === true ? { kosmos: true } : {}),
   });
 }
 
@@ -13105,7 +13110,10 @@ const server = http.createServer((req, res) => {
        thread we could not read (messages null) answers `unknown`. On the FULL stored thread, BEFORE the 200-row tail:
        dmOwes skips menu answers and undelivered rows, so a tail of those could hide an owed message just outside
        it (review iteration 7). */
-    const owes = chat.dmOwes(messages, name);
+    /* #4354: Kosmos's daily-limit notice stands in for an answer only while the agent is switched off, and only
+       if it was written in THIS pause (chat.noticeStands). store.readProfile answers {} when it cannot read, and
+       a non-swarm reads as running: the line then comes back rather than being hidden. */
+    const owes = chat.dmOwes(messages, name, require('./engine/swarm').pauseOf(store.readProfile(name)));
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
@@ -17191,7 +17199,8 @@ function start(port = PORT) {
          1 in 10 first contacts; the same session answers its second message) gets ONE typed
          reminder to answer with `kosmos reply` (engine/firstreply-nudge.js). Only when the card is
          idle, its DIRECT thread with the person (the store the DM route and keepAgentReply write)
-         holds no row from it at all, and the person's latest message there was placed a minute ago;
+         holds no row from it at all (Kosmos's daily-limit notice counts only while it stands, #4354), it is
+         not a switched-off swarm, and the person's latest message there was placed a minute ago;
          one per session per board run, at most 3 tries that reach nothing. NOT messageLog.owesReply:
          that log never holds the person's DM or the agent's `kosmos reply`. Same gating as the sweeps above: inert under `node --test` and
          before the live-execution opt-in, operator brake AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF=1,

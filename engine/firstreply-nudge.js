@@ -18,8 +18,10 @@
  *
  * WHEN. Only when all hold (see plan):
  *  - the card reads idle, so nothing is typed over work in progress;
+ *  - it is not a switched-off swarm (#4354: its pane refuses the text, and each refusal spends a try);
  *  - its Direct Message thread with the person (chat DIRECT, keyed by sessionName) holds NO row
- *    from the agent at all: a true first contact, never a later turn;
+ *    from the agent at all: a true first contact, never a later turn (Kosmos's daily-limit notice,
+ *    written in its name, counts only while it stands: chat.noticeStands);
  *  - the thread's latest row is the PERSON's own message (no `from`), not a numbered-menu answer,
  *    and the board PLACED it in the pane (`delivery.state`), so the text "the person you work for
  *    sent you a message" is true of it;
@@ -70,10 +72,17 @@ function directThread(session) {
   return chat.readThread(chat.DIRECT, session);
 }
 
+/* #4354: the agent's pause from its real profile (swarm.pauseOf). Lazy like directThread. */
+function pauseNow(session) {
+  return require('./swarm').pauseOf(require('./store').readProfile(session));
+}
+
 /*
  * What a DIRECT thread says about first contact. thread is readThread's result ({ messages }) for
  * the agent's sessionName (the key the DM route and keepAgentReply both file under).
  * Returns { state: 'owes' | 'clear' | 'unknown', heardAt, because }.
+ *
+ * pause is swarm.pauseOf's answer for the agent ({ paused, pausedSince }); absent means running.
  *
  * Who a row is from: a non-empty string `from` is the agent (keepAgentReply writes from: who);
  * an absent or null `from` is the person (readThread's own contract, and chat.dmUnreadAll counts
@@ -82,9 +91,15 @@ function directThread(session) {
  * types false words into a pane. Kosmos's own rows (kind 'kosmos' or 'question') are derived per
  * poll and not stored, but are skipped here too in case one ever is.
  */
-function firstContact(thread) {
+function firstContact(thread, pause) {
   if (!thread || !Array.isArray(thread.messages)) return { state: 'unknown', heardAt: null, because: 'the conversation could not be read' };
-  const rows = thread.messages.filter((m) => m && typeof m === 'object' && m.kind !== 'kosmos' && m.kind !== 'question');
+  /* #4354: Kosmos's daily-limit notice (`kosmos: true`, written in the agent's name) is not the agent answering.
+     It counts only while it stands (chat.noticeStands, the rule dmOwes uses): paused now, and written in this
+     pause. Once the agent runs again it is ignored, so an unanswered first message is nudged. (The sweep itself
+     skips a paused swarm before calling this.) */
+  const stands = (m) => require('./chat').noticeStands(m, pause);
+  const rows = thread.messages.filter((m) => m && typeof m === 'object' && m.kind !== 'kosmos' && m.kind !== 'question'
+    && !(m.kosmos === true && !stands(m)));
   if (rows.some((m) => typeof m.from === 'string' && m.from)) return { state: 'clear', heardAt: null, because: 'has answered the person before; first contact only' };
   const last = rows[rows.length - 1];
   if (!last) return { state: 'clear', heardAt: null, because: 'the person has not written to it' };
@@ -113,7 +128,8 @@ function plan(card, fc, entry, now) {
 
 /*
  * One sweep. o = { roster, book (Map session -> entry), now, deliver: (session, text, roster) =>
- * result, DELIVERY, log, thread? }. thread is (session) => readThread result and defaults to the
+ * result, DELIVERY, log, thread?, paused? }. paused is (session) => swarm.pauseOf's answer and defaults to
+ * the real profile (pauseNow). thread is (session) => readThread result and defaults to the
  * real DIRECT store (directThread); tests inject one only for the planner-shaped cases.
  * Returns { results }. Never throws.
  *
@@ -130,6 +146,7 @@ function sweepOnce(o) {
     const book = o.book instanceof Map ? o.book : new Map();
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.thread === 'function' ? o.thread : directThread;
+    const pauseFor = typeof o.paused === 'function' ? o.paused : pauseNow;
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
     for (const card of o.roster) {
@@ -138,8 +155,13 @@ function sweepOnce(o) {
       const entry = book.get(session);
       // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget.
       if (nudged(entry) || spent(entry) || card.state !== 'idle') continue;
+      /* #4354: a switched-off swarm is left alone before anything is read or tried: its pane refuses the text, and
+         each refusal would spend one of MAX_TRIES, leaving it never nudged once it runs again. */
+      let pz = null;
+      try { pz = pauseFor(session); } catch { pz = null; }
+      if (pz && pz.paused === true) continue;
       let fc = null;
-      try { fc = firstContact(read(session)); } catch { fc = null; }
+      try { fc = firstContact(read(session), pz); } catch { fc = null; }
       const p = plan(card, fc, entry, now);
       if (p.act !== 'nudge') continue;
       const display = card.name || session;
@@ -165,7 +187,7 @@ function nudgeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_FIRSTREPLY_NUDGE_OFF !== '1';
 }
 
-/* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env,
+/* The server's per-tick wrapper, separate so its gating is testable. deps = { allowed, env, paused?,
    roster, deliver, DELIVERY, log, book, now, thread? }. Each call returns the sweep's result, or
    null when it did not run. Never throws. */
 function makeTick(deps) {
@@ -176,7 +198,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        thread: deps.thread, paused: deps.paused, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
     } catch { return null; }
   };
