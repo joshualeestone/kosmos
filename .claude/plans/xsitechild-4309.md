@@ -5,8 +5,9 @@ Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage
 ## Finished when
 - `server.xsite-1636.test.js` leaves nothing in its sandbox after it exits, shown by a check
   that fails when the leak cause is put back.
-- `aw-xsite` can come off `tools/test-leak-allowlist.txt`. (It is not on main yet: Johnny's
-  #4298 adds it. Whichever of #4298 and this PR merges second removes it; agreed m2235.)
+- `aw-xsite` never needs to be on `tools/test-leak-allowlist.txt`. It is not on main. Johnny's
+  #4298 branch carries it only so his validation passes before this PR merges; he drops it, and
+  his doorflight change, when he rebases onto main after this merges (m2239).
 
 ## Cause (measured, 2026-09-28)
 - `/api/connections` asks every door, including the gh and Vercel device doors
@@ -25,7 +26,7 @@ Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage
   fix it leaves nothing.
 
 ## Change
-- Both tests set `AGENT_WORKFORCE_GH_BIN` and `AGENT_WORKFORCE_VERCEL_BIN` to non-existent
+- All three tests set `AGENT_WORKFORCE_GH_BIN` and `AGENT_WORKFORCE_VERCEL_BIN` to non-existent
   paths inside the sandbox, so each door reports the tool as missing and starts nothing. This
   is the same pattern as `CLAUDE_BIN` and `TMUX_BIN` in the same files, and as
   `engine.dirmode-1763.test.js`.
