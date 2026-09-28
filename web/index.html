@@ -63855,6 +63855,9 @@ function frChoiceBridge() {
    quietly becoming one of the two. */
 function frChoiceWanted(done) {
   if (!frChoiceBridge()) return false;
+  // Only on this computer's own board: in connect mode the window shows ANOTHER computer's page,
+  // which is this same page, and a crafted ?mode= there must not raise the screen over it.
+  if (!/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return false;
   const mode = new URLSearchParams(location.search).get('mode');
   return mode === 'unreadable' || (mode === 'unset' && !done);
 }

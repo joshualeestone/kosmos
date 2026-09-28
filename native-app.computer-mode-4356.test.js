@@ -210,6 +210,10 @@ test('#4356: Reload on a connect computer never starts the board', () => {
   assert.match(reload, /if computerMode == \.connect \{\n\s+if webView\.backForwardList\.currentItem == nil \|\| lastLoadFailed \{ loadConnect\(\) \} else \{ webView\.reload\(\) \}\n\s+return\n\s+\}/);
 });
 
+test('#4356: the connect navigation policy is pinned to WebKit\'s selector, so a signature drift cannot switch it off', () => {
+  assert.match(SRC, /@objc\(webView:decidePolicyForNavigationAction:decisionHandler:\)\n\s+func webView\(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,/);
+});
+
 test('#4356: a connect computer keeps its window to Kosmos Plus; a run computer is unchanged', () => {
   const policy = body('func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,');
   assert.match(policy, /guard computerMode == \.connect, let url = navigationAction\.request\.url,\n\s+let frame = navigationAction\.targetFrame, frame\.isMainFrame\n\s+else \{ decisionHandler\(\.allow\); return \}/,

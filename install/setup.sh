@@ -3741,7 +3741,9 @@ fi
 # Read again now (_kosmos_board_decide): the person may have answered the first screen, or used the
 # menu, during this run. The latest reading decides whether this run starts the board.
 _kosmos_board_decide
+_kosmos_started=no; _kosmos_wrote_marker=no
 if [ "$_kosmos_board_off" = yes ]; then
+  _kosmos_wrote_marker=yes
   # The marker is what launchd's login item (board-run) and the watchdog obey. An update's pause
   # already wrote it; a run that did not pause (a fresh bin/ over a leftover home) has not, and
   # without it the login item bootstrapped below would start the board this run just declined to.
@@ -3753,6 +3755,7 @@ if [ "$_kosmos_board_off" = yes ]; then
   fi
 else
   step "Starting Kosmos."
+  _kosmos_started=yes
   KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 fi
 ok
@@ -4218,7 +4221,15 @@ _kosmos_board_decide
 if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
+elif [ "$_kosmos_board_off" = no ] && [ "$_kosmos_wrote_marker" = yes ]; then
+  # Now run or both (the app's menu, during this run): the marker this run wrote would keep launchd
+  # and the watchdog from ever bringing that board back, so it goes. The app starts the board.
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
 fi
+# ⚠️ KNOWN, NOT CLOSED: each reading above is followed by an action, and the app can change the file
+# in between (a person using the first screen or the menu DURING an install). The window is a few
+# lines wide, and the next launch of the app puts the board where the file says; a lock shared by the
+# installer and the app would close it, and is not built (#4356, review round 16).
 
 OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
 _awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
@@ -4258,6 +4269,10 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
     printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
   fi
+elif [ "$_kosmos_started" = no ] && [ "$BOARD_OURS" != "yes" ]; then
+  # #4356: this run did not start a board (the choice said not to when it looked), and the choice has
+  # changed since. Not the "something else is on the port" branch below: nothing may be there.
+  printf '\n  Kosmos is installed. Open the Kosmos app from your Applications folder to start it.\n\n'
 elif [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
   # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a

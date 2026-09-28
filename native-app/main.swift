@@ -307,10 +307,11 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 
 /// #4356: `bin/kosmos stop`, when a computer switches to connect. It writes board.stopped, which
 /// launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, so the board stays down
-/// across logins until something runs `kosmos start`. Returns whether it exited 0.
-/// What `kosmos stop` did. `notOurs` is the CLI's own refusal to stop a board it did not start
-/// (another account's Kosmos, say, on this port): nothing of this install is running, so it is not
-/// the "still running here" the person is warned about (review round 15).
+/// across logins until something runs `kosmos start`. Returns what it did (StopOutcome).
+/// What `kosmos stop` did. `notOurs` is the CLI's own refusal to stop a board it has no pid for:
+/// usually another account's Kosmos on this port, possibly this install's own board with its pidfile
+/// lost. Either way the marker is written, so it does not come back at the next login; the person is
+/// not warned, because in the usual case nothing of theirs is running (review rounds 15, 16).
 enum StopOutcome: Equatable {
     case stopped, notOurs, failed
 }
@@ -2038,6 +2039,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
     /// changes on a computer that runs agents, which had no policy before this.
+    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
+       signature compiles and is never called, which would switch the connect policy off silently.
+       The selector is WebKit's own (WKNavigationDelegate.h). */
+    @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard computerMode == .connect, let url = navigationAction.request.url,

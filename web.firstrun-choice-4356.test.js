@@ -106,7 +106,7 @@ function lift(name) {
   assert.fail(name + ' never closes');
 }
 
-function world({ search = '', bridge = true, throws = false, windows = false } = {}) {
+function world({ search = '', bridge = true, throws = false, windows = false, host = '127.0.0.1' } = {}) {
   const posted = [];
   const btn = (mode) => ({ dataset: { mode }, disabled: false, onclick: null, focused: false, focus() { this.focused = true; } });
   const btns = [btn('run'), btn('connect'), btn('both')];
@@ -117,7 +117,7 @@ function world({ search = '', bridge = true, throws = false, windows = false } =
   const ctx = {
     URL,
     history: { state: null, replaceState(st, title, url) { replaced.push(url); } },
-    location: { search, href: 'http://127.0.0.1:16180/' + search + (search ? '&' : '?') + 'token=t' },
+    location: { search, hostname: host, href: 'http://' + host + ':16180/' + search + (search ? '&' : '?') + 'token=t' },
     URLSearchParams,
     Promise,
     document: {
@@ -140,6 +140,8 @@ test('#4356: the screen shows only in the Mac app, and only when the app says no
   assert.equal(world({ search: '' }).ctx.frChoiceWanted(false), false, 'a Mac that has chosen is asked again');
   assert.equal(world({ search: '?mode=run' }).ctx.frChoiceWanted(false), false);
   assert.equal(world({ search: '?mode=unset', bridge: false }).ctx.frChoiceWanted(false), false, 'a browser shows a Connect button that cannot do anything');
+  assert.equal(world({ search: '?mode=unreadable', host: 'josh.kosmosplus.com' }).ctx.frChoiceWanted(true), false,
+    'a crafted ?mode= raises the first screen over another computer\'s board');
 });
 
 test('#4356: the Windows app (WebView2) is a bridge too, told { kosmosMode } like its { kosmosBadge }', async () => {
@@ -151,7 +153,7 @@ test('#4356: the Windows app (WebView2) is a bridge too, told { kosmosMode } lik
   assert.equal(await choice, 'both');
   assert.deepEqual(JSON.parse(JSON.stringify(w.posted)), [{ kosmosMode: 'both' }]);
   // A plain Chrome has window.chrome but no webview: not a bridge.
-  const chrome = { location: { search: '?mode=unset' }, URLSearchParams, window: { chrome: {} } };
+  const chrome = { location: { search: '?mode=unset', hostname: '127.0.0.1' }, URLSearchParams, window: { chrome: {} } };
   vm.createContext(chrome);
   vm.runInContext(lift('frChoiceBridge') + '\n' + lift('frChoiceWanted'), chrome);
   assert.equal(chrome.frChoiceWanted(false), false, 'plain Chrome shows a first screen whose buttons reach nothing');
