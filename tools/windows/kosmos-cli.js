@@ -796,7 +796,7 @@ async function communityPost(ctx, args) {
     return 2;
   }
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
-  if (topic) body.topic = topic;
+  if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');

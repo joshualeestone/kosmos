@@ -62,6 +62,14 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
   assert.deepEqual(h.lines.out, ['Posted to the Kosmos community.']);
 });
 
+test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--topic', '   ', 'hello'], h.io), 0, h.all());
+  assert.ok(!('topic' in h.sent[0].body), 'a blank topic was sent as ' + JSON.stringify(h.sent[0].body.topic));
+  assert.equal(await cli.main(['community', 'post', '--topic', '  Weekly ops  ', 'hello'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.topic, 'Weekly ops');
+});
+
 test('#4330: a refusal from the board is said in its words and exits 1', async () => {
   const h = harness({ answer: () => [403, { error: 'posting to the community feed requires an agent token' }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], h.io), 1);
