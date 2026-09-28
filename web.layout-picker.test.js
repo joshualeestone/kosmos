@@ -178,12 +178,14 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
   /* #2282 (Josh 0.6.36; Mona's mock): the header no longer FOLDS AWAY in the
      consolidated view -- it stays a real full-width top bar (K mark + Kosmos switcher
      on the left, appearance + view-toggle on the right), so the top reads the same on
-     every view. Only the h1 (the visually-hidden title) and the center tabs (one
-     screen, no separate tab screens) are hidden; the top-right .headright controls are
+     every view. Only the h1 (the visually-hidden title) is hidden. The center tabs were
+     hidden too until #4345 (Josh, 2026-09-28): they now stay and load into the display
+     column, so nothing may hide them here. The top-right .headright controls are
      NOT hidden -- they are what USED to drift into the side rail. The RENDERED result
      is verified by render-tophead-consolidated-2282.js; here we pin the CSS rule. */
   assert.match(block, /> \.apphead header \{[^}]*display: flex/, 'the consolidated header is not laid out as a top bar (#2282)');
-  assert.match(block, /> \.apphead h1,\n[^{]*> \.apphead \.tabs \{ display: none; \}/, 'the consolidated view no longer hides just the h1 + center tabs (#2282)');
+  assert.match(block, /> \.apphead h1 \{ display: none; \}/, 'the consolidated view no longer hides the h1 (#2282)');
+  assert.doesNotMatch(decls, /> \.apphead[^{]*\.tabs[ ,][^{]*\{[^}]*display: none|> \.apphead[^{]*\.tabs \{[^}]*display: none/, 'the consolidated view hides the center tabs again (#4345: they stay and load into the display column)');
   assert.doesNotMatch(decls, /> \.apphead \.headright[ ,][^{]*\{[^}]*display: none/, 'the consolidated view still hides the top-right controls -- #2282 keeps them in the header instead of folding them to the rail');
   assert.doesNotMatch(decls, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
   /* ⚠️ THIS USED TO FORBID MENTIONING A SLOT AT ALL, which is a proxy for the
