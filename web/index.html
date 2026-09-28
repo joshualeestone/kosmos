@@ -6284,7 +6284,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
 .rxn.mine .rxn-n { color: var(--k-ink); }
 /* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
-   quick defaults plus the grey-smiley opener -- lives in `.rxn-quick` and is hidden
+   quick defaults plus the grey-smiley opener, then Reply last (#4358) -- lives in `.rxn-quick` and is hidden
    until the message is hovered OR the row takes keyboard focus, then fades in (the
    Discord shape). opacity + pointer-events (NOT display/visibility) so the buttons
    stay in the tab order for the `:focus-within` reveal, and an invisible button is
@@ -6302,10 +6302,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
              pointer-events: none; transition: opacity .12s ease; }
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
 /* #3745: replying to a room post. */
-.rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
-.rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
+.rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px;   /* WCAG 2.5.8 target size */
+              display: inline-flex; align-items: center; justify-content: center; gap: 4px; }   /* #4358: the arrow and the word, centred */
+.rxn-reply-ico { flex: none; display: block; }
+/* #4358 (Josh): hover is a bright gold outline, not a dark one. Keyboard focus shows the gold AND keeps the
+   bar's 2px ink ring below, which is the focus indicator. On the light surface --gold-bright is
+   about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
+   focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
+.rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
+/* No longer drawn by the room (#4359 removed its "Add @name" hint); kept because render-no-left-bars-3692 renders markup with it. */
 .pj-replying-h { flex: 0 1 auto; min-width: 0; color: var(--k-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pj-replying-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-replying-x { font: inherit; font-size: 1rem; line-height: 1; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; padding: 0; min-width: 24px; min-height: 24px; border-radius: 4px; }
@@ -52657,6 +52664,9 @@ document.getElementById('pj-reply').addEventListener('click', (e) => {
   }
   delete PJ_REPLY[PJ_CURRENT];
   pjReplyPaint(PJ_CURRENT);
+  // #4359: a box holding nothing but the mention Reply put there goes back to empty.
+  const box = document.getElementById('pj-post');
+  if (box && r && r.mention && box.value.trim() === r.mention.trim()) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
   const said = document.getElementById('pj-room-msg');   // a refusal that said "Press ×" is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
   pjRoomAnnounce('Not replying.');
@@ -53300,9 +53310,8 @@ function pjReplyPaint(projectId) {
   }
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'pj-reply-what');   // a screen reader hears "Replying to" each time it lands on the box
-  /* Reply threads; it does not call the author (who is asked is what the words @-name), so say how. */
+  /* #4359: no "Add @name" hint any more; Reply puts the agent's @mention in the box itself. */
   el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
-    + (r.mine ? '' : '<span class="pj-replying-h">Add @name to ask them directly</span>')
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function pjReplyStart(postId) {
@@ -53312,13 +53321,54 @@ function pjReplyStart(postId) {
   // room and drops a late fetch). The real guard is the server's: it refuses a reply to a post that is
   // not in this room, so nothing is ever misfiled.
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mine: m.operator === true };
+  const was = PJ_REPLY[PJ_CURRENT];
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
   pjReplyPaint(PJ_CURRENT);
+  pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
-  pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words);   // the strip itself is not a live region
+  const added = PJ_REPLY[PJ_CURRENT].mention;
+  pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words
+    + (added ? ' ' + added.trim() + ' is in the box; delete it to reply to the whole room.' : ''));   // the strip itself is not a live region
   const input = document.getElementById('pj-post');
   if (input) input.focus();
+}
+/* #4359 (Josh): Reply on an agent's post puts that agent's @mention at the start of the box, the
+   same text the @ picker inserts ("@" + key + " "), with the cursor after it. Sent as is, it goes to
+   that agent only; deleting it makes the reply go to the room. A post of your own, or from anyone
+   who is not one of this project's agents, gets none. `previous` is the mention an earlier Reply
+   put in; if the box still starts with it, it is swapped rather than stacked. */
+function pjReplyMention(p, m, previous) {
+  const input = document.getElementById('pj-post');
+  if (!input) return;
+  /* While a post is on its way the box still holds the words being sent (they clear on success only
+     if unchanged), so a Reply now records no mention and leaves the box alone. */
+  if (PJ_POSTING) { if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = null; return; }
+  const before = input.value;
+  const caret = typeof input.selectionStart === 'number' ? input.selectionStart : before.length;
+  let text = before;
+  let cut = 0;   // characters taken off the front, so a caret left alone still sits on the same letter
+  if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
+  const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
+  /* Already @-named anywhere in the words (typed by the person, at the front or mid-sentence): Reply
+     adds nothing and records nothing, so nothing later takes the person's own mention out. "Named" is
+     the engine's own rule (engine/messages.js): the same token pattern and the same trailing-punctuation
+     retry, so "thanks @roomer." counts here exactly as it does when the post is routed. */
+  const named = !!agent && [...text.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)]
+    .some((t) => t[2] === agent.key || t[2].replace(/[._-]+$/, '') === agent.key);
+  const ins = agent && !named ? '@' + agent.key + ' ' : '';
+  if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
+  const after = ins + text;
+  if (after !== before) input.value = after;
+  /* With a mention, the cursor goes right after it (the card), unless the box was unchanged and the
+     cursor is already past it, in the person's own words. Without a mention it stays on the same
+     letter it was on (a selected range collapses to its start). */
+  const at = ins ? (after === before && caret >= ins.length ? caret : ins.length) : Math.max(0, caret - cut);
+  input.focus();   // focus first, so no engine can drop the cursor we set when focus arrives later
+  input.setSelectionRange(at, at);
+  if (after === before) return;   // nothing changed, so nothing to repaint
+  // The same path typing takes, so the mention highlight and the box's height follow.
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 let PJ_ROOM_GEN = 0;
 let PJ_POSTING = false;
@@ -53542,12 +53592,17 @@ function rxnsInner(list, withReply) {
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
      gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
-  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM. */
-  const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">Reply</button>' : '';
+  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM.
+     #4358 (Josh): it goes LAST, after the smiley, so the four emoji sit together, and it carries a
+     small reply arrow before the word. */
+  const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
+    + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
+    + 'Reply</button>' : '';
   return pills
-    + '<span class="rxn-quick">' + quicks + reply
+    + '<span class="rxn-quick">' + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
+    + reply
     + '</span>';
 }
 function pjReactions(m) {
@@ -54226,7 +54281,10 @@ async function pjPostSend(attachment) {
   /* Files with no words go as their names (the card hides the duplicate).
      The text is read AFTER that, or an empty body goes out under a box that
      visibly holds the names. */
-  if (!input.value.trim() && pendingIds.length) input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
+  /* #4359: a box holding nothing but the mention Reply put there has no words in it yet. */
+  const replyMention = PJ_REPLY[PJ_CURRENT] && PJ_REPLY[PJ_CURRENT].mention;
+  const onlyMention = !!replyMention && input.value.trim() === replyMention.trim();
+  if ((!input.value.trim() || onlyMention) && pendingIds.length) input.value = (onlyMention ? replyMention : '') + attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
   const text = input.value;
   /* #2922: the attach-only fill above sets #pj-post.value directly with no input event, so repaint
      the live-mention mirror or it is left stale (blank) under the injected filenames while
@@ -54235,7 +54293,7 @@ async function pjPostSend(attachment) {
      guard keeps it to attach sends. Placed AFTER `text` is read so the fill stays adjacent to its
      capture (the room reads its text after the names are substituted in). */
   if (pendingIds.length) pjGrowComposer(input);
-  if (!text.trim()) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
+  if (!text.trim() || (onlyMention && !pendingIds.length)) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
   /* The flight can outlive the page state (a fan-out is seconds of tmux
      per recipient), so the sibling composer's discipline applies whole:
      the TAKEOFF project is captured, verdicts land only if the person is
