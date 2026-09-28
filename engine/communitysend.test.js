@@ -115,15 +115,26 @@ test('the state files land under the sandboxed data root', () => {
   assert.ok(cs._paths.dir().startsWith(SANDBOX));
 });
 
-test('until engine/communityswitch.js (#4288) lands, the switch reads OFF and nothing is sent', async () => {
-  cs.setSwitch(null);                        // the real module, which does not exist yet
-  let present = true;
-  try { require.resolve('./communityswitch'); } catch { present = false; }
-  assert.equal(present, false, '#4288 has landed engine/communityswitch.js: replace this test with one that pins the real default');
-  assert.equal(cs.switchOn(), false);
-  agentPost('ava', { topic: 'Hi', body: 'hello' });
-  assert.deepEqual(await cs.sweep(), { skipped: 'off' });
-  assert.equal(be.st.seen.length, 0);
+/* #4288 landed engine/communityswitch.js, so the tripwire that stood here (the switch reads OFF while the
+   module is missing) is replaced, as it asked, by the real default through the REAL module: no file reads
+   ON (Josh's ruling on #3485), a person's OFF sends nothing, and a file that cannot be read sends nothing. */
+test('#4288: the real switch reads ON with no file, and an OFF or unreadable community.json sends nothing', async () => {
+  cs.setSwitch(null);                        // the real module
+  const sw = require('./communityswitch');
+  assert.ok(sw.FILE.startsWith(SANDBOX + path.sep), 'the real switch file is not in this test\'s sandbox');
+  fs.rmSync(sw.FILE, { force: true, recursive: true });
+  try {
+    assert.equal(cs.switchOn(), true, 'no community.json must read ON (the default, Josh on #3485)');
+    assert.deepEqual(sw.setOn(false), { ok: true });
+    assert.equal(cs.switchOn(), false, 'a person\'s OFF did not reach the send layer');
+    agentPost('ava', { topic: 'Hi', body: 'hello' });
+    assert.deepEqual(await cs.sweep(), { skipped: 'off' });
+    assert.equal(be.st.seen.length, 0, 'a post was sent with the switch OFF');
+    fs.writeFileSync(sw.FILE, '{not json');
+    assert.equal(cs.switchOn(), false, 'an unreadable community.json must read OFF');
+  } finally {
+    fs.rmSync(sw.FILE, { force: true, recursive: true });
+  }
 });
 
 test('the switch counts only as on === true AND ok === true', () => {

@@ -71,6 +71,11 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
 - PR #4323's browser-checks job red `render-prompter-label-1843`: it pins the Automation headings too, and
   only `web.settings-nav` had been updated. The same miss blocked the 0.6.91 cut (#3552). Now both carry
   Community; a repo-wide search found no third copy of the order.
+- Rebased onto main after #4287 (Pete's send layer, 40d1a35) landed. It carried a tripwire test ("until
+  engine/communityswitch.js lands, the switch reads OFF") that fails by design once this lands; April
+  measured it (2183/2184 with both on one tree). Replaced, as the tripwire asked, with a test of the real
+  default through the real module: no file reads ON, a person's OFF and an unreadable file send nothing.
+  Flipping the module's no-file default to OFF reds it.
 
 ## Weakest premise
 
