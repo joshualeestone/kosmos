@@ -220,14 +220,14 @@ async function run() {
     for (const cls of ['rm-back', 'fr-back', 'upd-back']) {
       const nh = await page();
       let heldPosts = 0;
-      await nh.addInitScript((c) => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = c; d.id = 'planted-cover'; document.body.appendChild(d); }); }, cls);
+      await nh.addInitScript((c) => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = c; d.dataset.planted = '1'; document.body.appendChild(d); }); }, cls);
       await nh.route(ROUTE, answer(pending));
       await nh.route(SEEN, (route) => { heldPosts++; return answer({ ...pending, noticeSeen: true })(route); });
       await load(nh);
       await nh.waitForTimeout(3000);
       const held = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
       check('HELD (' + cls + '): the notice waits and records nothing while it is up', held === false && heldPosts === 0, JSON.stringify([held, heldPosts]));
-      await nh.evaluate(() => document.getElementById('planted-cover').remove());
+      await nh.evaluate(() => document.querySelector('[data-planted]').remove());
       await nh.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
       const opened = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
       check('HELD (' + cls + '): once it is gone the notice opens and records itself once', opened === true && heldPosts === 1, JSON.stringify([opened, heldPosts]));
@@ -238,13 +238,13 @@ async function run() {
     // the notice reads the setting again and opens nothing.
     const ns = await page();
     let staleGets = 0; let stalePosts = 0;
-    await ns.addInitScript(() => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = 'rm-back'; d.id = 'planted-cover'; document.body.appendChild(d); }); });
+    await ns.addInitScript(() => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = 'rm-back'; d.dataset.planted = '1'; document.body.appendChild(d); }); });
     await ns.route(ROUTE, (route) => { staleGets++; return answer(staleGets <= 2 ? pending : { on: false, ok: true, share: null, noticeSeen: false })(route); });
     await ns.route(SEEN, (route) => { stalePosts++; return answer({ ...pending, noticeSeen: true })(route); });
     await load(ns);
     await ns.waitForTimeout(2500);
     const gotBefore = staleGets;
-    await ns.evaluate(() => document.getElementById('planted-cover').remove());
+    await ns.evaluate(() => document.querySelector('[data-planted]').remove());
     await ns.waitForTimeout(3000);
     const st = await ns.evaluate(() => Boolean(document.getElementById('cmnotice')));
     check('STALE: a switch turned OFF during the wait opens nothing and records nothing', gotBefore === 2 && staleGets >= 3 && st === false && stalePosts === 0, JSON.stringify({ gotBefore, staleGets, st, stalePosts }));
@@ -286,11 +286,11 @@ async function run() {
 
     const n2 = await noticeFor(pending);
     // A window drawn OVER the notice owns the keys: with the update overlay up, Escape leaves the notice alone.
-    await n2.pg.evaluate(() => { const d = document.createElement('div'); d.className = 'upd-back'; d.id = 'planted-upd'; document.body.appendChild(d); });
+    await n2.pg.evaluate(() => { const d = document.createElement('div'); d.className = 'upd-back'; d.dataset.planted = '1'; document.body.appendChild(d); });
     await n2.pg.keyboard.press('Escape');
     await n2.pg.waitForTimeout(200);
     check('NOTICE: with the update overlay over it, Escape does not close the notice', (await noticeState(n2.pg)).open === true);
-    await n2.pg.evaluate(() => document.getElementById('planted-upd').remove());
+    await n2.pg.evaluate(() => document.querySelector('[data-planted]').remove());
     await n2.pg.keyboard.press('Escape');
     await n2.pg.waitForTimeout(200);
     check('NOTICE: Escape closes it', (await noticeState(n2.pg)).open === false);
