@@ -33,6 +33,9 @@ board process, so it never cleared.
 - An automatic restart: it interrupts every open page; one button keeps the person in charge of when.
 
 ## Weakest premises
+- A module required AFTER boot is remembered by the next sweep (every 5 s, on its own timer), not at the moment
+  it loaded: an edit inside that window would be taken as its baseline. Exact capture would mean hooking Node's
+  module loader in a release-critical change; the 5 s window is the accepted residual.
 - A file changed on disk may be one the board never re-reads (e.g. a web asset); only loaded modules are compared,
   as before.
 - canSelfRestart decides the button; a board where it says no gets words, not a button.

@@ -17023,6 +17023,9 @@ function federateOut(projectId, delivery, operator) {
 function start(port = PORT) {
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. */
   for (const f of engineLoadedFiles()) engineRemember(f);
+  /* And a sweep on its own clock, not only when a page polls, so a module required later is remembered
+     within a sweep of loading rather than whenever a page next asks (review iteration 2). */
+  setInterval(() => { try { engineFreshness(); } catch { /* never throws; belt and braces */ } }, 5000).unref();
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
      start() runs after every top-level require, which is too late for the ~27 modules
