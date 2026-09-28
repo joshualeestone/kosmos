@@ -39,3 +39,16 @@ sandboxed data folder.
 
 ## Status
 - 12:1x: built, musestatus tests 26/26.
+
+## Review round 1 (opus, 12:03)
+- Callers' comments said the switch was AGENT_WORKFORCE_MUSE=1 only; they now point at
+  musestatus.enabled. The create form's comment no longer says the flag is read at board start.
+
+## Review round 2 (sonnet, 12:31)
+- The Create form kept a switched-off answer for the life of the page, so a marker created with the
+  page open (the case this branch exists for) stayed invisible there until a reload, while Settings
+  saw it. DECIDED: an off answer is asked again after 60 s (MUSE_OFF_RECHECK_MS). Rejected: dropping
+  the settle (every flag-off board would read /api/muse on every paint again, 3c-3b round 1's finding).
+  Weakest premise: a minute is short enough that Josh never sees the stale state; his one line ends with
+  reopening the window anyway.
+- The test asserts against the exported PREVIEW_MARKER, so the export has a reader.

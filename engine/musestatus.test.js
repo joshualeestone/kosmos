@@ -383,7 +383,8 @@ test('#3939: the preview marker turns Muse on (a Mac), and removing it turns it 
   try {
     const marker = muse.previewMarker();
     assert.ok(marker.startsWith(SANDBOX), 'the marker must live in the sandboxed data folder: ' + marker);
-    assert.equal(path.basename(marker), 'muse-preview-on');
+    assert.equal(path.basename(marker), muse.PREVIEW_MARKER);
+    assert.equal(muse.PREVIEW_MARKER, 'muse-preview-on', 'the name Josh\'s one line creates');
     fs.rmSync(marker, { force: true });
     assert.equal(muse.enabled('darwin'), false, 'CONTROL: no marker, no variable: off');
     fs.mkdirSync(path.dirname(marker), { recursive: true });

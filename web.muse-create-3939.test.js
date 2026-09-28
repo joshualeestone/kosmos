@@ -25,6 +25,7 @@ function menu(id) {
 const load = new Function('document', 'fetch', 'CURRENT', 'providerOf', 'createPickGone', `
   let CREATE_ACCOUNTS_KNOWN = true;
   let MUSE_CREATE = null; let MUSE_CREATE_ASKING = null;
+  const MUSE_OFF_RECHECK_MS = 60000;
   ${grab('function paintMuseOption(')}
   ${grab('function museCreateAsk(')}
   return { paintMuseOption, museCreateAsk, state: () => MUSE_CREATE, set: (v) => { MUSE_CREATE = v; } };
@@ -75,7 +76,9 @@ test('#3939 3c-3b: a failed read (thrown, or not ok) keeps the last good answer'
     await p.api.museCreateAsk();
     assert.equal(p.calls.fetch, 2, 'CONTROL: the second read was made (' + bad + ')');
     assert.equal(p.els['create-provider'].opt('meta').disabled, false, String(bad));
-    assert.deepEqual(p.api.state(), { on: true, installed: true, ready: true }, String(bad));
+    const { at, ...kept } = p.api.state();
+    assert.deepEqual(kept, { on: true, installed: true, ready: true }, String(bad));
+    assert.equal(typeof at, 'number', String(bad));
   }
 });
 
@@ -89,6 +92,20 @@ test('#3939 3c-3b: turned off here is not asked again; turned on is asked on eve
   await on.api.museCreateAsk();
   assert.equal(on.calls.fetch, 2, 'CONTROL: signed out is asked again, so signing in shows without a reload');
   assert.equal(on.els['create-provider'].opt('meta').disabled, false);
+});
+
+test('#3939: a switched-off answer older than a minute is asked again (the preview marker can switch it on)', async () => {
+  const p = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
+  await p.api.museCreateAsk();
+  p.api.set({ ...p.api.state(), at: Date.now() - 60001 });
+  await p.api.museCreateAsk();
+  assert.equal(p.calls.fetch, 2, 'an old off must be asked again');
+  assert.equal(p.els['create-provider'].opt('meta').disabled, false, 'and switching on shows without a reload');
+  const q = page([{ enabled: false }, { enabled: true, installed: true, signedIn: true }]);
+  await q.api.museCreateAsk();
+  q.api.set({ ...q.api.state(), at: Date.now() - 1000 });
+  await q.api.museCreateAsk();
+  assert.equal(q.calls.fetch, 1, 'CONTROL: a fresh off is not asked again');
 });
 
 test('#3939 3c-3b: the agent page offers Meta only as the agent\'s current provider', async () => {
