@@ -134,7 +134,9 @@ test('the create form carries the default-checked, hardcoded beacon checkbox', (
   assert.match(WEB, /b\.notifyCreated = document\.getElementById\('create-tell'\)\.checked/, 'the create request does not send notifyCreated from the checkbox');
 });
 
-test('cleanup the sandbox', () => {
+/* After EVERY test, not as the last test: a cleanup written as a test runs before anything appended below
+   it, and the #4253 rule C test (appended later) recreated the sandbox after it and leaked it (#4273). */
+test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 

@@ -28,3 +28,11 @@ build that sends the flag runs on a marked machine; the Kosmos half changes noth
 ## Weakest premise
 That nothing else reads `installs/` expecting every install to be there (for example the admin read or a
 future per-install feature). Grep says only counts, admin and created list it.
+
+## Full-suite validation (kosmos half, 10:27 CDT)
+- node tests: 11,261 run, 11,096 pass, 0 fail.
+- RED, mine, FIXED: the #4273 leak guard caught a createdbeacon-3038 temp dir. The file's cleanup was written as
+  the LAST TEST, and the rule C test appended after it recreated the sandbox. The cleanup is now `test.after`.
+  Proven both ways in a fresh TMPDIR: the old file leaves 1 dir, the fixed file leaves 0.
+- RED, not this branch: test-tunnel-handshake-gate (3, then 14, then on untouched origin/main 53/0 and 35/18 on
+  consecutive runs). That is #4352 (CANNOT TELL under load). This diff touches nothing under tools/.
