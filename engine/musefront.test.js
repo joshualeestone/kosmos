@@ -32,6 +32,8 @@ function harness(answers, opts = {}) {
   return { f, calls, reports, out: () => out, pending, stops };
 }
 const OK = (text) => ({ ok: true, text, because: null });
+/* A turn that is never stopped never ends, so a broken Stop must fail here rather than hang the file. */
+const within = (p, what, ms = 2000) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(what)), ms).unref())]);
 
 test('one Enter is one message: chunked bytes before it are one turn, on this agent\'s session, never asking', async () => {
   const h = harness([OK('DONE')]);
@@ -111,7 +113,7 @@ test('the board\'s Stop (one Escape, on its own) never eats the next message', a
     const h = harness([OK('a')]);
     h.f.feed('\u001b');
     h.f.feed(next + '\r');
-    await h.f.drained();
+    await within(h.f.drained(), 'the message after Stop never ran');
     assert.equal(h.calls.length, 1);
     assert.equal(h.calls[0].prompt, next, 'the Escape swallowed the start of the next message');
   }
@@ -128,7 +130,7 @@ test('the board\'s Stop ends the running turn, drops the waiting ones, and the f
   h.f.feed('queued one\r');
   h.f.feed('half typed');
   h.f.feed('\u001b');
-  await h.f.drained();
+  await within(h.f.drained(), 'Stop did not end the running turn');
   assert.equal(h.stops[0], 1, 'the running turn was not stopped');
   assert.deepEqual(h.calls.map((c) => c.prompt), ['long job'], 'a waiting message ran after Stop');
   assert.match(h.out(), /1 waiting message was dropped/);
