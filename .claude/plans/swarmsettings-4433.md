@@ -81,3 +81,6 @@ That removing Stop now from the phone chat header costs nothing important. A per
   - A mutant re-hiding the pill turns both red.
 - **NIT** The chat's paused refusal said "switch it back on", but the switch is no longer above the conversation. It now says "set it to Active in Swarm Settings" (engine/swarm.js pausedSentence; engine tests 171/171).
 - **NIT** Two nested landmarks shared one name. The inner panel's name is removed.
+
+## Review round 6 (sonnet, blind): 0 BLOCKERs, 1 WARNING
+- WARNING Nothing pinned the new refusal wording. Added engine/swarm.test.js "#4433": every reason names "Set it to Active in Swarm Settings" and never "switch it back on". Control: the old copy restored for 'person' (applied 1) turns it red.
