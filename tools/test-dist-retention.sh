@@ -459,7 +459,8 @@ before="$(count_files "$D")"
 js="$(bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$TMP/g3-mirror" --check-copies --json 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$before" = "$(count_files "$D")" ] && ok "check-copies: dry run, nothing deleted" || no "check-copies: rc $rc or files changed"
 echo "$js" | grep -q '"copy_proven":\["0.6.09"\],"copy_refused":\["0.6.08"\]' && ok "check-copies: --json splits proven/refused" || no "check-copies: wrong json -- $js"
-bash "$TOOL" --dist "$D" --check-copies --prod-history 0 >/dev/null 2>&1; [ $? -eq 1 ] && ok "check-copies without --copy-base: refuses" || no "check-copies without --copy-base: accepted"
+out="$(bash "$TOOL" --dist "$D" --check-copies --prod-history 0 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "$out" | grep -q "needs --copy-base" && ok "check-copies without --copy-base: refuses, and says why" || no "check-copies without --copy-base: rc $rc -- $out"
 
 # =============================================================================
 # #1605 KEEP RULE: prior served versions from git, rollback pointers, versions.html
@@ -512,7 +513,79 @@ present "$D" kosmos-0.6.09-arm64.tar.gz && ok "rollback pointer: the version it 
 present "$D" kosmos-0.6.11-arm64.tar.gz && ok "versions.html: a linked download is kept (read by default)" || no "versions.html: linked download PRUNED"
 present "$D" kosmos-0.6.13-arm64.tar.gz && ok "--referenced-by: a named artifact is kept" || no "--referenced-by: PRUNED"
 { absent "$D" kosmos-0.6.10-arm64.tar.gz && absent "$D" kosmos-0.6.12-arm64.tar.gz; } && ok "references: unreferenced versions still pruned (control)" || no "references: over-kept"
-bash "$TOOL" --dist "$D" --referenced-by "$TMP/no-such-file" >/dev/null 2>&1; [ $? -eq 1 ] && ok "--referenced-by a missing file: refuses" || no "--referenced-by a missing file: accepted"
+out="$(bash "$TOOL" --dist "$D" --referenced-by "$TMP/no-such-file" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "$out" | grep -q "is not a readable file" && ok "--referenced-by a missing file: refuses, and says why" || no "--referenced-by a missing file: rc $rc -- $out"
+out="$(bash "$TOOL" --dist "$D" --referenced-by "" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && echo "$out" | grep -q "empty path" && ok "--referenced-by \"\": refuses (an empty variable in a caller protects nothing)" || no "--referenced-by \"\": rc $rc -- $out"
+
+# =============================================================================
+# Review round 1 (challenge-loop): each arm below failed OPEN before its fix.
+# =============================================================================
+# copy_fixture_into <src-dist> <dst-dist>: the fixture triples and invariants, but
+# not latest.json (a clone already carries the committed pointer).
+copy_fixture_into(){ ( cd "$1" && for f in *; do [ "$f" = latest.json ] || cp "$f" "$2/"; done ); }
+
+# --- History 5: a SHALLOW clone of the site repo fails closed -----------------
+S="$TMP/h5site"; D="$S/dist"; make_fixture "$D" 0.6.17 $(ten)
+git init -q "$S"
+for v in 0.6.10 0.6.11 0.6.12 0.6.13 0.6.17; do serve "$D" "$v"; done
+C="$TMP/h5shallow"; git clone -q --depth 1 "file://$S" "$C" 2>/dev/null; copy_fixture_into "$D" "$C/dist"
+[ "$(git -C "$C" rev-parse --is-shallow-repository)" = "true" ] && ok "shallow: fixture really is shallow" || no "shallow: fixture is not shallow, the arm proves nothing"
+before="$(count_files "$C/dist")"
+out="$(bash "$TOOL" --dist "$C/dist" --keep 0 --prod-history 3 --copy-base "file://$MIRROR" --prune --yes 2>&1)"
+[ "$before" = "$(count_files "$C/dist")" ] && ok "shallow: nothing pruned (history is incomplete, not empty)" || no "shallow: PRUNED from a shallow history -- $out"
+echo "$out" | grep -q "cannot be read from latest.json's git history" && ok "shallow: says why" || no "shallow: silent -- $out"
+# Control: a FULL clone at its upstream prunes normally and keeps the prior 3.
+F="$TMP/h5full"; git clone -q "file://$S" "$F" 2>/dev/null; copy_fixture_into "$D" "$F/dist"
+bash "$TOOL" --dist "$F/dist" --keep 0 --prod-history 3 --copy-base "file://$MIRROR" --prune --yes >/dev/null 2>&1
+{ present "$F/dist" kosmos-0.6.11-arm64.tar.gz && absent "$F/dist" kosmos-0.6.10-arm64.tar.gz && absent "$F/dist" kosmos-0.6.08-arm64.tar.gz; } \
+  && ok "full clone (control): prior 3 kept, the rest pruned" || no "full clone (control): wrong result"
+
+# --- History 6: a checkout BEHIND its upstream fails closed -------------------
+B="$TMP/h6behind"; git clone -q "file://$S" "$B" 2>/dev/null; copy_fixture_into "$D" "$B/dist"
+git -C "$B" reset -q --hard HEAD~2; copy_fixture_into "$D" "$B/dist"
+before="$(count_files "$B/dist")"
+out="$(bash "$TOOL" --dist "$B/dist" --keep 0 --prod-history 3 --copy-base "file://$MIRROR" --prune --yes 2>&1)"
+[ "$before" = "$(count_files "$B/dist")" ] && ok "behind upstream: nothing pruned" || no "behind upstream: PRUNED from a stale history -- $out"
+
+# --- History 7: a prior pointer with version-format skew protects its artifact -
+S="$TMP/h7site"; D="$S/dist"; make_fixture "$D" 0.6.17 $(ten)
+git init -q "$S"
+printf '{"version":"0.6.9","sha256":"x","artifact":"kosmos-0.6.09-arm64.tar.gz"}\n' > "$D/latest.json"
+gitc "$D" add latest.json >/dev/null && gitc "$D" commit -q -m "promote 0.6.9" -- latest.json
+serve "$D" 0.6.17
+bash "$TOOL" --dist "$D" --keep 0 --prod-history 1 --copy-base "file://$MIRROR" --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.09-arm64.tar.gz && ok "history skew: prior \"0.6.9\" protects kosmos-0.6.09 by its artifact name" || no "history skew: prior served build PRUNED"
+absent "$D" kosmos-0.6.10-arm64.tar.gz && ok "history skew: an unserved version is still pruned (control)" || no "history skew: over-kept"
+
+# --- Gate 7: spellings that reach this dist or the site are refused ----------
+D="$TMP/g7"; make_fixture "$D" 0.6.17 $(ten); before="$(count_files "$D")"
+enc="$(dirname "$D")/%67%37"   # %67%37 decodes to g7: the dist itself
+for base in "file://$enc" https://u@installkosmos.com/dist https://installkosmos.com./dist 'https://installkosmos.com%2e/x' https://CHAOSKOSMOS.COM../dist; do
+  out="$(bash "$TOOL" --dist "$D" --keep 2 --prod-history 0 --copy-base "$base" --prune --yes 2>&1)"; rc=$?
+  [ "$rc" -eq 1 ] && ok "gate base refused: $base" || no "gate base ACCEPTED (exit $rc): $base -- $out"
+done
+[ "$before" = "$(count_files "$D")" ] && ok "gate base: nothing deleted by an encoded or disguised base" || no "gate base: files deleted"
+
+# --- Gate 8: a base of LINKS to this dist's files is not a second copy -------
+for kind in sym hard; do
+  D="$TMP/g8$kind"; make_fixture "$D" 0.6.17 $(ten); L="$TMP/g8$kind-links"; mkdir -p "$L"
+  for f in "$D"/kosmos-0.6.*; do
+    if [ "$kind" = sym ]; then ln -s "$f" "$L/$(basename "$f")"; else ln "$f" "$L/$(basename "$f")"; fi
+  done
+  before="$(count_files "$D")"
+  out="$(bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$L" --prune --yes 2>&1)"
+  [ "$before" = "$(count_files "$D")" ] && ok "gate ${kind}links: nothing pruned" || no "gate ${kind}links: PRUNED against links to itself -- $out"
+  echo "$out" | grep -q "is the same file as the local one" && ok "gate ${kind}links: says why" || no "gate ${kind}links: no reason -- $out"
+done
+
+# --- Gate 9: "pruned" in --json is true only when something was deleted -------
+D="$TMP/g9"; make_fixture "$D" 0.6.17 $(ten); mkdir -p "$TMP/g9-empty"
+js="$(bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$TMP/g9-empty" --prune --yes --json 2>&1)"
+echo "$js" | grep -q '"pruned":false' && ok "json: pruned false when the gate refused everything" || no "json: pruned claims a deletion that did not happen -- $js"
+D="$TMP/g9b"; make_fixture "$D" 0.6.17 $(ten)
+js="$(bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$MIRROR" --prune --yes --json 2>&1)"
+echo "$js" | grep -q '"pruned":true' && ok "json: pruned true when versions were deleted (control)" || no "json control: -- $js"
 
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"

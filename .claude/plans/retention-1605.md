@@ -27,8 +27,29 @@ tools/test-dist-retention.sh: 80 pre-existing checks unchanged in meaning (LEGAC
 as copy base, --prod-history 0), plus gate and history arms. 10 perturbations of the new guards each
 turn the suite red.
 
+## Review round 1 (opus, blind): 2 BLOCKER, 3 WARNING, 5 NIT; all fixed
+- BLOCKER shallow clone: a depth-1 checkout returned one commit, so "no prior versions" read as
+  success. Now fails closed on `--is-shallow-repository`.
+- BLOCKER file:// self-copy: curl URL-decodes `%XX`, so `file:///.../%64ist` named the dist and every
+  file matched itself. Now any base containing `%` or `@` is refused, and a file:// source with the
+  same device:inode as the local file (symlink, hardlink, same path) is refused per file.
+- WARNING host blacklist: userinfo and trailing-dot spellings passed. Refused now (`@`, `%`, trailing
+  dots stripped before the match). Redirects are no longer followed (`-L` dropped, `--max-redirs 0`),
+  so an allowed base cannot bounce to the site. NOT done: an allowlist of the R2 host, because no base
+  is hard-coded (decision above); other aliases of the site (a vercel.app name) are not refused.
+  The no-redirect change has no test: it needs an https server returning a 3xx.
+- WARNING prior served by version string only: old pointers' `artifact`/`versioned` names are now
+  protected too (format skew).
+- WARNING history read from a stale HEAD: when the checkout has an upstream and is behind it, fail
+  closed. Weakest premise: a detached or upstream-less checkout cannot be checked this way.
+- NITs: `--referenced-by ""` refused; `"pruned"` in --json is true only when a version was proven
+  (and so deleted); the no-`--yes` message no longer says there is no copy; refusal arms assert the
+  message, not just exit 1.
+- Tests 115 -> 135. Each fix mutated back turns at least one arm red (9 mutants, 8 killed; the
+  surviving one is the untested redirect change above).
+
 ## Status
 - [x] implementation
 - [x] tests + perturbations
-- [ ] challenge loop
+- [ ] challenge loop (round 1 fixed; round 2 next)
 - [ ] PR, merge, card comment

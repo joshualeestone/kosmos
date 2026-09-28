@@ -109,6 +109,9 @@ esac
 # normalization so a huge value cannot wrap (same reasoning as --keep below).
 if [ "${#PROD_HISTORY}" -gt 7 ]; then PROD_HISTORY=1000000; else PROD_HISTORY=$((10#$PROD_HISTORY)); fi
 for rf in "${REFERENCED_BY[@]:-}"; do
+  if [ "${#REFERENCED_BY[@]}" -gt 0 ] && [ -z "$rf" ]; then
+    echo "dist-retention: --referenced-by was given an empty path -- refusing (an empty reference list would protect nothing)" >&2; exit 1
+  fi
   [ -z "$rf" ] || [ -f "$rf" ] || { echo "dist-retention: --referenced-by '$rf' is not a readable file -- refusing (a missing reference list would protect nothing)" >&2; exit 1; }
 done
 # The site page that links downloads sits beside dist/. Protect what it links by default.
@@ -121,8 +124,15 @@ if [ -n "$COPY_BASE" ]; then
     https://*|file:///*) : ;;
     *) echo "dist-retention: --copy-base must be an https:// or file:/// URL, got '$COPY_BASE'" >&2; exit 1 ;;
   esac
+  # Refuse spellings that let the string checks below see a different place than curl
+  # fetches: curl URL-decodes %XX (file:///.../%64ist is .../dist), and a userinfo or
+  # trailing-dot host is the same host to curl while the host match below misses it.
+  case "$COPY_BASE" in
+    *%*|*@*) echo "dist-retention: --copy-base '$COPY_BASE' contains '%' or '@' -- refusing (an encoded or userinfo spelling can name this dist or the site that serves it)" >&2; exit 1 ;;
+  esac
   cb_host="${COPY_BASE#https://}"; cb_host="${cb_host%%/*}"; cb_host="${cb_host%%:*}"
   cb_host="$(printf '%s' "$cb_host" | tr '[:upper:]' '[:lower:]')"
+  while [ "${cb_host%.}" != "$cb_host" ]; do cb_host="${cb_host%.}"; done
   case "$cb_host" in
     installkosmos.com|*.installkosmos.com|chaoskosmos.com|*.chaoskosmos.com)
       echo "dist-retention: --copy-base '$COPY_BASE' is the site that serves THIS dist -- it is not a second copy (deploying the prune removes it). Use the R2 bucket's own URL." >&2
@@ -182,6 +192,11 @@ read_pointer_versioned() {
   grep -o '"versioned"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
 }
 
+# file_id <file>: "device:inode" after following symlinks, or non-zero status.
+file_id() {
+  stat -L -f '%d:%i' "$1" 2>/dev/null || stat -L -c '%d:%i' "$1" 2>/dev/null
+}
+
 # sha256_of <file>: the hex digest, or non-zero status. No pipe, so a failing
 # hasher cannot be masked by a later stage.
 sha256_of() {
@@ -208,7 +223,20 @@ copy_proven() {
   [ -d "$GATE_TMP" ] || { echo "gate scratch directory missing"; return 1; }
   tmp="$GATE_TMP/copy"
   rm -f "$tmp"
-  if ! curl -fsSL --proto '=https,file' --proto-redir '=https' --max-time 1800 -o "$tmp" "$COPY_BASE/$name" </dev/null 2>/dev/null; then
+  # A file:// source that IS the local file (a symlink or hardlink to it, or the dist
+  # reached by another path) is not a second copy, whatever its hash says.
+  case "$COPY_BASE" in
+    file:///*)
+      local src="${COPY_BASE#file://}/$name" li si
+      if [ -e "$src" ]; then
+        li="$(file_id "$f")" || { echo "could not identify local $name"; return 1; }
+        si="$(file_id "$src")" || { echo "could not identify the copy of $name"; return 1; }
+        [ "$li" != "$si" ] || { echo "copy of $name is the same file as the local one (link or same path), not a second copy"; return 1; }
+      fi ;;
+  esac
+  # No redirects: a base that redirects could land on the site serving this dist,
+  # which the host check above cannot see. A 3xx is saved as-is and fails the hash.
+  if ! curl -fsS --max-redirs 0 --proto '=https,file' --max-time 1800 -o "$tmp" "$COPY_BASE/$name" </dev/null 2>/dev/null; then
     echo "no copy at $COPY_BASE/$name (fetch failed or not found)"; return 1
   fi
   [ -f "$tmp" ] || { echo "no copy at $COPY_BASE/$name (nothing downloaded)"; return 1; }
@@ -225,8 +253,17 @@ copy_proven() {
 # Non-zero when the history cannot be read (not a git checkout, pointer never
 # committed): the caller then refuses to prune that family rather than guess.
 prior_served_versions() {
-  local pointer="$1" served="$2" n="$3" shas sha content ver seen=" " got=0
+  local pointer="$1" served="$2" n="$3" shas sha content ver nm seen=" " got=0
   git -C "$DIST" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  # A shallow clone (CI and deploy checkouts often are) holds only the newest
+  # promotes, so "found fewer prior versions" would read as "there were none".
+  [ "$(git -C "$DIST" rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 1
+  # A checkout BEHIND its upstream reads an older history as if it were current.
+  # With no upstream (a detached or local-only checkout) this cannot be checked.
+  local up
+  if up="$(git -C "$DIST" rev-parse --verify --quiet '@{upstream}' 2>/dev/null)" && [ -n "$up" ]; then
+    git -C "$DIST" merge-base --is-ancestor "$up" HEAD 2>/dev/null || return 1
+  fi
   shas="$(git -C "$DIST" log --format=%H -- "$pointer" 2>/dev/null)" || return 1
   [ -n "$shas" ] || return 1
   [ "$n" -gt 0 ] || return 0
@@ -236,6 +273,12 @@ prior_served_versions() {
     case "$ver" in ''|*[!0-9A-Za-z.+_-]*) continue ;; esac
     [ "$ver" = "$served" ] && continue
     case "$seen" in *" $ver "*) continue ;; esac
+    # Also the artifact names the old pointer gave (version-format skew: "0.6.5"
+    # naming kosmos-0.6.05-...). Emitted as "@<name>" lines; the caller protects them.
+    for nm in "$(printf '%s\n' "$content" | grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)" \
+              "$(printf '%s\n' "$content" | grep -o '"versioned"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"; do
+      [ -z "$nm" ] || printf '@%s\n' "$nm"
+    done
     seen="${seen}${ver} "
     printf '%s\n' "$ver"
     got=$(( got + 1 ))
@@ -389,7 +432,14 @@ process_family() {
   local PRIOR_PROD="" pv HISTORY_OK=1
   if [ -n "$SERVED_VERSION" ] && [ "$NVER" -gt 0 ]; then
     if PRIOR_PROD="$(prior_served_versions "$POINTER" "$SERVED_VERSION" "$PROD_HISTORY")"; then
-      for pv in $PRIOR_PROD; do in_keep "$pv" || KEEP_LIST="${KEEP_LIST}${pv} "; done
+      for pv in $PRIOR_PROD; do
+        case "$pv" in
+          @*) protect_named_artifact "${pv#@}" ;;
+          *) in_keep "$pv" || KEEP_LIST="${KEEP_LIST}${pv} " ;;
+        esac
+      done
+      # Report versions only; the "@name" lines were for protection.
+      PRIOR_PROD="$(printf '%s\n' $PRIOR_PROD | grep -v '^@' || true)"
     elif [ "$PROD_HISTORY" -gt 0 ]; then
       HISTORY_OK=0
       PRUNE_ALLOWED=0
@@ -484,7 +534,7 @@ process_family() {
     FAMILY_JSON="${FAMILY_JSON}$(printf '],"prune_files":%d,"reclaim_bytes":%d,"prune_allowed":%s,"pruned":%s' \
       "$PRUNE_FILE_COUNT" "$RECLAIM" \
       "$([ "$PRUNE_ALLOWED" -eq 1 ] && echo true || echo false)" \
-      "$([ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 1 ] && [ "$PRUNE_ALLOWED" -eq 1 ] && echo true || echo false)")"
+      "$([ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 1 ] && [ "$PRUNE_ALLOWED" -eq 1 ] && [ -n "${PROVEN_VERSIONS[*]:-}" ] && echo true || echo false)")"
     FAMILY_JSON="${FAMILY_JSON}$(printf ',"prior_served":[')"
     jfirst=1
     for v in $PRIOR_PROD; do
@@ -593,7 +643,7 @@ process_family() {
 # --- PRUNE gate: refuse before touching ANY family (one message, not per-family) --
 if [ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 0 ]; then
   echo "dist-retention: REFUSING to prune without --yes." >&2
-  echo "  Deleting a published release tarball/zip is IRREVERSIBLE -- there is no off-disk copy." >&2
+  echo "  Deleting a published release tarball/zip is IRREVERSIBLE on this disk; a version goes only when --copy-base proves a byte-identical second copy." >&2
   echo "  Per #1605 that is Josh's call. Re-run with --prune --yes only on his authorisation." >&2
   # Show the dry-run report (both families) so the operator sees what --yes would do.
   DO_PRUNE=0
