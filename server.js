@@ -13305,12 +13305,17 @@ const server = http.createServer((req, res) => {
           /* Could not read is not gone (the room draws them apart too): a read that failed says so and
              leaves the reply for a retry, rather than telling the person their original has left. */
           let kept;
-          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch {
-            const unread = new Error('We could not read this conversation just now to find the message you are replying to. Try again in a moment.');
-            unread.status = 503; throw unread;
+          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch (err) {
+            // A name that can never be filed under is standing, not a blip (the GET's historyUnfilable): no retry.
+            const standing = err && err.code === 'BAD_THREAD';
+            const unread = new Error(standing
+              ? 'This conversation is not kept on this computer, so there is no message to reply to. Send it as a new message.'
+              : 'We could not read this conversation just now to find the message you are replying to. Try again in a moment.');
+            unread.status = standing ? 409 : 503; throw unread;
           }
+          // Only the agent's own messages and the person's: the tag inside the operator's bracket names one of the two.
           answered = kept.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
-            && r.kind !== 'kosmos' && r.kind !== 'question') || null;
+            && r.kind !== 'kosmos' && r.kind !== 'question' && (!r.from || r.from === name)) || null;
           if (!answered) {
             const gone = new Error('That message is no longer in this conversation. Press \u00d7 to send this as a new message.');
             gone.status = 409; throw gone;
@@ -13360,7 +13365,8 @@ const server = http.createServer((req, res) => {
           wire: chose ? chat.cleanMessage(body.text) : null,
           at: delivery.at,
           delivery,
-          /* #4256: stored only on a reply, so an ordinary message's row is unchanged. */
+          /* #4256: stored only on a reply, so an ordinary message's row is unchanged. `wire` stays null on a reply:
+             the '(answering: "...")' in front of the words is Kosmos's framing, like the envelope, not the person's. */
           ...(answered ? { replyTo: answered.at } : {}),
         });
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this

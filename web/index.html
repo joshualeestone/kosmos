@@ -30425,6 +30425,7 @@ function dmRow(m, name, replyAdjacent) {
    DM's hover bar lives; any row that answers another carries the header. */
 const DM_REPLY = {};
 let DM_REPLY_SENDING = null;   // { agent, at } of the reply on its way, so x knows whether THIS one already left
+let DM_JUMP_FOCUS = null;      // the `at` of the message a jump focused, so a repaint can put focus back on it
 let DM_ROWS = new Map();
 let DM_ROWS_OF = null;         // which agent DM_ROWS was painted for
 let DM_ROWS_NAME = '';         // that agent's display name
@@ -30652,12 +30653,20 @@ function paintTalkThread(body, name) {
     const dmHtml = rows.map((m, i) => dmRow(m, name, !filtering && i > 0 && !!rows[i - 1] && typeof m.replyTo === 'string'
       && rows[i - 1].at === m.replyTo)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
+    /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
+    if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
+      const r = thread.querySelector('.msg[data-mid="' + CSS.escape(DM_JUMP_FOCUS) + '"]');
+      if (r) { r.setAttribute('tabindex', '-1'); r.focus({ preventScroll: true }); }
+    }
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
 }
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  /* #4256: this agent's pending reply, not the last one's, before any read answers: the read's failure arm
+     returns without painting rows, and must not leave another agent's "Replying to" up. */
+  dmReplyPaint(sessionName);
   /* #2863: reading an agent's thread clears its unread-DM count. This mirrors
      the project /seen precisely, and BOTH halves matter: paintTalk re-runs on
      every ~5s poll while the panel is open, so an ungated POST would do a full
@@ -51730,9 +51739,17 @@ document.getElementById('d-dmthread').addEventListener('click', (e) => {
   row.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
   if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
   row.focus({ preventScroll: true });   // keyboard and screen-reader users land on the original too
+  DM_JUMP_FOCUS = at;
   row.classList.remove('msg-flash'); void row.offsetWidth; row.classList.add('msg-flash');
   setTimeout(() => row.classList.remove('msg-flash'), 1800);
 });
+/* #4256: the person moved on from a jumped-to message (as the room's #3745 does). */
+document.addEventListener('focusin', (e) => {
+  if (!DM_JUMP_FOCUS) return;
+  const row = e.target && e.target.closest ? e.target.closest('#d-dmthread .msg') : null;
+  if (!(row && e.target === row && row.getAttribute('data-mid') === DM_JUMP_FOCUS)) DM_JUMP_FOCUS = null;
+});
+document.addEventListener('pointerdown', () => { DM_JUMP_FOCUS = null; }, true);
 document.getElementById('d-reply').addEventListener('click', (e) => {
   const agent = CURRENT && CURRENT.sessionName;
   if (!e.target.closest('.pj-replying-x') || !agent) return;
@@ -53168,6 +53185,8 @@ function paintRoom(body) {
    across projects it would hide another room's posts silently). */
 document.getElementById('d-talk-search').addEventListener('input', () => {
   TALK_QUERY = document.getElementById('d-talk-search').value;
+  const said = document.getElementById('d-say-msg');   // #4256: "hidden by your search" is stale once the search changes
+  if (said && said.textContent === 'That message is hidden by your search.') said.textContent = '';
   const th = document.getElementById('d-dmthread');
   if (!th.__lastBody) return;
   paintTalkThread(th.__lastBody, th.__lastName);

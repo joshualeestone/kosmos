@@ -18,6 +18,8 @@
  *       older messages were not sent; never silence
  *   R8  phone: Reply in the tapped-open bar is a thumb-sized target
  *   R10 the strip belongs to one agent: another agent's page (even an empty thread) does not show it
+ *   R12 ... nor one whose thread cannot be read
+ *   R13 after a jump, a repaint that rewrites the thread keeps focus on the original
  *
  * Harness: loaded over file:// with fetch answered here (render-unread-edge-3743.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -74,6 +76,7 @@ async function openDm(page, messages, olderCount) {
             delivery: { state: 'placed', paneState: 'idle' }, ...(body.reply_to ? { replyTo: body.reply_to } : {}) }]) };
           return enc({ delivery: { state: 'placed', at: new Date().toISOString() }, recorded: true });
         }
+        if (u.includes('/thread') && window.__failRead) return new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } });
         if (u.includes('/thread')) return enc(window.__fx);
         return enc({});
       };
@@ -132,6 +135,12 @@ async function openDm(page, messages, olderCount) {
       return { mid: row && row.getAttribute('data-mid'), flash: !!(row && row.classList.contains('msg-flash')), want };
     }, at(1));
     chk(jumped.mid === at(1) && jumped.flash, 'R6 the header jumps to the original and highlights it', JSON.stringify(jumped));
+    // R13: a message landing right after the jump rewrites the thread; focus stays on the original (the room's rule).
+    await page.evaluate(() => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at: '2026-09-27T14:09:00.000Z', text: 'One more thing' }]) }; });
+    await page.evaluate(() => paintTalk('april', 'April'));
+    const kept13 = await page.evaluate(() => { const r = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.msg') : null;
+      return { mid: r && r.getAttribute('data-mid'), rows: document.querySelectorAll('#d-dmthread .msg').length }; });
+    chk(kept13.mid === at(1) && kept13.rows === 5, 'R13 after a jump, a repaint that rewrites the thread keeps focus on the original', JSON.stringify(kept13));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'dm-reply-header.png') });
     // R6b: right under what it answers, there is no visible header (the room's rule, #3745); a screen reader still
     // hears it. CONTROL: R6's non-adjacent reply above did draw one.
@@ -179,6 +188,16 @@ async function openDm(page, messages, olderCount) {
     const back10 = await page.evaluate(() => !document.getElementById('d-reply').hidden);
     chk(before10 && other.hidden && other.described === null && back10,
       'R10 another agent\'s page (an empty thread) shows no "Replying to"; the first agent\'s reply is kept for it', JSON.stringify({ before10, other, back10 }));
+
+    // R12: the same when the other agent's thread cannot be read at all (the paint's failure arm draws no rows).
+    await openDm(page, [agentRow(1, 'Morning. I read the brief.')], 0);
+    await page.hover('#d-dmthread .msg:not(.you) >> nth=0');
+    await page.click('#d-dmthread .msg:not(.you) >> nth=0 >> .rxn-reply');
+    await page.evaluate(() => { window.__failRead = true; CURRENT = { sessionName: 'carla', name: 'Carla' }; });
+    await page.evaluate(() => paintTalk('carla', 'Carla'));
+    const failed12 = await page.evaluate(() => ({ hidden: document.getElementById('d-reply').hidden, described: document.getElementById('d-say').getAttribute('aria-describedby') }));
+    await page.evaluate(() => { window.__failRead = false; });
+    chk(failed12.hidden && failed12.described === null, 'R12 an agent whose thread cannot be read shows no other agent\'s "Replying to"', JSON.stringify(failed12));
 
     // R8: phone, the tapped-open bar's Reply is a thumb-sized target
     const phone = await browser.newContext({ viewport: { width: 390, height: 800 }, isMobile: true, hasTouch: true });

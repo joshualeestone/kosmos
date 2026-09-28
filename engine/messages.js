@@ -305,13 +305,15 @@ function operatorDirect(nowLabel, answers) {
 
 /**
  * #4256: what a Direct Message reply answers, in the same two parts as a room's (answeredParts):
- * `tag` inside the operator's bracket (" · answers your message posted 09:30"), read from the record,
+ * `tag` inside the operator's bracket (" · answers your message, posted 09:30"), read from the record,
  * and `quote` ('(answering: "first words") ') in front of the body. A DM row has no id, so the message
  * is named by who wrote it and when. `agent` is the agent this thread is with: its own message is
  * "your message"; the person's is "their earlier message". Both '' when nothing is answered.
  */
 function dmAnsweredParts(row, agent) {
   if (!row || typeof row.at !== 'string') return { tag: '', quote: '' };
+  // The route passes only the agent's own row or the person's (no `from`); anything else names nothing.
+  if (row.from && row.from !== agent) return { tag: '', quote: '' };
   const whose = row.from === agent ? 'your message' : 'their earlier message';
   let zone = null;
   try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }

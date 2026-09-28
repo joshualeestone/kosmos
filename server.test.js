@@ -15264,6 +15264,13 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     assert.equal(typedLong.includes('(answering:'), false, 'the quote rode a message it would push over the limit');
 
 
+    /* THIS conversation only: a real `at` from ANOTHER agent's DM is refused here. (Kosmos and question rows are added
+       at read time and never stored, so the route's exclusion of them has no stored row to test against.) */
+    const OTHER = '2026-09-24T22:00:00.000Z';
+    chatEngine.appendMessage(chatEngine.DIRECT, 'mira', { text: 'Not Lena', from: 'mira', at: OTHER });
+    const foreign = await say({ text: 'x', reply_to: OTHER });
+    assert.equal(foreign.status, 409, 'a reply to another agent\'s message was accepted: ' + foreign.body);
+
     const junk = await say({ text: 'x', reply_to: 42 });
     assert.equal(junk.status, 400, junk.body);
     const empty = await say({ text: 'x', reply_to: '' });
