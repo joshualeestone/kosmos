@@ -72,6 +72,17 @@
 
   Run 36419129296 (c07e463, after review round 1): success again. node 697 s (26%), shell 1/2
   481 s (18%), shell 2/2 681 s (25%).
+- Run 36423468035 (the iteration 4 code, rebased on main): success, every shard green.
+
+  | job | wall time | share of 45 min |
+  |---|---|---|
+  | node | 294 s | 10% |
+  | shell 1/2 | 461 s | 16% |
+  | shell 2/2 | 573 s | 21% |
+
+  All 11237 node tests ran (0 failed, 165 skipped), so the short node time is a faster runner, not
+  fewer tests. End to end it took 38 min, because the node job waited about 25 min for a macOS
+  runner. The job times are the card's bar; the queue is the runners' supply.
 - **Wall time depends on free runners.** Run 36416362440 took 12 min 13 s end to end, with all
   three jobs starting together. Run 36419129296 took 19 min 56 s, because shell 1/2 waited 11 min
   39 s for a macOS runner (it started after the other two had finished). Either is under the 24 to
