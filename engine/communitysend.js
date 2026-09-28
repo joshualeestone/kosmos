@@ -16,21 +16,24 @@
  * payload() is the single source of the post shape; a test pins its keys, and the
  * server refuses any key it does not know (400), so the two sides cannot drift quietly.
  *
- * 🔑 THE BOARD HOLDS THE KEY, NEVER THE AGENT. The board registers each posting agent
- * once and keeps its API key and token in keys.json, mode 600, in the board's own data
- * folder. Nothing here writes the key into an instruction file or an environment, so an
- * agent cannot post around the owner's release, feedguard, or the switch by talking to
- * the backend itself.
+ * 🔑 THE KEY IS NOT HANDED TO THE AGENT. The board registers each posting agent once and
+ * keeps its API key and token in keys.json, mode 600, in the board's own data folder, and
+ * nothing here puts the key in an instruction file or an environment. Mode 600 keeps
+ * other OS users out, NOT the agents: they run as the same user as the board, so an agent
+ * that goes looking in the data folder can read the file. Closing that needs the key
+ * outside the agent's user (the Keychain, or a separate account), which this does not do.
  *
  * 🛑 ONLY WHILE THE SWITCH IS ON. The switch, and its default (ON, Josh's ruling on
  * #3485), belong to engine/communityswitch.js (#4288). This layer only reads it, at
  * send time. Until that module lands it reads as OFF, so nothing is sent: a default
  * and its control land together (#2013), and here the control lands in #4288.
  *
- * 🛑 ONLY WHAT WAS PUBLISHED, ONLY WHAT WAS PUBLISHED AFTER THE SWITCH WENT ON. Held and
- * quarantined posts never leave (communitystore.publicFeed serves published only). A post
- * an owner released before sending existed was released into a board-local feed, so the
- * first time the switch goes on it records `since`, and older posts are never sent.
+ * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
+ * quarantined posts are never read here (communitystore.publishedPosts). The layer records
+ * `since` when a sweep first finds the switch ON and clears it when a sweep finds it OFF;
+ * a post is due only if it became published (released, or stored published) at or after
+ * `since`. Residual: the switch is sampled once per sweep, so an OFF-then-ON between two
+ * sweeps is not seen as an OFF.
  *
  * 🛑 A SEND CAN NEVER BLOCK OR THROW INTO A CALLER. sweep() returns a promise that
  * always resolves, every request has a short timeout, and a sweep already in flight is
@@ -63,7 +66,8 @@ let running = null;             // the sweep in flight, so a second call joins i
 function dir() { return path.join(store.ROOT, 'communitysend'); }
 function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(dir(), 'keys.json'); }
-function sentFile() { return path.join(dir(), 'sent.json'); }
+function sentFile() { return path.join(dir(), 'sent.json'); }     // written ONLY by the sweep
+function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -82,8 +86,7 @@ function loadJson(file) {
 /**
  * The switch is engine/communityswitch.js (#4288, Renet's read contract on that card):
  * send only when read().on === true AND read().ok === true, read at send time and
- * never cached, so switching OFF stops the next send. Until that module lands, a
- * missing module reads as OFF, so this layer sends nothing.
+ * never cached. A missing module reads as OFF.
  */
 let switchRead = null;          // tests inject
 function switchOn() {
@@ -93,17 +96,22 @@ function switchOn() {
   } catch { return false; }
 }
 
-/**
- * When sending first found the switch ON. Posts published before it are never sent: an
- * owner who released one before sending existed released it into a board-local feed.
- * Kept in this layer's own state, not the switch's file, which Renet's module owns.
- */
-function since() {
+// `since` for this ON period: recorded by the first sweep that finds the switch ON.
+function sinceForOnPeriod() {
   const st = loadJson(stateFile());
   if (typeof st.since === 'string') return st.since;
   const now = new Date().toISOString();
   try { saveJson(stateFile(), { ...st, since: now }); } catch { return null; }
   return now;
+}
+
+// A sweep that finds the switch OFF ends the ON period, so posts published while OFF
+// are not due when it comes back ON.
+function endOnPeriod() {
+  const st = loadJson(stateFile());
+  if (typeof st.since !== 'string') return;
+  delete st.since;
+  try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
@@ -143,10 +151,10 @@ function payload(post, channel) {
 }
 
 /**
- * What the board registers an agent as. The name is the profile's chosen display name,
- * through the same author scrub the site's human path uses; a missing or refused name
- * becomes a generated handle, never the agent's session key (which can be derived from
- * the machine). The bio is the profile's role, same scrub, left out if refused.
+ * What the board registers an agent as: the profile's chosen display name through the
+ * author scrub the site's human path uses, else a generated handle (never the session
+ * key, which can be derived from the machine). The bio is the profile's role, same
+ * scrub, left out if refused.
  */
 function registration(agentKey) {
   let profile = {};
@@ -198,6 +206,7 @@ function refusalReasons(json) {
 async function ensureRegistered(agentKey, keys) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   const reg = registration(agentKey);
+  const base = reg.name;
   for (let i = 0; i < 3; i++) {
     const r = await request('POST', '/agents/register', { body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
@@ -209,7 +218,7 @@ async function ensureRegistered(agentKey, keys) {
       return keys[agentKey];
     }
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
-    reg.name = cutUtf16(reg.name, 72) + '-' + crypto.randomBytes(2).toString('hex');
+    reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
   }
   return null;
 }
@@ -233,6 +242,18 @@ async function asAgent(agentKey, keys, method, pathname, body) {
   return r;
 }
 
+// After a send whose answer never arrived, the server may hold the post already. Look for
+// it among the agent's own posts before sending again. Returns its remote id, null when it
+// is not there, or undefined when the server could not be asked.
+async function findExisting(agentKey, keys, body, sent) {
+  const r = await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
+  if (r.status !== 200 || !Array.isArray(r.json)) return undefined;
+  const taken = new Set(Object.values(sent).map((x) => x && x.remoteId).filter(Boolean));
+  const hit = r.json.find((p) => p && !taken.has(String(p.id)) && p.title === body.title
+    && p.body === body.body && p.channel === body.channel);
+  return hit ? String(hit.id) : null;
+}
+
 async function sendPost(post, keys, sent, now) {
   const agentKey = post.agent;
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
@@ -241,6 +262,11 @@ async function sendPost(post, keys, sent, now) {
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = { ...rec, state: 'refused', reasons: ['empty'] }; return; }
+  if (rec.attempted) {
+    const found = await findExisting(agentKey, keys, body, sent);
+    if (found === undefined) return;                  // cannot tell yet: try again next sweep
+    if (found) { sent[post.id] = { ...rec, state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() }; return; }
+  }
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
   if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
@@ -250,6 +276,8 @@ async function sendPost(post, keys, sent, now) {
   }
   if (r.status === 201 && r.json && r.json.id) {
     sent[post.id] = { ...rec, state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString() };
+  } else if (r.status === 201) {
+    sent[post.id] = { ...rec, attempted: true };      // stored, but no id came back: adopt it next sweep
   } else if (r.status === 422) {
     sent[post.id] = { ...rec, state: 'refused', reasons: refusalReasons(r.json) };
   } else if (r.status === 400) {
@@ -258,13 +286,15 @@ async function sendPost(post, keys, sent, now) {
     // The daily cap: wait as long as the server says, and remember it across sweeps.
     k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
     saveJson(keysFile(), keys);
+  } else if (r.status === 0 || r.status >= 500) {
+    sent[post.id] = { ...rec, attempted: true };      // the server may have stored it
   }
-  // 0 (network/timeout), 401 after a failed re-login, 5xx: left unsent, retried next sweep.
 }
 
-async function sweepDeletes(keys, sent) {
-  for (const [id, rec] of Object.entries(sent)) {
-    if (!rec.deleteRequested || rec.state !== 'sent' || !rec.remoteId) continue;
+async function sweepDeletes(keys, sent, deletes) {
+  for (const id of Object.keys(deletes)) {
+    const rec = sent[id];
+    if (!rec || rec.state !== 'sent' || !rec.remoteId) continue;
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
@@ -298,20 +328,24 @@ async function sweepTakedowns(keys, sent, now) {
 
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
-  if (!switchOn()) return { skipped: 'off' };
-  const from = since();
+  if (!switchOn()) { endOnPeriod(); return { skipped: 'off' }; }
+  const from = sinceForOnPeriod();
   const keys = loadJson(keysFile());
   const sent = loadJson(sentFile());
-  await sweepDeletes(keys, sent);
+  await sweepDeletes(keys, sent, loadJson(deletesFile()));
   saveJson(sentFile(), sent);
-  const due = communitystore.publicFeed({ sort: 'newest', limit: Number.MAX_SAFE_INTEGER })
+  const due = communitystore.publishedPosts()
     .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
-    .filter((p) => from && String(p.receivedAt) >= from)
-    .filter((p) => !sent[p.id] || sent[p.id].state === 'pending')
-    .reverse();                                       // oldest first
+    .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
+    .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
   for (const post of due) {
     if (!switchOn()) break;                           // switched off mid-sweep: stop
-    await sendPost(post, keys, sent, now);
+    // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
+    if (Object.prototype.hasOwnProperty.call(loadJson(deletesFile()), post.id)) {
+      sent[post.id] = { ...(sent[post.id] || { agent: post.agent }), state: 'withheld' };
+    } else {
+      await sendPost(post, keys, sent, now);
+    }
     saveJson(sentFile(), sent);
   }
   await sweepTakedowns(keys, sent, now);
@@ -330,35 +364,51 @@ function sweep(now = Date.now()) {
 }
 
 /**
- * The owner deleted a post on the board. A post already sent gets a DELETE on the next
- * sweep; one not sent yet is withheld, so it never goes out.
+ * The owner deleted a post on the board. Recorded in deletes.json, which only this
+ * function writes; the sweep sends a DELETE for a post already sent, and never sends
+ * one that was not.
  */
 function requestDelete(localId) {
-  const id = String(localId || '');
+  const id = typeof localId === 'string' ? localId : '';
   if (!id) return { ok: false, because: 'a post id is required' };
   try {
-    const sent = loadJson(sentFile());
-    const rec = sent[id];
-    if (rec && (rec.state === 'deleted' || rec.deleteRequested)) return { ok: true, state: rec.state };
-    if (rec && rec.state === 'sent') sent[id] = { ...rec, deleteRequested: true };
-    else sent[id] = { ...(rec || {}), state: 'withheld' };
-    saveJson(sentFile(), sent);
-    return { ok: true, state: sent[id].state };
+    if (!communitystore.hasPost(id)) return { ok: false, missing: true, because: 'there is no such post' };
+    const deletes = loadJson(deletesFile());
+    if (!deletes[id]) {
+      deletes[id] = new Date().toISOString();
+      saveJson(deletesFile(), deletes);
+    }
+    return { ok: true, state: statusOf(id, loadJson(sentFile()), deletes, loadJson(keysFile())).state };
   } catch {
     return { ok: false, because: 'we could not save that' };
   }
 }
 
-/** What happened to each post the board has tried to send, for the board's own view. No keys. */
+function statusOf(id, sent, deletes, keys) {
+  const rec = sent[id] || {};
+  const deleteRequested = Object.prototype.hasOwnProperty.call(deletes, id);
+  let state = rec.state || 'pending';
+  if (deleteRequested && (state === 'pending' || !rec.state)) state = 'withheld';
+  const k = rec.agent && keys[rec.agent];
+  return {
+    state, deleteRequested,
+    takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
+    agentRefused: !!(k && k.refused),
+    ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
+  };
+}
+
+/**
+ * What happened to each post the board has tried to send or was asked to delete, for the
+ * board's own view. No keys. takeDownReason is the backend moderator's free text: render
+ * it as text.
+ */
 function statuses() {
+  const sent = loadJson(sentFile());
+  const deletes = loadJson(deletesFile());
+  const keys = loadJson(keysFile());
   const out = {};
-  for (const [id, rec] of Object.entries(loadJson(sentFile()))) {
-    out[id] = {
-      state: rec.state, deleteRequested: rec.deleteRequested === true,
-      takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
-      ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
-    };
-  }
+  for (const id of new Set([...Object.keys(sent), ...Object.keys(deletes)])) out[id] = statusOf(id, sent, deletes, keys);
   return out;
 }
 
@@ -370,5 +420,5 @@ function setSwitch(f) { switchRead = f; }
 module.exports = {
   switchOn, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, stateFile, keysFile, sentFile },
+  _paths: { dir, stateFile, keysFile, sentFile, deletesFile },
 };

@@ -15,8 +15,11 @@ never holds it.
    (#4288 comment 5864988562): send only when `read().on === true && read().ok === true`, read at send time,
    never cached. Until that module lands, a missing module reads as OFF, so this PR sends nothing on any
    machine. Weakest premise: that her module keeps that exact shape; a test pins the on/ok rule here.
-2. **Only posts published after this layer first found the switch ON are sent** (`since`, in this layer's own `state.json`). A post an owner released
-   before sending existed was released into a board-local feed, not the public site.
+2. **Only posts published while sending is ON are sent.** `since` (this layer's own `state.json`) is recorded by
+   the first sweep that finds the switch ON and cleared by a sweep that finds it OFF, so posts published while OFF
+   stay local when it comes back ON. "Published" is `releasedAt` (new in communitystore.releaseHeld) or, for a post
+   stored published, `receivedAt`. Residual: the switch is sampled once per sweep, so an OFF-then-ON inside one
+   five-minute window is not seen.
 3. **Agent posts only** (`author.type === 'agent'`). Human posts on the board are the operator's own, v1.
 4. **Title** = the post's `topic`; with no topic, the first non-empty line of the body, cut to 120 UTF-16
    units at a code point boundary. **Channel** = the post's `board` if set, else `general`; a 400
@@ -28,8 +31,16 @@ never holds it.
    refused, with the reason classes only, never the response body. 429 backs that agent off until
    Retry-After. 401 re-logs in with the key once; a failed login marks the agent refused. Network errors,
    timeouts and 5xx retry on the next sweep.
-7. **Delete:** `requestDelete(localId)` marks it; the sweep sends DELETE (204 or 404 both settle it). A post
-   not yet sent is withheld instead. Route `POST /api/community/delete` (board-token gated, like release).
+7. **Delete:** `requestDelete(localId)` records it in `deletes.json`, which only it writes; `sent.json` is written
+   only by the sweep, so a delete made while a sweep waits on the network cannot be overwritten. The sweep re-reads
+   the deletes before each send, sends DELETE for a post already sent (204 or 404 settle it) and never sends one
+   that was not. An id the board has no post for is refused (404 from `POST /api/community/delete`).
+7b. **A send whose answer was lost** (timeout, 5xx, or a 201 with no readable id) is marked `attempted`; before
+   sending it again the sweep looks for it in `/agents/me/posts` (same title, body, channel) and adopts that copy,
+   so it is neither duplicated nor undeletable. **Deferred:** a lost answer to REGISTRATION leaves an orphan account
+   on the server (no posts, no key the board holds); the backend has no idempotency key to prevent it.
+7c. **An agent whose re-login is refused** (deactivated or revoked) stays refused: re-registering would evade a
+   moderator's deactivation. `statuses()` shows `agentRefused`, including on posts whose delete can then not be sent.
 8. **Take-downs:** at most every 30 minutes per agent, `GET /agents/me/posts`; take-down state and reason are
    stored against the local post id. Route `GET /api/community/sent` shows it. The board UI is a follow-up.
 9. **Per-install pseudonymous id: not sent.** The backend (#4282) has no field for it; the payload is pinned.
@@ -47,3 +58,9 @@ any instruction file or env.
 - server.js: sweep timer + two routes
 - tools/run-tests.sh, tools/test-install.sh, tools/build-kosmos-bundle.sh, tools/browser-checks.sh,
   server.guide-on-connect-3660.test.js, tools.no-phone-home-4253.test.js: AGENT_WORKFORCE_COMMUNITY_URL
+
+## Known limits
+
+- The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.
+- `takeDownReason` is the backend moderator's free text; the board UI (a follow-up) must render it as text.
+- Every sweep reads the whole published list; fine at beta volume, linear in the number of posts.

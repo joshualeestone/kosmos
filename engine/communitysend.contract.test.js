@@ -10,6 +10,7 @@
  * It drives the board's real choke and the real send layer end to end: register,
  * post, held-never-sent, take-down read, delete. Each run registers fresh agent names.
  */
+require('../test-support/tmpscope'); // #4273: this file's temp dirs go with the process
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -3899,7 +3899,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         const r = communitysend.requestDelete(body.id);
-        if (!r.ok) { sendJson(res, 500, { error: r.because }); return; }
+        if (!r.ok) { sendJson(res, r.missing ? 404 : 500, { error: r.because }); return; }
         sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

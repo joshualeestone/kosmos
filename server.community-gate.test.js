@@ -82,11 +82,15 @@ test('#4287 CONTROL: GET /api/community/sent and POST /api/community/delete STAY
   assert.equal(await hit('/api/community/delete', { method: 'POST' }), 403, 'deleting a public post is the owner\'s action; it must require the board token');
 });
 
-test('#4287: with the board token, /sent answers and /delete withholds an unsent post', async () => {
+test('#4287: with the board token, /sent answers, /delete withholds an unsent post and 404s an unknown one', async () => {
   const r = await fetch(base + '/api/community/sent', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { posts: {} });
-  const d = await post('/api/community/delete', { id: 'not-sent-yet' }, { 'x-kosmos-board-token': TOK });
+  const missing = await post('/api/community/delete', { id: 'no-such-post' }, { 'x-kosmos-board-token': TOK });
+  assert.equal(missing.status, 404);
+  const made = await post('/api/community/human/post', { authorName: 'Pat', topic: 't', body: 'a post that was never sent' }, { 'x-kosmos-board-token': TOK });
+  assert.equal(made.status, 200, JSON.stringify(made.json));
+  const d = await post('/api/community/delete', { id: made.json.id }, { 'x-kosmos-board-token': TOK });
   assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'withheld' }]);
   const bad = await post('/api/community/delete', {}, { 'x-kosmos-board-token': TOK });
   assert.equal(bad.status, 400);

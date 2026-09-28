@@ -345,6 +345,21 @@ function getComments(postId) {
     .map(toPublic);
 }
 
+// #4287: the board's own published posts, oldest first, as stored (not redacted by
+// toPublic). For the send layer (engine/communitysend.js), which runs inside the board and
+// builds its own fixed allow-list payload; never serve these rows on a public surface.
+function publishedPosts() {
+  return loadJson(postsFile(), [])
+    .filter((p) => p.status === 'published')
+    .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
+}
+
+// #4287: whether a post with this id exists at all, in any status.
+function hasPost(id) {
+  const key = String(id);
+  return loadJson(postsFile(), []).some((p) => p.id === key);
+}
+
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
 // (findings included) for the moderator surface. Never a public path.
 // `kind` selects the collection: 'all' (the DEFAULT — posts + comments, a
@@ -421,6 +436,7 @@ function releaseHeld(id) {
   if (post) {
     if (post.status !== 'held') throw new Error('only a held post can be released');
     post.status = 'published';
+    post.releasedAt = nowISO(); // #4287: when it became public-eligible, which receivedAt is not
     delete post.findings; // published rows carry no moderation findings
     saveJson(postsFile(), posts);
     // Credit the author agent (user authors have no agent-trust ladder).
@@ -488,6 +504,8 @@ module.exports = {
   getComments,
   moderationQueue,
   toPublic,
+  publishedPosts,
+  hasPost,
   // trust
   trustState,
   trustRecord,

@@ -6,6 +6,7 @@
  * Each numbered test is one line of the card's acceptance list.
  * Sandboxed data root before the require.
  */
+require('../test-support/tmpscope'); // #4273: this file's temp dirs go with the process
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -74,7 +75,8 @@ function backend() {
       if (req.method === 'GET' && req.url === '/agents/me/posts') {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         return send(200, [...st.posts.values()].filter((p) => p.agent === a.id && !p.deleted)
-          .map((p) => ({ id: p.id, taken_down: p.taken_down, take_down_reason: p.take_down_reason })));
+          .map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel, title: p.title, body: p.body,
+            taken_down: p.taken_down, take_down_reason: p.take_down_reason })));
       }
       return send(404, { detail: 'not found' });
     });
@@ -117,7 +119,7 @@ test('until engine/communityswitch.js (#4288) lands, the switch reads OFF and no
   cs.setSwitch(null);                        // the real module, which does not exist yet
   let present = true;
   try { require.resolve('./communityswitch'); } catch { present = false; }
-  if (present) return;                       // once #4288 lands its own tests own this
+  assert.equal(present, false, '#4288 has landed engine/communityswitch.js: replace this test with one that pins the real default');
   assert.equal(cs.switchOn(), false);
   agentPost('ava', { topic: 'Hi', body: 'hello' });
   assert.deepEqual(await cs.sweep(), { skipped: 'off' });
@@ -288,7 +290,7 @@ test('a server refusal is final and records only reason classes; a 429 waits for
   be.st.mode.refuse = true;
   const a = agentPost('kit', { topic: 't', body: 'b' });
   await cs.sweep();
-  assert.deepEqual(cs.statuses()[a.id], { state: 'refused', deleteRequested: false, takenDown: false, takeDownReason: null, reasons: ['email'] });
+  assert.deepEqual(cs.statuses()[a.id], { state: 'refused', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, reasons: ['email'] });
   be.st.mode.refuse = false;
   be.st.mode.cap = true;
   agentPost('kit', { topic: 't2', body: 'b2' });
@@ -306,11 +308,26 @@ test('an expired token re-logs in with the board-held key, then sends', async ()
   agentPost('lu', { topic: 'a', body: 'b' });
   await cs.sweep();
   [...be.st.agents.values()][0].token = 'rotated-server-side';
-  agentPost('lu', { topic: 'c', body: 'd' });
+  const second = agentPost('lu', { topic: 'c', body: 'd' });
   await cs.sweep();
   assert.ok(be.st.seen.some((s) => s.url === '/agents/login'));
-  assert.equal(posts().filter((p) => p.auth && p.auth.startsWith('Bearer tok_')).length >= 2, true);
-  assert.equal(posts().at(-1).body.title, 'c');
+  assert.equal(cs.statuses()[second.id].state, 'sent');
+});
+
+test('a failed re-login stops sending as that agent, and says so against its posts', async () => {
+  await on();
+  const first = agentPost('ola', { topic: 'a', body: 'b' });
+  await cs.sweep();
+  const a = [...be.st.agents.values()][0];
+  a.active = false;                          // deactivated server-side: token and login both 401
+  cs.requestDelete(first.id);
+  agentPost('ola', { topic: 'c', body: 'd' });
+  await cs.sweep();
+  const st = cs.statuses()[first.id];
+  assert.deepEqual([st.state, st.deleteRequested, st.agentRefused], ['sent', true, true]);
+  const n = be.st.seen.length;
+  await cs.sweep();
+  assert.equal(be.st.seen.length, n, 'a refused agent kept calling the server');
 });
 
 test('an unknown board falls back to general once; a name clash registers with a suffix', async () => {
@@ -342,4 +359,101 @@ test('a human post on the board (the operator\'s own, published) is never sent; 
   agentPost('nia', { topic: 'from an agent', body: 'b' });
   await cs.sweep();
   assert.deepEqual(posts().map((p) => p.body.title), ['from an agent']);
+});
+
+test('a delete the owner makes WHILE a sweep is sending is kept, and that post never goes out', async () => {
+  await on();
+  const a = agentPost('pia', { topic: 'first', body: 'b' });
+  const b = agentPost('pia', { topic: 'second', body: 'b' });
+  // Hold the first POST open, delete the second while the sweep waits on it, then let it go.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts')) await gate;
+    return fetch(url, init);
+  });
+  const running = cs.sweep();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(cs.requestDelete(b.id).ok, true);
+  release();
+  await running;
+  assert.deepEqual(posts().map((p) => p.body.title), ['first']);
+  assert.equal(cs.statuses()[a.id].state, 'sent');
+  assert.deepEqual([cs.statuses()[b.id].state, cs.statuses()[b.id].deleteRequested], ['withheld', true]);
+  await cs.sweep();
+  assert.deepEqual(posts().map((p) => p.body.title), ['first'], 'the withheld post went out on a later sweep');
+});
+
+test('posts published while the switch was OFF stay local when it comes back ON', async () => {
+  await on();
+  SW = { on: false, ok: true };
+  await cs.sweep();                          // a sweep sees OFF
+  agentPost('quin', { topic: 'while off', body: 'b' });
+  await new Promise((r) => setTimeout(r, 5));
+  await on();
+  agentPost('quin', { topic: 'back on', body: 'b' });
+  await cs.sweep();
+  assert.deepEqual(posts().map((p) => p.body.title), ['back on']);
+});
+
+test('a post held before sending went on and released after it is sent', async () => {
+  const held = agentPost('rae', { topic: 'held earlier', body: 'b' }, { trusted: false });
+  await new Promise((r) => setTimeout(r, 5));
+  await on();
+  communitystore.releaseHeld(held.id);
+  await cs.sweep();
+  assert.deepEqual(posts().map((p) => p.body.title), ['held earlier']);
+});
+
+test('a send whose answer was lost is not sent twice: the server copy is adopted', async () => {
+  await on();
+  const r = agentPost('sol', { topic: 'once', body: 'only once' });
+  // The server stores the post, but the answer never reaches the board.
+  cs.setTimeoutMs(150);
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) {
+      // Like a real network: the board's timeout aborts while the answer is still coming.
+      await new Promise((ok, fail) => {
+        const t = setTimeout(ok, 400);
+        init.signal.addEventListener('abort', () => { clearTimeout(t); fail(new Error('aborted')); });
+      });
+    }
+    return res;
+  });
+  await cs.sweep();
+  assert.equal(be.st.posts.size, 1);
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  cs.setSender((url, init) => fetch(url, init));
+  cs.setTimeoutMs(2000);
+  await cs.sweep();
+  assert.equal(be.st.posts.size, 1, 'the post was sent a second time');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('a 201 with no id is adopted from the server on the next sweep, not sent again', async () => {
+  await on();
+  const r = agentPost('tia', { topic: 't', body: 'b' });
+  cs.setSender(async (url, init) => {
+    if (init.method === 'POST' && url.endsWith('/posts')) {
+      await fetch(url, init);
+      return new Response('{}', { status: 201, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  await cs.sweep();
+  assert.equal(be.st.posts.size, 1, 'the post was sent a second time');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.requestDelete(r.id).ok, true);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal([...be.st.posts.values()][0].deleted, true, 'the adopted post could not be deleted');
+});
+
+test('a delete for a post the board does not have is refused', () => {
+  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post' });
+  assert.equal(cs.requestDelete('').ok, false);
+  assert.equal(cs.requestDelete(42).ok, false);
 });
