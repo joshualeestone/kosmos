@@ -2786,7 +2786,9 @@ function swarmSweepDeps(roster) {
     writeProfile: (n, patch) => store.writeProfile(n, patch),
     interrupt: (n) => chat.interrupt(n, roster),
     stopHelpers: (n) => chat.stopHelpers(n, roster),
-    say: (n, text) => keepAgentReply(n, text, undefined, { kosmos: true }),   // #4354: Kosmos speaking, not the agent
+    /* #4354: Kosmos speaking, not the agent (marked), and stamped with the sweep's own `now`, the clock the pause's
+       pausedAt was written with, so chat.noticeStands can never see the notice as older than its own pause. */
+    say: (n, text, now) => keepAgentReply(n, text, Number.isFinite(now) ? new Date(now).toISOString() : undefined, { kosmos: true }),
   };
 }
 

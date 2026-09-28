@@ -22,6 +22,8 @@ const fleet = require('../test-support/fleet');
 const chat = require('./chat');
 const messageLog = require('./messages');
 const nudge = require('./firstreply-nudge');
+/* #4354 writes profiles here too: prove the store is this sandbox, against the real data root. */
+require('../test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [require('./store').ROOT]);
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 

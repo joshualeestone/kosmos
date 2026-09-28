@@ -469,7 +469,8 @@ function sweepRows(cards) {
  *     then Escape (whether or not a helper is working), and say so in its own DM thread;
  *   - paused by the limit on an EARLIER day: switch it back on (a new day's budget).
  * A pause by the person or by Stop now never lifts by itself. `deps` supplies
- * readProfile, writeProfile, interrupt(name), stopHelpers(name), say(name, text).
+ * readProfile, writeProfile, interrupt(name), stopHelpers(name), say(name, text, now).
+ * `now` goes to say so the notice and the pause's pausedAt come from ONE clock (#4354: chat.noticeStands compares them).
  * Never throws; returns what it did, per swarm.
  */
 function sweepOnce(rows, deps, now = Date.now()) {
@@ -485,7 +486,7 @@ function sweepOnce(rows, deps, now = Date.now()) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
         const helpers = deps.stopHelpers(name);   // before the Escape: see the Stop now route
         const stopped = deps.interrupt(name);
-        deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);
+        deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`, now);
         did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok && helpers && helpers.ok) });
       } else if (!s.active && s.pausedBecause === 'limit' && s.pausedAt && Date.parse(s.pausedAt) < startOfDay(now)) {
         deps.writeProfile(name, { swarm: { ...s, active: true, pausedBecause: null, pausedAt: null } });

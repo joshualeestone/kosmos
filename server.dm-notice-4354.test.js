@@ -71,12 +71,15 @@ test('#4354: the daily-limit notice stands in while paused, and the unanswered q
   });
   assert.equal((await owes()).state, 'owes', 'CONTROL: the question is owed before any notice');
 
-  const now = Date.now();
+  /* A sweep clock AHEAD of the wall clock (review iteration 2): the notice must be stamped with the sweep's own
+     `now`, the clock pausedAt is written with, or it reads as older than its own pause and does not stand. */
+  const now = Date.now() + 5 * 60000;
   assert.deepEqual(sweep(5000, now).map((d) => d.action), ['paused'], 'fixture: the sweep did not pause the swarm');
   const rows = chat.readThread(chat.DIRECT, LEAD).messages;
   const notice = rows[rows.length - 1];
   assert.equal(notice.from, LEAD, 'fixture: the notice is not in the agent\'s name');
   assert.equal(notice.kosmos, true, 'the notice was stored without the mark that says Kosmos wrote it');
+  assert.equal(notice.at, swarm.settingsOf(store.readProfile(LEAD)).pausedAt, 'the notice and its pause were stamped from two clocks');
   assert.equal((await owes()).state, 'clear', 'while paused, the notice already says why no answer is coming');
 
   assert.deepEqual(sweep(0, now + 36 * 3600 * 1000).map((d) => d.action), ['resumed'], 'fixture: the next day\'s sweep did not switch it back on');

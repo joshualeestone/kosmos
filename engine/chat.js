@@ -2797,6 +2797,21 @@ function looksLikeManager(role) {
 }
 
 /**
+ * #4354: does a row Kosmos wrote in the agent's name (`kosmos: true`, the daily-limit notice) stand in for the
+ * agent having said something? Only while the agent is paused (`pause.paused`) AND the row was written during THIS
+ * pause (at or after `pause.pausedSince`): a notice from an earlier pause says nothing about now. A pause with no
+ * readable start time counts any marked row. Shared by dmOwes and firstreply-nudge's firstContact, so the two
+ * cannot disagree. A row without the mark is not asked about.
+ */
+function noticeStands(row, pause) {
+  if (!pause || pause.paused !== true || !row) return false;
+  const since = typeof pause.pausedSince === 'string' ? Date.parse(pause.pausedSince) : NaN;
+  if (!Number.isFinite(since)) return true;
+  const at = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
+  return Number.isFinite(at) && at >= since;
+}
+
+/**
  * #4340: does the agent owe the person an answer in their ONE-TO-ONE thread, from that thread's own rows?
  *
  * The DM thread's "Nothing back yet." (web dmOwesLine) used to ask messages.owesReply, which reads the
@@ -2824,21 +2839,6 @@ function looksLikeManager(role) {
  * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Returns {state, lastHeardAt,
  * lastSentAt, because}, the shape dmOwesLine reads.
  */
-/**
- * #4354: does a row Kosmos wrote in the agent's name (`kosmos: true`, the daily-limit notice) stand in for the
- * agent having said something? Only while the agent is paused (`pause.paused`) AND the row was written during THIS
- * pause (at or after `pause.pausedSince`): a notice from an earlier pause says nothing about now. A pause with no
- * readable start time counts any marked row. Shared by dmOwes and firstreply-nudge's firstContact, so the two
- * cannot disagree. A row without the mark is not asked about.
- */
-function noticeStands(row, pause) {
-  if (!pause || pause.paused !== true || !row) return false;
-  const since = typeof pause.pausedSince === 'string' ? Date.parse(pause.pausedSince) : NaN;
-  if (!Number.isFinite(since)) return true;
-  const at = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
-  return Number.isFinite(at) && at >= since;
-}
-
 function dmOwes(rows, agent, opts) {
   const name = String(agent == null ? '' : agent);
   if (rows === null || rows === undefined || !Array.isArray(rows)) {
