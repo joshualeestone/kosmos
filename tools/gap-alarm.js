@@ -182,7 +182,8 @@ function statePath() {
 }
 function readState() { try { return JSON.parse(fs.readFileSync(statePath(), 'utf8')); } catch { return null; } }
 /* Atomic (a crash mid-write cannot leave a half file), and never fatal: the posts already went, so
-   a state that cannot be recorded is said, and costs one repost next hour, not a crashed run. */
+   a state that cannot be recorded is said, not a crashed run. A one-off failure costs one repost; a
+   lasting one is caught before posting by stateProblem() and posts at most once a day. */
 function writeState(s) {
   try {
     fs.mkdirSync(path.dirname(statePath()), { recursive: true });
@@ -263,11 +264,35 @@ function post(text, want = { pane: true, card: true }) {
 /* The last post per channel. A state file from before per-channel clocks ({key, at}) is read as both
    channels, so an installed alarm does not repost everything on its first run after an upgrade. */
 const CHANNELS = ['pane', 'card'];
-function lastFor(state, ch) {
+function lastFor(state, ch, now) {
   if (!state || typeof state !== 'object') return null;
-  if (state[ch] && typeof state[ch] === 'object') return state[ch];
-  if (typeof state.key === 'string') return { key: state.key, at: state.at };
-  return null;
+  let last = null;
+  if (state[ch] && typeof state[ch] === 'object') last = state[ch];
+  else if (typeof state.key === 'string') last = { key: state.key, at: state.at };
+  if (!last) return null;
+  /* A stored time in the future (a clock that ran fast when it was written), zero or junk counts as
+     long ago, so the channel is due now: otherwise now - at stays negative and a standing alarm, a
+     retry or the weekly line is silent until the wall clock catches up (review 11). */
+  const sane = (t) => (Number.isFinite(Number(t)) && Number(t) > 0 && Number(t) <= now ? Number(t) : 0);
+  const out = Object.assign({}, last);
+  if ('at' in out) out.at = sane(out.at);
+  if ('failedAt' in out) out.failedAt = sane(out.failedAt);
+  return out;
+}
+
+/* Can this run keep its state? A state that cannot be written makes every run a first run (a post
+   every hour) and restarts every could-not-tell spell (never said) (review 11). null when it can,
+   else the reason. The probe writes beside the state file, as writeState does. */
+function stateProblem() {
+  try {
+    const p = statePath();
+    if (fs.existsSync(p) && !fs.statSync(p).isFile()) return p + ' is not a file';
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const probe = p + '.probe.' + process.pid;
+    fs.writeFileSync(probe, '');
+    fs.unlinkSync(probe);
+    return null;
+  } catch (err) { return String((err && err.message) || err); }
 }
 
 function xml(s) {
@@ -324,20 +349,27 @@ async function main(argv) {
   const v = await gather();
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
-  const state = readState();
+  /* No state to keep: say it at most once a day, in one fixed hour of the UTC day, and name the
+     problem, rather than every hour (and rather than never, for a could-not-tell). */
+  const noState = stateProblem();
+  if (noState && v.now % 86400 >= 3600) {
+    process.stderr.write('gap-alarm: cannot keep state (' + noState + '); posting only in the first hour of the UTC day\n');
+    return code;
+  }
+  const state = noState ? null : readState();
   // A stamp in the future (a clock that jumped when the spell began) or junk is a fresh spell:
   // otherwise v.now - unknownSince stays negative and could-not-tell is never said (review 10).
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= v.now ? since : v.now) : null;
-  if (v.unknown && v.now - unknownSince < UNKNOWN_GRACE_S) {
+  if (!noState && v.unknown && v.now - unknownSince < UNKNOWN_GRACE_S) {
     // Not yet: record the run and when this spell began, and say nothing.
-    writeState({ pane: lastFor(state, 'pane'), card: lastFor(state, 'card'), lastRunAt: v.now, unknownSince });
+    writeState({ pane: lastFor(state, 'pane', v.now), card: lastFor(state, 'card', v.now), lastRunAt: v.now, unknownSince });
     return code;
   }
   const next = {};
   const due = {};
   for (const ch of CHANNELS) {
-    const last = lastFor(state, ch);
+    const last = lastFor(state, ch, v.now);
     next[ch] = last;
     const d = decidePost(v, last, v.now);
     due[ch] = d;
@@ -354,10 +386,11 @@ async function main(argv) {
   const texts = {};
   for (const ch of CHANNELS) {
     if (!due[ch].post) continue;
-    const last = lastFor(state, ch);
+    const last = lastFor(state, ch, v.now);
     // Backoff: the same message failed on this channel less than RETRY_S ago.
     if (last && last.failedKey === due[ch].key && v.now - (last.failedAt || 0) < RETRY_S) continue;
-    texts[ch] = message(due[ch].post, Object.assign({}, v, { after: last && last.key }));
+    texts[ch] = message(due[ch].post, Object.assign({}, v, { after: last && last.key }))
+      + (noState ? ' (The alarm cannot keep its state at ' + statePath() + ': ' + noState + '. It says this once a day until that is fixed.)' : '');
   }
   const sendAt = [...new Set(Object.values(texts))];
   for (const text of sendAt) {

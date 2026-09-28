@@ -184,6 +184,33 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
+test('review 11: a post time stamped in the future (a fast clock) does not silence a standing alarm', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  const future = NOW + 30 * 24 * H;
+  fs.writeFileSync(s.state, JSON.stringify({ pane: { key: 'alarm:staging-hours', at: future }, card: { key: 'alarm:staging-hours', at: future, failedKey: 'x', failedAt: future } }) + '\n');
+  run([], { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H) });
+  assert.match(s.msg.read(), /staging-hours/, 'a future post stamp silenced the standing alarm on the pane');
+  assert.match(s.gh.read(), /staging-hours/, 'a future post stamp silenced the standing alarm on the card');
+});
+
+test('review 11: a state that cannot be kept posts at most once a day, and still says a lasting could-not-tell', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  const blocker = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-nostate-'));
+  fs.writeFileSync(path.join(blocker, 'f'), 'a file where the state directory should be');
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: path.join(blocker, 'f', 'state.json'), GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin };
+  // 24 hourly runs of a standing alarm: one post, naming the problem.
+  for (let i = 0; i < 24; i++) run([], Object.assign({}, env, { GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H), GAP_ALARM_NOW: String(NOW + i * H) }));
+  assert.equal((s.gh.read().match(/staging-hours/g) || []).length, 1, 'an unkeepable state posted more than once a day');
+  assert.match(s.gh.read(), /cannot keep its state/);
+  // 24 hourly runs of could-not-tell: said once (not restarted forever).
+  const s2 = stubs();
+  for (let i = 0; i < 24; i++) run([], Object.assign({}, env, { GAP_ALARM_MSG_CMD: s2.msg.bin, GAP_ALARM_GH_CMD: s2.gh.bin, GAP_ALARM_POINTERS: ptrs('deadbeefdeadbeef', 'deadbeefdeadbeef', NOW), GAP_ALARM_NOW: String(NOW + i * H) }));
+  assert.equal((s2.gh.read().match(/could not tell/g) || []).length, 1, 'with no state, a lasting could-not-tell was not said exactly once');
+});
+
 test('review 10: a could-not-tell spell stamped in the future (a clock jump) is treated as starting now, so it is still said', () => {
   const { dir } = repoWith([['a', NOW - H]]);
   const s = stubs();
@@ -284,10 +311,13 @@ test('a state that cannot be recorded is said, is not fatal, and leaves no temp 
   const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-norecord-'));
   const statePathDir = path.join(holder, 'state.json');
   fs.mkdirSync(statePathDir); fs.writeFileSync(path.join(statePathDir, 'x'), 'x');
+  // Review 11: a state it cannot keep posts only in the first hour of the UTC day, so run in that hour.
+  const DAY0 = NOW - (NOW % 86400) + 60;
   const r = run([], { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: statePathDir, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
-    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) });
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, DAY0 - 60 * H), GAP_ALARM_NOW: String(DAY0) });
   assert.equal(r.code, 1, 'an unrecordable state crashed the run: ' + r.err);
   assert.match(r.err, /posted, but could not record it/);
+  assert.match(s.gh.read(), /cannot keep its state at .*state\.json: .*is not a file/, 'the post did not name the state problem');
   assert.match(s.gh.read(), /staging-hours/, 'fixture: the card post went');
   assert.deepEqual(fs.readdirSync(holder).filter((f) => f.endsWith('.tmp')), [], 'a failed rename left its temp file behind');
   assert.match(r.out, /posted to pane \(unconfirmed\) and card: /, 'the log line hides that the pane post is unconfirmed');
