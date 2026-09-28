@@ -5,7 +5,8 @@
  * them" can be answered without their machine.
  *
  * Two readers, two shapes:
- *   - the install ping (createdbeacon.js) sends ONLY the state, one word from STATES.
+ *   - the pings (createdbeacon.js payload, so the install ping AND the created ping) send
+ *     ONLY the state, one word from STATES.
  *     It is a state, not a name, a role or content, so it adds nothing identifying to a
  *     ping Josh already ruled in (09-14, #3038).
  *   - the file keeps the REASON too, the sentence ensureGuide gave, for anyone reading
@@ -44,15 +45,16 @@ function current() {
 function record(outcome) {
   const state = outcome && outcome.state;
   if (!STATES.includes(state)) return { changed: false };
-  const before = current();
+  const reason = String((outcome && outcome.reason) || '').slice(0, 300);
+  const before = read();
+  // The sweep asks every minute: write only when something changed, and keep `at` as when
+  // this STATE first appeared, not when it was last seen.
+  if (before && before.state === state && before.reason === reason) return { changed: false };
+  const at = before && before.state === state && before.at ? before.at : new Date().toISOString();
   try {
-    fs.writeFileSync(file(), JSON.stringify({
-      state,
-      reason: String((outcome && outcome.reason) || '').slice(0, 300),
-      at: new Date().toISOString(),
-    }) + '\n', 'utf8');
+    fs.writeFileSync(file(), JSON.stringify({ state, reason, at }) + '\n', 'utf8');
   } catch { return { changed: false }; }
-  return { changed: before !== state };
+  return { changed: !before || before.state !== state };
 }
 
 module.exports = { STATES, read, current, record, file };

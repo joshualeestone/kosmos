@@ -24,7 +24,6 @@ const guidestate = require('./engine/guidestate');
 const beacon = require('./engine/createdbeacon');
 const setupAssistant = require('./engine/setup-assistant');
 const create = require('./engine/create');
-const store = require('./engine/store');
 
 function clearState() { try { fs.rmSync(guidestate.file(), { force: true }); } catch { /* ok */ } }
 function arm(on) {
@@ -51,8 +50,13 @@ test('#4350 the install ping carries the recorded state, and "unknown" before an
 
 test('#4350 record() reports a change only when the STATE changes, and ignores a wait', () => {
   assert.equal(guidestate.record({ state: 'no-model', reason: 'a' }).changed, true, 'first state is a change');
+  const firstAt = guidestate.read().at;
+  const mtime = fs.statSync(guidestate.file()).mtimeMs;
+  assert.equal(guidestate.record({ state: 'no-model', reason: 'a' }).changed, false);
+  assert.equal(fs.statSync(guidestate.file()).mtimeMs, mtime, 'an unchanged outcome rewrote the file (the sweep asks every minute)');
   assert.equal(guidestate.record({ state: 'no-model', reason: 'b' }).changed, false, 'same state, new reason is not');
   assert.equal(guidestate.read().reason, 'b', 'but the newest reason is kept locally');
+  assert.equal(guidestate.read().at, firstAt, '`at` must stay when the state first appeared');
   assert.equal(guidestate.record({ seeded: false, reason: 'waiting before trying again' }).changed, false,
     'a retry wait (no state) must record nothing');
   assert.equal(guidestate.current(), 'no-model', 'a wait overwrote the state');
@@ -89,14 +93,17 @@ test('#4350 the auto-created guide is not counted as an agent the person created
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
   const lines = [
     { outcome: create.OUTCOME.CREATED, name: 'mine', role: 'coder', createdBy: null },
-    { outcome: create.OUTCOME.CREATED, name: 'Josh', role: 'setup', createdBy: 'kosmos' },
-    // CONTROL: a person may create an agent with the setup role themselves; that one counts.
+    { outcome: create.OUTCOME.CREATED, name: 'Josh', role: 'setup', createdBy: 'kosmos',
+      purpose: "default Kosmos setup guide, Josh's AI (auto-created when a model was connected, #3034/#3660)" },
+    // CONTROLS: a person's own setup-role agent counts, and so does a team member whose
+    // creator was set to 'kosmos' through the team route, with any other purpose.
     { outcome: create.OUTCOME.CREATED, name: 'helper', role: 'setup', createdBy: null },
+    { outcome: create.OUTCOME.CREATED, name: 'teamed', role: 'setup', createdBy: 'kosmos', purpose: 'our launch team' },
     { outcome: create.OUTCOME.REFUSED, name: 'no', role: 'coder', createdBy: null },
   ];
   fs.writeFileSync(create.createdLogFile(), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   try {
-    assert.equal(create.createdCount(), 2, 'the auto guide was counted, or a person-made agent was not');
+    assert.equal(create.createdCount(), 3, 'the auto guide was counted, or a person-made agent was not');
   } finally { fs.rmSync(create.createdLogFile(), { force: true }); }
 });
 
@@ -106,7 +113,10 @@ test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re
   const all = [...src.matchAll(/setupAssistant\.ensureGuide\(/g)];
   assert.equal(all.length, 2, 'expected exactly two ensureGuide call sites; re-read this test if that changed');
   assert.equal(calls.length, all.length, 'an ensureGuide call site drops its outcome');
-  assert.match(src, /function recordGuideOutcome\(r\)\s*\{[^}]*guidestate\.record\(r\)\.changed\)\s*createdbeacon\.pingInstall\(\)/,
-    'recordGuideOutcome must ping the install when the state changes');
-  void store;
+  const fn = src.slice(src.indexOf('function recordGuideOutcome(r)'), src.indexOf('function recordGuideOutcome(r)') + 600);
+  assert.match(fn, /guidestate\.record\(r\)\.changed/, 'recordGuideOutcome must act on a state change');
+  assert.match(fn, /setTimeout\([\s\S]*createdbeacon\.pingInstall\(\)[\s\S]*GUIDE_PING_DELAY_MS\)/,
+    'the change ping must be DELAYED, or it races the board-start ping into two collector records');
+  assert.match(src, /setupAssistantSeeded\(\)\)\s*\{[\s\S]{0,400}?recordGuideOutcome\(\{[^}]*state: 'seeded'/,
+    'an install seeded before the guide state existed must record seeded at the sweep\'s early return');
 });

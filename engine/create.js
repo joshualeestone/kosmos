@@ -3635,9 +3635,14 @@ function createdCount() {
 
 /* #4350 (Splinter's call on the card): the setup guide Kosmos creates by itself is not an
    agent the PERSON created, so it is left out of the public "agents created" number. It is
-   recognised by what setup-assistant.js writes for it: createdBy 'kosmos' and role 'setup'. */
+   recognised by all three things setup-assistant.js writes for it: createdBy 'kosmos', role
+   'setup', and a purpose that starts "default Kosmos setup guide". (The team route lets an
+   operator set createdBy, so role alone or createdBy alone would drop real agents.)
+   ⚠️ An install that already reported a count INCLUDING its guide keeps that higher number on
+   the collector (Math.max), so its next creation does not move the public total once. */
 function isAutoGuideBirth(e) {
-  return e.createdBy === 'kosmos' && e.role === 'setup';
+  return e.createdBy === 'kosmos' && e.role === 'setup'
+    && String(e.purpose || '').startsWith('default Kosmos setup guide');
 }
 
 /* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what

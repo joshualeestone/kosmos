@@ -12,9 +12,13 @@
  *
  * TWO signals leave the machine here, both fire-and-forget:
  *   - install ping   UNCONDITIONAL, on board start. Registers the install with
- *                    count 0, so the homepage INSTALL count moves. It carries NO
- *                    agent information -- an install shares only "an install
- *                    exists", never how many agents it runs.
+ *                    count 0, so the homepage INSTALL count moves. It carries no
+ *                    agent count and nothing agent-identifying. Since #4350 it
+ *                    does carry ONE word about this install's setup guide (see
+ *                    guidestate.js: created, not armed, turned off by the person,
+ *                    no model connected, refused, names taken), which says
+ *                    something about the person's setup and choices; Splinter
+ *                    ruled that inside Josh's 09-14 telemetry ruling (#4350).
  *   - created ping   on agent create, GATED on the create-agent checkbox
  *                    (default CHECKED, hardcoded on the form, #238). Carries the
  *                    install's TOTAL-EVER-CREATED count (create.createdCount,
@@ -22,8 +26,8 @@
  *                    which froze at peak-running under Math.max), so the homepage
  *                    AGENT count moves to the true number (not +1 -- see below).
  *
- * The split is deliberate: the install ping cannot be opted out (it is just a
- * headcount of installs and reveals nothing about agents), and the agent count
+ * The split is deliberate: the install ping cannot be opted out (it is a
+ * headcount of installs plus the guide state above, no agent count), and the agent count
  * -- the one thing the checkbox governs -- only leaves when the checkbox is on.
  *
  * 🔑 THE SERVER IS IDEMPOTENT ON `count` (Math.max), NOT an incrementer. Both
@@ -50,12 +54,13 @@
  * create an agent (or just launched the board), not for a network round-trip.
  * 🛑 installId is RANDOM and per-install (engine/ping.js): it identifies an
  * install, never a machine or a person. Nothing agent-identifying (names,
- * instructions, conversations, files) is in this payload -- only a count.
+ * instructions, conversations, files) is in this payload: a count, a version, an
+ * OS, and the guide state word.
  */
 
 const os = require('node:os');
-const ping = require('./ping');
-const guidestate = require('./guidestate');   // #4350: the setup guide's last outcome, one word       // installId + the under-test guard
+const ping = require('./ping');       // installId + the under-test guard
+const guidestate = require('./guidestate');   // #4350: the setup guide's last outcome, one word
 
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 

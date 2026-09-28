@@ -615,6 +615,8 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
      run it is off unless a test turns it on with AGENT_WORKFORCE_SETUP_GUIDE=on. */
   const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
   const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
+  // 'disabled' reaches the collector only from a direct caller: the board's own callers are
+  // gated on FIRSTRUN_AUTOCREATE_ENABLED and never run under the dry run.
   if (!enabled) return Promise.resolve({ seeded: false, state: 'disabled', reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
@@ -658,6 +660,8 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet',
         namesTaken ? 'names-taken' : 'refused');
     } catch (err) {
+      // An internal failure reads 'refused' on /admin like a model refusal; the reason (kept
+      // locally) tells them apart.
       return fail('ensureGuide failed: ' + String((err && err.message) || err));
     } finally {
       inFlight = null;
