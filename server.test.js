@@ -11014,8 +11014,14 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
     assert.equal(bad.status, 400, 'a non-boolean on was accepted');
     assert.equal(JSON.parse(bad.body).error, 'that has to be on or off');
     assert.equal(JSON.parse((await req('/api/community-setting')).body).on, true, 'a refused PUT changed the setting');
-  } finally {
+    // An unreadable setting (a folder where the file should be) must reach the page as ok:false, so it
+    // draws could-not-read, never a confident Off (review 2: a route that always said ok passed before).
     fs.rmSync(communityEngine.FILE, { force: true });
+    fs.mkdirSync(communityEngine.FILE, { recursive: true });
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null },
+      'an unreadable community setting did not reach the page as could-not-read');
+  } finally {
+    fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
   }
 });
 

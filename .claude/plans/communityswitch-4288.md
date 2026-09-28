@@ -44,6 +44,15 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
 - Found by my own validation, not the review: web.settings-nav pins the Automation boxes' order, and the new
   Community box was missing from it. Added after Daily report, where Mona's design puts it.
 
+## Review 2
+
+- No blocker. An unreadable setting was tested in the engine but never through the route, so a route that
+  always answered ok:true passed everything; server.test.js now puts a folder where the file should be and
+  asserts the GET answers `{ on: false, ok: false }`.
+- The reason-grep comment credited the check() line for the +1; it is the top-level .catch.
+- Not changed: the could-not-read wording differs from the Daily report row's. It is Mona's copy from the
+  card, and it is the wording most other switches on the page use.
+
 ## Weakest premise
 
 That "no file means ON" is enough for "existing installs migrated once". It gives the same result, but a
