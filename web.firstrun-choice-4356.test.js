@@ -175,9 +175,13 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
   }
   ctx.frPlusSignIn();
   assert.deepEqual(ctx.calls, ['tab:settings', 'sec:plus', 'signin'], 'not the Settings sign-in that already exists');
-  const finish = lift('frFinish');
-  assert.match(finish, /if \(ok \|\| FR_FORGOT\) \{ frClose\(\); if \(frPlusLast\(\)\) frPlusSignIn\(\); else then\(\); return; \}/,
+  assert.match(lift('frEnd'), /frClose\(\);\n\s+if \(frPlusLast\(\)\) frPlusSignIn\(\); else then\(\);/,
     'first run does not end at the sign-in, or ends there for every choice');
+  // Every way first run closes goes through frEnd: the saved ending, and Carry on anyway after a
+  // save that failed (which once skipped the sign-in).
+  assert.match(lift('frFinish'), /if \(ok \|\| FR_FORGOT\) \{ frEnd\(then\); return; \}/);
+  assert.match(lift('frFinish'), /label: 'Carry on anyway', go: \(\) => frEnd\(then\)/);
+  assert.doesNotMatch(lift('frFinish'), /frClose\(\); then\(\)/, 'a way out of first run skips the last step');
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {

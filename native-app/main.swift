@@ -255,8 +255,10 @@ enum ConnectLink: String {
 }
 
 /// Kosmos Plus itself or one of the person's computers, over https: the plain host, no user part,
-/// no port but 443. A computer is one label directly under kosmosplus.com, never login itself.
-/// Ported from the iOS app (ios/Kosmos/ShellLogic.swift isOurs, PushBridgeLogic.swift isMacHost).
+/// no port but 443. A computer is one label directly under kosmosplus.com, never login itself, by
+/// the iOS app's own rule (ios/Kosmos/ShellLogic.swift isOurs, PushBridgeLogic.swift isMacHost and
+/// isHostLabel): 1 to 63 of a-z, 0-9 and "-", no "-" at either end, and no "xn--" (punycode
+/// lookalikes are refused on purpose). A copy, not shared code: the selftest rows pin it.
 func isKosmosPlusURL(_ url: URL) -> Bool {
     guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty,
           url.user == nil, url.password == nil, url.port == nil || url.port == 443,
@@ -267,11 +269,10 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
     let suffix = ".kosmosplus.com"
     guard host.hasSuffix(suffix) else { return false }
     let label = String(host.dropLast(suffix.count))
-    guard let first = label.unicodeScalars.first,
-          ("a"..."z").contains(first) || ("0"..."9").contains(first)
+    guard (1...63).contains(label.count), label.first != "-", label.last != "-", !label.hasPrefix("xn--")
     else { return false }
     return label.unicodeScalars.allSatisfy {
-        ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_"
+        ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-"
     }
 }
 
@@ -1225,6 +1226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
     private(set) var computerMode: ComputerMode = .unset
     private var modeHome: String?
+    // #4356: true from Connect until its `kosmos stop` has finished. "Run agents on this computer"
+    // waits for it, or its `kosmos start` would race the stop (and the stop can win).
+    private var connectSwitchInFlight = false
     private var lastPageBadgeAt: TimeInterval?   // systemUptime: a clock that never steps backwards
     private var badgeAsked = 0
     private var badgeShown = 0
@@ -1277,6 +1281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if computerMode == .connect {
             logLine("#4356: this computer connects to agents on another computer; its own board is not started")
             loadConnect()
+            stopBoardIfRunning()
         } else {
             loadBoard()
         }
@@ -1596,6 +1601,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func loadBoard() {
+        // #4356: every way into here (launch, Reload's fall-through, a navigation failure's one-shot)
+        // would run `kosmos start`, which clears board.stopped. None of them may on a connect computer.
+        guard computerMode != .connect else {
+            logLine("#4356: loadBoard refused on a connect computer; loading sign-in instead")
+            loadConnect()
+            return
+        }
         // A fresh attempt starts with a clean slate; the delegate methods
         // below re-set these if THIS attempt fails too (#965). Disarming the
         // one-shot here matters: without it, an armed fall-through from a
@@ -1731,6 +1743,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                // #4356: a start already running when the person chose Connect can finish after the
+                // stop did. Undo it, before the stale-generation check below drops the result.
+                if self.computerMode == .connect {
+                    logLine("#4356: a board start finished after Connect; stopping it again")
+                    DispatchQueue.global(qos: .utility).async { _ = stopBoard(kosmosHome: resolved.kosmosHome) }
+                    return
+                }
                 // This generation's process is no longer the watchdog's
                 // business once its start resolved, stale or not.
                 if let s = self.inFlightStart, s.generation == generation {
@@ -1773,7 +1792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    // MARK: #4356 -- this computer runs agents, or connects to agents on another computer
+    // MARK: #4356: this computer runs agents, or connects to agents on another computer
 
     /// Once, at launch, before anything starts. The KOSMOS_URL test path has no install to read,
     /// and an install that cannot be resolved is loadBoard's to explain: both behave as today.
@@ -1797,6 +1816,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         items.append(URLQueryItem(name: "mode", value: computerMode.rawValue))
         comps.queryItems = items
         return comps.url ?? url
+    }
+
+    /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
+    /// port). Said once, plainly; every later launch tries the stop again (stopBoardIfRunning).
+    private func showBoardStillRunning() {
+        logLine("#4356: kosmos stop failed; the board may still be running on this computer")
+        showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens; restarting this computer also stops it.", title: "Kosmos is still running here")
+    }
+
+    /// At every launch of a connect computer: a board left running (a stop that failed, or one started
+    /// by hand) is stopped again. board.stopped is what launchd and the watchdog obey, so its absence
+    /// is the sign; a present marker means there is nothing to do.
+    private func stopBoardIfRunning() {
+        guard let home = modeHome, !FileManager.default.fileExists(atPath: home + "/board.stopped") else { return }
+        logLine("#4356: connect computer without board.stopped; stopping the board")
+        DispatchQueue.global(qos: .utility).async {
+            if !stopBoard(kosmosHome: home) { logLine("#4356: the launch-time stop failed too") }
+        }
     }
 
     private func loadConnect() {
@@ -1839,7 +1876,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// after the stop has finished either way, and a stop that failed is logged.
     private func switchToConnect(home: String) {
         computerMode = .connect
+        connectSwitchInFlight = true
         logLine("#4356: switching this computer to connect")
+        // A Reload still in flight must not fall through to a board start when the stop kills its page.
+        recoverOnReloadFailure = false
+        reloadNavigation = nil
         badgeTimer?.invalidate(); badgeTimer = nil
         a11yTimer?.invalidate(); a11yTimer = nil
         promptRequestTimer?.invalidate(); promptRequestTimer = nil
@@ -1848,9 +1889,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let stopped = stopBoard(kosmosHome: home)
             DispatchQueue.main.async {
-                guard let self, self.computerMode == .connect else { return }
-                if !stopped { logLine("#4356: the board may still be running here; connect goes on") }
+                guard let self else { return }
+                self.connectSwitchInFlight = false
+                guard self.computerMode == .connect else { return }
                 self.loadConnect()
+                if !stopped { self.showBoardStillRunning() }
             }
         }
     }
@@ -1861,6 +1904,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// finished on this computer, opens as it would on a fresh one.
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
+        guard !connectSwitchInFlight else {
+            NSSound.beep()
+            logLine("#4356: Run agents waits: the switch to connect is still stopping the board")
+            return
+        }
         guard writeComputerMode(.run, kosmosHome: home) else {
             showStartupFailureAlert(detail: "Kosmos could not save that change on this computer, so it still connects to agents on another computer. Check that you can write to \(home), then try again.", title: "Kosmos could not switch")
             return
@@ -2643,6 +2691,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
     func pageSaidWaiting(_ body: Any) {
+        // #4356: the board's page can still post while Connect is stopping it; a connect computer has
+        // no waiting count to show.
+        guard computerMode != .connect else { return }
         lastPageBadgeAt = ProcessInfo.processInfo.systemUptime
         /* A post is a board read that worked (the page posts only from a poll that succeeded), so the
            app's miss count starts again (round 7): misses from before a stretch the page fed do not
@@ -2657,6 +2708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func showBadge(_ label: String?, asked: Int) {
         Self.badgesAllowed { allowed in
             DispatchQueue.main.async {
+                guard self.computerMode != .connect else { NSApp.dockTile.badgeLabel = nil; return }
                 guard asked >= self.badgeShown else { return }
                 self.badgeShown = asked
                 let next = allowed ? label : nil
@@ -3104,6 +3156,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // above prevents, for other codes.
         if isReloadNav || isBoardLoadNav || webView.backForwardList.currentItem == nil {
             lastLoadFailed = true
+        }
+        // #4356: a connect computer whose sign-in did not load would otherwise sit on a blank window.
+        // A load our own policy sent to the browser ends as WebKit's "interrupted by policy change"
+        // (WebKitErrorDomain 102); that is not Kosmos Plus failing to answer.
+        let policyCancel = (error as NSError).domain == "WebKitErrorDomain" && (error as NSError).code == 102
+        if computerMode == .connect && !policyCancel && (isBoardLoadNav || webView.backForwardList.currentItem == nil) {
+            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host ?? "login.kosmosplus.com")). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
+            return
         }
         // One-shot fall-through: the user's reload hit a dead page (the
         // board died AFTER a good load, the likeliest field case). Recover
@@ -4213,7 +4273,6 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     exit(bad == 0 ? 0 : 1)
 }
 
-/* #3996: the Dock badge's number, read from the board's own JSON the way the timer reads it. */
 // #4356: this computer's mode, and where a connect computer's window may go. Pure, so no window
 // server is needed; tools/build-kosmos-bundle.sh runs it at every bundle build.
 if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
@@ -4250,7 +4309,11 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     link("https://josh.kosmosplus.com:443/", false, .inApp, "443 is the default port")
     link("https://josh.kosmosplus.com:8443/", false, .browser, "another port is not ours")
     link("https://a.b.kosmosplus.com/", false, .browser, "two labels deep is not a computer")
-    link("https://-x.kosmosplus.com/", false, .browser, "a label must start with a letter or digit")
+    link("https://-x.kosmosplus.com/", false, .browser, "a label must not start with a hyphen")
+    link("https://x-.kosmosplus.com/", false, .browser, "nor end with one")
+    link("https://a_b.kosmosplus.com/", false, .browser, "an underscore is not a host label (iOS refuses it too)")
+    link("https://xn--80ak6aa92e.kosmosplus.com/", false, .browser, "a punycode lookalike goes to the browser")
+    link("https://" + String(repeating: "a", count: 64) + ".kosmosplus.com/", false, .browser, "a label over 63 characters is not a host")
     link("https://kosmosplus.com.evil.example/", false, .browser, "a lookalike suffix goes to the browser")
     link("https://user@login.kosmosplus.com/", false, .browser, "a user part is not ours")
     link("https://stripe.com/pay", false, .browser, "any other site goes to the browser, even from a redirect")
@@ -4278,7 +4341,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
-    let expected = 36
+    let expected = 40
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
@@ -4288,6 +4351,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     exit(0)
 }
 
+/* #3996: the Dock badge's number, read from the board's own JSON the way the timer reads it. */
 if CommandLine.arguments.contains("--kosmos-app-badge-selftest") {
     var bad = 0
     var ran = 0

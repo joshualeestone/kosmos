@@ -4,7 +4,7 @@
  * #4356: a computer either runs agents or connects to agents on another computer.
  *
  * Reading the choice and deciding a connect computer's links are pure Swift functions that
- * --kosmos-app-mode-selftest drives at bundle build (36 rows). What no selftest can reach is the
+ * --kosmos-app-mode-selftest drives at bundle build (40 rows). What no selftest can reach is the
  * wiring in the AppKit delegate, so that is read here from source: a connect computer never starts
  * its board, not at launch, not on Reload, not after an unreadable choice; switching stops what
  * belongs to a board before sign-in loads; only the board's own page, and only while the app is
@@ -34,7 +34,7 @@ test('#4356: the choice is read before anything starts, and a connect computer n
   const read = launch.indexOf('readLaunchComputerMode()');
   assert.notEqual(read, -1, 'the app does not read this computer\'s choice at launch');
   assert.ok(read < launch.indexOf('loadBoard()'), 'the board can start before the choice is read');
-  assert.match(launch, /if computerMode == \.connect \{\n[^\n]*\n\s+loadConnect\(\)\n\s+\} else \{\n\s+loadBoard\(\)\n\s+\}/,
+  assert.match(launch, /if computerMode == \.connect \{\n[^\n]*\n\s+loadConnect\(\)\n\s+stopBoardIfRunning\(\)\n\s+\} else \{\n\s+loadBoard\(\)\n\s+\}/,
     'a connect computer starts its board, or a run computer does not');
   assert.match(launch, /if computerMode != \.connect \{[\s\S]*startA11yTrustChecks\(\)[\s\S]*startPromptRequestWatcher\(\)\n\s+\}/,
     'a connect computer runs the Accessibility checks and prompt watcher of a board it does not have');
@@ -81,6 +81,44 @@ test('#4356: switching to connect stops what belongs to a board, then the board,
   assert.match(SRC.slice(at, SRC.indexOf('\n}\n', at)), /process\.arguments = \["stop"\]/);
 });
 
+test('#4356: loadBoard itself refuses on a connect computer, so no path into it can start the board', () => {
+  // Launch, Reload's fall-through and a navigation failure's one-shot all reach loadBoard(); the
+  // guard is in loadBoard so a new caller cannot forget it.
+  const load = body('private func loadBoard()');
+  const guard = load.indexOf('guard computerMode != .connect else {');
+  assert.notEqual(guard, -1, 'loadBoard can run kosmos start on a connect computer');
+  assert.ok(guard < load.indexOf('startBoard('), 'the guard comes after the start');
+  // A start already running when Connect was chosen is stopped again when it lands.
+  assert.match(load, /if self\.computerMode == \.connect \{\n[^\n]*\n\s+DispatchQueue\.global\(qos: \.utility\)\.async \{ _ = stopBoard\(kosmosHome: resolved\.kosmosHome\) \}\n\s+return\n\s+\}/);
+  assert.ok(load.indexOf('if self.computerMode == .connect {') < load.indexOf('guard self.boardStartGeneration == generation'),
+    'the stale-generation check drops a start that landed after Connect before it can be undone');
+});
+
+test('#4356: a failed stop is said, and every connect launch stops a board left running', () => {
+  const sw = body('private func switchToConnect(home: String)');
+  assert.match(sw, /if !stopped \{ self\.showBoardStillRunning\(\) \}/, 'a stop that failed is only logged');
+  assert.match(sw, /recoverOnReloadFailure = false\n\s+reloadNavigation = nil/, 'a Reload in flight can fall through to a board start');
+  const launch = body('func applicationDidFinishLaunching(_ notification: Notification)');
+  assert.match(launch, /loadConnect\(\)\n\s+stopBoardIfRunning\(\)/);
+  assert.match(body('private func stopBoardIfRunning()'), /!FileManager\.default\.fileExists\(atPath: home \+ "\/board\.stopped"\)/);
+});
+
+test('#4356: Run agents waits for the switch to connect to finish stopping', () => {
+  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard !connectSwitchInFlight else \{/);
+  assert.match(body('private func switchToConnect(home: String)'), /self\.connectSwitchInFlight = false\n\s+guard self\.computerMode == \.connect/);
+});
+
+test('#4356: no Dock badge on a connect computer, even from a page still posting while the stop runs', () => {
+  assert.match(body('func pageSaidWaiting(_ body: Any)'), /guard computerMode != \.connect else \{ return \}/);
+  assert.match(body('private func showBadge(_ label: String?, asked: Int)'), /guard self\.computerMode != \.connect else \{ NSApp\.dockTile\.badgeLabel = nil; return \}/);
+});
+
+test('#4356: a connect computer that cannot reach Kosmos Plus says so, not a blank window', () => {
+  const fail = body('private func handleNavigationFailure(_ navigation: WKNavigation?, _ error: Error, stage: String)');
+  assert.match(fail, /if computerMode == \.connect && !policyCancel && \(isBoardLoadNav \|\| webView\.backForwardList\.currentItem == nil\) \{\n\s+showStartupFailureAlert/);
+  assert.ok(fail.indexOf('if computerMode == .connect && !policyCancel') < fail.indexOf('loadBoard()'), 'the connect failure can reach the board start fallback');
+});
+
 test('#4356: Reload on a connect computer never starts the board', () => {
   const reload = body('@objc func reloadBoard(_ sender: Any?)');
   const guard = reload.indexOf('if computerMode == .connect {');
@@ -109,11 +147,13 @@ test('#4356: the way back is this Mac\'s own menu, shown only on a connect compu
 
 test('#4356: quitting a connect computer does not say its agents keep running', () => {
   const quit = body('func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply');
-  assert.ok(quit.indexOf('if computerMode == .connect {') < quit.indexOf('showQuitDialog()'));
+  const at = quit.indexOf('if computerMode == .connect {');
+  assert.notEqual(at, -1, 'quitting a connect computer shows "Your agents keep running"');
+  assert.ok(at < quit.indexOf('showQuitDialog()'));
 });
 
 test('#4356: the bundle build runs the mode selftest and fails on a wrong row or a hollow run', () => {
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
-  assert.match(SRC, /let expected = 36\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+  assert.match(SRC, /let expected = 40\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
 });

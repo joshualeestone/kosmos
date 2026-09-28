@@ -3720,8 +3720,16 @@ _kosmos_mode_keeps_board_off() {
   esac
   return 0
 }
+# Decided once, here, and read again by the summary at the end, so every line this run prints
+# about the board agrees with what it did.
+_kosmos_board_off=no
 if _kosmos_mode_keeps_board_off; then
-  step "This computer connects to agents on another computer, so Kosmos is not started here."
+  _kosmos_board_off=yes
+  if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then
+    step "This computer connects to agents on another computer, so Kosmos is not started here."
+  else
+    step "This computer's setup choice could not be read, so Kosmos is not started here. The Kosmos app will ask again when you open it."
+  fi
 else
   step "Starting Kosmos."
   KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
@@ -4115,7 +4123,7 @@ if [ "$_wd_ok" = yes ]; then
     info "sandboxed run: the watchdog job file was written; registering it with launchd was skipped on purpose (the real machine's domain is not this run's to touch)"
   elif [ "$_wd_ok" = later ]; then
     info "note: macOS did not accept the watchdog item just now; it is written and loads at your next login"
-  else
+  elif [ "$_kosmos_board_off" != yes ]; then
     info "Kosmos will bring the board back if it stops after a restart"
   fi
   ok
@@ -4183,7 +4191,12 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   _do_open=yes
 fi
 
-if [ "$BOARD_OURS" = "yes" ]; then
+if [ "$_kosmos_board_off" = "yes" ]; then
+  # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
+  # advice would start a board on a computer that connects elsewhere.
+  printf '\n  Kosmos is installed. No board runs on this computer, on purpose (see above).\n'
+  printf '  Open the Kosmos app from your Applications folder.\n\n'
+elif [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
   # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
   # technical note (it still serves there for `kosmos open`), not presented as the

@@ -62132,6 +62132,13 @@ function frPlusSignIn() {
   settingsGo('plus');
   plusSiEnter();
 }
+/* #4356: how first run ends, whichever way it closes. On a "both" computer the Kosmos Plus sign-in is
+   the last step and takes the place of the ending the screen offered (the agents list, or Create an
+   agent, which stays one click away on the board). Josh: the sign-in is the LAST step. */
+function frEnd(then) {
+  frClose();
+  if (frPlusLast()) frPlusSignIn(); else then();
+}
 
 async function frFinish(then) {
   /**
@@ -62187,14 +62194,14 @@ async function frFinish(then) {
     why = err.message;
   }
   FR_FINISHING = false;
-  if (ok || FR_FORGOT) { frClose(); if (frPlusLast()) frPlusSignIn(); else then(); return; }
+  if (ok || FR_FORGOT) { frEnd(then); return; }
   FR_FORGOT = true;
   next.disabled = false;
   document.getElementById('fr-forgot').innerHTML =
     '<div class="fr-note"><b>We could not remember that you have been here.</b> '
     + 'Everything else works; this may just appear again the next time you open it. ('
     + esc(why) + ')</div>';
-  frActions({ label: 'Carry on anyway', go: () => { frClose(); then(); } });
+  frActions({ label: 'Carry on anyway', go: () => frEnd(then) });
 }
 
 // ⚠️ Skipping MARKS IT SEEN, and that is not a bug. The flag records that

@@ -801,8 +801,15 @@ chk "CONTROL: the connect computer's board is down before the update" "! curl -s
 RC=0; cat "$SETUP" | sh > "$SB/update-connect.log" 2>&1 || RC=$?
 chk "an update on a connect computer exits 0" "rc_ok $RC"
 chk "it says why it did not start Kosmos" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/update-connect.log\""
+chk "its summary says no board runs here, on purpose" "grep -q 'No board runs on this computer, on purpose' \"$SB/update-connect.log\""
+chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
+chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
+# ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
+# nothing here would start it, so these pass with or without #4356's check. Once #4342 lands (it
+# restarts only a board the update itself paused, and a connect computer's was already stopped),
+# they are the guard that a failed update on a connect computer stays down.
 RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/update-connect-failed.log" 2>&1 || RC=$?
 chk "the forced failure on a connect computer is a failure (or this arm tests nothing)" "rc_refused $RC"
 chk "a failed update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
@@ -811,6 +818,7 @@ printf 'garbled\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
 chk "an update with an unreadable choice exits 0" "rc_ok $RC"
 chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
 printf 'run\n' > "$SB/home/mode"
 RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
 chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
