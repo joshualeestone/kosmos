@@ -55,7 +55,7 @@ const LONG = { timeout: 600000 };
    The rule: a T test that measured over half its budget on the runner moves here. 120 s is the file's
    own budget for its held-handle tests (WINDOWS_ONLY), more than three times the worst measurement,
    and still a hang-guard, unlike LONG. */
-const HELD = { timeout: 1000 }; // TEMP CONTROL
+const HELD = { timeout: 120000 };
 /* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
    boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
    Kosmos\\board paths and a win32 board. These skip off-win32 so the macOS CI lane does not red on a
