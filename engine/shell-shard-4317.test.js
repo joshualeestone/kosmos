@@ -88,6 +88,6 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   const src = fs.readFileSync(path.join(ROOT, 'tools', 'run-tests.sh'), 'utf8');
   assert.match(src, /KOSMOS_TEST_PART="\$\{KOSMOS_TEST_PART:-all\}"/);
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
-  assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\n\s+node --test --require/);
+  assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
   assert.match(src, /else\n\s+yarn -s test:shell\n\s+fi/);
 });

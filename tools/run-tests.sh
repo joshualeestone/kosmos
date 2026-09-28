@@ -286,10 +286,12 @@ case "$KOSMOS_TEST_PART" in
   all|node|shell) ;;
   *) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell (got '$KOSMOS_TEST_PART')" >&2; exit 2 ;;
 esac
+# ⚠️ The node --test line stays FLUSH LEFT: three guards find the suite by `^node --test`
+# (#1934's count-and-run pin, #3605's preload pin, #4273's guard-after-suite order).
 NODE_STATUS=0
 if [ "$KOSMOS_TEST_PART" != shell ]; then
-  node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
-  NODE_STATUS=$?
+node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
+NODE_STATUS=$?
 fi
 if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
