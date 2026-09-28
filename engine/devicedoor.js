@@ -19,7 +19,8 @@
  * and offers nothing to press; the card asked for instructions, not an
  * installer, and an install nobody asked for is the thing #548 was about.
  */
-const { spawn, execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
+
 
 const PHASE = Object.freeze({
   IDLE: 'idle',            // nothing in flight; `connected` says the rest
@@ -89,8 +90,7 @@ function configArgs() {
 function status(cb) {
   const bin = ghBin();
   if (!bin) { cb({ gh: 'missing', connected: false, login: null }); return; }
-  const ask = runner || ((args, done) => execFile(bin, args, { env: childEnv(), encoding: 'utf8', timeout: 8000 },
-    (err, out, errOut) => done(err ? (err.code == null ? -1 : err.code) : 0, String(out || '') + String(errOut || ''))));
+  const ask = runner || ((args, done) => runBounded(bin, args, { env: childEnv(), timeoutMs: 8000 }, done));
   ask(spec.statusArgs.concat(configArgs()), (code, text) => {
     if (code !== 0) { cb({ gh: 'present', connected: false, login: null }); return; }
     const m = String(text).match(spec.loginRe);
@@ -187,4 +187,61 @@ function resetForTests() { child = null; mem = { phase: PHASE.IDLE, code: null, 
 return { PHASE, state, start, cancel, status, ghBin, setRunner, setSpawner, resetForTests };
 }
 
-module.exports = { PHASE, makeDoor };
+/* #4326: a status probe that ALWAYS ends. execFile's `timeout` sends SIGTERM and nothing
+   after it, so a CLI that ignores SIGTERM (an unauthenticated `vercel whoami` waiting on a
+   prompt) kept running with its callback never called: on 2026-09-28 one ran for 2h39m at
+   ~600 MB and fed a night of memory pressure. Here the answer is given at the timeout whether
+   or not the child has exited, and the child gets SIGTERM and then, after `graceMs`, SIGKILL,
+   which cannot be ignored (on Windows child.kill is TerminateProcess either way).
+   ⚠️ NOT detached, on purpose: the probe stays in the board's own process group, so when the
+   board exits (a restart, an update, launchd stopping the job) the probe is reaped with it.
+   A detached probe would outlive the board, and with it the timers that were to kill it.
+   The signals go to the direct child only: a grandchild it started keeps running until the
+   board's group goes. `gh` and `vercel whoami` are single processes, so this is noted, not fixed.
+   Kept from execFile: the answer is (exit code, stdout then stderr); a stream past 1 MB stops
+   the child at once (execFile's maxBuffer) and answers -1; `done` is called exactly once, with
+   -1 on a timeout, an overflow or a spawn error. */
+const PROBE_MAX_BUFFER = 1024 * 1024;
+function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, done) {
+  let out = '';
+  let err = '';
+  let answered = false;
+  const answer = (code) => { if (answered) return; answered = true; done(code, out + err); };
+  let child;
+  try {
+    child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  } catch (e) {
+    answer(-1);
+    return null;
+  }
+  const kill = (sig) => { try { child.kill(sig); } catch (e) { /* already gone */ } };
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  let killTimer = null;
+  // The end of a probe that will not end by itself: answer, SIGTERM, then SIGKILL after the grace.
+  const stop = () => {
+    answer(-1);
+    if (killTimer) return;
+    kill('SIGTERM');
+    killTimer = setTimeout(() => kill('SIGKILL'), graceMs);
+  };
+  // Over the cap, stop it at once, as execFile's maxBuffer did (not only stop reading it).
+  // Once answered, stop collecting: a flood that ignores SIGTERM must not keep copying on the
+  // board's thread through the grace.
+  child.stdout.on('data', (d) => { if (answered) return; out += d; if (out.length > PROBE_MAX_BUFFER) { out = out.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  child.stderr.on('data', (d) => { if (answered) return; err += d; if (err.length > PROBE_MAX_BUFFER) { err = err.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  const timer = setTimeout(stop, timeoutMs);
+  child.on('error', () => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    answer(-1);
+  });
+  child.on('close', (code) => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    answer(code == null ? -1 : code);
+  });
+  return child;
+}
+
+module.exports = { PHASE, makeDoor, runBounded };
