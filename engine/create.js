@@ -3455,10 +3455,11 @@ function installJob(name, opts) {
     try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
   }
   /* ⚠️ enable BEFORE bootstrap. `remove` sticks by writing a per-user `disable`
-     override keyed on the LABEL, and that override outlives the plist — so
-     bootstrapping into a standing disable succeeds and starts nothing, which
-     would report a repaired agent that never comes up. The uninstaller
-     documents the same ordering for the same reason. */
+     override keyed on the LABEL, and that override outlives the plist, so
+     bootstrapping into a standing disable is REFUSED (measured on macOS 26.7,
+     #4254: `Bootstrap failed: 5: Input/output error`, nothing loaded) and the
+     repaired agent never comes up. The uninstaller documents the same ordering
+     for the same reason. */
   let started = false;
   try {
     run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${serviceLabel(clean)}`]);
@@ -5216,6 +5217,14 @@ function createAgentInner(opts) {
       win32Launched = win32StartViaJob(name, { runner, runnerBin, configDir, model: modelArg });
       return win32Launched.ok === true;
     }
+    /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
+       sticks by writing a per-user `disable` override keyed on the LABEL, and that
+       override outlives the plist, so re-creating a removed name bootstrapped into a
+       standing disable: refused every time, and the name could never be used again.
+       Best-effort: a name that was never disabled has nothing to enable. */
+    try {
+      run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+    } catch { /* nothing to enable */ }
     const r = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, plistPath(name)]);
     return r && r.ok !== false;
   });
