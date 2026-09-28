@@ -90,6 +90,21 @@ test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever orde
   assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer');
 });
 
+test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s maxBuffer did', async () => {
+  // Prints ~2 MB, then would hang: it must be answered and killed long before the timeout.
+  const flood = script('flood.sh', "trap '' TERM\nhead -c 2200000 /dev/zero | tr '\\\\0' 'x'\nwhile :; do sleep 1; done");
+  const r = await run(flood, [], { timeoutMs: 20000, graceMs: 300 });
+  try {
+    assert.equal(r.code, -1, 'an overflow must answer -1');
+    assert.ok(r.ms < 5000, `an overflow must stop the probe at once, not at the timeout: ${r.ms} ms`);
+    assert.ok(r.text.length <= 1024 * 1024, `the answer must be capped at 1 MB: ${r.text.length}`);
+    await wait(1000);
+    assert.equal(alive(r.pid), false, 'the flooding child was not killed');
+  } finally {
+    if (r.pid) { try { process.kill(r.pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});
+
 test('#4326 a binary that cannot be spawned answers -1 once, never hangs', async () => {
   const r = await run(path.join(DIR, 'does-not-exist'), [], { timeoutMs: 5000 });
   assert.equal(r.code, -1);

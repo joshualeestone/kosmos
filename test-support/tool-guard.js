@@ -13,14 +13,18 @@
  * "Real" means the tool's name appears as a command and does NOT resolve inside this repo or the
  * OS temp dir, where a test's own fakes live. Checked:
  *   - spawn / spawnSync / execFile / execFileSync: the file, resolved against the call's `cwd`;
- *     with `shell: true`, or a shell (`sh`/`bash`/`zsh`/`dash`) given `-c`, the command word of
- *     each segment of the script.
+ *     with `shell: true`, or a shell given a script (`sh`/`bash`/`zsh`/`dash`/`ksh`/`fish` with a
+ *     short-flag cluster containing `c` such as `-c` or `-lc`; `cmd /c`; `powershell`/`pwsh
+ *     -Command`), the command word of each segment of the script.
  *   - exec / execSync: the command word of each segment of the command string.
  * Command position only, so a tool named in an ARGUMENT (a commit message) is not refused.
  * A refused call throws (so nothing runs) and writes one line saying what to do. It ALSO throws
  * again on the next tick, uncaught, so the FILE fails whatever the test caught: the connections
  * sweep swallows a door's error and reports "could not check", so the first throw alone would
  * read as a passing test (test-support.tool-guard-4326.test.js pins both).
+ *
+ * cloudflared is listed although nothing in the repo spawns it today (the Cloudflare door checks
+ * its token over HTTP): #4326 asked for it, and a future door that shells out is covered first.
  *
  * NOT SEEN: a tool reached through another interpreter's own process API (a python or node
  * child that spawns it), a name built at runtime inside a shell script FILE, and spawns made by
@@ -39,7 +43,27 @@ const TOOLS = {
   vercel: 'Point AGENT_WORKFORCE_VERCEL_BIN at a fake (tools/run-tests.sh exports test-support/fake-cli-signed-out.sh).',
   cloudflared: 'No test should run cloudflared; stub the call instead.',
 };
-const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash']);
+// A shell and the flag that hands it a script. POSIX shells take it in any short-flag cluster
+// (`-c`, `-lc`, `-ic`: the login-shell form is the common way to get a CLI on PATH); cmd.exe and
+// PowerShell have their own. (Round 2 of the #4326 review measured `bash -lc` and `fish -c`
+// getting past a literal '-c' check.)
+const POSIX_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+function scriptArgOf(command, argv) {
+  const shell = path.basename(String(command)).toLowerCase().replace(/\.exe$/, '');
+  if (POSIX_SHELLS.has(shell)) {
+    const i = argv.findIndex((a) => typeof a === 'string' && /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
+    return i >= 0 ? argv[i + 1] : null;
+  }
+  if (shell === 'cmd') {
+    const i = argv.findIndex((a) => typeof a === 'string' && /^\/[ck]$/i.test(a));
+    return i >= 0 ? argv.slice(i + 1).join(' ') : null;
+  }
+  if (shell === 'powershell' || shell === 'pwsh') {
+    const i = argv.findIndex((a) => typeof a === 'string' && /^-(c|command)$/i.test(a));
+    return i >= 0 ? argv.slice(i + 1).join(' ') : null;
+  }
+  return null;
+}
 const REPO = path.resolve(__dirname, '..');
 const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
 const ALLOWED_ROOTS = [real(REPO), real(os.tmpdir()), path.resolve(os.tmpdir())];
@@ -118,9 +142,9 @@ const fileCheck = (command, rest) => {
   const argv = argvOf(rest);
   let hit = realToolIn(command, opts.cwd, opts.env);
   if (!hit && opts.shell) hit = realToolInScript([command].concat(argv).join(' '), opts.cwd, opts.env);
-  if (!hit && SHELLS.has(path.basename(String(command)))) {
-    const c = argv.indexOf('-c');
-    if (c >= 0) hit = realToolInScript(argv[c + 1], opts.cwd, opts.env);
+  if (!hit) {
+    const script = scriptArgOf(command, argv);
+    if (script) hit = realToolInScript(script, opts.cwd, opts.env);
   }
   return hit;
 };

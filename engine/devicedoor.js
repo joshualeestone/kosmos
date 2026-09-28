@@ -196,8 +196,9 @@ return { PHASE, state, start, cancel, status, ghBin, setRunner, setSpawner, rese
    ⚠️ NOT detached, on purpose: the probe stays in the board's own process group, so when the
    board exits (a restart, an update, launchd stopping the job) the probe is reaped with it.
    A detached probe would outlive the board, and with it the timers that were to kill it.
-   Kept from execFile: the answer is (exit code, stdout then stderr), each capped at 1 MB;
-   `done` is called exactly once, with -1 on a timeout or a spawn error. */
+   Kept from execFile: the answer is (exit code, stdout then stderr); a stream past 1 MB stops
+   the child at once (execFile's maxBuffer) and answers -1; `done` is called exactly once, with
+   -1 on a timeout, an overflow or a spawn error. */
 const PROBE_MAX_BUFFER = 1024 * 1024;
 function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, done) {
   let out = '';
@@ -214,15 +215,23 @@ function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, d
   const kill = (sig) => { try { child.kill(sig); } catch (e) { /* already gone */ } };
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (d) => { if (out.length < PROBE_MAX_BUFFER) out += d; });
-  child.stderr.on('data', (d) => { if (err.length < PROBE_MAX_BUFFER) err += d; });
   let killTimer = null;
-  const timer = setTimeout(() => {
+  // The end of a probe that will not end by itself: answer, SIGTERM, then SIGKILL after the grace.
+  const stop = () => {
     answer(-1);
+    if (killTimer) return;
     kill('SIGTERM');
     killTimer = setTimeout(() => kill('SIGKILL'), graceMs);
-  }, timeoutMs);
-  child.on('error', () => { clearTimeout(timer); answer(-1); });
+  };
+  // Over the cap, stop it at once, as execFile's maxBuffer did (not only stop reading it).
+  child.stdout.on('data', (d) => { out += d; if (out.length > PROBE_MAX_BUFFER) { out = out.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  child.stderr.on('data', (d) => { err += d; if (err.length > PROBE_MAX_BUFFER) { err = err.slice(0, PROBE_MAX_BUFFER); stop(); } });
+  const timer = setTimeout(stop, timeoutMs);
+  child.on('error', () => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    answer(-1);
+  });
   child.on('close', (code) => {
     clearTimeout(timer);
     if (killTimer) clearTimeout(killTimer);

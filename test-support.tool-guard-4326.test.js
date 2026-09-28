@@ -77,6 +77,10 @@ for (const [label, body] of [
   ['exec (a shell string)', "try { cp.exec('vercel whoami', () => {}); } catch (e) {}"],
   ['spawnSync with shell: true', "try { cp.spawnSync('vercel whoami', { shell: true }); } catch (e) {}"],
   ['sh -c', "try { cp.spawnSync('/bin/sh', ['-c', 'vercel x']); } catch (e) {}"],
+  ['bash -lc (a login shell)', "try { cp.spawnSync('/bin/bash', ['-lc', 'vercel x']); } catch (e) {}"],
+  ['fish -c', "try { cp.spawnSync('fish', ['-c', 'vercel x']); } catch (e) {}"],
+  ['cmd /c', "try { cp.spawnSync('cmd.exe', ['/c', 'vercel', 'x']); } catch (e) {}"],
+  ['powershell -Command', "try { cp.spawnSync('pwsh', ['-Command', 'vercel x']); } catch (e) {}"],
 ]) {
   test(`#4326 a file that reaches a real CLI via ${label} FAILS, even when its test swallows the error`, () => {
     const r = runFile(body);
@@ -85,6 +89,11 @@ for (const [label, body] of [
     assert.match(r.stdout + r.stderr, /AGENT_WORKFORCE_VERCEL_BIN/, 'the failure does not name the override to set');
   });
 }
+
+test('#4326 control: bash -lc running an ordinary command is NOT refused', () => {
+  const r = runFile("const o = cp.spawnSync('/bin/bash', ['-lc', 'echo fine'], { encoding: 'utf8' }); if (o.stdout.trim() !== 'fine') throw new Error('bash -lc did not run: ' + JSON.stringify(o));");
+  assert.equal(r.status, 0, `the guard refused an ordinary bash -lc:\n${r.stdout}${r.stderr}`);
+});
 
 test('#4326 control: the same file through the repo\'s fake passes, and the fake really ran', () => {
   // Synchronous, so the fake has run before the test ends; it exits 1 ("signed out").
