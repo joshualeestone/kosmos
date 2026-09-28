@@ -101,8 +101,20 @@ async function readPointer(base, arch, file) {
   return { version: p.version, sha, builtAt };
 }
 
+/* Every git call is bounded. An unbounded fetch on a box that has lost its route to GitHub
+ * never returns, so the hourly run would go dark instead of saying it could not tell. No
+ * prompt either: under launchd there is nobody to answer one. */
+const GIT_TIMEOUT_MS = Number(env.GAP_ALARM_GIT_TIMEOUT_MS) || 60000;
 function git(repo, args) {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  try {
+    return execFileSync('git', ['-C', repo, ...args], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: GIT_TIMEOUT_MS,
+      env: Object.assign({}, env, { GIT_TERMINAL_PROMPT: '0' }),
+    }).trim();
+  } catch (err) {
+    if (err && err.code === 'ETIMEDOUT') throw new Error('git ' + args[0] + ' did not finish in ' + Math.round(GIT_TIMEOUT_MS / 1000) + 's');
+    throw err;
+  }
 }
 
 /* Commits in `to` not in `from`, and the committer time of the oldest. */

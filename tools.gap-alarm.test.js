@@ -167,6 +167,21 @@ test('could not tell: a build not in the checkout exits 2 and says so, and is no
   assert.match(s.msg.read(), /could not tell \(the prod build deadbeef is not in .*\)\. This is not a pass/);
 });
 
+test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
+  // A git on PATH that hangs on fetch and is the real git for everything else.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-hang-'));
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n[ "$3" = fetch ] && exec sleep 30\nexec "' + REAL_GIT + '" "$@"\n', { mode: 0o755 });
+  const started = Date.now();
+  const r = run(['--check'], {
+    KOSMOS_REPO_DIR: dir, GAP_ALARM_NO_FETCH: '', GAP_ALARM_GIT_TIMEOUT_MS: '1500',
+    PATH: bin + ':' + process.env.PATH, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - H),
+  });
+  assert.ok(Date.now() - started < 20000, 'the run waited out the hung fetch instead of bounding it');
+  assert.equal(r.code, 2, 'a hung fetch must exit 2 (could not tell): ' + r.out + r.err);
+  assert.match(JSON.parse(r.out).why, /git fetch did not finish in 2s/);
+});
+
 test('each run fetches origin main, so a moved origin is counted, not a stale local ref', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A bare "origin" that has one more commit on main than the checkout has seen.
