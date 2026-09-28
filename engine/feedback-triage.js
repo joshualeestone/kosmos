@@ -43,10 +43,13 @@ const SENTIMENT = new Set([
 const ACTION = new Set([
   'error', 'errors', 'fail', 'failed', 'fails', 'failing', 'crash', 'crashed',
   'crashes', 'broke', 'broken', 'bug', 'wrong', 'incorrect', 'missing', 'cannot',
-  'cant', 'couldnt', 'doesnt', 'wont', 'should', 'would', 'could', 'add', 'adds',
+  'cant', 'couldnt', 'doesnt', 'wont', 'should', 'add', 'adds',
   'added', 'allow', 'support', 'confusing', 'confused', 'unclear', 'slow', 'hang',
-  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'expected', 'instead', 'but',
-  'because', 'when', 'if', 'need', 'needs', 'needed', 'improve', 'better', 'fix',
+  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'instead',
+  // kosmos#4415: 'but', 'because', 'when', 'if', 'would', 'could' and 'expected' are gone: they are in nearly every
+  // sentence (measured on the 39 live reports, 2026-09-28: 158 of 177 items cleared the bar), and 'expected' mostly
+  // arrives as "worked as expected".
+  'need', 'needs', 'needed', 'improve', 'better', 'fix',
   'unable', 'blocked', 'blocker', 'refused', 'rejected', 'empty', 'blank', 'lost',
   'duplicate', 'duplicated', 'twice', 'race', 'stale', 'silent', 'silently',
   // Visual / layout bugs are a big share of fresh-install feedback and rarely
@@ -56,6 +59,16 @@ const ACTION = new Set([
   'misaligned', 'misplaced', 'truncated', 'garbled', 'offscreen', 'overflow',
   'overflows', 'overflowing', 'cramped', 'tiny', 'huge', 'unreadable',
 ]);
+
+/** kosmos#4415: words that NEGATE an action word shortly after them. "Nothing appears broken", "no errors", "did not
+ *  crash" name a thing that went RIGHT; counting the action word made a clean report the top candidate (raised 7
+ *  times in the live store). An action word within NEGATION_REACH words after one of these does not count. */
+const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
+  'werent', 'nor', 'neither', 'free']);
+const NEGATION_REACH = 3;
+
+/** kosmos#4415: an item made only of this kind of statement reports that nothing was wrong. */
+const CLEAN = /\b(?:worked|works|working) (?:as expected|fine|correctly|well)\b|\bno (?:issues?|problems?|errors?|bugs?|crashes?)\b|\bnothing (?:appears |seemed |seems |was |is )?(?:broken|wrong|failed|off)\b|\bwithout (?:any )?(?:issues?|errors?|problems?)\b/;
 
 /** Stop-words removed before token overlap so two phrasings of one issue match. */
 const STOP = new Set([
@@ -167,7 +180,19 @@ function classify(item) {
     return { score: 0, reasons };
   }
 
-  const actionHits = words.filter((w) => ACTION.has(w));
+  /* kosmos#4415: a negated action word is not an action ("no errors", "nothing broken"). */
+  const actionHits = words.filter((w, i) => ACTION.has(w)
+    && !words.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x)));
+  /* kosmos#4415: the report form's own questions ("Is anything broken?", "What would make it better:") come back as
+     items of their own; a short line ending in ? or : is a heading, not a report. */
+  if (words.length <= 8 && /[?:]\s*$/.test(String(item).trim())) {
+    reasons.push('a question from the report form, not an answer');
+    return { score: 0, reasons };
+  }
+  if (!actionHits.length && CLEAN.test(norm)) {
+    reasons.push('reports that nothing was wrong');
+    return { score: 0, reasons };
+  }
   if (actionHits.length) {
     score += Math.min(actionHits.length, 3);
     reasons.push('names something to change or fix (' + [...new Set(actionHits)].slice(0, 4).join(', ') + ')');
@@ -290,7 +315,10 @@ function triage(reports, opts) {
   // Flatten every report into dated entries.
   const entries = [];
   for (const r of reports || []) {
-    for (const text of parseItems(r && r.body)) {
+    /* kosmos#4415: a pulled report starts with its frontmatter (date, install, generated_at); left in, it was glued
+       onto the first item and put an install id into the digest. */
+    const body = String((r && r.body) || '').replace(/^\s*---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '');
+    for (const text of parseItems(body)) {
       entries.push({ text, date: (r && r.date) || null });
     }
   }

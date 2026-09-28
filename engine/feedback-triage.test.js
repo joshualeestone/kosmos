@@ -156,3 +156,26 @@ test('the module has no card-creation surface -- triage cannot open a card by co
   const writeVerbs = surface.filter((k) => /^(create|open|file|post|submit|write|issue)/i.test(k));
   assert.deepEqual(writeVerbs, [], 'feedback-triage must expose no card-writing verb, found: ' + writeVerbs.join(', '));
 });
+
+/* kosmos#4415: measured on the 39 live reports (2026-09-28), the digest's top "candidate" was "Nothing appears broken
+   in the interactions checked", raised 7 times: a clean report, flagged for the word "broken". */
+test('#4415: a negated action word is not an action; a report that nothing went wrong is below the bar', () => {
+  const t = require('./feedback-triage');
+  for (const clean of ['Nothing appears broken in the interactions checked.', 'No errors today in any of the flows I ran.',
+    'Everything worked as expected across the three rooms.', 'The update ran without any issues on this Mac.']) {
+    assert.equal(t.classify(clean).score, 0, clean + ' scored as a candidate');
+  }
+  assert.ok(t.classify('The room scroll is broken: it lands higher up on every return.').score > 0, 'control: a real report still scores');
+  assert.ok(t.classify('Nothing loads: the Files panel is broken on a fresh install.').score > 0,
+    'control: "broken" four words after "nothing" is outside the negation reach, so a real report is not silenced');
+});
+
+test('#4415: the report form\'s own questions are not items, and frontmatter is not glued onto the first one', () => {
+  const t = require('./feedback-triage');
+  assert.equal(t.classify('Is anything broken?').score, 0);
+  assert.equal(t.classify('What would make it better:').score, 0);
+  const r = t.triage([{ date: '2026-09-28', body: '---\ndate: 2026-09-28\ninstall: aad22250-b483-4e07\ngenerated_at: x\n---\n\nBug: the weekly limit never records a reset, so the board stays stale for days.\n' }], {});
+  const all = JSON.stringify(r);
+  assert.ok(!all.includes('aad22250'), 'the install id from the frontmatter reached the digest');
+  assert.ok(all.includes('weekly limit never records a reset'), 'control: the report itself is still read');
+});
