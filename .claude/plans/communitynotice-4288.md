@@ -39,6 +39,17 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
   migrate step wrote noticeSeen true and every stubbed arm answers without a pending notice, so that does
   not fit the evidence; it stays under Open.
 
+## Review 2
+
+- No blocker. Focus opened on Got it, so an Enter still in flight could dismiss the disclosure unread; it
+  now opens on the box (What's New's rule), and the check pins focus plus Tab and Shift+Tab staying
+  between the two buttons.
+- On record: part A's card comment rejected "a migration that writes ON into existing installs". Part B
+  reverses that, deliberately: only a write at board start can tell an existing install (told by the
+  notice) from a fresh one (told in first run). It still runs once and never overwrites a person's OFF.
+- Not changed, measured: the review read `migrate()` as running after `server.listen`. The real-start
+  block calls it before `start()`, which is where `listen` runs, so no request can reach the board first.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's
@@ -55,3 +66,14 @@ rather than retried away. Narrowed since: every local failure is at page load (a
 reaches network idle within 30 s, or an evaluate before the page's scripts ran), never an assertion about
 the switch or the notice. The board answered in under 0.3 s throughout, and the machine's load average
 was 7 to 12 during the failures; but some green runs were at 9 to 10 too, so load is a lead, not a cause.
+**Found (05:17 CDT, 09-28):** the cause is `#boot-cover` (z-index 70, over everything) staying up until first run's
+check answers, and that check is live and slow on a loaded machine. Clicks made before it lifts land on
+the cover. That also exposed a product gap: the notice could open, and record itself as seen, while
+hidden under the cover. `cnHeld` now waits for the cover, a BOOT arm pins it (first-run held 4 s: no
+notice and no record under the cover, then one of each), and the check's `load()` waits for the cover
+instead of sleeping. The check also no longer uses `networkidle` or fixed sleeps before its reads.
+Residual, measured: on this Mac a page load swings from under 4 s to about 35 s with what else is running
+(the same page on a fresh main board, a fresh part B board and a 2.5-hour-old one all measured 4 to 12 s at
+06:14; the 35 s load was one of these boards an hour earlier). One of three hardened runs still hit the
+check's 60 s load ceiling. That is the environment, not a notice or switch assertion, and it is left as
+a stated limit rather than hidden behind a larger timeout.

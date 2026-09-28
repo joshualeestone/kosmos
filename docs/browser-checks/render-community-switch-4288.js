@@ -37,12 +37,23 @@ function check(name, pass, detail) {
   if (!pass) fails.push(name);
 }
 
+/* Load the page and wait until its own script is running. Not `networkidle`: the page polls the board,
+   and on a loaded machine a quiet 500 ms may never come, which timed this check out locally. */
+async function load(pg) {
+  await pg.goto(BASE, { waitUntil: 'load', timeout: 60000 });
+  await pg.waitForFunction(() => typeof showTab === 'function' && typeof communityPaint === 'function', null, { timeout: 30000 });
+  /* The boot cover sits over the whole page until first run's check answers, and that check is live and
+     slow on a loaded machine: clicks before it lifts land on the cover (the local flakes). */
+  await pg.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 });
+  if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+}
+
 // Open Settings > Automation. Escape the first-run overlay rather than completing it, so the
 // check writes nothing.
 async function openAutomation(pg) {
-  await pg.goto(BASE, { waitUntil: 'networkidle' });
-  if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-  await pg.waitForTimeout(800);
+  await load(pg);
+  // The row is painted from the board's answer; wait for that paint rather than a fixed time.
+  await pg.waitForFunction(() => { const t = document.getElementById('community-share'); return t && t.textContent.length > 0; }, null, { timeout: 30000 });
   await pg.evaluate(() => showTab('settings'));
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="automation"]');
@@ -185,14 +196,17 @@ async function run() {
     await p6.close();
 
     // NOTICE (part B): a pending notice opens once and records itself as seen once.
-    const noticeFor = async (body) => {
+    /* A notice that should open is waited for (up to 15 s); one that should not is given until the page
+       has asked for the setting twice (the row, then the notice) plus a second, never a bare sleep. */
+    const noticeFor = async (body, expectOpen = true) => {
       const pg = await page();
       const posts = [];
-      await pg.route(ROUTE, answer(body));
+      let gets = 0;
+      await pg.route(ROUTE, (route) => { gets++; return answer(body)(route); });
       await pg.route(SEEN, (route) => { posts.push(route.request().method()); return answer({ ...body, noticeSeen: true })(route); });
-      await pg.goto(BASE, { waitUntil: 'networkidle' });
-      if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-      await pg.waitForTimeout(1500);
+      await load(pg);
+      if (expectOpen) await pg.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
+      else { const until = Date.now() + 15000; while (gets < 2 && Date.now() < until) await pg.waitForTimeout(100); await pg.waitForTimeout(1000); }
       return { pg, posts };
     };
     const noticeState = (pg) => pg.evaluate(() => {
@@ -200,11 +214,35 @@ async function run() {
       return { open: Boolean(b), title: b ? (b.querySelector('#cn-title') || {}).textContent : '', body: b ? (b.querySelector('#cn-body') || {}).textContent : '', focus: document.activeElement ? document.activeElement.id : '' };
     });
     const pending = { on: true, ok: true, share: null, noticeSeen: false };
+
+    // BOOT: while the boot cover is up the notice waits, so "seen" is only recorded once it can be seen.
+    const nb = await page();
+    let bootPosts = 0;
+    await nb.route('**/api/first-run', async (route) => { await new Promise((ok) => setTimeout(ok, 4000)); return route.continue(); });
+    await nb.route(ROUTE, answer(pending));
+    await nb.route(SEEN, (route) => { bootPosts++; return answer({ ...pending, noticeSeen: true })(route); });
+    await nb.goto(BASE, { waitUntil: 'load', timeout: 60000 });
+    await nb.waitForTimeout(2000);
+    const during = await nb.evaluate(() => ({ cover: !(document.getElementById('boot-cover') || {}).hidden, open: Boolean(document.getElementById('cmnotice')) }));
+    check('BOOT: under the boot cover the notice has not opened or recorded itself', during.cover === true && during.open === false && bootPosts === 0, JSON.stringify([during, bootPosts]));
+    await nb.waitForSelector('#cmnotice', { timeout: 20000 }).catch(() => {});
+    const after = await nb.evaluate(() => ({ cover: !(document.getElementById('boot-cover') || {}).hidden, open: Boolean(document.getElementById('cmnotice')) }));
+    check('BOOT: once the cover lifts, the notice opens and records itself once', after.cover === false && after.open === true && bootPosts === 1, JSON.stringify([after, bootPosts]));
+    await nb.close();
     const n1 = await noticeFor(pending);
     const a = await noticeState(n1.pg);
     check('NOTICE: a pending notice opens', a.open === true, JSON.stringify(a));
     check('NOTICE: it carries Mona\'s title and the release promise', a.title === 'Your agents can join the Kosmos community' && /Nothing goes out until you release it\.$/.test(a.body), JSON.stringify(a));
-    check('NOTICE: focus starts on Got it', a.focus === 'cn-ok', a.focus);
+    check('NOTICE: focus starts on the box, not a button (an Enter in flight cannot dismiss it)', a.focus === 'cn-box', a.focus);
+    await n1.pg.keyboard.press('Tab');
+    const t1 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
+    await n1.pg.keyboard.press('Tab');
+    const t2 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
+    await n1.pg.keyboard.press('Tab');
+    const t3 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
+    await n1.pg.keyboard.press('Shift+Tab');
+    const t4 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
+    check('NOTICE: Tab goes to the buttons and stays between them, both directions', t1 === 'cn-settings' && t2 === 'cn-ok' && t3 === 'cn-settings' && t4 === 'cn-ok', JSON.stringify([t1, t2, t3, t4]));
     check('NOTICE: it records itself as seen exactly once, when it opens', n1.posts.length === 1 && n1.posts[0] === 'POST', JSON.stringify(n1.posts));
     await n1.pg.click('#cn-ok');
     await n1.pg.waitForTimeout(200);
@@ -243,9 +281,8 @@ async function run() {
     let gets = 0;
     await n5.route(ROUTE, (route) => (++gets === 1 ? answer({ error: 'gated' }, 403)(route) : answer(pending)(route)));
     await n5.route(SEEN, (route) => answer({ ...pending, noticeSeen: true })(route));
-    await n5.goto(BASE, { waitUntil: 'networkidle' });
-    if (!(await n5.$('#firstrun[hidden]'))) { await n5.keyboard.press('Escape'); await n5.waitForTimeout(400); }
-    await n5.waitForTimeout(1500);
+    await load(n5);
+    await n5.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
     const pre = await n5.evaluate(() => ({ open: Boolean(document.getElementById('cmnotice')), tog: (document.getElementById('community-toggle') || {}).hidden }));
     check('NOTICE fallback: precondition, the notice is up and the switch is hidden', pre.open === true && pre.tog === true, JSON.stringify(pre));
     await n5.click('#cn-settings');
@@ -255,7 +292,7 @@ async function run() {
     await n5.close();
 
     for (const [label, body] of [['a seen notice', { on: true, ok: true, share: null, noticeSeen: true }], ['an OFF switch', { on: false, ok: true, share: null, noticeSeen: false }], ['an unread setting', { on: false, ok: false, share: null, noticeSeen: false }]]) {
-      const n = await noticeFor(body);
+      const n = await noticeFor(body, false);
       const st = await noticeState(n.pg);
       check('NOTICE: ' + label + ' opens nothing and records nothing', st.open === false && n.posts.length === 0, JSON.stringify([st, n.posts]));
       await n.pg.close();

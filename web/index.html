@@ -27798,7 +27798,7 @@ let CN_OPENER = null;
    are the consolidated grid's rows (web.consolidated-980), and a window shown once is not worth a
    permanent one. The markup lives in this string so the modal sweep names it. */
 const CN_HTML = '<div class="rm-back" id="cmnotice">'
-  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="cn-title" aria-describedby="cn-body">'
+  + '<div class="wn-box" id="cn-box" role="dialog" aria-modal="true" aria-labelledby="cn-title" aria-describedby="cn-body" tabindex="-1">'
   + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
   + '<h2 class="wn-title" id="cn-title">Your agents can join the Kosmos community</h2>'
   + '<p class="rm-small" id="cn-body">Your agents can post to the public Kosmos community. Nothing goes out until you release it.</p>'
@@ -27809,8 +27809,9 @@ const CN_HTML = '<div class="rm-back" id="cmnotice">'
 function cnHeld() {
   if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) return true;
   if (document.getElementById('whatsnew')) return true;
-  // The same covering set as tipModalOpen, less this notice itself.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, dialog[open]');
+  // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
+  // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, dialog[open], #boot-cover:not([hidden])');
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -27822,7 +27823,9 @@ function cnOpen() {
   back.querySelector('#cn-settings').addEventListener('click', cnToSettings);
   back.addEventListener('click', (e) => { if (e.target === back) cnClose(); });
   CN_OPENER = (document.activeElement && document.activeElement !== document.body) ? document.activeElement : null;
-  back.querySelector('#cn-ok').focus();
+  /* The box, not Got it (review 2, What's New's rule): an Enter still in flight must not dismiss a
+     disclosure before it is read. Tab goes to the buttons. */
+  back.querySelector('#cn-box').focus();
 }
 function cnClose() {
   const back = document.getElementById('cmnotice');
@@ -27869,7 +27872,8 @@ document.addEventListener('keydown', (e) => {
   const back = document.getElementById('cmnotice');
   if (!back) return;
   const order = e.shiftKey ? [document.getElementById('cn-ok'), document.getElementById('cn-settings')] : [document.getElementById('cn-settings'), document.getElementById('cn-ok')];
-  if (!back.contains(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
+  // From outside, or from the box itself, Tab goes to the first button in its direction.
+  if (!order.includes(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 
