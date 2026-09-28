@@ -189,6 +189,13 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PR
 [ "$rc" = 2 ] && [ ! -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote tunnel-gate-2 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 + --force -> promote on hand check" || bad "promote tunnel-gate-2-force (rc=$rc, out=$out)"
+# The CONTROL: the build prod serves now. St0 had no prod pointer, so no control and a NOTE.
+St0out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$(St=$(make_site); bash "$PUBLISH" "$St" >/dev/null 2>&1; echo "$St")" 2>&1)"
+has "$St0out" "no served artifact on disk" && ! has "$St0out" "--control-tarball" && pass "promote: no served artifact -> the tunnel gate gets no control, and says so" || bad "promote tunnel no-control (out=$St0out)"
+St3="$(make_site)"; bash "$PUBLISH" "$St3" >/dev/null 2>&1
+echo served-bytes > "$St3/dist/kosmos-served-arm64.tar.gz"; printf '{"artifact":"kosmos-served-arm64.tar.gz"}\n' > "$St3/dist/latest.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St3" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "--control-tarball $St3/dist/kosmos-served-arm64.tar.gz" && pass "promote: the served build's tarball is the tunnel gate's control" || bad "promote tunnel control (rc=$rc, out=$out)"
 
 # ---- the SECOND (agent-spawn) gate, #2036/#2129 ----
 # experience gate PASSES but the agent gate says WEDGED (1) -> refuse, latest.json NOT written.

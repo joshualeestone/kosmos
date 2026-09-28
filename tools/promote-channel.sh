@@ -249,20 +249,30 @@ if [ "$FAMILY" = mac ]; then
   # connector cannot fetch a ticket, authenticate at the relay or serve would pass them all and
   # reach every Kosmos+ Mac. This runs the connector FROM THE STAGED TARBALL (the exact bytes being
   # promoted) against the live relay with the reserved gate identity. Same contract: 0 promote;
-  # 1 a step broke -> refuse, never forceable; 2 cannot-tell (no gate identity enrolled on this
-  # machine, or the tarball has no connector) -> HOLD, forceable only after a HAND check.
-  # Override via KOSMOS_PROMOTE_TUNNEL_GATE_CMD (it receives --tarball <the staged artifact>).
+  # 1 the build is broken -> refuse, never forceable; 2 cannot-tell -> HOLD, forceable only after
+  # a HAND check. The CONTROL is the build prod serves now ($PROD_NAME's artifact): when the
+  # candidate fails, the gate runs the control with the same identity, so an outage or a lapsed
+  # identity (the control fails too) holds instead of blaming this build.
+  # Override via KOSMOS_PROMOTE_TUNNEL_GATE_CMD (it receives --tarball <the staged artifact>, and
+  # --control-tarball <the served one> when prod's artifact is on disk).
   TUNNEL_GATE_CMD="${KOSMOS_PROMOTE_TUNNEL_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/tunnel-handshake-gate.sh}"
-  echo "promote-channel: running the tunnel handshake gate on $ARTIFACT's connector: $TUNNEL_GATE_CMD"
-  $TUNNEL_GATE_CMD --tarball "$SITE/dist/$ARTIFACT"; TUNNEL_RC=$?
+  TUNNEL_CONTROL=()
+  SERVED_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
+  if [ -n "$SERVED_ART" ] && [ -f "$SITE/dist/$SERVED_ART" ]; then
+    TUNNEL_CONTROL=(--control-tarball "$SITE/dist/$SERVED_ART")
+  else
+    echo "promote-channel: NOTE no served artifact on disk to use as the tunnel gate's control ($PROD_NAME names '${SERVED_ART:-nothing}'); a candidate failure will HOLD rather than refuse." >&2
+  fi
+  echo "promote-channel: running the tunnel handshake gate on $ARTIFACT's connector (control: ${SERVED_ART:-none}): $TUNNEL_GATE_CMD"
+  $TUNNEL_GATE_CMD --tarball "$SITE/dist/$ARTIFACT" ${TUNNEL_CONTROL[@]+"${TUNNEL_CONTROL[@]}"}; TUNNEL_RC=$?
   case "$TUNNEL_RC" in
     0) echo "promote-channel: tunnel handshake gate PASSED - $V's connector fetched a ticket, authenticated at the live relay and served." ;;
-    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the step is named above). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
+    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the step is named above; the served build's connector passed the same check). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
       else
-        echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) - no gate identity enrolled on this machine (kosmos-relay deploy/release-gate.md) or no connector in the tarball. HOLDING. Enrol the gate identity, or pass --force after verifying remote access by hand." >&2
+        echo "promote-channel: tunnel handshake gate could not tell (exit 2; its CANNOT TELL line above says why) - the coordinator or relay is down or mid-deploy, the served build's connector fails too, no gate identity is enrolled here (kosmos-relay deploy/release-gate.md), or another connector holds the gate identity. HOLDING. Fix that and run again; pass --force only after verifying remote access by hand." >&2
         exit 2
       fi ;;
     *) echo "promote-channel: tunnel handshake gate returned an unexpected code ($TUNNEL_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;

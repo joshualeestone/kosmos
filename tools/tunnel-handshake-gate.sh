@@ -7,15 +7,15 @@
 # 0.7.05 update and no tool could say whether the build was at fault. This gate runs the
 # connector FROM THE BUILD against the live relay, as a Mac would, with one reserved identity.
 #
-#   tools/tunnel-handshake-gate.sh --tarball <the staged kosmos-<v>-arm64.tar.gz>   (promote-channel.sh)
-#   tools/tunnel-handshake-gate.sh --tunnel <an app/bin/kosmos-tunnel already extracted>
+#   tools/tunnel-handshake-gate.sh --tarball <staged kosmos-<v>-arm64.tar.gz> [--control-tarball <served one>]
+#   tools/tunnel-handshake-gate.sh --tunnel <a kosmos-tunnel> [--control-tunnel <a known-good one>]
 #
 # The identity: the reserved release-gate account (release-gate@gate.invalid), enrolled ONCE
 # into --state-dir (default ~/.config/kosmos-release-gate/state). Its code comes from
 # `kosmos-coordinator gate-setup-code` on the coordinator box, not from email; see
 # kosmos-relay deploy/release-gate.md. It is reused on every run, never piled up.
 #
-# Steps, each named on failure:
+# One ATTEMPT, each step named on failure:
 #   ticket     the connector fetches a relay ticket from the coordinator
 #   dial-auth  it dials the relay, completes TLS and AUTH ("tunnel up")
 #   serve      a visitor reaches https://<the gate's address>/ through the relay and gets the
@@ -23,35 +23,39 @@
 #              gate's own certificate. Reaching the board BEHIND the page needs an admitted device
 #              session and is NOT covered here.
 #
-# Exit: 0 pass; 1 FAIL (a step broke: a refusal, never forceable); 2 CANNOT TELL (no connector,
-# no enrolled identity, the coordinator or relay unreachable from here before the run or after a
-# failed one, or an earlier gate's connector still running). Same convention as the #2063
-# experience gate that promote-channel.sh runs. An outage or a network drop must HOLD the promote
-# (2), never refuse it (1): a refusal cannot be forced, and it would blame a healthy build.
+# WHO IS AT FAULT is decided by a CONTROL, not by reading log sentences. A failed attempt alone
+# cannot tell a broken build from a coordinator mid-deploy (its Caddy answers 502), a relay
+# restart the connector's backoff has not yet retried past, a dropped network, or an identity the
+# coordinator no longer knows. So when the candidate fails:
+#   1. the CONTROL connector (the build users are served now) runs the same attempt with the same
+#      identity. If it fails too, the environment or the identity is at fault: CANNOT TELL (2).
+#   2. if the control passes, the candidate runs again. Passing now means the first failure was
+#      the environment: PASS. Failing again, with the environment proven good between its two
+#      attempts, is the build: FAIL (1).
+# With no control connector a candidate failure is CANNOT TELL (2): nothing separates the causes.
 #
-# Retries: a session that ends is NOT a verdict. The connector retries on its own backoff, so the
-# gate waits for "tunnel up" until --timeout, and only then names the step from the last session
-# that ended.
+# Exit: 0 pass; 1 FAIL (the build is broken: never forceable); 2 CANNOT TELL (hold; forceable
+# only after a hand check). Same convention as the #2063 experience gate in promote-channel.sh.
+# A staged tarball WITHOUT a connector is the build's defect (every Mac on it would lose remote
+# access), so it is FAIL; a tarball that does not exist is a wrong invocation, CANNOT TELL.
 #
 # Overrides (for a local proof against a dev relay and coordinator; defaults are the live ones):
 #   --state-dir DIR --coordinator URL --relay HOST:PORT --relay-ca FILE
-#   --visit-resolve HOST:PORT:IP (curl --resolve) --visitor-ca FILE --timeout SECS
+#   --visit-resolve HOST:PORT:IP (curl --resolve) --visitor-ca FILE --timeout SECS (per attempt)
 set -u
 
-TUNNEL=""
-TARBALL=""
+TUNNEL=""; TARBALL=""; CTUNNEL=""; CTARBALL=""
 STATE="${KOSMOS_RELEASE_GATE_STATE:-$HOME/.config/kosmos-release-gate/state}"
 COORD="https://login.kosmosplus.com"
 RELAY="relay.kosmosplus.com:8443"
-RELAY_CA=""
-RESOLVE=""
-VISITOR_CA=""
-TIMEOUT=45
+RELAY_CA=""; RESOLVE=""; VISITOR_CA=""; TIMEOUT=45
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --tunnel) TUNNEL="${2:-}"; shift 2 ;;
     --tarball) TARBALL="${2:-}"; shift 2 ;;
+    --control-tunnel) CTUNNEL="${2:-}"; shift 2 ;;
+    --control-tarball) CTARBALL="${2:-}"; shift 2 ;;
     --state-dir) STATE="${2:-}"; shift 2 ;;
     --coordinator) COORD="${2:-}"; shift 2 ;;
     --relay) RELAY="${2:-}"; shift 2 ;;
@@ -65,128 +69,182 @@ done
 
 say() { echo "tunnel-gate: $*"; }
 cannot() { say "CANNOT TELL: $*"; exit 2; }
-fail() { say "FAIL at $1: $2"; [ -n "${LOG:-}" ] && [ -f "$LOG" ] && { say "the connector's last lines:"; sed 's/\x1b\[[0-9;]*m//g' "$LOG" | tail -8 | sed 's/^/    /'; }; exit 1; }
+fail() { say "FAIL at $1: $2"; exit 1; }
 
 [ -n "$TUNNEL" ] || [ -n "$TARBALL" ] || cannot "no --tarball or --tunnel (pass the staged build)"
 [ -n "$TUNNEL" ] && [ -n "$TARBALL" ] && cannot "pass --tarball OR --tunnel, not both"
+[ -n "$CTUNNEL" ] && [ -n "$CTARBALL" ] && cannot "pass --control-tarball OR --control-tunnel, not both"
+STATE="${STATE%/}"
 for f in mac_id mac_key address tls.crt tls.key coordinator_pubkey; do
   [ -s "$STATE/$f" ] || cannot "no enrolled gate identity in $STATE (missing $f). Enrol it once: kosmos-relay deploy/release-gate.md"
 done
 ADDRESS="$(tr -d ' \n' < "$STATE/address")"
 case "$ADDRESS" in *[!A-Za-z0-9.-]*|'') cannot "the gate's address is not a hostname: '$ADDRESS'" ;; esac
 case "$TIMEOUT" in *[!0-9]*|'') cannot "--timeout is not a number of seconds: $TIMEOUT" ;; esac
-
-# Reachability, the same check before the run and after a failed one. Any HTTP answer from the
-# coordinator counts (-k: this asks only whether it is REACHABLE; the connector does the trusted
-# TLS itself), and a TCP connect to the relay's tunnel port.
-reachable() {
-  curl -s -k -o /dev/null --max-time 10 "$COORD/v1/meta" || { UNREACH="the coordinator ($COORD)"; return 1; }
-  nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 || { UNREACH="the relay ($RELAY)"; return 1; }
-  return 0
-}
-UNREACH=""
-reachable || cannot "$UNREACH is not reachable from here, so this run says nothing about the build"
-
-# An earlier gate's connector still running (its run was SIGKILLed, so its EXIT trap never ran)
-# would take the gate's address back on its next reconnect, and a visit would be answered by
-# THAT binary: a false PASS for this one. Refuse to judge while one is alive.
-# Two shapes: an earlier GATE run's connector (its copy under a tunnel-gate.* temp dir), and a
-# connector somebody started by hand on the enrolled state dir itself (the same identity, so it
-# would contend for the address just the same). The state path is escaped for the regex.
-state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-stale="$(pgrep -f "run --state-dir ([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/state|$state_re/?)( |\$)" 2>/dev/null | tr '\n' ' ')"
-[ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
-
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
-if [ -n "$TARBALL" ]; then
-  [ -f "$TARBALL" ] || { rm -rf "$WORK"; cannot "no such tarball: $TARBALL"; }
-  # Only the connector, into the gate's own temp dir: the bytes being promoted, nothing else.
-  tar -xzf "$TARBALL" -C "$WORK" app/bin/kosmos-tunnel 2>/dev/null || true
-  TUNNEL="$WORK/app/bin/kosmos-tunnel"
-  [ -x "$TUNNEL" ] || { rm -rf "$WORK"; cannot "$TARBALL has no app/bin/kosmos-tunnel"; }
-fi
-[ -x "$TUNNEL" ] || { rm -rf "$WORK"; cannot "the connector is not an executable file: $TUNNEL"; }
-LOG="$WORK/connector.log"
-PID=""
-# Bounded stop (TERM, 5 s, KILL), then the temp dir. Kill only a PID that is set.
-cleanup() {
-  if [ -n "$PID" ]; then
-    # In one redirected block: bash reports a signalled background job ("Terminated: 15")
-    # on stderr, which is noise here, not a finding.
-    {
-      kill "$PID"
-      i=0; while kill -0 "$PID" && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
-      kill -0 "$PID" && kill -9 "$PID"
-      wait "$PID"
-    } 2>/dev/null
-  fi
-  keep_renewed_cert
-  rm -rf "$WORK"
-}
-# The connector renews its certificate into its state dir when it is near expiry. It runs on a
-# COPY, so a renewal must be carried back, or the enrolled cert is never refreshed, expires, and
-# every later run fails at serve (and each run would spend a Let's Encrypt issuance). The pair is
-# written beside the originals and renamed in, key first, when the certificate changed and both are
-# non-empty (the pair is always carried together: a renewal makes a new key, setup.rs).
-keep_renewed_cert() {
-  [ -s "$WORK/state/tls.crt" ] && [ -s "$WORK/state/tls.key" ] || return 0
-  cmp -s "$WORK/state/tls.crt" "$STATE/tls.crt" && return 0
-  cp "$WORK/state/tls.key" "$STATE/.tls.key.gate-new" && cp "$WORK/state/tls.crt" "$STATE/.tls.crt.gate-new" \
-    && chmod 600 "$STATE/.tls.key.gate-new" \
-    && mv "$STATE/.tls.key.gate-new" "$STATE/tls.key" && mv "$STATE/.tls.crt.gate-new" "$STATE/tls.crt" \
-    && say "kept the connector's renewed certificate in $STATE"
-}
-trap cleanup EXIT
-
-# The connector gets a COPY of the state dir: a run may rewrite files in it (mac_last_signed, a
-# renewed tls.crt/tls.key, which keep_renewed_cert carries back), and two gates at once must
-# not share one.
-cp -R "$STATE" "$WORK/state" || cannot "could not copy the state dir"
-chmod 700 "$WORK/state"
-
-args=(run --state-dir "$WORK/state" --coordinator "$COORD" --relay "$RELAY" --local 127.0.0.1:9)
-[ -n "$RELAY_CA" ] && args+=(--tunnel-ca "$RELAY_CA")
-say "connector $(shasum -a 256 "$TUNNEL" | cut -c1-12) -> coordinator $COORD, relay $RELAY, as $ADDRESS"
-"$TUNNEL" "${args[@]}" > "$LOG" 2>&1 &
-PID=$!
-
-# Steps ticket and dial-auth: wait for "tunnel up" until the deadline (the connector retries on
-# its own), then classify by the LAST session that ended.
-deadline=$(( $(date +%s) + TIMEOUT ))
-while :; do
-  plain="$(sed 's/\x1b\[[0-9;]*m//g' "$LOG" 2>/dev/null)"
-  printf '%s' "$plain" | grep -q 'tunnel up' && break
-  kill -0 "$PID" 2>/dev/null || fail dial-auth "the connector exited before the tunnel came up"
-  if [ "$(date +%s)" -ge "$deadline" ]; then
-    # A network that dropped DURING the run holds, as one that was down before it does.
-    reachable || cannot "$UNREACH stopped answering during the run, so the failure says nothing about the build"
-    ended="$(printf '%s\n' "$plain" | grep 'session ended' | tail -1)"
-    case "$ended" in
-      '') fail dial-auth "no \"tunnel up\" within ${TIMEOUT}s" ;;
-      *relay-ticket*) fail ticket "no relay ticket within ${TIMEOUT}s: ${ended#*session ended: }" ;;
-      *) fail dial-auth "the relay session did not come up within ${TIMEOUT}s: ${ended#*session ended: }" ;;
-    esac
-  fi
-  sleep 1
-done
-say "ok  ticket and dial-auth (tunnel up)"
-
-# Step serve: a visitor, through the relay, to the gate's own address.
-curl_args=(-s --max-time 20 -o "$WORK/visit.html" -w '%{http_code}')
-[ -n "$RESOLVE" ] && curl_args+=(--resolve "$RESOLVE")
-[ -n "$VISITOR_CA" ] && curl_args+=(--cacert "$VISITOR_CA")
 if [ -n "$RESOLVE" ]; then
   # HOST:PORT:IP -> https://HOST:PORT/ (a local proof); the HOST must be the gate's own address.
   rhost="${RESOLVE%%:*}"; rport="$(printf '%s' "$RESOLVE" | cut -d: -f2)"
   [ "$rhost" = "$ADDRESS" ] || cannot "--visit-resolve names $rhost, but the gate's address is $ADDRESS"
-  url="https://$rhost:$rport/"
+  URL="https://$rhost:$rport/"
 else
-  url="https://$ADDRESS/"
+  URL="https://$ADDRESS/"
 fi
-code="$(curl "${curl_args[@]}" "$url" 2>/dev/null)"; crc=$?
-[ "$crc" -eq 0 ] || fail serve "a visitor could not reach $url (curl exit $crc)"
-[ "$code" = 200 ] || fail serve "a visitor got HTTP $code from $url, not 200"
-grep -q '<title>Kosmos+</title>' "$WORK/visit.html" || fail serve "the page at $url is not the connector's session page"
-say "ok  serve ($url: 200, the connector's session page)"
-say "PASS"
-exit 0
+
+# One gate at a time per identity. mkdir is atomic, so two gates started together cannot both
+# pass (a pgrep alone is check-then-act). A lock whose owner is dead (a SIGKILLed run) is taken over.
+LOCK="$STATE.gate-lock"
+OWN_LOCK=0
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder="$(cat "$LOCK/pid" 2>/dev/null)"
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    cannot "another gate run holds this identity (pid $holder, lock $LOCK)"
+  fi
+  rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || cannot "could not take the lock $LOCK"
+fi
+echo $$ > "$LOCK/pid"; OWN_LOCK=1
+
+WORK=""; PID=""
+stop_connector() {
+  [ -n "$PID" ] || return 0
+  # In one redirected block: bash reports a signalled background job ("Terminated: 15")
+  # on stderr, which is noise here, not a finding. Bounded: TERM, 5 s, KILL.
+  {
+    kill "$PID"
+    i=0; while kill -0 "$PID" && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
+    kill -0 "$PID" && kill -9 "$PID"
+    wait "$PID"
+  } 2>/dev/null
+  PID=""
+}
+cleanup() {
+  stop_connector
+  [ -n "$WORK" ] && rm -rf "$WORK"
+  [ "$OWN_LOCK" = 1 ] && rm -rf "$LOCK"
+}
+trap cleanup EXIT
+
+# Another connector already running with the gate's identity would take the address back on its
+# next reconnect and could answer the visit for THIS build: a false PASS. Two shapes: a connector
+# left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir), and one started by
+# hand on the enrolled state dir itself. The state path is escaped for the regex.
+state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+stale="$(pgrep -f "run --state-dir ([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
+[ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
+
+# A fast hold when the coordinator or relay is plainly down. The coordinator counts only on a 2xx
+# from /v1/meta: its Caddy answers 502 while the coordinator is down or mid-deploy. (-k: this asks
+# only whether it ANSWERS; the connector does the trusted TLS itself.) The control, not this
+# probe, is what decides fault; this only saves a run that could not tell anything.
+code="$(curl -s -k -o /dev/null -w '%{http_code}' --max-time 10 "$COORD/v1/meta" 2>/dev/null)"
+case "$code" in 2??) ;; *) cannot "the coordinator ($COORD) is not answering (/v1/meta gave '${code:-nothing}'), so this run says nothing about the build" ;; esac
+nc -z -G 5 -w 5 "${RELAY%:*}" "${RELAY##*:}" >/dev/null 2>&1 \
+  || cannot "the relay ($RELAY) is not reachable from here, so this run says nothing about the build"
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
+
+# Only the connector, into the gate's own temp dir: the bytes being judged, nothing else.
+# Prints the path; returns 1 when the file does not exist, 3 when it has no connector.
+from_tarball() {
+  [ -f "$1" ] || return 1
+  mkdir -p "$WORK/$2"
+  tar -xzf "$1" -C "$WORK/$2" app/bin/kosmos-tunnel 2>/dev/null || true
+  [ -x "$WORK/$2/app/bin/kosmos-tunnel" ] || return 3
+  printf '%s' "$WORK/$2/app/bin/kosmos-tunnel"
+}
+if [ -n "$TARBALL" ]; then
+  TUNNEL="$(from_tarball "$TARBALL" cand)"; rc=$?
+  [ "$rc" = 1 ] && cannot "no such tarball: $TARBALL"
+  [ "$rc" = 3 ] && fail build "$TARBALL has no executable app/bin/kosmos-tunnel: every Mac on this build would have no remote access"
+fi
+[ -x "$TUNNEL" ] || cannot "the connector is not an executable file: $TUNNEL"
+CONTROL_NOTE=""
+if [ -n "$CTARBALL" ]; then
+  CTUNNEL="$(from_tarball "$CTARBALL" ctl)" || { CONTROL_NOTE="the control tarball $CTARBALL gave no connector"; CTUNNEL=""; }
+elif [ -n "$CTUNNEL" ] && [ ! -x "$CTUNNEL" ]; then
+  CONTROL_NOTE="the control connector is not an executable file: $CTUNNEL"; CTUNNEL=""
+fi
+
+# attempt <connector> <label>: one ticket, dial-auth, serve. Sets STEP and WHY on failure; returns
+# 0 pass, 1 fail. Each attempt gets its OWN copy of the state dir (a run rewrites files in it:
+# mac_last_signed, a renewed tls.crt/tls.key) and its connector is stopped before it returns.
+N=0; STEP=""; WHY=""; LAST_LOG=""; LAST_STATE=""
+attempt() {
+  N=$((N + 1))
+  local st="$WORK/a$N/state" log="$WORK/a$N/connector.log"
+  mkdir -p "$WORK/a$N"
+  cp -R "$STATE" "$st" || { STEP=setup; WHY="could not copy the state dir"; return 1; }
+  chmod 700 "$st"
+  LAST_LOG="$log"; LAST_STATE="$st"
+  local args=(run --state-dir "$st" --coordinator "$COORD" --relay "$RELAY" --local 127.0.0.1:9)
+  [ -n "$RELAY_CA" ] && args+=(--tunnel-ca "$RELAY_CA")
+  say "attempt $N ($2): connector $(shasum -a 256 "$1" | cut -c1-12) -> coordinator $COORD, relay $RELAY, as $ADDRESS"
+  "$1" "${args[@]}" > "$log" 2>&1 &
+  PID=$!
+  local deadline=$(( $(date +%s) + TIMEOUT )) plain ended
+  while :; do
+    plain="$(sed 's/\x1b\[[0-9;]*m//g' "$log" 2>/dev/null)"
+    printf '%s' "$plain" | grep -q 'tunnel up' && break
+    if ! kill -0 "$PID" 2>/dev/null; then
+      STEP=dial-auth; WHY="the connector exited before the tunnel came up"; stop_connector; return 1
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      # The connector retries on its own backoff; the LAST ended session names the step.
+      ended="$(printf '%s\n' "$plain" | grep 'session ended' | tail -1)"
+      case "$ended" in
+        '') STEP=dial-auth; WHY="no \"tunnel up\" within ${TIMEOUT}s" ;;
+        *relay-ticket*) STEP=ticket; WHY="no relay ticket within ${TIMEOUT}s: ${ended#*session ended: }" ;;
+        *) STEP=dial-auth; WHY="the relay session did not come up within ${TIMEOUT}s: ${ended#*session ended: }" ;;
+      esac
+      stop_connector; return 1
+    fi
+    sleep 1
+  done
+  say "  ok  ticket and dial-auth (tunnel up)"
+  local curl_args=(-s --max-time 20 -o "$WORK/a$N/visit.html" -w '%{http_code}') vcode crc
+  [ -n "$RESOLVE" ] && curl_args+=(--resolve "$RESOLVE")
+  [ -n "$VISITOR_CA" ] && curl_args+=(--cacert "$VISITOR_CA")
+  vcode="$(curl "${curl_args[@]}" "$URL" 2>/dev/null)"; crc=$?
+  stop_connector
+  if [ "$crc" -ne 0 ]; then STEP=serve; WHY="a visitor could not reach $URL (curl exit $crc)"; return 1; fi
+  if [ "$vcode" != 200 ]; then STEP=serve; WHY="a visitor got HTTP $vcode from $URL, not 200"; return 1; fi
+  if ! grep -q '<title>Kosmos+</title>' "$WORK/a$N/visit.html"; then
+    STEP=serve; WHY="the page at $URL is not the connector's session page"; return 1
+  fi
+  say "  ok  serve ($URL: 200, the connector's session page)"
+  return 0
+}
+show_log() {
+  [ -f "$LAST_LOG" ] || return 0
+  say "  the connector's last lines:"
+  sed 's/\x1b\[[0-9;]*m//g' "$LAST_LOG" | tail -8 | sed 's/^/      /'
+}
+
+# The connector renews its certificate into its state copy when it is near expiry. Carry the pair
+# back ONLY from an attempt that PASSED: the visit then proved the new pair serves (renewal runs
+# before the acceptor is built, session.rs). A failed attempt's pair may be the broken build's,
+# or a partial write, and must never become every later run's identity. Renamed in, key first;
+# the pair is always carried together (a renewal makes a new key, setup.rs).
+keep_renewed_cert() {
+  local st="$LAST_STATE"
+  [ -s "$st/tls.crt" ] && [ -s "$st/tls.key" ] || return 0
+  cmp -s "$st/tls.crt" "$STATE/tls.crt" && return 0
+  cp "$st/tls.key" "$STATE/.tls.key.gate-new" && cp "$st/tls.crt" "$STATE/.tls.crt.gate-new" \
+    && chmod 600 "$STATE/.tls.key.gate-new" \
+    && mv "$STATE/.tls.key.gate-new" "$STATE/tls.key" && mv "$STATE/.tls.crt.gate-new" "$STATE/tls.crt" \
+    && say "kept the connector's renewed certificate in $STATE"
+}
+pass() { keep_renewed_cert; say "PASS${1:+ ($1)}"; exit 0; }
+
+attempt "$TUNNEL" candidate && pass
+say "  the candidate failed at $STEP: $WHY"; show_log
+if [ -z "$CTUNNEL" ]; then
+  cannot "the candidate failed at $STEP and there is no control connector to tell a broken build from the environment${CONTROL_NOTE:+ ($CONTROL_NOTE)}"
+fi
+if ! attempt "$CTUNNEL" control; then
+  show_log
+  cannot "the served build's connector fails too (at $STEP: $WHY), so the environment or the gate identity is at fault, not this build"
+fi
+keep_renewed_cert
+attempt "$TUNNEL" "candidate again" && pass "on its second attempt; the first failure was the environment"
+show_log
+fail "$STEP" "$WHY (it failed twice, and the served build's connector passed between the two)"
