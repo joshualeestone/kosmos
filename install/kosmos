@@ -2438,8 +2438,8 @@ cmd_project() {
   esac
 }
 
-# kosmos#3734: make an agent for the person, after they confirm (the setup guide's verb; its
-# instructions are the only ones that name it). It asks for a one-member team (POST /api/team,
+# kosmos#3734: make an agent for the person, after they confirm (the setup guide's verb; the
+# Project Manager's instructions name it too, kosmos#1279). It asks for a one-member team (POST /api/team,
 # #1279) with the agent's launch token, so the board records who asked and why, bounds how many
 # one agent makes, and runs the new agent where the asker runs. `roles` lists the role keys.
 cmd_agent() {

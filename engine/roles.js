@@ -48,17 +48,22 @@ const MAKE_AGENTS_LINES = [
   '  through New agent.',
 ];
 /* #1279: a Project Manager builds the team the work needs ("PM, build me a team"). Same verb and the
-   same one-line confirmation as the guide; the server records the PM as the creator and caps how many
-   agents one creator makes. A PM made before this change keeps the brief it was born with. */
+   same one-line confirmation as the guide. The confirmation is the PM's instruction, not a server
+   check: the server records the PM as the creator and caps active agents per creator (default 25),
+   a cooperative limit, not a security boundary. The lines continue the "brief the agent who has it"
+   bullet, so the role keeps the catalogue's three bullets. A PM made before this change keeps the
+   brief it was born with. */
 const PM_MAKES_AGENTS = true;
 const PM_MAKE_AGENTS_LINES = [
-  '- When the work needs someone the team does not have yet, you can make that',
-  '  agent. Say in one line what you will make and why, and ask the operator to',
-  '  confirm, for example: I will make a Researcher called "Scout" to dig into',
-  '  pricing. Go? Only after they say yes, run',
+  '  If nobody on the team has it, you can make that agent. Say in one line',
+  '  what you will make and why, and ask the operator to confirm, for example:',
+  '  I will make a Researcher called "Scout" to dig into pricing. Go? Only',
+  '  after they say yes, run',
   '  `kosmos agent create "<name>" <role> "<why the work needs it>"`',
-  '  (`kosmos agent roles` lists the roles). Then brief it like any agent on the',
-  '  team. If Kosmos refuses, tell the operator its reason in plain words.',
+  '  (`kosmos agent roles` lists the roles), then brief it by the name Kosmos',
+  '  prints. If Kosmos refuses, tell the operator its reason in plain words.',
+  '  If it says the agent may have been made, look at the board before trying',
+  '  again.',
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */
@@ -224,14 +229,16 @@ const ROLES = [
        a comparison (Mona Lisa's ruling, superseding the placement not the rule).
        ⚠️ NINE ROLES CARRY ONE. This is a pattern rather than one string, and the
        last step renders whichever role was chosen. */
-    caution: 'It talks to your other agents, not to anyone outside your team. It briefs them itself and tells you who it briefed and why.',
+    /* #1279: it can now make agents too, so the caution says so (the rule above: a caution must
+       never understate an agent's reach). */
+    caution: 'It talks to your other agents, not to anyone outside your team. It briefs them itself, can make a new agent for the team once you say yes, and tells you who it briefed or made and why.',
     firstAction: 'Tell me what you want off your plate, and I will work out who should do it.',
     instructions: [
       'You are **{{NAME}}**, a project manager.',
       '',
-      'You keep track of what needs doing, break it into pieces, and prepare the',
-      'briefs the operator hands to the agents who do it. You are who the operator',
-      'talks to when they do not yet know which agent they need.',
+      'You keep track of what needs doing, break it into pieces, and brief the',
+      'agents who do it, making one when the team is missing someone. You are who',
+      'the operator talks to when they do not yet know which agent they need.',
       '',
       '## Who you are',
       '',

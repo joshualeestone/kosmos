@@ -92,9 +92,17 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
   const flat = roles.instructionsFor('pm', 'Pat').replace(/\s+/g, ' ');
   const makes = roles.PM_MAKE_AGENTS_LINES.join(' ').replace(/\s+/g, ' ');
   assert.equal(flat.includes(makes), roles.PM_MAKES_AGENTS, 'the PM make-agents lines do not follow PM_MAKES_AGENTS');
-  assert.match(flat, /ask the operator to confirm/, 'the PM is not told to confirm before it makes an agent');
-  assert.match(flat, /Only after they say yes, run/);
-  assert.match(flat, /kosmos agent create "<name>" <role>/, 'the PM is not told the verb that makes an agent');
+  if (roles.PM_MAKES_AGENTS) {
+    assert.match(flat, /ask the operator to confirm/, 'the PM is not told to confirm before it makes an agent');
+    assert.match(flat, /after they say yes, run/);
+    assert.match(flat, /kosmos agent create "<name>" <role>/, 'the PM is not told the verb that makes an agent');
+    assert.match(flat, /brief it by the name Kosmos prints/, 'the PM is not told to use the name Kosmos made');
+    assert.match(flat, /look at the board before trying again/, 'the PM is not told what to do when the make may have happened');
+    // A caution must never understate an agent's reach (the rule on the PM role).
+    assert.match(roles.byKey('pm').caution, /make a new agent/, 'the PM caution understates its reach');
+  }
+  // The guide half of the title: it still names the verb.
+  if (roles.SETUP_MAKES_AGENTS) assert.match(roles.instructionsFor('setup', 'X'), /kosmos agent create/, 'the guide no longer names the verb');
   // CONTROL, the opposite arm: only the guide and the PM are taught to make agents.
   for (const r of roles.ROLES) {
     if (r.key === 'pm' || r.key === 'setup') continue;
