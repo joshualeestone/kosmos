@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: stalejob-4279
-diff_hash: 7a916a4150a114e71b46d61a5dd26595b5fa4e5d76e1f781a658b7af0a7d379f
+diff_hash: 1a87b8d6df15577117596012e8b426e62c9aa3b94eee6465fec9a9ad880204b8
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T07:03:54Z
+timestamp: 2026-09-28T07:34:28Z
 iterations: 13
 converged: true
 ---
@@ -21,8 +21,12 @@ Severity tags for iterations 1 to 10 are taken from the plan's "Review N" sectio
 BLOCKER; the other items there are counted as WARNINGs unless the plan marks them cosmetic or "not
 changed", which count as NITs. Iterations 11 to 13 are counted from the reviews' own tags.
 
-**Final gate:** validation PASSED on c9e801823 (val_exit=0, audit_exit=0, hash 7a916a4150a1, clean worktree),
+**Final gate:** validation PASSED on 4a2837952 (val_exit=0, audit_exit=0, hash 1a87b8d6df15, clean worktree),
 10852 pass, 0 fail. engine/create.test.js 203/203; engine/windows-coupling-audit-1732.test.js 8/8.
+
+**After the PR opened:** Windows CI red two #4279 unit tests that lacked the `WIN_LAUNCHD` skip every
+other #4279 test carries (macOS-only `/private` paths); both now carry it (4a2837952). The same run's
+`tools.win-installer-native.test.js` reds are #4266, intermittent on the runner's 8.3 temp path.
 
 **What the branch does:** creating an agent whose name is held by a loaded `com.kosmos.agent.<name>`
 launchd job no longer always refuses. If the job's plist (from the FIRST-level `\tpath = ` line of
