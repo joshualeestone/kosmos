@@ -64,8 +64,11 @@ async function refreshRunningAgyHooks(deps) {
     let has = false;
     try { has = !!deps.hasHook(wd); } catch { has = false; }
     if (has) { rows.push({ name, ok: true, changed: false, why: 'already hooked' }); continue; }
-    // The supervisor is another process and can write between this check and the write below;
-    // both produce a working Kosmos entry, so whichever lands last costs nothing.
+    // The supervisor is another process and can write between this check and the write below.
+    // If it does and this write lands second, its entry (which may carry the ask_question tool
+    // hooks) is replaced by a Working/Idle-only one until the agent's next launch: the card
+    // still reports Working and Idle, and only needs_you for a question is lost meanwhile. The
+    // window is a board start racing an agy launch.
     let r;
     try {
       // Working/Idle hooks only here, never the ask_question tool hooks: this writes into a process
@@ -110,6 +113,8 @@ async function refreshAtBoardStart() {
     ensureHooks: agyhooks.ensureHooks,
     // Not process.execPath: a versioned Homebrew path dies at the next upgrade, and this entry
     // outlives the board in a running agent nobody restarts (allowance.stableNode's reason).
+    // The supervisor resolves its node on its own (bin/agent-supervisor.sh); the two agree in
+    // the installed layout (runtime/bin/node) and may differ in a source checkout.
     nodeBin: require('./allowance').stableNode(),
     bridge,
     bridgeExists: () => fs.existsSync(bridge),

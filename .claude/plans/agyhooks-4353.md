@@ -14,8 +14,9 @@ board adopts running agents rather than restarting them, so its card said "Can't
   - Working/Idle hooks only (withToolHooks false): the running agy may be older than the binary
     on disk, and the ask_question tool hooks are only safe on a new enough agy, so they are left
     to the supervisor, which rewrites the entry with them at the next real launch. So there is
-    no version probe at all. The supervisor can still write between check and write; both are
-    working entries.
+    no version probe at all. The supervisor can still write between check and write; if this
+    write lands second it replaces a tool-hooked entry with a Working/Idle one until the next
+    launch (needs_you for a question lost meanwhile; board start racing an agy launch).
   - Nothing is written when the bridge is missing (an empty PreToolUse answer is a DENY). Not on
     win32. Never throws.
 - Only agents with no entry: rewriting an existing one would make the board and the supervisor
