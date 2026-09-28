@@ -35,6 +35,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* #4309: never run the host's gh or vercel with this sandbox as HOME (see test-support/nohostcli.js). */
+const hostClis = require('./test-support/nohostcli').sandboxHostClis(SANDBOX);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -208,4 +210,9 @@ test('#1618: a door whose check throws is null for BOTH sharers, never false', a
       assert.equal(st.connected, null, `the ${who} caller was told a confident answer for a door we could not check`);
     }
   } finally { door.setFetcher(null); await door.forget().catch(() => {}); }
+});
+
+/* #4309: no sweep in this file may have started the host's gh or vercel (a writer the test cannot stop). */
+test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
+  hostClis.assertNoHostCli(assert, HOME);
 });

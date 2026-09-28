@@ -48,6 +48,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
    an empty board) and echoes everything else, so write-side receipts hold. */
 process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* #4309: never run the host's gh or vercel with this sandbox as HOME (see test-support/nohostcli.js). */
+const hostClis = require('./test-support/nohostcli').sandboxHostClis(SANDBOX);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -1718,4 +1720,9 @@ test('win32-signin-web-copy MAC UNCHANGED: the stuck card note is byte-identical
       }
     }
   }
+});
+
+/* #4309: no sweep in this file may have started the host's gh or vercel (a writer the test cannot stop). */
+test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
+  hostClis.assertNoHostCli(assert, HOME);
 });

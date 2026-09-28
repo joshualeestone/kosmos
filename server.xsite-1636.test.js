@@ -35,6 +35,8 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* #4309: never run the host's gh or vercel with this sandbox as HOME (see test-support/nohostcli.js). */
+const hostClis = require('./test-support/nohostcli').sandboxHostClis(SANDBOX);
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -144,4 +146,12 @@ test('#1636: the page reads this route with a plain same-origin fetch', () => {
   assert.ok(m, 'the Connections screen no longer fetches this route, or does so in a shape this pin cannot read');
   assert.doesNotMatch(m[0], /mode:\s*'no-cors'/, 'the screen reads its own route as no-cors, which would strip the same-origin signal');
   assert.doesNotMatch(m[0], /https?:\/\//, 'the screen reads this route by absolute URL, which can make it cross-origin');
+});
+
+/* #4309: the sweeps above asked the gh and Vercel doors, and neither may have started the host's tool.
+   One that did leaves a writer the test cannot stop (Vercel's detached update check), which rewrote
+   SANDBOX after exit and failed full runs on the leak guard. Both halves are checked: the start itself,
+   and its footprint (vercel writes home/Library at once, its update check home/.npm). */
+test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
+  hostClis.assertNoHostCli(assert, HOME);
 });
