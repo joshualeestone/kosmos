@@ -19560,7 +19560,12 @@ async function engineRestartClick() {
   const small = toast ? toast.querySelector('small') : null;
   /* The title too: at narrow widths the toast hides its small line, and an outcome must still be read. */
   const title = toast ? toast.querySelector('b') : null;
-  const said = (head) => { if (title) title.textContent = head; };
+  /* A failure message stays readable for a while, then the next poll repaints the accurate toast (the re-render
+     guard would otherwise keep it, since nothing it keys on changed). */
+  const said = (head) => {
+    if (title) title.textContent = head;
+    setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, 15000);
+  };
   if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
   const before = ENGINE_STALE && ENGINE_STALE.startedAt;
   try {
