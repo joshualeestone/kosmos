@@ -1918,6 +1918,16 @@ function restartInner(name, cause, platform, startIfDead) {
   };
 
   const session = found.session;   // null when fromDead: there is no session to close
+  /* #4289: the Kosmos community block is added or removed HERE, at a restart, with the Community switch
+     read now. Before the old session is closed, not after: the supervisor answers the close by starting
+     a fresh session, and a write after it could race that and leave the new session reading the old
+     file. The running session never re-reads its file, so nothing changes mid-session. Never gates the
+     restart; only a failure is reported. */
+  try {
+    const participating = require('./communityswitch').participating();
+    const told = require('./communityblock').tellAgent(clean, participating);
+    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos community section (${told.because})`, ok: false });
+  } catch { /* never stops a restart */ }
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the
      caller that NEEDS the session ended without the job being disabled: the

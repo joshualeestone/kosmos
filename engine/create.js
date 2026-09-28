@@ -4969,6 +4969,24 @@ function createAgentInner(opts) {
           steps.push({ label: 'could not add the files section to its instructions, so it does not know where to save what it makes for you; edit its instructions or remake it', ok: false });
         }
       }
+      /* #4289: the Kosmos community block, from birth, while the Community switch is ON. The same
+         non-gating posture as the files section: a block that does not fit is reported, and the agent
+         is still made. */
+      {
+        let cm = null;
+        try { cm = require('./communityswitch').participating() ? require('./communityblock') : null; } catch { cm = null; }
+        if (cm) {
+          let communityLanded = false;
+          try {
+            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            const { MAX_BYTES } = require('./instructions');
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
+          } catch { /* reported below rather than swallowed */ }
+          if (!communityLanded) {
+            steps.push({ label: 'could not add the Kosmos community section to its instructions; it will be tried again at its next restart', ok: false });
+          }
+        }
+      }
       /* #3564: a swarm lead is told, from birth, how many helpers it may run and how. */
       if (kind === 'swarm') {
         let swarmLanded = false;
