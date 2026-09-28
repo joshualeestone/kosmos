@@ -7,7 +7,7 @@ Card: #3743 (reopened 2026-09-27), after #3967 / PR #3988 removed the first edge
 An unread agent message in a Direct Message, a project room and the setup guide carries a 1px gold
 outline that follows the whole bubble including the tail, fades over 1.2s once read, and a read
 bubble looks exactly as it does on main. Measured by render-unread-edge-3743.js (every arm; the outline
-itself by U1, U1b, U2, U5, U5b, U14, U15, U17, U17b, U17c, U17d, U18, U18b), with the old inset-shadow edge as a
+itself by U1, U1b, U2, U5, U5b, U14, U15, U17, U17b, U17c, U17d, U18, U18b, U19), with the old inset-shadow edge as a
 control that must go red on U17.
 
 ## Why the first edge was removed
@@ -24,8 +24,9 @@ mask), both outside the box, so no box property can reach them.
 2. The filter would also trace the `::after` ground mask's block, so the wing carves itself with a
    CSS mask (same ellipse the `::after` carves: radii 12px and 16px, centred 12px outside the bubble edge
    and 16px above its bottom). Applied always, on agent bubbles only; it removes only wing pixels
-   `::after` already paints over, so a read bubble is unchanged (measured: 0 differing pixels vs
-   main, light and dark).
+   `::after` already paints over, so a read bubble is unchanged. Measured two ways: by hand once against a
+   render of main (0 differing pixels, light and dark), and on every run by U19, which switches the mask
+   off on a read bubble of this branch and finds nothing changes (light and dark; a wrong ellipse reads 30+).
 3. While `data-unread`: `::after` is `visibility: hidden`. On read, `::after` returns via
    `transition: visibility 0s 1.2s`, i.e. only after the filter's 1.2s fade, so the fade never
    outlines the mask block.
