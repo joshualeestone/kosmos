@@ -82,7 +82,8 @@ test('#4410: the install harness follows the shared fixture rule (controls: the 
   assert.match(nodeTest.out, /ignore 114: a unit-test fixture \(node --test ancestor\)/);
   const mention = run([['115', WORK, 'bash -c pgrep -f tools/test-install.sh', 'zsh']]);
   assert.equal(mention.code, 0, mention.out);
-  assert.equal(run([['116', WORK, 'bash tools/test-install.sh', 'bash']]).code, 1);
+  // The control differs from 113 only in the folder the script sits in.
+  assert.equal(run([['116', WORK, 'bash ' + WORK + '/tools/test-install.sh --sleep 4', 'zsh']]).code, 1);
 });
 
 test('a shell that only MENTIONS the names does not count (control: a real run beside them does)', () => {

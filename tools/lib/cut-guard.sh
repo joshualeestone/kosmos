@@ -361,8 +361,8 @@ kosmos_refuse_if_browser_run_live() {
 # and two things wanting it is not a slow test, it is a failed release step
 # blamed on whatever the cut was doing then. So the CUT asks, at its own start,
 # whether a harness is already live. A harness is a process (tools/test-install.sh)
-# for as long as it runs; there is no lock file, same as a cut. (A cut's gate run holds a fixed
-# port; an ordinary harness probes one from 4460 up, and either boots real boards on it.)
+# for as long as it runs; there is no lock file, same as a cut. (Every harness run probes a free
+# port from 4460 up and boots real boards on it.)
 # 📌 THE PROCESS, NOT THE WORDS: only a bash/sh whose own command line IS
 # tools/test-install.sh counts, so a peer shell that merely MENTIONS the script (a
 # grep, a git log, the pkill that cleared the box during the 0.6.20 window) does
@@ -425,6 +425,8 @@ kosmos_refuse_if_harness_live() {
 # kt<digits> sandbox: the suite's own shell tests run run-tests.sh fixtures) is dropped, and a
 # probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
 # run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
+# Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
+# matched; `yarn test` and `bash tools/run-tests.sh`, the documented ways, are.
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
@@ -612,8 +614,6 @@ kosmos_refuse_if_machine_claimed() {
   return 1
 }
 
-# kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
-# stdout. Prints the holder + until for an active claim, else the all-clear.
 # #4410: true only when THIS run holds the live machine claim (a cut, or a gate run the cut
 # started, which inherits KOSMOS_MACHINE_CLAIM_COOKIE). The suite and harness checks stand down for
 # a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate) and
@@ -622,7 +622,9 @@ kosmos_refuse_if_machine_claimed() {
 # ⚠️ WHY STANDING DOWN LOSES NOTHING, and what it leans on. A harness that starts DURING the cut is
 # not caught by this stand-down's callers; it is refused by its own start-time
 # kosmos_refuse_if_cut_live, which sees the cut's `cut` marker (kosmos_mark_run in release.sh) for
-# the cut's whole life. A new suite during the cut is refused by kosmos_refuse_if_machine_claimed.
+# the cut's whole life (test-install.sh skips that check only for the claim holder itself, not for
+# KOSMOS_INSTALL_GATE=1 alone). A new suite during the cut is refused by
+# kosmos_refuse_if_machine_claimed.
 # Change either of those and this stand-down becomes a real gap.
 kosmos_holds_machine_claim() {
   local active cookie self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
@@ -633,6 +635,8 @@ kosmos_holds_machine_claim() {
   [ "$cookie" = "$self" ]
 }
 
+# kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
+# stdout. Prints the holder + until for an active claim, else the all-clear.
 kosmos_machine_claim_status() {
   local active pid exp host label
   active="$(_kosmos_machine_claim_active)"

@@ -330,15 +330,23 @@ else
   fi
   kill "$mention" 2>/dev/null; wait "$mention" 2>/dev/null
 
-  ( cd "$E2E" && bash tools/test-install.sh --sleep 4 ) & harness=$!
+  # #4410: started by its absolute path, so the SCRIPT path proves the sandbox to every other guard
+  # on the Mac even when lsof cannot read the cwd. Both guard calls run while it is still alive,
+  # and the kill -0 after them says so: a stand-in that already exited would let the "dropped" arm
+  # pass on an empty process table, so that is a SKIP, never a pass.
+  bash "$E2E/tools/test-install.sh" --sleep 8 & harness=$!
   sleep 1
+  out_plain="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc_plain=$?
   out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
-  [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
-    || fail "a live harness was not detected: rc=$rc out=$out"
-  out="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc=$?
-  { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
-    && pass "#4410 the same live stand-in, in the fixture sandbox, is dropped by every guard without the test seam" \
-    || fail "#4410 a sandboxed stand-in refused a guard without the seam, so other agents' runs would too: rc=$rc out=$out"
+  if kill -0 "$harness" 2>/dev/null; then
+    [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
+      || fail "a live harness was not detected: rc=$rc out=$out"
+    { [ "$rc_plain" -eq 0 ] && has "$out_plain" "CUT-PROCEEDS"; } \
+      && pass "#4410 the same live stand-in, in the fixture sandbox, is dropped by the harness guard without the test seam" \
+      || fail "#4410 a sandboxed stand-in refused the harness guard without the seam, so other agents' runs would too: rc=$rc_plain out=$out_plain"
+  else
+    echo "SKIP  harness detection: the stand-in exited before both guard calls finished (a loaded Mac), so neither arm can answer"
+  fi
   kill "$harness" 2>/dev/null; wait "$harness" 2>/dev/null
 fi
 
@@ -482,6 +490,9 @@ _wired "$TI" 'kosmos_refuse_if_suite_live "a full install-harness run"' \
 _wired "$TI" 'KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 \] && ! kosmos_holds_machine_claim; then' \
   && pass "#4410 the harness's suite check stands down only for the claim holder (a cut) or on its override" \
   || fail "#4410 the harness's suite check is not scoped to the claim holder"
+_wired "$TI" 'if ! kosmos_holds_machine_claim && \[ "${KOSMOS_HARNESS_IGNORE_CUT' \
+  && pass "#4410 the harness's cut check is skipped only for the claim holder, not for KOSMOS_INSTALL_GATE=1 alone" \
+  || fail "#4410 the harness's cut check is skipped for yarn test:install-gate outside a cut"
 _wired "$RT" '&& ! kosmos_holds_machine_claim; then' \
   && pass "#4410 run-tests.sh's harness check stands down only for the claim holder (a cut's own suite)" \
   || fail "#4410 run-tests.sh's harness check is not scoped to the claim holder"

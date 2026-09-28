@@ -49,6 +49,13 @@
   cut's `cut` run marker), and a suite starting during a cut is refused by
   kosmos_refuse_if_machine_claimed. The comment on kosmos_holds_machine_claim says so, so an edit to
   either one knows it is load-bearing here.
+- test-install.sh's older cut check was skipped for KOSMOS_INSTALL_GATE=1, so `yarn test:install-gate`
+  outside a cut skipped it too, and the stand-down above leaned on it (review 3, W1). It is now skipped
+  only for the claim holder. The cut's own gate passes it anyway (it inherits the cut's marker cookie,
+  and pgrep does not list its release.sh ancestor), so no cut can refuse itself here.
+- The stand-in is started by its absolute path, so its script path alone proves the sandbox to other
+  guards when lsof cannot read its cwd; it lives 8 s, and its two guard arms count only if it is
+  still alive after both (else SKIP), so the "dropped" arm cannot pass on an empty table (review 3).
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default
