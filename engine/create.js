@@ -1326,9 +1326,6 @@ function readPlistJob(name, worldId) {
     // Absent means claude, the same way it does in the supervisor: every
     // plist written before runners existed carries no ninth argument.
     runner: args.length > 8 && args[8] ? args[8] : 'claude',
-    /* #4353: the folder the supervisor launches in (argument 3), which is where an agy
-       agent's .agents/hooks.json lives. */
-    workdir: args[3] || null,
   };
 }
 

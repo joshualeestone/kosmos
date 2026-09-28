@@ -17592,17 +17592,17 @@ if (require.main === module) {
      supervisor, which (before #4043) wrote no report hook, and the board adopts it rather than
      restarting it, so its card said "Can't tell" until someone restarted it. Write the hook for
      every running agy agent now: agy picks up a hooks.json written while it runs, on its next
-     turn (measured, #4353). After the refresh above, so the bridge the hook runs is current.
-     Deferred off the boot path (it asks each agy binary its version) and never under the test
-     dry run. Best effort. */
+     turn (measured, #4353). After the refresh above, so the bridge the hook runs is current
+     (and nothing is written if it is missing). Only agents with no Kosmos entry yet. The version
+     probe is asynchronous; never under the test dry run. Best effort. */
   if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1') {
-    setImmediate(() => {
-      try {
-        for (const r of require('./engine/agyrefresh').refreshAtBoardStart()) {
-          if (!r.ok) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
-        }
-      } catch { /* best effort: the supervisor still writes it at the next launch */ }
-    });
+    try {
+      require('./engine/agyrefresh').refreshAtBoardStart()
+        .then((rows) => {
+          for (const r of rows) if (!r.ok) process.stderr.write(`agy hooks for ${r.name}: ${r.why}\n`);
+        })
+        .catch(() => { /* best effort: the supervisor still writes it at the next launch */ });
+    } catch { /* best effort */ }
   }
   /**
    * #570 BLOCKER 4: make sure something brings the BOARD back at logon on Windows.
