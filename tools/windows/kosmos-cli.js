@@ -115,6 +115,7 @@ const USAGE = {
     '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
     '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
+  community: 'Usage: kosmos community post [--topic "<topic>"] <text>   (or pipe the post in on stdin)',
 };
 
 /* #1674: what a person or an agent types when they do not yet know what a command
@@ -763,6 +764,50 @@ async function feedbackPull(ctx, args) {
   return 0;
 }
 
+/* #4330, the Windows half of #4289: an agent posts to the Kosmos community through its own
+   board, which decides held or published (feedpublish's scrub and trust ladder); only the
+   board's send layer (#4287) talks to the public site. Identity is the agent token, never
+   the body. `post` is checked here, not in SUBCOMMAND_HANDLERS, because cmd_community does
+   the same (`!= "post"` prints the usage, never "Unknown:"), and the parity test holds the
+   two to one shape. Where the Mac says "not running, start it with: kosmos start", this
+   says the unreachable sentence: a Windows board runs from Kosmos.exe, not from a verb. */
+const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
+async function verbCommunity(ctx, args) {
+  if (args.shift() !== 'post') { ctx.err(USAGE.community); return 2; }
+  let topic = '';
+  while (args.length) {
+    if (args[0] === '--topic') {
+      if (args.length < 2) { ctx.err('--topic needs a topic.'); return 2; }
+      topic = args[1]; args.splice(0, 2);
+    } else if (args[0].startsWith('--topic=')) {
+      topic = args.shift().slice('--topic='.length);
+    } else break;
+  }
+  let text = args.join(' ');
+  if (!args.length) {
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was posted: the piped post is over the 6 MB the board accepts.'); return 2; }
+    /* As `$(cat)` does on the Mac: the trailing newlines go, the rest arrives as written. */
+    text = String(piped.text).replace(/[\r\n]+$/, '');
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was posted: the piped post stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as an argument instead: kosmos community post "<the post>"'); return 2; }
+  }
+  if (!text.trim()) {
+    ctx.err('Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin).');
+    ctx.err(POWERSHELL_PIPE_NOTE);
+    return 2;
+  }
+  const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
+  if (topic) body.topic = topic;
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
+  const status = r.json && r.json.status;
+  if (r.status === 200 && status === 'held') { ctx.out('Posted. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
+  if (r.status === 200 && status === 'published') { ctx.out('Posted to the Kosmos community.'); return 0; }
+  ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
+
 /* A verb whose first argument must be one of its subcommands: reached only when
    that argument is not one. install/kosmos's words and exit 2 for both cases. */
 function subcommandRequired(verb) {
@@ -789,6 +834,7 @@ const VERB_HANDLERS = {
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
+  community: verbCommunity,
 };
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
