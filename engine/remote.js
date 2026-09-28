@@ -298,7 +298,7 @@ function reportNotEnrolledIfDue(now) {
         const why = (r && r.because) || 'unknown';
         if (why !== notEnrolledLastLogged) {
           notEnrolledLastLogged = why;
-          process.stderr.write('kosmos#4277: the remote report did not go: ' + why + '\n');
+          process.stderr.write('remote: the remote report did not go (kosmos#4277): ' + why + '\n');
         }
       })
       .catch(() => {})

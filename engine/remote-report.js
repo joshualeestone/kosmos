@@ -29,7 +29,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const ERROR_MAX_CHARS = 300;
 
 /* remote.status().state -> the coordinator's tunnel vocabulary. `off` means the switch
    is off; a board whose switch is ON but whose tunnel is not started reads `stopped`. */
@@ -59,6 +58,9 @@ const CODES = [
   ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone/i],
   ['coordinator-refused', /Kosmos\+ (refused|answered)|said no|\bHTTP 4\d\d\b/i],
   ['coordinator-unreachable', /unreachable|connect(ion)? refused|timed out|timeout/i],
+  // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
+  // close): routine, not a failure (review 5).
+  ['reconnecting', /the connection closed/i],
   ['crashed', /crash|killed|restarting/i],
   ['awaiting-sign-in', /waiting for the (code|sign-in)/i],
   ['not-started', /has not started the tunnel/i],
@@ -135,7 +137,8 @@ function errorCode(because, on, exists) {
 
 /** Call with the report that was SENT, so its heal baseline counts. */
 function commitHeal(report) {
-  if (report && typeof report.healBaseline === 'number') lastRestarts = report.healBaseline;
+  // Forward only: restarts only grows, so a slow send committing late never rolls it back.
+  if (report && typeof report.healBaseline === 'number') lastRestarts = Math.max(lastRestarts, report.healBaseline);
 }
 
-module.exports = { build, commitHeal, tunnelState, classify, CODES, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = 0; } };
+module.exports = { build, commitHeal, tunnelState, classify, CODES, resetForTests: () => { lastRestarts = 0; } };

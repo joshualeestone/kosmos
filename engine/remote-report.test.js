@@ -74,6 +74,7 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['Kosmos+ refused this Mac: standing lapsed (HTTP 401 on /v1/mac/relay-ticket)', 'coordinator-refused'],
     ['Kosmos+ unreachable for /v1/mac/relay-ticket: dns error', 'coordinator-unreachable'],
     ['restarting after a crash (exit 3)', 'crashed'],
+    ['the connection closed', 'reconnecting'],
     ['waiting for the code sent to josh@stuff.io', 'awaiting-sign-in'],
     ['the board has not started the tunnel', 'not-started'],
     ["Josh's MacBook Pro at 192.168.1.23 said something new", 'other'],
@@ -139,4 +140,15 @@ test('the report carries only the known fields, each a fixed value', () => {
   const r = report.build({ remote: fakeRemote({ dir }), env: {}, home: HOME, appVersion: '0.7.05' });
   assert.deepEqual(Object.keys(r).sort(), ['app', 'error', 'heal', 'macId', 'macKey', 'on', 'stateDir', 'tunnel']);
   assert.ok(!JSON.stringify(r).includes(dir), 'the state dir path was sent');
+});
+
+test('commitHeal only moves forward: a slow send committing an older baseline does not roll it back', () => {
+  report.resetForTests();
+  const dir = stateDir(['mac_id', 'mac_key']);
+  const mk = (restarts) => report.build({ remote: fakeRemote({ dir, restarts, state: 'up' }), env: {}, home: HOME });
+  const older = mk(2);
+  const newer = mk(5);
+  report.commitHeal(newer);
+  report.commitHeal(older);   // the slow one lands last
+  assert.equal(mk(5).heal, 'none', 'a late, older commit rolled the baseline back and re-reported a relaunch');
 });
