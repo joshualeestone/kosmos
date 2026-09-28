@@ -631,6 +631,11 @@ test('#4258: on Windows a zone by interface name reads as no zone, so the addres
   assert.deepEqual(await lookedOn(LL + '%14', 'win32'), ['127.0.0.1', '::1', LL + '%14'].sort(), 'a Windows numeric zone looked beyond its own interface');
   assert.deepEqual(await lookedOn(LL + '%014', 'win32'), ['127.0.0.1', '::1', LL + '%14'].sort(), 'a Windows zone written with a leading zero was not looked on as the scope atoi reads');
   assert.deepEqual(await lookedOn(LL + '%0', 'win32'), everyInterface, 'a Windows zone of 0 was not looked on through every interface');
+  assert.deepEqual(await lookedOn('[' + LL + '%Wi-Fi]', 'win32'), everyInterface, 'a bracketed Windows name-zoned literal was not looked on through every interface');
+  assert.deepEqual(await lookedOn(LL.toUpperCase() + '%Wi-Fi', 'win32'), everyInterface, 'an upper-case Windows name-zoned literal was not looked on through every interface');
+  assert.deepEqual(await lookedOn(LL + '%99999', 'win32'), ['127.0.0.1', '::1'], 'a scope this PC does not have was looked on');
+  assert.deepEqual(await lookedOn('fe80::dead:beef%Wi-Fi', 'win32'), ['127.0.0.1', '::1'], 'an address this PC does not have was looked on (a probe must never leave the machine)');
+  assert.deepEqual(await lookedOn('::ffff:192.0.2.1%Wi-Fi', 'win32'), ['127.0.0.1', '::1'], 'an IPv4-mapped address this PC does not have was looked on');
   assert.deepEqual(await lookedOn(LL + '%Wi-Fi', 'darwin'), ['127.0.0.1', '::1', LL + '%Wi-Fi'].sort(), 'off Windows a name zone is looked on by that name');
 });
 

@@ -21,8 +21,8 @@ Rejected:
 - `node --test engine/win32handoff.test.js` on this Mac: 69 tests, 68 pass, 1 skipped (a pre-existing Windows-only arm). This Mac has `en0` link-local (scope 7), so the real-interface arm ran.
 - The new end-to-end test (injected interfaces and platform): on win32, `%Wi-Fi` and `%Ethernet 2` are each probed as `<addr>%9` and `<addr>%14`, `%14` only as itself, and on darwin `%Wi-Fi` by that name.
 - Mutants (a full worktree copy): not calling the normaliser fails 1; keeping every zone fails 1; normalising on every platform fails 2.
-- The new end-to-end test also pins `%014` as `%14` and `%0` as every interface; the helper test pins the empty and mixed zones.
-- **The coupling with #1777, which is stronger than "can go":** on `win-ci-1777` (tip 2d9039292), `judge()` counts a KNOWN_RED entry that now passes as STALE and fails the job. Whichever of this and win-ci-1777 lands second must also remove the `engine/win32handoff.test.js` entry from KNOWN_RED.
+- The new end-to-end test also pins `%014` as `%14`, `%0` as every interface, a bracketed and an upper-case name-zoned literal as every interface, and a scope, an address and an IPv4-mapped address this PC does not have as loopbacks only; the helper test pins the empty and mixed zones.
+- **The coupling with #1777, which is stronger than "can go":** on `win-ci-1777` (checked at its tip each review; the entry is still listed), `judge()` counts a KNOWN_RED entry that now passes as STALE and fails the job. Whichever of this and win-ci-1777 lands second must also remove the `engine/win32handoff.test.js` entry from KNOWN_RED.
 
 ## Inferred, not measured (no Windows run of this branch yet)
 - The real-interface arm on a Windows runner expects the scope-id spelling to be probed. That holds for an adapter name with or without a space, but not for a name made only of digits: an adapter named `3` would be read as scope 3, which would contain `byScope` only if its scope id is 3. Kano's Windows job is the first real run.
