@@ -3774,7 +3774,17 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
    so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
-/* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
+/* #4345: the Agents view (org chart or card grid) relocated into the consolidated display column,
+   the same placement the relocated Tasks panel uses. The agents list stays the rail beside it. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-agents { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+.cons-agents-lay { display: inline-flex; gap: 6px; margin: 0 0 var(--space-5) 0; }
+.cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
+  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
+.cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The consolidated projects rail's way into Tasks (kept since #4345 put the tab bar back: it is the
+   way in when the rail is what the person is looking at). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
@@ -4433,14 +4443,17 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
      ask) puts there. The center TABS stay hidden in this view (consolidated is one
      screen, not separate tab screens) -- matching the mock's 2-column consolidated
-     header (left cluster + right cluster). */
+     header (left cluster + right cluster).
+     #4345 (Josh, 2026-09-28 09:21): the tabs come back. Agents, Projects and Tasks stay in
+     the top nav here and load into the display column (openConsolidatedAgents /
+     openConsolidatedTasks; Projects returns the column to the board), so there is always
+     a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
     /* flex-start, not center: kosmos#2624, see the .apphead block near the top. */
     display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5);
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
-  html[data-layout="consolidated"] body.consolidated > .apphead h1,
-  html[data-layout="consolidated"] body.consolidated > .apphead .tabs { display: none; }
+  html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
   /* #3126 (Josh, 6.68): the projects head lost its fold button, so its .lead now
      holds only the name. Inset it by the button footprint (22px fold + 7px .lead
@@ -21582,6 +21595,11 @@ function showTab(tab) {
   placeCreatePanel(cons);
   // #3559: the Tasks view's consolidated home, same chokepoint and flag.
   placeTasksPanel(cons);
+  // #4345: the Agents view's consolidated home, same chokepoint and flag. A tab switch is navigation,
+  // so it always closes the Agents view; the board is what the consolidated tabs arrive at.
+  CONS_AGENTS_OPEN = false;
+  placeAgentsPanel(cons);
+  if (cons) consNavLight('projects');
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -28731,6 +28749,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab');
   // Same reason as the back button: a tab click is also walking away from a
   // creation in flight.
+  if (btn && consNavClick(btn)) return;   // #4345
   if (btn) {
     WATCH += 1;
     /* ⚠️ A TAB CLICK MEANS THE TOP OF THAT SECTION, and this is the only place
@@ -28787,7 +28806,10 @@ function focusBoardHome() {
      the fallback there (round 4: the vh h1 was a focus point nobody can
      see at exactly the width it fired). The h1 stays as the true last
      resort; it still holds tabindex for the a11y name. */
-  const tab = document.querySelector('.tab[data-tab="agents"]');
+  /* #4345: the nav shows in the consolidated view now, where the lit item is not always Agents;
+     focus the item that is lit, so focus and the highlight agree, else Agents as before. */
+  const lit = document.querySelector('#tabs .tab.on');
+  const tab = (lit && lit.getClientRects().length) ? lit : document.querySelector('.tab[data-tab="agents"]');
   if (tab && tab.getClientRects().length) { tab.focus(); return; }
   const burger = document.getElementById('burger');
   if (burger && burger.getClientRects().length) { burger.focus(); return; }
@@ -29736,6 +29758,9 @@ document.getElementById('orgview').addEventListener('scroll', (e) => {
 }, { passive: true });
 
 let BOARD_LAYOUT = 'grid';
+/* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
+   Cleared by any other takeover, any project navigation (pjView) and any showTab. */
+let CONS_AGENTS_OPEN = false;
 function boardApplyVisibility(onAgents) {
   /* ⚠️ THREE CONTAINERS NOW, AND EACH ASKS FOR ITSELF. The two-container
      version tested `=== 'list'` and `=== 'grid'`, which are opposites only
@@ -29745,6 +29770,21 @@ function boardApplyVisibility(onAgents) {
   /* #520: the consolidated view always shows the list; the saved board
      layout is left alone for when the tabs come back. */
   const lay = document.body.classList.contains('consolidated') ? 'list' : BOARD_LAYOUT;
+  /* #4345: in the consolidated view with the Agents view open in the display column, the chart
+     shows there for a person whose Agents layout is org, and the card grid for anyone else (the
+     list is already the rail beside it, so a second list would say nothing new). */
+  const consAgents = CONS_AGENTS_OPEN && document.body.classList.contains('consolidated');
+  if (consAgents) {
+    document.getElementById('grid').hidden = BOARD_LAYOUT === 'org';
+    document.getElementById('alist').hidden = !onAgents || lay !== 'list';
+    const orgC = document.getElementById('orgview');
+    orgC.hidden = BOARD_LAYOUT !== 'org';
+    /* A saved 'list' (chosen in the tab view) shows the grid here but presses neither button, so a
+       click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
+    for (const b of document.querySelectorAll('#panel-cons-agents [data-conslay]')) b.setAttribute('aria-pressed', String(b.dataset.conslay === BOARD_LAYOUT));
+    if (!orgC.hidden) paintOrg();
+    return;
+  }
   document.getElementById('grid').hidden = !onAgents || lay !== 'grid';
   document.getElementById('alist').hidden = !onAgents || lay !== 'list';
   const org = document.getElementById('orgview');
@@ -36034,6 +36074,10 @@ document.getElementById('detail-back').addEventListener('click', () => {
   const pid = DETAIL_FROM_PROJECT;
   DETAIL_FROM_PROJECT = null;
   if (pid) { showTab('projects'); openProject(pid); }
+  /* #4345: in the consolidated layout, "All agents" is the Agents view in the display column, from
+     every opener (review round 2). showTab('agents') alone lands on the board there, which is not
+     what the button says. */
+  else if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); }
   else showTab('agents');
 });
 
@@ -39340,10 +39384,13 @@ function takeOverDisplayColumn() {
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create', 'panel-tasks']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
+  // #4345: one overlay at a time; openConsolidatedAgents sets it again after this. Re-hide the chart and
+  // grid too, so paintOrg's skip-while-hidden guard holds while another overlay has the column.
+  if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
   // paintPjNone keeps #pj-none hidden while an overlay is open (the 5s poll re-runs it); hide it
   // now so it does not flash over the overlay before the next paint.
   { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
@@ -39366,6 +39413,7 @@ function openConsolidatedSettings() {
   placeAppSettings(true);
   takeOverDisplayColumn();   // #3053: prepare the column (hides any create overlay too)
   document.getElementById('panel-settings').hidden = false;
+  consNavLight(null);   // #4345: no top-nav item opens Settings
   paintSettings();
   // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
   // still name the last project view, so the URL keeps saying ?tab=projects&project=<id> while
@@ -39396,6 +39444,95 @@ function placeTasksPanel(consolidated) {
     TASKS_PANEL_HOME.parent.insertBefore(panel, TASKS_PANEL_HOME.next);
   }
 }
+/* #4345 (Josh, 2026-09-28): the Agents view in the consolidated display column. #grid and #orgview
+   move into a wrapper inside #panel-projects while the consolidated class is on, and back to their
+   top-level slots in the tab view, the same relocate-and-restore as placeTasksPanel. Their click
+   listeners are on the elements themselves (#grid, #orgmap), so an agent click in the column calls
+   openDetail exactly as the rail does. */
+let CONS_AGENTS_HOME = null;
+function placeAgentsPanel(consolidated) {
+  const projects = document.getElementById('panel-projects');
+  if (!projects) return;
+  let wrap = document.getElementById('panel-cons-agents');
+  const ids = ['grid', 'orgview'];
+  if (consolidated) {
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'panel-cons-agents';
+      wrap.hidden = true;   // relocated but not shown until openConsolidatedAgents()
+      /* Review round 1: the board's own view toggle stays behind in the tab view's bar, so without
+         this a person on the grid could never reach the org chart Josh named. It saves to the same
+         key as that toggle, so the choice is one choice. List is not offered: the list is the rail. */
+      wrap.innerHTML = '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
+        + '<button type="button" data-conslay="grid" aria-pressed="false">Grid</button>'
+        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div>';
+      wrap.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-conslay]');
+        if (!b) return;
+        layoutApply('agents', b.dataset.conslay);
+        try { localStorage.setItem('kosmos.layout.agents', b.dataset.conslay); } catch { /* display preference only */ }
+      });
+    }
+    if (wrap.parentElement !== projects) projects.appendChild(wrap);
+    if (!CONS_AGENTS_HOME) {
+      CONS_AGENTS_HOME = {};
+      for (const id of ids) { const el = document.getElementById(id); if (el) CONS_AGENTS_HOME[id] = { parent: el.parentElement, next: el.nextElementSibling }; }
+    }
+    for (const id of ids) { const el = document.getElementById(id); if (el && el.parentElement !== wrap) wrap.appendChild(el); }
+  } else {
+    CONS_AGENTS_OPEN = false;
+    if (wrap) wrap.hidden = true;
+    if (CONS_AGENTS_HOME) {
+      // Restore in reverse, so a slot whose saved next sibling is the other element is already back.
+      for (const id of ids.slice().reverse()) {
+        const el = document.getElementById(id); const home = CONS_AGENTS_HOME[id];
+        if (el && home && wrap && el.parentElement === wrap) home.parent.insertBefore(el, home.next && home.next.parentElement === home.parent ? home.next : null);
+      }
+    }
+  }
+}
+/* Not written to the address, like the consolidated Settings view: a reload restores the board and
+   its project (the durable state), not this transient view. */
+function openConsolidatedAgents() {
+  if (!document.body.classList.contains('consolidated')) { showTab('agents'); return; }
+  placeAgentsPanel(true);
+  takeOverDisplayColumn();
+  CONS_AGENTS_OPEN = true;
+  document.getElementById('panel-cons-agents').hidden = false;
+  boardApplyVisibility(true);
+  syncPlusChrome();
+  consNavLight('agents');
+}
+/* #4345: the top-nav click in the consolidated layout. Returns true when it handled the click, so the
+   tab handler stays short (a source pin reads the first 1600 characters of it for the top-level reset). */
+function consNavClick(btn) {
+  /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
+   switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
+   way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
+  /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
+   the full Tasks page drop the class while the person's layout is still consolidated, and from
+   there Agents must still land on the Agents view, not the board (review round 1). The burger
+   never shows at the consolidated widths, so it needs no handling here.
+   Projects here keeps the active project: the projects column is always on screen in this
+   view, so there is no "top of the section" to reset to, only the board to come back to. */
+  if (!layoutConsolidated() || !['agents', 'tasks', 'projects'].includes(btn.dataset.tab)) return false;
+  WATCH += 1;
+  const t = btn.dataset.tab;
+  if (!document.body.classList.contains('consolidated') || t === 'projects') showTab('projects');
+  if (t === 'agents') openConsolidatedAgents();
+  else if (t === 'tasks') openConsolidatedTasks();
+  return true;
+}
+/* #4345: which top-nav item is lit in the consolidated view says what the display column holds:
+   Agents or Tasks when those are open there, Projects for the board itself, none for an overlay
+   (Settings, New Agent) that no top-nav item opens. */
+function consNavLight(tab) {
+  document.querySelectorAll('#tabs .tab').forEach((t) => {
+    const on = tab != null && t.dataset.tab === tab;
+    t.classList.toggle('on', on);
+    t.setAttribute('aria-selected', String(on));
+  });
+}
 function openConsolidatedTasks() {
   // Same guard as openConsolidatedSettings: only correct while the consolidated class is on.
   if (!document.body.classList.contains('consolidated')) { showTab('tasks'); return; }
@@ -39405,6 +39542,7 @@ function openConsolidatedTasks() {
   document.getElementById('panel-tasks').hidden = false;
   syncPlusChrome();   // #3599's rule: leaving consolidated Kosmos+ settings takes the blue down
   tskLoad(!already);   // pressed again while open: a refresh, not an arrival (ticks stay)
+  consNavLight('tasks');   // #4345
 }
 /* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
    settings, so clicking New Agent in the consolidated view opens the form in the display column
@@ -39488,6 +39626,7 @@ function openConsolidatedCreate() {
   takeOverDisplayColumn();   // #3053: prepare the column (hides any settings overlay too)
   document.getElementById('panel-create').hidden = false;
   syncPlusChrome();   // #3599: New Agent replaced Settings in the column, so Kosmos+'s blue leaves with it
+  consNavLight(null);   // #4345: no top-nav item opens New Agent
 }
 /* #2618: the in-tab layout tiles + Activate (kosmos#1216) lived in the removed
    Settings > Styles tab. The header board-view toggle below (#2154) is now the only
@@ -39550,7 +39689,9 @@ function paintPjNone(which) {
     const pp = document.getElementById('panel-projects');
     return !!(pt && pp && pt.parentElement === pp && !pt.hidden);
   })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen;
+  // #4345: the Agents view in the column is an overlay like the three above.
+  const appAgentsOpen = (() => { const pa = document.getElementById('panel-cons-agents'); return !!(pa && !pa.hidden); })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -45378,7 +45519,12 @@ document.addEventListener('click', (e) => {
 // ⚠️ Leaving the panel STOPS THE WATCH. `openCreate` bumps the token and this
 // did not, so walking away mid-creation left the loop polling /api/status every
 // two seconds and repainting a hidden panel for the rest of the thirty seconds.
-document.getElementById('create-back').addEventListener('click', () => { WATCH += 1; showTab('agents'); });
+/* #4345 (review round 3): the same label as the agent page's back button, so the same place: in the
+   consolidated layout "All agents" is the Agents view in the display column, not the board. */
+document.getElementById('create-back').addEventListener('click', () => {
+  WATCH += 1;
+  if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
+});
 /* ⚠️ NO `create-prev` LISTENER: the Back button it belonged to was removed
    (Josh, 2026-08-19), and leaving this behind threw "Cannot read properties of
    null" at page load, which killed every listener registered after it. A
@@ -47507,10 +47653,14 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    for (const id of ['panel-create', 'panel-tasks']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too
+    for (const id of ['panel-create', 'panel-tasks', 'panel-cons-agents']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too; #4345: the Agents view too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
+  /* #4345: project navigation closes the consolidated Agents view (its panel was hidden above) and,
+     in the consolidated view, is the board, so Projects is the lit top-nav item. */
+  if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
+  if (document.body.classList.contains('consolidated')) consNavLight('projects');
   /* #520: the list is the projects rail in the consolidated view, so it
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;

@@ -71,6 +71,11 @@ async function measure(page, view, notice) {
       rule,
       headH: head ? Math.round(head.getBoundingClientRect().height * 10) / 10 : null,
       tabsShown: top('.apphead header .tabs') !== null,
+      // #4345: the center tabs now show in the consolidated view too, so they cannot tell the two
+      // views apart. What the consolidated CSS still does, and only when its layout attribute and
+      // class are both in force, is hide the header's h1 (not body.consolidated itself: this
+      // function sets that class, so reading it back would prove nothing).
+      consolidated: (() => { const h = document.querySelector('.apphead h1'); return !!h && getComputedStyle(h).display === 'none'; })(),
     };
   }, [view, notice, NOTICE]);
 }
@@ -101,10 +106,11 @@ async function measure(page, view, notice) {
           else if (m[k] !== ref[k]) problems.push(`${where}: ${k} top is ${m[k]}, consolidated without a notice has ${ref[k]} (the header moved ${Math.round((m[k] - ref[k]) * 10) / 10}px)`);
         }
         if (!notice && m.rule !== ref.rule) problems.push(`${where}: the header's bottom rule is at ${m.rule}, consolidated has it at ${ref.rule}`);
-        // CONTROL: the tab view really is the tab view (tabs render) and consolidated
-        // really hides them, so equal numbers are not two readings of one layout.
-        if (view === 'tabs' && !m.tabsShown) problems.push(`CONTROL failed: ${where}: the center tabs do not render, so this is not the tab view`);
-        if (view === 'consolidated' && m.tabsShown) problems.push(`CONTROL failed: ${where}: the center tabs render, so this is not the consolidated view`);
+        // CONTROL: the tab view really is the tab view and the consolidated view really is
+        // consolidated, so equal numbers are not two readings of one layout. (#4345: the center
+        // tabs render in both views now, so the view is read from what the consolidated CSS does to the h1.)
+        if (view === 'tabs' && (m.consolidated || !m.tabsShown)) problems.push(`CONTROL failed: ${where}: this is not the tab view (consolidated=${m.consolidated}, tabs shown=${m.tabsShown})`);
+        if (view === 'consolidated' && !m.consolidated) problems.push(`CONTROL failed: ${where}: the consolidated CSS is not in force (the header h1 still displays), so this is not the consolidated view`);
       }
     }
     // CONTROL: the notice was really in the header (it grew the bar), so "the controls
