@@ -134,7 +134,9 @@ if [ -n "$COPY_BASE" ]; then
   cb_host="$(printf '%s' "$cb_host" | tr '[:upper:]' '[:lower:]')"
   while [ "${cb_host%.}" != "$cb_host" ]; do cb_host="${cb_host%.}"; done
   case "$cb_host" in
-    installkosmos.com|*.installkosmos.com|chaoskosmos.com|*.chaoskosmos.com)
+    # *.vercel.app: the site is a Vercel deploy of this directory, so any vercel.app
+    # name for it is the same bytes. The R2 bucket is never on vercel.app.
+    installkosmos.com|*.installkosmos.com|chaoskosmos.com|*.chaoskosmos.com|*.vercel.app)
       echo "dist-retention: --copy-base '$COPY_BASE' is the site that serves THIS dist -- it is not a second copy (deploying the prune removes it). Use the R2 bucket's own URL." >&2
       exit 1 ;;
   esac
@@ -236,6 +238,7 @@ copy_proven() {
   esac
   # No redirects: a base that redirects could land on the site serving this dist,
   # which the host check above cannot see. A 3xx is saved as-is and fails the hash.
+  # Pinned by Gate 10 in test-dist-retention.sh (a real https 302); do not add -L.
   if ! curl -fsS --max-redirs 0 --proto '=https,file' --max-time 1800 -o "$tmp" "$COPY_BASE/$name" </dev/null 2>/dev/null; then
     echo "no copy at $COPY_BASE/$name (fetch failed or not found)"; return 1
   fi

@@ -561,7 +561,7 @@ absent "$D" kosmos-0.6.10-arm64.tar.gz && ok "history skew: an unserved version 
 # --- Gate 7: spellings that reach this dist or the site are refused ----------
 D="$TMP/g7"; make_fixture "$D" 0.6.17 $(ten); before="$(count_files "$D")"
 enc="$(dirname "$D")/%67%37"   # %67%37 decodes to g7: the dist itself
-for base in "file://$enc" https://u@installkosmos.com/dist https://installkosmos.com./dist 'https://installkosmos.com%2e/x' https://CHAOSKOSMOS.COM../dist; do
+for base in "file://$enc" https://u@installkosmos.com/dist https://installkosmos.com./dist 'https://installkosmos.com%2e/x' https://CHAOSKOSMOS.COM../dist https://kosmos-site-abc123.vercel.app/dist https://KOSMOS.VERCEL.APP./dist; do
   out="$(bash "$TOOL" --dist "$D" --keep 2 --prod-history 0 --copy-base "$base" --prune --yes 2>&1)"; rc=$?
   [ "$rc" -eq 1 ] && ok "gate base refused: $base" || no "gate base ACCEPTED (exit $rc): $base -- $out"
 done
@@ -586,6 +586,62 @@ echo "$js" | grep -q '"pruned":false' && ok "json: pruned false when the gate re
 D="$TMP/g9b"; make_fixture "$D" 0.6.17 $(ten)
 js="$(bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "file://$MIRROR" --prune --yes --json 2>&1)"
 echo "$js" | grep -q '"pruned":true' && ok "json: pruned true when versions were deleted (control)" || no "json control: -- $js"
+
+# --- Gate 10: a copy base that REDIRECTS is not followed (real https, local) ---
+# The server answers /ok/<name> with the mirror's bytes and /redir/<name> with a
+# 302 to /ok/<name>. Following the redirect would prove the copy; the tool must
+# refuse it. The /ok base is the control that the harness can say yes at all.
+if command -v openssl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  TLS="$TMP/tls"; mkdir -p "$TLS"
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout "$TLS/k.pem" -out "$TLS/c.pem" -days 1 \
+    -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2>&1
+  cat > "$TLS/srv.py" <<'PYEOF'
+import http.server, ssl, sys, os
+root = sys.argv[3]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        kind, _, name = self.path.lstrip('/').partition('/')
+        if kind == 'redir':
+            self.send_response(302); self.send_header('Location', '/ok/' + name); self.end_headers(); return
+        p = os.path.join(root, os.path.basename(name))
+        if kind != 'ok' or not os.path.isfile(p):
+            self.send_response(404); self.end_headers(); return
+        b = open(p, 'rb').read()
+        self.send_response(200); self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b)
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(('127.0.0.1', 0), H)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(sys.argv[1], sys.argv[2])
+s.socket = ctx.wrap_socket(s.socket, server_side=True)
+print(s.server_address[1], flush=True); s.serve_forever()
+PYEOF
+  python3 "$TLS/srv.py" "$TLS/c.pem" "$TLS/k.pem" "$MIRROR" > "$TLS/port" 2>/dev/null & SRV=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TLS/port" ] && break; sleep 0.5; done
+  PORT="$(cat "$TLS/port" 2>/dev/null)"
+  if [ -n "$PORT" ]; then
+    D="$TMP/g10"; make_fixture "$D" 0.6.17 $(ten); before="$(count_files "$D")"
+    out="$(CURL_CA_BUNDLE="$TLS/c.pem" bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "https://127.0.0.1:$PORT/redir" --prune --yes 2>&1)"
+    [ "$before" = "$(count_files "$D")" ] && ok "gate redirect: a 302 to a matching copy is NOT followed, nothing pruned" || no "gate redirect: followed a redirect and pruned -- $out"
+    D="$TMP/g10ok"; make_fixture "$D" 0.6.17 $(ten)
+    out="$(CURL_CA_BUNDLE="$TLS/c.pem" bash "$TOOL" --dist "$D" --keep 8 --prod-history 0 --copy-base "https://127.0.0.1:$PORT/ok" --prune --yes 2>&1)"
+    { absent "$D" kosmos-0.6.08-arm64.tar.gz && absent "$D" kosmos-0.6.09-arm64.manifest.json; } \
+      && ok "gate redirect (control): the same copy served directly over https is proven and pruned" || no "gate redirect control: https harness cannot prove a copy -- $out"
+  else
+    no "gate redirect: the local https server did not start"
+  fi
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+else
+  no "gate redirect: needs openssl and python3 to run (not skipped silently)"
+fi
+
+# --- Gate 11: the gate refuses for the WINDOWS family too --------------------
+D="$TMP/g11"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.24 0.6.18 0.6.19 0.6.20 0.6.21 0.6.22 0.6.23 0.6.24
+M="$TMP/g11-mirror"; mkdir -p "$M"; cp "$MIRROR"/kosmos-0.6.1[89]-win-x64.* "$M/"
+printf 'tampered\n' > "$M/kosmos-0.6.18-win-x64.zip"
+out="$(bash "$TOOL" --dist "$D" --keep 5 --prod-history 0 --copy-base "file://$M" --prune --yes 2>&1)"
+{ present "$D" kosmos-0.6.18-win-x64.zip && present "$D" kosmos-0.6.18-win-x64.zip.sha256 && present "$D" kosmos-0.6.18-win-x64.manifest.json; } \
+  && ok "win gate: a win zip whose copy DIFFERS is kept, whole triple" || no "win gate: deleted a win version whose copy differs -- $out"
+absent "$D" kosmos-0.6.19-win-x64.zip && ok "win gate (control): an exactly-copied win version is pruned" || no "win gate control: -- $out"
 
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"

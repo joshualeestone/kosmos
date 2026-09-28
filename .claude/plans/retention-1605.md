@@ -51,5 +51,16 @@ turn the suite red.
 ## Status
 - [x] implementation
 - [x] tests + perturbations
-- [ ] challenge loop (round 1 fixed; round 2 next)
+## Review round 2 (sonnet, blind): 0 BLOCKER, 2 WARNING, 2 NIT
+- WARNING redirect change untested (reproduced: `-L` back, 135/135 green). Now Gate 10 runs a real
+  local https server (self-signed cert via CURL_CA_BUNDLE) whose /redir 302s to a matching copy:
+  refused. Control: the same copy served directly is proven and pruned. `-L` back turns it red.
+- WARNING vercel.app alias of the site not refused. `*.vercel.app` is refused now (the site is a
+  Vercel deploy of this dir; R2 is never on vercel.app). Mutant killed.
+- NIT win-x64 gate refusal untested: Gate 11 added, with control.
+- NIT copy_proven/copy_refused keys absent when the gate did not run: DEFERRED. `copies_checked`
+  already says whether the gate ran, so absence is unambiguous for a consumer that reads it.
+- Tests 135 -> 141.
+
+- [ ] challenge loop (round 2 fixed; round 3 next)
 - [ ] PR, merge, card comment
