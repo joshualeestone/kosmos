@@ -38,6 +38,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/dist'; // never the real update server
 
 const { chromium } = require('playwright');
+const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 const fail = [];
@@ -54,6 +55,7 @@ const focusNow = (p) => p.evaluate(() => {
 });
 
 (async () => {
+  fleet.install([]); // no agents: the board reads an empty fleet, never the host's tmux
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED !== '1' });
