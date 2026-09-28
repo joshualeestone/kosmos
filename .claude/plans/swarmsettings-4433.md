@@ -36,3 +36,17 @@ That removing Stop now from the phone chat header costs nothing important. A per
   - Mutants, each red: Stopped skips the question (S44), an arrow picks (S43), the box never shows (S42).
 - render-dm-chatfirst-718, render-signin-visible-3892 (134, pin updated with its derivation) and render-dm-sideways-3969: the header arms now assert that no swarm control is in the header and that the Swarm Settings pill is on screen.
 - web.agent-nav: 10 sections.
+
+## Review round 1 (opus, blind): 1 BLOCKER, 4 WARNINGs, 3 NITs, all but one answered in code
+- **BLOCKER** The stop question focused Stop now, so a held or doubled Enter on the Stopped card confirmed an irreversible stop.
+  - Measured with a mutant: a held Enter sent POST swarm/stop twice.
+  - Fixed: the question focuses Keep it running, and a repeated key on a card picks once.
+  - S44 now holds Enter and asserts nothing is sent; the Stop-now-focused mutant goes red with the two POSTs.
+- **WARNING** The phone strip hid the pill's word, leaving colour alone (WCAG 1.4.1, Mona's reason for the word). Fixed: the word stays.
+- **WARNING** The flag's paused arms were dead, and S8/S17/S21/S24 tested the flag, not the page. Fixed: they now pick Stopped and assert that it asks (the new "from Paused, Stopped always asks" rule). The flag is only asserted in S12, where it is read.
+- **WARNING** The pill overlapped the label in the 220px desktop column (seen in the screenshot). Fixed: it sits under the label.
+  - This deviates from Mona's "at the right"; the column cannot hold it there.
+- **WARNING** Two quick picks flickered the cards. Fixed: one change at a time (a pick while one is in flight is ignored).
+- **NIT** The card's line was read twice. Fixed: aria-labelledby names it by its name only.
+- **NIT** A poll reset the tab stop under the person's focus. Fixed: a focused card keeps the tab stop.
+- **NIT** A stop reply could move focus into another swarm, and the question stayed open across sections. Fixed: focus only for the same agent, and leaving the view closes the question.

@@ -1782,7 +1782,7 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
   background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }
 #d-nav.dnav-boxed button.dnav-swarm:not(.on):hover { background: color-mix(in srgb, var(--sw-st) 20%, var(--k-surface)); }
 #d-nav.dnav-boxed button.dnav-swarm.on { background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }   /* the gold edge marks it open */
-.swpill { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 5px;
+.swpill { display: inline-flex; align-items: center; gap: 5px;   /* under the label: at the right it covered the label in the 220px column */
   padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--sw-st) 45%, transparent);
   background: var(--k-surface); font: 600 .75rem var(--font-ui); color: var(--k-ink); white-space: nowrap; }
 .swpill i { width: 8px; height: 8px; border-radius: 50%; background: var(--sw-st); flex: none; }
@@ -9952,8 +9952,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { position: static; transform: none; padding: 0; border: 0; background: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill span { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
@@ -11733,17 +11732,17 @@ window.kosmosMeasureScrollbarWidth();
            once, so arrowing from Active past Paused would pause a live swarm. Arrow keys move, Space or Enter picks
            (Mona's spec); a click picks. -->
       <div class="swstates" id="d-swarm-states" role="radiogroup" aria-label="How this swarm works" aria-describedby="d-swarm-why">
-        <div class="swcard" role="radio" data-st="active" aria-checked="false" tabindex="-1" aria-describedby="d-swarm-l-active">
-          <span class="swdot" aria-hidden="true"></span><span class="swname">Active</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+        <div class="swcard" role="radio" data-st="active" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-active" aria-describedby="d-swarm-l-active">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-active">Active</span><span class="swcheck" aria-hidden="true">&#10003;</span>
           <span class="swline" id="d-swarm-l-active">Takes work. Brings in helpers when parts of a task can run at the same time.</span>
         </div>
-        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-describedby="d-swarm-l-paused d-swarm-l-limit">
-          <span class="swdot" aria-hidden="true"></span><span class="swname">Paused</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-paused" aria-describedby="d-swarm-l-paused d-swarm-l-limit">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-paused">Paused</span><span class="swcheck" aria-hidden="true">&#10003;</span>
           <span class="swline" id="d-swarm-l-paused">Takes nothing new. Anything already in progress finishes.</span>
           <span class="swline swlimit" id="d-swarm-l-limit" hidden>It reached today's limit and resumes tomorrow.</span>
         </div>
-        <div class="swcard" role="radio" data-st="stopped" aria-checked="false" tabindex="-1" aria-describedby="d-swarm-l-stopped">
-          <span class="swdot" aria-hidden="true"></span><span class="swname">Stopped</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+        <div class="swcard" role="radio" data-st="stopped" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-stopped" aria-describedby="d-swarm-l-stopped">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-stopped">Stopped</span><span class="swcheck" aria-hidden="true">&#10003;</span>
           <span class="swline" id="d-swarm-l-stopped">Stops now. Helpers stop, the lead is interrupted, and unfinished work is dropped. It stays stopped until you set it to Active.</span>
         </div>
       </div>
@@ -33499,6 +33498,7 @@ function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
   /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
   if (section === 'swarm') { const sb = document.getElementById('d-nav-swarm'); if (!sb || sb.hidden) section = 'talk'; }
+  else if (typeof swarmConfirmShow === 'function') swarmConfirmShow(false);   // leaving the view closes an open stop question
   /* The reader's place is kept only across THEIR OWN click away from Talk
      (the open path passes focus:false and never captures: it is a different
      agent's thread, and openDetail has just reset the offset for it). */
@@ -45134,8 +45134,9 @@ function swarmPagePaint(a, { force = false } = {}) {
      once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
   /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
      still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
-  /* #4433: the same rule now decides whether picking Stopped again (it is already the chosen card) offers the stop:
-     only while a stop could still do something. */
+  /* #4433: the old Stop now's rule, now read in ONE place: picking Stopped when it is ALREADY the chosen card
+     offers the stop only while a stop could still do something. From Paused (by the person or the limit), Stopped
+     always asks, because it is a real change: a limit pause resumes by itself, a stop does not. */
   SWARM_STOP_SPENT = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
   const why = document.getElementById('d-swarm-why');
   const words = st === 'stopped' && !SWARM_STOP_SPENT ? 'It is still finishing what it was doing. Pick Stopped again to stop it now.' : '';
@@ -45261,16 +45262,19 @@ document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
   swarmConfirmShow(false);
   swarmCardsPaint('stopped');   // shown at once; a refused stop repaints the saved state
-  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
+  const who = CURRENT.sessionName;
+  await swarmSend('/api/agent/' + encodeURIComponent(who) + '/swarm/stop', 'POST', {},
     (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
-  swarmCardFocus();
+  if (CURRENT && CURRENT.sessionName === who) swarmCardFocus();
 });
 /* #4433 (Mona's design on #3946): the three state cards. A custom radio group: arrow keys (and Home, End) move
    between them, Space or Enter picks, a click picks. Active and Paused apply at once; Stopped asks first. */
 var SWARM_STOP_SPENT = false;   // set by swarmPagePaint: a stop now would change nothing
 function swarmCards() { return [...document.querySelectorAll('#d-swarm-states .swcard')]; }
 function swarmCardsPaint(st) {
-  for (const c of swarmCards()) { const chosen = c.dataset.st === st; c.setAttribute('aria-checked', String(chosen)); c.tabIndex = chosen ? 0 : -1; }
+  const cards = swarmCards();
+  const focused = cards.find((c) => c === document.activeElement);   // a poll leaves the tab stop where the person is
+  for (const c of cards) { const chosen = c.dataset.st === st; c.setAttribute('aria-checked', String(chosen)); c.tabIndex = (focused ? c === focused : chosen) ? 0 : -1; }
 }
 function swarmCardFocus() {
   const c = document.querySelector('#d-swarm-states .swcard[aria-checked="true"]');
@@ -45280,10 +45284,13 @@ function swarmConfirmShow(show) {
   const box = document.getElementById('d-swarm-confirm');
   if (!box) return;
   box.hidden = !show;
-  if (show) document.getElementById('d-swarm-stop').focus();
+  /* The safe answer takes focus, never Stop now: a held or doubled Enter on the Stopped card would otherwise
+     land on Stop now and confirm a stop that cannot be undone (review round 1). */
+  if (show) document.getElementById('d-swarm-keep').focus();
 }
 async function swarmPick(card) {
   if (!card || !CURRENT || !SWARM_ROW || SWARM_ROW.sessionName !== CURRENT.sessionName) return;
+  if (SWARM_BUSY) return;   // one change at a time: a second pick while the first is in flight would flicker the cards
   const chosen = card.getAttribute('aria-checked') === 'true';
   const st = card.dataset.st;
   if (st === 'stopped') { if (!(chosen && SWARM_STOP_SPENT)) swarmConfirmShow(true); return; }
@@ -45308,7 +45315,8 @@ document.addEventListener('keydown', (e) => {
       : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? all[(i + all.length - 1) % all.length]
       : e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1] : null;
     if (to) { e.preventDefault(); all.forEach((c) => { c.tabIndex = c === to ? 0 : -1; }); to.focus(); return; }
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); swarmPick(card); }
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); swarmPick(card); }
+    else if (e.key === ' ' || e.key === 'Enter') e.preventDefault();   // a held key picks once
     return;
   }
   /* Escape in the stop question keeps it running, as the other button does. */

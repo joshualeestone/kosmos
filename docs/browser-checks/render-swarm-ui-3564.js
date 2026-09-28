@@ -63,6 +63,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       await page.click('#d-nav-swarm');
       await waitFor(page, () => !document.getElementById('d-sec-swarm').hidden, null, 4000);
     };
+    /* #4433: does picking Stopped ask (without sending anything)? Answers Keep it running either way. */
+    const stopAsks = async () => {
+      const n = sent.length;
+      await page.click('#d-swarm-states .swcard[data-st="stopped"]');
+      await page.waitForTimeout(250);
+      const asked = await page.evaluate(() => !document.getElementById('d-swarm-confirm').hidden);
+      if (asked) await page.click('#d-swarm-keep');
+      return asked && sent.length === n;
+    };
 
     /* The engine, as the contract says. `engineOn` flips the flag; `crewSwarm` is the crew's card field. */
     let engineOn = false;
@@ -670,7 +679,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'limit' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S17 precondition: the page has the limit-paused, no-helper, unmeasured row');
-    chk(await page.evaluate(() => SWARM_STOP_SPENT === false), 'S17 paused at the limit with no helper counted in a partial read, a stop is still on offer');
+    chk(await stopAsks(), 'S17 paused at the limit (a partial read): picking Stopped asks, as it does from any Paused');
     // S20: unmeasured, the card claims no helper count: no lit circle, no badge, "Up to N helpers".
     await page.evaluate(() => showTab('agents'));
     chk(await waitFor(page, () => { const c = document.querySelector('#grid [data-agent="crew"]'); return !!c && /Up to \d+ helpers|Paused/.test(c.textContent); }, null, 8000), 'S20 precondition: the crew card repainted');
@@ -738,8 +747,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.waitForTimeout(400);
     const s44 = await page.evaluate(() => ({ shown: !document.getElementById('d-swarm-confirm').hidden, q: document.getElementById('d-swarm-confirm-q').textContent,
       focus: document.activeElement && document.activeElement.id, active: cardChecked('active') }));
-    chk(s44.shown && s44.q === 'Stop now? Unfinished work is dropped.' && s44.focus === 'd-swarm-stop' && s44.active && sent.length === before44,
-      'S44 picking Stopped asks first, focuses Stop now, and sends nothing yet', JSON.stringify({ s44, sent: sent.slice(before44) }));
+    chk(s44.shown && s44.q === 'Stop now? Unfinished work is dropped.' && s44.focus === 'd-swarm-keep' && s44.active && sent.length === before44,
+      'S44 picking Stopped asks first, focuses Keep it running (the safe answer), and sends nothing yet', JSON.stringify({ s44, sent: sent.slice(before44) }));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-stop-ask.png') });
     await page.click('#d-swarm-keep');
     await page.waitForTimeout(300);
     chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden && document.activeElement && document.activeElement.dataset.st === 'active') && sent.length === before44,
@@ -747,6 +757,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.keyboard.press('Escape');
     chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden) && sent.length === before44, 'S44 Escape keeps it running too');
+    // S44 (review round 1): a HELD Enter on the Stopped card asks once and never answers the question itself.
+    await page.focus('#d-swarm-states .swcard[data-st="stopped"]');
+    await page.keyboard.down('Enter'); await page.keyboard.down('Enter'); await page.keyboard.down('Enter'); await page.keyboard.up('Enter');
+    await page.waitForTimeout(400);
+    /* The repeats land on the focused answer, Keep it running, which is why that is the one focused: the question
+       closes unanswered by a stop. With Stop now focused (the round-1 version) the repeat POSTed swarm/stop. */
+    const held = await page.evaluate(() => ({ shown: !document.getElementById('d-swarm-confirm').hidden, active: cardChecked('active'),
+      onCard: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#d-swarm-states')) }));
+    chk(!held.shown && held.active && held.onCard && sent.length === before44, 'S44 a held Enter on Stopped stops nothing: its repeats answer Keep it running', JSON.stringify({ held, sent: sent.slice(before44) }));
     await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
@@ -808,14 +827,16 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     crewState = 'idle';   // the lead's turn has ended; only then is there nothing left to stop
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };   // the engine interrupts the lead at the limit, ending its helpers
     chk(await waitFor(page, () => !document.getElementById('d-swarm-l-limit').hidden && /today's limit and resumes tomorrow/.test(document.getElementById('d-swarm-l-limit').textContent)
-      && SWARM_STOP_SPENT === true && cardChecked('paused') && !document.getElementById('d-swarm-tolimit').hidden
+      && cardChecked('paused') && !document.getElementById('d-swarm-tolimit').hidden
       && document.getElementById('d-nav-swarm-word').textContent === 'Paused (limit)', null, 15000),
       'S8 paused at the limit with an idle lead: Paused is chosen and says it resumes tomorrow, with the way to the limit; the box says Paused (limit)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-limit.png') });
+    chk(await stopAsks(), 'S8 from a limit pause, picking Stopped still asks: it is a real change (a stop does not resume tomorrow)');
     await page.click('#d-swarm-tolimit');
     chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-swarm-cap'), 'S8 Change today\'s limit takes the person to the limit');
     // S24: the same pause with the lead still working (its interrupt failed): Stop now stays, the only interrupt.
     crewState = 'working';
-    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.state === 'working' && SWARM_STOP_SPENT === false, null, 15000), 'S24 paused at the limit but the lead still working: a stop is still on offer');
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.state === 'working', null, 15000) && await stopAsks(), 'S24 paused at the limit with the lead still working: picking Stopped asks');
     crewState = null;
     // S23: no helpers and a lead that is neither working nor idle (rate limited): the swarm line claims no "Idle".
     // CONTROL: the same row idle says "Idle, working alone".
@@ -834,8 +855,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // S21: paused by the person with no helper counted, the lead's turn still runs: Stop now (its only interrupt) stays.
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'person' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S21 precondition: the person-paused, no-helper row');
-    chk(await page.evaluate(() => SWARM_STOP_SPENT === false && cardChecked('paused') && document.getElementById('d-swarm-l-limit').hidden),
-      'S21 paused by the person, a stop is still on offer (the lead\'s turn still runs) and no limit line; CONTROL: S8 at the limit');
+    chk(await page.evaluate(() => cardChecked('paused') && document.getElementById('d-swarm-l-limit').hidden) && await stopAsks(),
+      'S21 paused by the person: no limit line, and picking Stopped asks (the lead\'s turn still runs); CONTROL: S8 at the limit');
     // S22: switched back on over today's limit: the engine will not pause it again today, so the page does not promise to.
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 1, tokensToday: 6100000 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-hint').textContent === 'Over today\'s limit.', null, 15000), 'S22 over the limit while Active: the hint says so, and promises no pause it may not make',
@@ -878,6 +899,20 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       badge: !!document.querySelector('#grid [data-agent="crew"] .agauge rect') }));
     chk(s15.dark && s15.clusters >= 5 && !!s15.edge && s15.edge !== 'none' && !s15.badge, 'S15 in dark the swarm card still draws its cluster, each circle edged in the page colour, and no badge', JSON.stringify(s15));
     if (SHOTS) await (await page.$('#grid')).screenshot({ path: path.join(SHOTS, 'board-dark.png') });
+    /* #4433: the Swarm Settings view for design review (Mona asked for light and dark, desktop and phone). Shots only. */
+    if (SHOTS) {
+      await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
+      await openSwarm();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-dark.png') });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-phone-dark.png') });
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-phone.png') });
+      await page.setViewportSize({ width: 1280, height: 860 });
+    }
     await page.emulateMedia({ colorScheme: 'light' });
 
     chk(errs.length === 0, 'S10 no page errors', errs.join(' | '));
