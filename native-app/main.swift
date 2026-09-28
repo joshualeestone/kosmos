@@ -2575,9 +2575,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// With the new app ready, how long words left in a box hold the restart before the person is asked.
     static let relaunchAskAfter: TimeInterval = 600
     static func relaunchStep(freshFound: Bool, waited: TimeInterval, freshFor: TimeInterval,
-                             page: PageSays, toldGaveUp: Bool = false, askedBefore: Bool = false) -> RelaunchStep {
-        // Once the person has been told the app did not update, keep looking quietly: a late app still wins.
-        guard freshFound else { return (waited >= relaunchWaitLimit && !toldGaveUp) ? .giveUp : .wait }
+                             page: PageSays, toldGaveUp: Bool = false, askedBefore: Bool = false,
+                             seenFresh: Bool = false) -> RelaunchStep {
+        /* Give up only if the new app was never seen: one that was seen and is briefly unreadable (mid-swap) is
+           waited for. Once the person has been told, keep looking quietly: a late app still wins. */
+        guard freshFound else {
+            return (waited >= relaunchWaitLimit && !toldGaveUp && !seenFresh) ? .giveUp : .wait
+        }
         switch page {
         case .safe: return .relaunchNow
         // The person is asked at most once: after a Not Now, only the silent restart remains.
@@ -2631,7 +2635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard !decided, let self else { return }
             decided = true
             switch Self.relaunchStep(freshFound: target != nil, waited: waited, freshFor: freshFor, page: page,
-                                     toldGaveUp: toldGaveUp, askedBefore: askedBefore) {
+                                     toldGaveUp: toldGaveUp, askedBefore: askedBefore, seenFresh: freshAt != nil) {
             case .wait:
                 let again = target != nil ? Self.relaunchPollForPage
                     : (toldGaveUp ? Self.relaunchPollAfterGiveUp : Self.relaunchPollForApp)
@@ -3930,6 +3934,9 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
               "after Not Now, words left for any length of time never bring the dialog back (asked at most once)")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .safe, askedBefore: true), .relaunchNow,
               "after Not Now, once the words are sent the restart happens with no question")
+    stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: AppDelegate.relaunchWaitLimit + 1, freshFor: 30, page: .safe,
+                                       seenFresh: true), .wait,
+              "the new app was seen, then briefly unreadable (mid-swap) past the limit: wait, do not say it did not update")
     stepCheck(AppDelegate.relaunchStep(freshFound: false, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .wait,
               "after telling the person once, keep looking quietly: never a second notice")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 0, page: .safe, toldGaveUp: true), .relaunchNow,
@@ -4008,9 +4015,8 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     /* 🛑 #2094: THE RELAUNCH TARGET, AS ROWS. Josh's window ran a stale 0.6.26
        bundle against a 0.6.27 board; offerRelaunch reopened Bundle.main (that same
        stale bundle) forever. pickFresh chooses the installed copy that carries the
-       board's version instead. Row 2 is the one that returns nil so the caller
-       FALLS BACK to Bundle.main -- proving the fix is never worse than before when
-       no fresh copy exists anywhere. */
+       board's version instead. Row 2 returns nil: no copy has caught up, so the caller
+       waits for one (#4347) rather than reopening a stale bundle. */
     var freshBad = 0
     func freshCheck(_ got: URL?, _ want: URL?, _ what: String) {
         let ok = got?.path == want?.path
@@ -4022,7 +4028,7 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.27"), (homeApp, "0.6.26")], theirs: "0.6.27"), sysApp,
                "the /Applications copy carrying the board version is chosen over a stale one")
     freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.26"), (homeApp, "0.6.26")], theirs: "0.6.27"), nil,
-               "no copy carries the board version -> nil, so the caller falls back (never worse)")
+               "no copy carries the board version -> nil, so the caller waits")
     freshCheck(AppDelegate.pickFresh([(sysApp, nil), (homeApp, "0.6.27")], theirs: "0.6.27"), homeApp,
                "an UNREADABLE candidate is skipped, not chosen")
     freshCheck(AppDelegate.pickFresh([(sysApp, "0.6.27"), (homeApp, "0.6.27")], theirs: "0.6.27"), sysApp,

@@ -41,7 +41,7 @@ updateSafeReload keeps its own hidden-window and once-per-version guards and cal
 - web.reload-toast.test.js: lift updateNothingToLose alongside updateSafeReload; a new test for
   kosmosSafeToRestart (true on a clean page; false with a draft, a typed box, a send in flight).
 - main.swift stale selftest: pure `pickFreshOnDisk` (candidates with on-disk versions) and the decision
-  `relaunchStep(freshFound:, pageSafe:)` -> wait / relaunchNow / askPerson / giveUp.
+  `relaunchStep(freshFound:waited:freshFor:page:toldGaveUp:askedBefore:seenFresh:)` -> wait / relaunchNow / askPerson / giveUp.
 
 ## Rejected
 - Keep the dialog, restyle it (option B) as the main path: Josh's first complaint is that it appears at all.
@@ -50,7 +50,8 @@ updateSafeReload keeps its own hidden-window and once-per-version guards and cal
 
 ## Review iteration 2 (changes)
 - The page's answer has four values: safe (restart now), would lose (wait), cannot tell (an old page, or the
-  check threw: ask), and no reply (a JS error, the page mid-load: ask the page again, never the person).
+  check threw: ask), and no reply (a JS error, the page mid-load: ask the page again; a page that never answers
+  is treated like one holding words, so after 10 minutes the person is asked, once).
 - Words left in a box no longer hold the window on the old version forever: after 10 minutes with the new app
   ready, the person is asked, and the dialog says unsent words would be lost. Restart stays the blue default
   (Josh's ask); Not Now answers to Escape.
@@ -80,3 +81,5 @@ condition (one update, no second prompt) is first observable on the update after
   so no restart closes it and no second dialog lands on it.
 - The ask says "anything unfinished in this window, such as words not sent yet", because What's New being open
   or a send in flight also hold the restart.
+- Giving up needs the new app never to have been seen: one seen and briefly unreadable mid-swap is waited for
+  (review iteration 7).
