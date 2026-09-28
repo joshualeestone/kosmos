@@ -10,10 +10,10 @@
  * 1s poll do the rest. Four arms:
  *   1. Stop: press "Stop this sign-in"; the next poll reads idle; focus lands on
  *      "Start the sign-in" (#acct-add).
- *   2. A failed poll while the person is in the code field: same landing.
+ *   2. A stuck poll while the person is in the code field: same landing.
  *   3. Connected: focus ends on the gold success box's close button, and "Start the sign-in"
  *      is never focused on the way there (a focusin log sees a move that is later overwritten).
- *   4. A start that answers with a phase that has already failed: focus lands on the note
+ *   4. A start that answers with a phase that has already ended (stuck): focus lands on the note
  *      that says so (#acct-add-note), not the page.
  * Each arm asserts where focus was before it acts, so none can pass vacuously. Without the
  * fix arms 1, 2 and 4 read BODY, which is the control.
@@ -111,7 +111,7 @@ const focusNow = (p) => p.evaluate(() => {
     chk(f1.id === 'acct-add' && f1.inDialog, 'arm 1: focus lands on "Start the sign-in", not the page', JSON.stringify(f1));
     chk(await p.isEnabled('#acct-add'), 'arm 1: and that button can be pressed again');
 
-    // Arm 2: the sign-in fails while the person is in the code field. The page itself puts
+    // Arm 2: the sign-in gets stuck while the person is in the code field. The page itself puts
     // focus in the code field when a code is wanted; the harness only makes sure of it.
     await pressStart('signin-awaiting-code');
     const codeUp = await p.waitForSelector('#acct-code', { state: 'visible', timeout: 5000 }).then(() => true, () => false);
@@ -119,8 +119,8 @@ const focusNow = (p) => p.evaluate(() => {
     await p.focus('#acct-code');
     const before2 = await focusNow(p);
     chk(before2.id === 'acct-code', 'arm 2: before the failure, focus is in the code field', JSON.stringify(before2));
-    because = 'That sign-in did not finish.'; phase = 'failed';
-    chk(await flowGone(), 'arm 2: a failed poll puts the panel away');
+    because = 'That sign-in did not finish.'; phase = 'stuck';
+    chk(await flowGone(), 'arm 2: a stuck poll puts the panel away');
     const f2 = await focusNow(p);
     chk(f2.id === 'acct-add' && f2.inDialog, 'arm 2: focus lands on "Start the sign-in", not the page', JSON.stringify(f2));
 
@@ -142,10 +142,10 @@ const focusNow = (p) => p.evaluate(() => {
     await p.click('#acct-success-close').catch(() => {});
     await p.waitForTimeout(300);
 
-    // Arm 4: the start answers with a phase that has already failed.
-    await pressStart('failed', { phase: 'failed', because: 'Claude Code could not start.' });
+    // Arm 4: the start answers with a phase that has already ended (stuck, a real engine phase).
+    await pressStart('stuck', { phase: 'stuck', because: 'Claude Code could not start.' });
     await p.waitForTimeout(500);
-    chk(await p.isHidden('#acct-flow'), 'arm 4: an already-failed start shows no running panel');
+    chk(await p.isHidden('#acct-flow'), 'arm 4: a start that answers stuck shows no running panel');
     const f4 = await focusNow(p);
     chk(f4.id === 'acct-add-note' && f4.inDialog, 'arm 4: focus lands on the note that says what happened, not the page', JSON.stringify(f4));
     const note4 = await p.textContent('#acct-add-note');
