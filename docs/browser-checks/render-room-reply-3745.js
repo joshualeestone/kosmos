@@ -114,6 +114,36 @@ function chk(ok, label, extra) {
     });
     chk(ring.every((x) => /=2px solid /.test(x)), 'Reply, the header and the x get the bar\'s 2px keyboard focus ring', ring.join(' '));
 
+    // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
+    const bar = await p.evaluate(() => {
+      const q = document.querySelector('#pj-room .rxns .rxn-quick');
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const r = q && q.querySelector('.rxn-reply');
+      const ico = r && r.firstElementChild;
+      return { kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
+        word: r ? r.textContent.trim() : null };
+    });
+    chk(bar.kids === 'pick,pick,pick,more,reply', 'the hover bar reads the three quick emoji, the smiley, then Reply last', bar.kids);
+    chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
+    for (const scheme of ['light', 'dark']) {
+      await p.emulateMedia({ colorScheme: scheme });
+      const post = p.locator('#pj-room .msg').filter({ has: p.locator('.rxn-reply') }).first();
+      await post.hover();
+      await p.waitForTimeout(250);
+      const btn = post.locator('.rxn-reply');
+      const rest = await btn.evaluate((b) => getComputedStyle(b).borderTopColor);
+      await btn.hover();
+      await p.waitForTimeout(250);
+      const hov = await btn.evaluate((b) => {
+        const probe = document.createElement('span'); probe.style.color = 'var(--gold-bright)'; b.appendChild(probe);
+        const gold = getComputedStyle(probe).color; probe.remove();
+        return { border: getComputedStyle(b).borderTopColor, gold };
+      });
+      chk(hov.border === hov.gold && hov.border !== rest, '[' + scheme + '] hovering Reply gives it the bright gold outline', JSON.stringify({ rest, hov }));
+      await p.mouse.move(5, 5);
+    }
+    await p.emulateMedia({ colorScheme: 'light' });
+
     // The original, not a reply that quotes it (a reply's header and screen-reader line carry its words too).
     const firstRow = p.locator('#pj-room .msg').filter({ hasText: 'The launch moves to Friday.' }).filter({ hasNot: p.locator('.msg-replyto, .vh') }).first();
     await firstRow.hover();

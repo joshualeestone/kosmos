@@ -103,6 +103,14 @@ async function openDm(page, messages, olderCount) {
       you: r.classList.contains('you'), reply: !!r.querySelector('.rxn-reply') })));
     chk(bars.length === 3 && bars.filter((b) => !b.you).every((b) => b.reply) && bars.filter((b) => b.you).every((b) => !b.reply),
       'R1 each agent message offers Reply; the person\'s own rows have no bar', JSON.stringify(bars));
+    // #4358: in the DM bar too, the four emoji sit together and Reply comes last, with its arrow.
+    const dmBar = await page.evaluate(() => {
+      const q = document.querySelector('#d-dmthread .msg:not(.you) .rxn-quick');
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?').join(',') : '';
+      const r = q && q.querySelector('.rxn-reply');
+      return { kids, arrow: !!(r && r.firstElementChild && r.firstElementChild.classList.contains('rxn-reply-ico')) };
+    });
+    chk(dmBar.kids === 'pick,pick,pick,more,reply' && dmBar.arrow, 'R1b the DM bar reads the three quick emoji, the smiley, then Reply last with its arrow (#4358)', JSON.stringify(dmBar));
 
     // R2
     await page.hover('#d-dmthread .msg:not(.you) >> nth=1');

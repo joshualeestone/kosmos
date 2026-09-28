@@ -6304,7 +6304,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
 /* #3745: replying to a room post. */
 .rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
-.rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
+.rxn-reply { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rxn-reply-ico { flex: none; display: block; }
+/* #4358 (Josh): hover is a bright gold outline, not a dark one. */
+.rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
 .pj-replying-h { flex: 0 1 auto; min-width: 0; color: var(--k-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -53323,12 +53326,17 @@ function rxnsInner(list, withReply) {
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
      gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
-  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM. */
-  const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">Reply</button>' : '';
+  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM.
+     #4358 (Josh): it goes LAST, after the smiley, so the four emoji sit together, and it carries a
+     small reply arrow before the word. */
+  const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
+    + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
+    + 'Reply</button>' : '';
   return pills
-    + '<span class="rxn-quick">' + quicks + reply
+    + '<span class="rxn-quick">' + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
+    + reply
     + '</span>';
 }
 function pjReactions(m) {
