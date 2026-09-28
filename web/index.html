@@ -1354,7 +1354,7 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
 .upd-back .upd-k { width: 88px; height: 103px; display: block; }
 /* #4343 (Josh, 2026-09-28): the full-restart screen. Unlike the update overlay it is OPAQUE, on
    the page's own ground, because his ask was that nothing else shows: no header, chips or panels. */
-.restart-back { position: fixed; inset: 0; z-index: 60; background: var(--k-bg);
+.restart-back { position: fixed; inset: 0; z-index: 61; background: var(--k-bg);
                 display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
 .restart-back .restart-msg { display: flex; flex-direction: column; align-items: center; text-align: center;
                              max-width: 26rem; color: var(--k-ink); outline: none; }
@@ -20284,6 +20284,11 @@ function agoWords(ms) {
  * job; a dismiss on a live condition is a note that lies on the next glance;
  * and a countdown would imply the page knows something about the recovery.
  */
+/* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
+   and the full-restart screen (#4343) branch on. One function, so the two cannot drift apart. */
+function offlineRemoteView() {
+  try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
+}
 function paintOfflineNote(down, deviceIsOffline) {
   const slot = document.getElementById('uoffline-slot');
   if (!slot) return;
@@ -20321,8 +20326,7 @@ function paintOfflineNote(down, deviceIsOffline) {
      can do. Say it is the Mac, the usual reason (asleep or off), and what to do about it from
      here; and since a phone on a captive portal also reads as online (state 1 cannot see it),
      point at its own connection too. */
-  let remote = false;
-  try { remote = !onWindows() && kplusRemote(); } catch { /* a document with no location is not remote */ }
+  const remote = offlineRemoteView();
   if (remote) {
     let at = '';
     try { if (location && location.host) at = ' Nothing answered at ' + esc(location.host) + '.'; }
@@ -20388,8 +20392,7 @@ function restartScreenInert(el) {
 function paintRestartScreen(down, deviceIsOffline) {
   const shown = document.querySelector('.restart-back');
   if (!down) BOARD_NO_ANSWER_SINCE = null;
-  let remote = false;
-  try { remote = !onWindows() && kplusRemote(); } catch { /* a document with no location is not remote */ }
+  const remote = offlineRemoteView();
   let served = false;
   try { served = location.protocol === 'http:' || location.protocol === 'https:'; } catch { /* no location: not served */ }
   if (!down || deviceIsOffline || remote || !served || UPDATING_NOW) {

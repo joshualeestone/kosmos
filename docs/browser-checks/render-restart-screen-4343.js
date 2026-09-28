@@ -1,4 +1,4 @@
-// Browser-check-surface: restart-back restart-msg restart-k uoffline-slot
+// Browser-check-surface: restart-back restart-msg restart-k restart-up uoffline-slot
 'use strict';
 
 /**
@@ -7,7 +7,7 @@
  *
  * Harness: a tiny static server that serves web/index.html and answers /api/ in one of three modes:
  * 'down' DROPS every request unanswered (the board is gone), 'up' answers /api/status with a minimal
- * board, and 'broken' answers 200 with a body the board's painters throw on. The 15-second wait is
+ * board, and 'broken' answers 200 with a body tick() throws on reading. The 15-second wait is
  * shortened by moving BOARD_NO_ANSWER_SINCE back; the real 5-second poll does everything else.
  *
  * Arms (light and dark):
@@ -37,6 +37,10 @@ catch {
 
 const ROOT = nodePath.resolve(__dirname, '..', '..');
 const HTML = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'));
+// What server.js stamps into the two metas per request, for the baked Windows arm: a real version and platform.
+const WIN_HTML = HTML.toString()
+  .replace('<meta name="kosmos-version" content="__KOSMOS_VERSION__">', '<meta name="kosmos-version" content="0.7.09">')
+  .replace('<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">', '<meta name="kosmos-platform" content="win32">');
 const FILE_PAGE = 'file://' + nodePath.join(ROOT, 'web', 'index.html');
 
 const problems = [];
@@ -55,6 +59,11 @@ const server = http.createServer((req, res) => {
       return;
     }
     res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+    return;
+  }
+  if (req.url === '/win') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(WIN_HTML);
     return;
   }
   if (req.url === '/' || req.url.startsWith('/?') || req.url === '/index.html') {
@@ -199,6 +208,27 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       return was;
     });
     ok(t + ' when the device itself is offline it does not claim Kosmos needs a restart', offline === false);
+    await page.close();
+  }
+
+  // ── A baked Windows page: the Windows remedy, and the version on the details line. ──
+  {
+    MODE = 'down';
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[win] pageerror: ' + e.message));
+    await page.goto('http://127.0.0.1:' + port + '/win');
+    const baked = await page.evaluate(() => ({ win: onWindows(), v: bakedVersion() }));
+    ok('[win] CONTROL: the served page really is a baked Windows page', baked.win === true && baked.v === '0.7.09', JSON.stringify(baked));
+    await page.waitForFunction(() => /not answering/.test(document.getElementById('uoffline-slot').textContent || ''), null, { timeout: 12000 }).catch(() => {});
+    await ageIt(page);
+    const drawn = await page.waitForSelector('.restart-back', { timeout: 8000 }).then(() => true, () => false);
+    ok('[win] the screen is drawn on Windows too', drawn);
+    if (drawn) {
+      const w = await page.evaluate(() => ({ how: document.querySelector('.restart-back p').textContent,
+        small: document.querySelector('.restart-back small').textContent }));
+      ok('[win] it gives the Windows remedy, not Command-Q', w.how === 'Close the Kosmos window, then double-click Kosmos.exe in your Kosmos folder.', JSON.stringify(w.how));
+      ok('[win] the details line leads with the baked version', /^Version 0\.7\.09, nothing answered at 127\.0\.0\.1:\d+\.$/.test(w.small), JSON.stringify(w.small));
+    }
     await page.close();
   }
 

@@ -24,7 +24,7 @@ function slotAfter(calls, { baked = '0.2.87', host = '127.0.0.1:16180', hostname
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), host === null ? null : { host, hostname },
   );
   for (const down of calls) fn(down);
@@ -180,7 +180,7 @@ function deviceSlotAfter(calls) {
     querySelector: () => ({ getAttribute: () => '0.2.87' }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), { host: 'mac.kosmosplus.com' },
   );
   for (const [down, off] of calls) fn(down, off);
@@ -204,7 +204,7 @@ test('#718 state 1: a change of which end is offline repaints the note, and reco
   const held = deviceSlotAfter([[true, true]]);
   held.innerHTML = 'MARKED';
   const again = new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     { getElementById: () => held, querySelector: () => null }, (x) => String(x), { host: 'h' });
   again(true, true);
   assert.equal(held.innerHTML, 'MARKED', 'the offline note rewrote itself over an unchanged state');
@@ -275,7 +275,7 @@ test('it does not re-announce itself on every poll while the condition holds', (
 function slotAfterAgain(slot) {
   const doc = { getElementById: () => slot, querySelector: () => ({ getAttribute: () => '0.2.87' }) };
   new Function('document', 'esc', 'location',
-    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'offlineRemoteView')}\n${page.liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x), { host: 'h' },
   )(true);
 }
