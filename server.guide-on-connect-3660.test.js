@@ -52,6 +52,7 @@ function boot(box, extraEnv) {
          board and its install ping would go to installkosmos.com on every run. */
       AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
       AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+      AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
       ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

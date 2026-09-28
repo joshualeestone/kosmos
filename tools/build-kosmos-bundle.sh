@@ -752,6 +752,7 @@ PORT=0 AGENT_WORKFORCE_DATA="$SMOKE_ROOTS/data" \
   AGENT_WORKFORCE_TMUX_BIN="$REPO/test-support/fake-tmux.sh" \
   AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created \
   AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback \
+  AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/ \
   "$STAGE/runtime/bin/node" "$STAGE/app/server.js" > "$SMOKE_LOG" 2>&1 &
 SMOKE_PID=$!
 SMOKE_URL=""

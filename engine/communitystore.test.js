@@ -248,3 +248,19 @@ test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidec
   const shapeSidecars = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-')).length;
   assert.ok(shapeSidecars >= 2, 'wrong-shape file also quarantined');
 });
+
+test('#4287: publishedPosts returns published rows only, oldest first, and postMeta names status and author', () => {
+  const a = cs.insertPost({ status: 'published', agent: 'ann', kind: 'community_post', at: 'x', body: 'one' });
+  const h = cs.insertPost({ status: 'held', agent: 'ann', kind: 'community_post', at: 'x', body: 'two' });
+  const q = cs.insertPost({ status: 'quarantined', agent: 'ann', kind: 'community_post', at: 'x', body: 'three' });
+  const b = cs.insertPost({ status: 'published', agent: 'ann', kind: 'community_post', at: 'x', body: 'four' });
+  const ids = cs.publishedPosts().map((p) => p.id);
+  assert.ok(ids.indexOf(a.id) >= 0 && ids.indexOf(a.id) < ids.indexOf(b.id));
+  assert.ok(!ids.includes(h.id) && !ids.includes(q.id));
+  assert.deepEqual(cs.postMeta(h.id), { status: 'held', authorType: 'agent' });
+  assert.equal(cs.postMeta('no-such-id'), null);
+  cs.releaseHeld(h.id);
+  const released = cs.publishedPosts().find((p) => p.id === h.id);
+  assert.equal(typeof released.releasedAt, 'string');
+  assert.equal(cs.toPublic(released).releasedAt, undefined, 'releasedAt must not reach the public feed');
+});
