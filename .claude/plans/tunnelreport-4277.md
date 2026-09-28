@@ -7,7 +7,7 @@ On 2026-09-27 a board went offline across an update. The coordinator and relay l
 
 ## Call
 - **`engine/remote-report.js`** (new) builds the report: `on`; `tunnel` (status() mapped to running, starting, crashed, stopped or off); `error` (**a code, never text**: review 4 showed that a scrubber keeps missing identifying text, such as hostnames, device names, LAN addresses, phone numbers and file:// or relative paths, while it destroys the diagnosis and can run quadratically on a long line. So the board CLASSIFIES status()'s own sentence into one code from a fixed list (`CODES`, checked in order, with the board's own healthy dialling sentences FIRST, matched exactly, so they can never read as a failure (review 7): starting, switch-off, settings-unreadable, no-relay-address, status-unreadable, binary-missing, state-dir-invalid, state-file-unreadable, ticket-mismatch (the ticket does not verify against the pinned key, or names another address, review 8), cert-renewal, coordinator-unreachable (a `Kosmos+` 5xx or unreachable), coordinator-refused (a `Kosmos+` 4xx or refusal), both taken before the relay patterns (review 10), relay-certificate (review 10), relay-unreachable (the tunnel's dial of the relay, kept apart from the coordinator, review 6), relay-refused, relay-dropped, reconnecting, crashed, awaiting-sign-in, not-started, other; this is the order in CODES, first match wins). The input is capped at 2000 characters and only short literal patterns are used. A board with its switch on and a key in hand that is not enrolled instead sends `not-enrolled; missing: <files>`, with the enrolment files named by their fixed names, which is the actual reason, where status()'s sign-in sentence would blame the person); `stateDir` (default, custom or missing); `macId` and `macKey` (the files exist); `app` (the version); `heal`. It sends only fixed values, never free text, and it never throws (null means nothing is sent).
-- **`server.js`** (review 8): a ten-minute unref'd timer beside the ensure tick runs the refresh on its own, so a report does not wait for a browser tab to poll `/api/status` (the only other caller). A board nobody watches is the one whose status matters. The refresh is single-flighted and TTL-gated, so an open tab adds nothing.
+- **`server.js`** (review 8) starts `remote.startReportTimer()` (review 15) beside the ensure tick: a ten-minute unref'd timer that runs the refresh on its own, so a report does not wait for a browser tab to poll `/api/status` (the only other caller). A board nobody watches is the one whose status matters. The refresh is single-flighted and TTL-gated, so an open tab adds nothing.
 - **`engine/mac-standing.js`** sends `{ remote: <report> }` as the standing body, where it sent `{}`. A coordinator without #4277 ignores the body. The call is already signed through the tunnel's `mac-request` verb.
 - **`engine/remote.js`:**
   - (a) A board whose switch is ON and which holds a key but believes it is NOT enrolled skipped the standing call entirely. It now sends the report alone (`reportNotEnrolledIfDue`), signed with the key files only (`macRequest(..., { keyOnly: true })`, which refuses every route but `POST /v1/mac/standing`, review 1; the key check is one helper, `holdsKey()`, which `halfRegistered()` now uses too), at most every 5 minutes, and ignores the answer. That is exactly the state that never asks for a relay ticket.
@@ -21,13 +21,16 @@ Rejected:
 ## Evidence
 - `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
-- `engine/remote.test.js`: 106 of 106, including five #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 107 of 107, including six #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires on its own and survives a throw. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2)
 - A register does not wait for an in-flight key-only report (only Forget waits on signedInFlight), so clearHalfIdentity can race one. The class is pre-existing for enrolled renames, and the worst outcome is a stray file or a 401.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 15
+- The ten-minute report timer moved from server.js into engine/remote.js `startReportTimer()` (server.js calls it), and has a test: it fires on its own, passes a TTL under its interval, keeps firing after a throw and a rejection, and is unref'd. Mutants dropping the unref, dropping the rejection catch, or setting the TTL equal to the interval each fail it.
 
 ## Review 14
 - switch-off, settings-unreadable and no-relay-address removed from CODES: nothing is sent while the switch is off or the settings are unreadable (fetchStanding returns first; the not-enrolled report needs `ok && on`), and RELAY() always has a default. `tunnel: off` stays in the vocabulary the coordinator accepts but is not sent today.
@@ -36,7 +39,7 @@ Rejected:
 - The unwanted-board test waits until the restart timer has fired (supervisorState `none`), not a fixed 2.5 s.
 - The not-enrolled test's failure message names kosmos-relay macremote.rs says_not_enrolled(), which matches that prefix.
 - **Ship order, decided:** the kosmos-relay reportonly-4277 PR merges and Kitty deploys it BEFORE this PR merges; stated as a hard gate in this PR's body and on the card. I merge both and own the Mac cut. Rejected: a mechanical gate (a coordinator capability signal the board waits for): a new protocol field for a window that ends at one deploy. Weakest premise: that the order is kept by the person merging; the cost if not is half-enrolled Macs reading as seen until the deploy.
-- **Deferred, a follow-up:** a board whose settings file is corrupt sends nothing at all, so that way of going dark is invisible from our side. Reporting it needs a send path while `on` is unknown; separate card.
+- **Deferred, a follow-up:** a board whose settings file is corrupt sends nothing at all, so that way of going dark is invisible from our side. Reporting it needs a send path while `on` is unknown; filed as #4308.
 
 ## Review 13
 - settings-unreadable, no-relay-address and cert-renewal now each have a verbatim test sentence (remote.js status() and session.rs).
@@ -71,8 +74,8 @@ Rejected:
 - mac-standing's home-directory assertion could not fail (the fixtures live under tmpdir); it now asserts the state dir path and its basename are absent (a path-leak mutant fails it).
 - Nits: the unused `home` test parameter removed, a backwards assertion message fixed, a stray stderr line in one test silenced.
 
-## Deferred (review 8)
-- The ten-minute report timer in server.js has no behavioural test (server.js boot is not unit-tested here). What it calls, refreshStandingIfStale, is covered, and the timer is two lines beside the ensure tick.
+## Deferred (review 8), since resolved
+- Resolved in review 15: the report timer is engine/remote.js startReportTimer(), which server.js calls, and remote.test.js tests it.
 
 ## Deferred (review 7)
 - build() reads the settings once for `on`, and status() reads them again. Both are synchronous with no yield between, so they can only disagree if another process rewrites the file in that instant, and the cost is one report with a mismatched `on`.

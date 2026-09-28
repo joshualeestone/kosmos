@@ -17013,15 +17013,8 @@ function start(port = PORT) {
       if (typeof ensureTick.unref === 'function') ensureTick.unref();
       /* kosmos#4277: the remote report must not wait for a browser tab to poll /api/status (its
          only other caller): a board nobody is watching is the one whose status we most need.
-         Every ten minutes the refresh runs on its own. It is single-flighted and TTL-gated, so an
-         open tab adds nothing, and this timer adds at most one standing call per board per ten
-         minutes. The TTL sits under the interval: the refresh stamps its time AFTER the fetch returns,
-         so a TTL equal to the interval skipped every other tick (review 10). unref'd so it never
-         holds the process open. */
-      const reportTick = setInterval(() => {
-        try { Promise.resolve(remote.refreshStandingIfStale({ ttlMs: 9 * 60 * 1000 })).catch(() => {}); } catch { /* best-effort */ }
-      }, 10 * 60 * 1000);
-      if (typeof reportTick.unref === 'function') reportTick.unref();
+         engine/remote.js startReportTimer() says how often, and is tested there. */
+      remote.startReportTimer();
       /* #185: the nudge sweep. Its own timer, never the status GET (a
          read must stay a read); once a minute is far inside the
          ten-minute constant it serves. unref'd so it never holds the

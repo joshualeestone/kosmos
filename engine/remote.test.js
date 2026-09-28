@@ -687,6 +687,19 @@ test('#4277: the same, through the in-app sign-in register when it keeps this Ma
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
 });
 
+test('#4277: the report timer runs the refresh on its own, under a TTL below its interval, survives a throw, and never holds the process open', async () => {
+  assert.ok(remote.REPORT_TTL_MS < remote.REPORT_INTERVAL_MS, 'a TTL not under the interval skips every other tick (the refresh stamps after the fetch)');
+  const real = remote.refreshStandingIfStale;
+  const seen = [];
+  remote.refreshStandingIfStale = (opts) => { seen.push(opts); if (seen.length === 1) throw new Error('boom'); return Promise.reject(new Error('later')); };
+  const t = remote.startReportTimer({ intervalMs: 20 });
+  try {
+    assert.equal(t.hasRef(), false, 'the report timer holds the process open');
+    await until(() => seen.length >= 3, 'the timer to keep firing after a throw and a rejection');
+    assert.equal(seen[0].ttlMs, remote.REPORT_TTL_MS, 'the timer does not pass its TTL');
+  } finally { clearInterval(t); remote.refreshStandingIfStale = real; }
+});
+
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
   /* Until 2026-08-24 this asserted "no relay set is off with the reason, not
      a spawn into nowhere": the relay's domain was undecided, so a default

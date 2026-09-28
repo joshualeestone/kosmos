@@ -240,6 +240,23 @@ async function fetchStanding() {
    contract: callers do NOT await it; the poll serves the cached value and this updates
    it for next time. A no-op unless enrolled, single-flighted so concurrent polls do
    not stack fetches, and best-effort (never throws into the status tick). */
+/* kosmos#4277: the timer that sends the remote report on its own, so a board nobody is watching
+   still reports (review 8; tested here rather than in server.js, review 15). Every ten minutes it
+   runs the refresh, which is single-flighted and TTL-gated, so an open tab polling /api/status adds
+   nothing, and a board makes at most one standing call per ten minutes from it. The TTL sits under
+   the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
+   skipped every other tick (review 10). Called through module.exports so a test can observe it; a
+   refresh that throws or rejects never stops the timer. unref'd so it never holds the process open. */
+const REPORT_INTERVAL_MS = 10 * 60 * 1000;
+const REPORT_TTL_MS = 9 * 60 * 1000;
+function startReportTimer({ intervalMs = REPORT_INTERVAL_MS, ttlMs = REPORT_TTL_MS } = {}) {
+  const t = setInterval(() => {
+    try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs })).catch(() => {}); } catch { /* best-effort */ }
+  }, intervalMs);
+  if (typeof t.unref === 'function') t.unref();
+  return t;
+}
+
 async function refreshStandingIfStale(opts) {
   opts = opts || {};
   const ttl = typeof opts.ttlMs === 'number' ? opts.ttlMs : STANDING_TTL_MS;
@@ -1840,6 +1857,9 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   kosmosPlus,
   fedSetStanding,
   refreshStandingIfStale,
+  startReportTimer,
+  REPORT_INTERVAL_MS,
+  REPORT_TTL_MS,
   federationLive,
   refreshFederationLiveIfStale,
   setOn,
