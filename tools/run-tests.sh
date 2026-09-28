@@ -77,6 +77,14 @@ export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 
+# #4326: no test may run the operator's real gh or vercel. A board a test boots probes them
+# for /api/connections, and an unauthenticated `vercel whoami` waits forever (one ran 2h39m at
+# ~600 MB on 2026-09-28). Default both to a fake that answers "signed out" at once; a test that
+# needs another answer sets its own. test-support/tool-guard.js (preloaded below) fails any
+# test that still reaches a real one.
+export AGENT_WORKFORCE_GH_BIN="$REPO/test-support/fake-cli-signed-out.sh"
+export AGENT_WORKFORCE_VERCEL_BIN="$REPO/test-support/fake-cli-signed-out.sh"
+
 # --- what the machine was doing, taken before the first test ---------------
 seen_before() {
   local lines=()
@@ -274,7 +282,7 @@ fi
 # #3605: --require preloads a guard into EVERY file's process (node forwards it) that
 # makes any fs write into the real ~/Library/LaunchAgents throw, so an unsandboxed test
 # fails on its own line instead of leaking a job file launchd loads at the next login.
-node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
+node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell

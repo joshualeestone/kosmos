@@ -19,7 +19,8 @@
  * and offers nothing to press; the card asked for instructions, not an
  * installer, and an install nobody asked for is the thing #548 was about.
  */
-const { spawn, execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
+
 
 const PHASE = Object.freeze({
   IDLE: 'idle',            // nothing in flight; `connected` says the rest
@@ -89,8 +90,7 @@ function configArgs() {
 function status(cb) {
   const bin = ghBin();
   if (!bin) { cb({ gh: 'missing', connected: false, login: null }); return; }
-  const ask = runner || ((args, done) => execFile(bin, args, { env: childEnv(), encoding: 'utf8', timeout: 8000 },
-    (err, out, errOut) => done(err ? (err.code == null ? -1 : err.code) : 0, String(out || '') + String(errOut || ''))));
+  const ask = runner || ((args, done) => runBounded(bin, args, { env: childEnv(), timeoutMs: 8000 }, done));
   ask(spec.statusArgs.concat(configArgs()), (code, text) => {
     if (code !== 0) { cb({ gh: 'present', connected: false, login: null }); return; }
     const m = String(text).match(spec.loginRe);
@@ -187,4 +187,43 @@ function resetForTests() { child = null; mem = { phase: PHASE.IDLE, code: null, 
 return { PHASE, state, start, cancel, status, ghBin, setRunner, setSpawner, resetForTests };
 }
 
-module.exports = { PHASE, makeDoor };
+/* #4326: a status probe that ALWAYS ends. execFile's `timeout` sends SIGTERM and nothing
+   after it, so a CLI that ignores SIGTERM (an unauthenticated `vercel whoami` waiting on a
+   prompt) kept running with its callback never called: on 2026-09-28 one ran for 2h39m at
+   ~600 MB and fed a night of memory pressure. Here the child gets its OWN process group, the
+   answer is given at the timeout whether or not the child has exited, and the whole group is
+   sent SIGTERM and then, after `graceMs`, SIGKILL (which cannot be ignored). `done` is called
+   exactly once: (exit code, stdout+stderr), or (-1, text so far) on a timeout or a spawn error. */
+function runBounded(bin, args, { env, timeoutMs = 8000, graceMs = 2000 } = {}, done) {
+  let text = '';
+  let answered = false;
+  const answer = (code) => { if (answered) return; answered = true; done(code, text); };
+  let child;
+  try {
+    child = spawn(bin, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    answer(-1);
+    return null;
+  }
+  const killGroup = (sig) => { try { process.kill(-child.pid, sig); } catch (e) { /* already gone */ } };
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (d) => { text += d; });
+  child.stderr.on('data', (d) => { text += d; });
+  let killTimer = null;
+  const timer = setTimeout(() => {
+    answer(-1);
+    killGroup('SIGTERM');
+    killTimer = setTimeout(() => killGroup('SIGKILL'), graceMs);
+    if (killTimer.unref) killTimer.unref();
+  }, timeoutMs);
+  child.on('error', () => { clearTimeout(timer); answer(-1); });
+  child.on('close', (code) => {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+    answer(code == null ? -1 : code);
+  });
+  return child;
+}
+
+module.exports = { PHASE, makeDoor, runBounded };
