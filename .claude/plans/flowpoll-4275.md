@@ -30,3 +30,10 @@
 - [NIT] a test comment said "every caller" when acctAddStart was the only one. FIXED (the handlers are callers now; comment reworded).
 - The reviewer also mutated both guards and a stop-on-any-repeat variant; the control test caught the last.
 - Validation: 79/79 across web.flowpoll-4275, web.accounts-add, web.connect-success-1656, web.reauth-1492, server.connect.
+
+#### Iteration 2 (opus, blind, 2026-09-27 23:35 CDT)
+- No BLOCKER or WARNING. The reviewer traced engine/connect.js start(): it never answers idle while a flow is still going (it writes downloading or signin-launching at once, or stuck), so the start guard cannot orphan a live flow.
+- [NIT] the handler pin could be satisfied by `acctFlowWatch();` in a comment. FIXED: comments are stripped before matching, and the call must start a line. Perturbed: with the call only in a comment, the pin is red.
+- [NIT] the acctFlowPaint comment named the start as the example, which no longer reaches that path. FIXED: it names the code and cancel handlers.
+- Pre-existing and out of scope, as the reviewer noted: cancel says "Stopped" without checking res.ok; a poll already in flight at cancel can repaint the old phase once.
+- Validation: 79/79 across the same five files.

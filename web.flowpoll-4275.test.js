@@ -115,7 +115,8 @@ test('#4275: the code and cancel handlers reset the dedup key AND make sure a po
     const at = SCRIPT.indexOf(`getElementById('${id}').addEventListener`);
     assert.ok(at > -1, `the ${id} handler moved; restate this pin`);
     const end = SCRIPT.indexOf('\n});', at);
-    const handler = SCRIPT.slice(at, end);
-    assert.match(handler, /ACCT_FLOW_LAST = null;[\s\S]*acctFlowWatch\(\);/, `the ${id} handler resets the key without making sure a poll runs`);
+    // Code only: a call named in a comment must not satisfy this.
+    const handler = SCRIPT.slice(at, end).split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+    assert.match(handler, /ACCT_FLOW_LAST = null;[\s\S]*^\s*acctFlowWatch\(\);/m, `the ${id} handler resets the key without making sure a poll runs`);
   }
 });

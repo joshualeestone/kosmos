@@ -23559,8 +23559,8 @@ function acctFlowPaint(st) {
   const phase = st && st.phase;
   const key = phase + '|' + ((st && st.because) || '');
   /* #4275: a repeat of an ENDED phase still stops the poll. Without this, a watch started
-     after that phase was painted (the start answering with one that had already ended)
-     polled once a second until some later flow ended differently. */
+     after that phase was painted (the code or cancel handler starting one) would poll once
+     a second until some later flow ended differently. */
   if (key === ACCT_FLOW_LAST) { if (!frConnActive(phase)) acctFlowStop(); return; }
   ACCT_FLOW_LAST = key;
   if (frConnActive(phase)) {
