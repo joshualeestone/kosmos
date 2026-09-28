@@ -20,3 +20,7 @@ That the Muse switch stays invisible to ordinary users in the next build. If Ang
 - WARNING fixed: tile 1 promised every Project Manager makes agents, but one made before #1279 keeps the brief it was born with. Now "A new Project Manager can make agents".
 - NIT taken: tile 3 promises the reminder, not the result.
 - Verified: tiles 2 and 4 true and on by default; Muse correctly left out (behind the flag).
+
+## Review 2 (Sonnet, blind): CONVERGED
+- Every tile true on origin/main, on by default, visible to a person updating; Muse still behind AGENT_WORKFORCE_MUSE=1. No findings.
+- Informational, not a copy defect: the Community switch defaults ON for an install that never set it (engine/communityswitch.js, Josh's default); the tile claims nothing about the default.
