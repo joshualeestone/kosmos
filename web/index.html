@@ -23541,6 +23541,15 @@ const ACCT_FLOW_SAY = {
 function acctFlowStop() {
   if (ACCT_FLOW_TIMER) { clearInterval(ACCT_FLOW_TIMER); ACCT_FLOW_TIMER = null; }
 }
+/* Where focus goes when the Claude sign-in panel is put away with focus inside it (#4271):
+   the start button, where the person begins again (as Muse's own Stop does), or, when that
+   is not showing, the provider picker (as acctMuseShow does). */
+function acctFocusAfterFlow(startBtn) {
+  if (startBtn && !startBtn.disabled && startBtn.getClientRects().length) { startBtn.focus(); return; }
+  const sel = document.getElementById('acct-provider-pick');
+  const trig = sel && sel.parentElement && sel.parentElement.querySelector('.pcombo-trigger');
+  if (trig && trig.getClientRects().length) trig.focus();
+}
 function acctFlowPaint(st) {
   const flow = document.getElementById('acct-flow');
   const say = document.getElementById('acct-flow-say');
@@ -23575,9 +23584,13 @@ function acctFlowPaint(st) {
   }
   // The flow ended, one way or the other.
   acctFlowStop();
+  /* #4271: hiding the panel that holds focus (Stop, the code field) drops it to the page,
+     the #1918 class. Read before hiding; Connected is left to acctShowSuccess below. */
+  const focusWasInFlow = flow.contains(document.activeElement);
   flow.hidden = true;
   codeRow.hidden = true;
   btn.disabled = false;
+  if (focusWasInFlow && phase !== 'connected') acctFocusAfterFlow(btn);
   if (phase === 'connected') {
     /* kosmos#977: say the STATE, not where to go looking for it. "The new
        account is on the list above" asks the person to verify the outcome
@@ -23671,7 +23684,14 @@ async function acctAddStart(installConfirmed) {
        Confirm handler put focus on #acct-add-note first to bridge the await
        without dropping to <body>; this moves it onto the story once it exists. */
     const say = document.getElementById('acct-flow-say');
-    if (say) say.focus();
+    /* #4271: the start can answer with a phase that has already ended, and then the panel
+       is hidden and say.focus() is a no-op. Connected is acctShowSuccess's; an ending with
+       a reason goes to the note, as the failure paths above do; one without, to Start. */
+    if (say && !document.getElementById('acct-flow').hidden) say.focus();
+    else if (!(out && out.phase === 'connected')) {
+      if (note.textContent) note.focus();
+      else acctFocusAfterFlow(btn);
+    }
   } catch {
     btn.disabled = false;
     note.textContent = 'We could not reach Kosmos to start the sign-in.';
