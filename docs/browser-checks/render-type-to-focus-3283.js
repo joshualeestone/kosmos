@@ -105,7 +105,11 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
     say('agent view: the typed characters LAND in #d-say', r.v === 'hi', 'value=' + JSON.stringify(r.v));
 
     // NEGATIVE arm: with a real control already focused, typing must NOT hijack to the composer.
-    await p.evaluate(() => { const el = document.getElementById('d-say'); if (el) el.value = ''; });
+    // Cleared the way a person clears it: the input event drops the parked draft too (TALK_DRAFTS).
+    // A bare `.value = ''` left "hi" parked, and the thread poll's repaint (paintTalk) restores a parked
+    // draft into an empty box, so whenever a poll landed before the read this arm saw d-say="hi" and
+    // failed, about 2 runs in 5 on main (kosmos#4401). The product is right to restore it.
+    await p.evaluate(() => { const el = document.getElementById('d-say'); if (el) { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } });
     const btn = await p.evaluate(() => { const nav = document.querySelector('#d-nav button'); if (nav) { nav.focus(); return nav.tagName; } return null; });
     if (btn) {
       const beforeId = await active();

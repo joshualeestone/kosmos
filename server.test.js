@@ -3637,6 +3637,8 @@ test('the narrow-screen menu keeps the keyboard: forward in on open, back to the
     'let WATCH = 0; const SHOWN = []; const RESET = [];\n'
     + 'const showTab = (t) => SHOWN.push(t);\n'
     + 'const topLevelReset = (t) => RESET.push(t);\n'
+    // #4345: the consolidated layout's own nav is a separate function; this stub is the tab layout.
+    + 'const consNavClick = () => false;\n'
     + script.slice(from, end)
     + '\n; return { SHOWN, RESET };')(doc);
   const chooseTab = () => tabs.listeners.click({ target: { closest: (s) => (s === '.tab' ? firstTab : null) } });

@@ -5413,9 +5413,11 @@ function createAgentInner(opts) {
        STABLE supportDir location installSupervisor keeps current on every refresh, NOT
        the app tree -- so it survives an app-tree move exactly as the codex/gemini
        bridges do, and the path.join form makes the #731 bundle guard require the build
-       to ship the bridge. Claude-compat hooks (~/.claude) are separately suppressed at
-       launch via GROK_CLAUDE_HOOKS_ENABLED=0 (agent-supervisor.sh), so a grok agent runs
-       only its own report hooks, not the fleet's Claude Code hooks.
+       to ship the bridge. Claude-compat (~/.claude hooks, and since #4426 its CLAUDE.md,
+       rules, skills and MCP servers) is separately turned off at launch
+       (agent-supervisor.sh, win32keyed.js), so a grok agent does not run the person's
+       Claude Code hooks. (Hooks configured in the grok home itself still run; for a
+       default-account agent that home is the person's ~/.grok.)
        ⚠️ The one residual, deferred per #3136 (the same as gemini): a WIPED ~/.grok loses
        the hook file until the agent is remade. See the plan file's Deferred section. */
     if (provider === 'xai') {

@@ -5,9 +5,9 @@
  * ONE full-width header across the top on EVERY view. The fix is the consolidated
  * view: it used to hide the whole top header and drift the appearance + view-toggle
  * controls into the #rail-me side rail. Now the top header stays as a real bar (K mark
- * + Kosmos switcher on the left, appearance + view-toggle on the right), the center
- * tabs stay hidden (consolidated is one screen), and the rail no longer carries its
- * own copies of the controls.
+ * + Kosmos switcher on the left, appearance + view-toggle on the right), and the rail
+ * no longer carries its own copies of the controls. The center tabs were hidden here
+ * until #4345 (Josh, 2026-09-28 09:21): they now stay, and load into the display column.
  *
  * ⚠️ WHY A BROWSER. This is a pure-CSS layout change keyed on
  * `html[data-layout="consolidated"] body.consolidated`. A source grep cannot tell
@@ -82,7 +82,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       menuLaypick: shown('.apphead header .headright #userpop-menu .laypick'),
       kmark: disp('.apphead header .klink'),
       worldsw_present: !!document.querySelector('.apphead header .worldsw'),
-      // Center tabs stay hidden (one screen).
+      // #4345: the center tabs stay in the consolidated view too (they were hidden before).
       tabs: disp('.apphead header .tabs'),
       // The rail no longer carries its own copies.
       railTheme: disp('.railme-theme'),
@@ -109,7 +109,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!c.menuLaypick) problems.push('the view-toggle does not render inside the header user menu in consolidated view (#3051)');
   if (c.kmark === 'none' || c.kmark === '__absent__') problems.push('the K mark is not in the top header in consolidated view -- got ' + c.kmark);
   if (!c.worldsw_present) problems.push('the Kosmos switcher is absent from the top header in consolidated view');
-  if (c.tabs !== 'none') problems.push('the center .tabs should be hidden in the consolidated view (one screen), got ' + c.tabs);
+  if (c.tabs === 'none' || c.tabs === '__absent__') problems.push('the center .tabs must show in the consolidated view (#4345: Agents/Projects/Tasks stay in the top nav), got ' + c.tabs);
   if (c.railTheme !== 'none') problems.push('the side rail still shows its own appearance control (.railme-theme) in consolidated -- it should be in the header user menu, got ' + c.railTheme);
   if (c.railLay !== 'none') problems.push('the side rail still shows its own view-toggle (.railme-lay) in consolidated -- it should be in the header user menu, got ' + c.railLay);
   if (c.railMe !== 'none') problems.push('the side rail person slot (#rail-me) should be retired in consolidated (#3051 moves the person up to the top-right user menu), got ' + c.railMe);
