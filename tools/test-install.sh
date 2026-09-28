@@ -177,7 +177,13 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # EXPECTED_ADDS must be in sort order too. `.world-confirmed.json` sorts FIRST
 # (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list; ping.json ('p')
 # sorts after bin/ ('b') and before source-channel ('s').
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/source-channel)"
+# #4288 part B: the real board-start path deliberately migrates an absent
+# Community setting once. A fresh install records ON with its first-run notice
+# already accounted for; an existing install records ON with the notice owed.
+# The smoke boot below is that real-start path, so community.json is an intended
+# runtime addition just like ping.json and prompter-nudges.json, not installer
+# damage to a person's pre-existing data.
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/community.json ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
@@ -458,7 +464,7 @@ GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 chk "installing over an existing home leaves the person's own files byte for byte" \
   "[ \"\$SURVIVED\" = \"\$EXPECTED_SURVIVORS\" ]"
 chk "and nothing the person had is gone" "[ -z \"\$GONE\" ]"
-chk "and the only things it added are the world-confirmed marker, the supervisor, the codex bridge, and the #2066 source-channel marker" \
+chk "and the only things it added are the expected board-start records and install helpers" \
   "[ \"\$ADDED\" = \"\$EXPECTED_ADDS\" ]"
 # A mismatch names its paths. The 0.5.24 cut went red on this check with a
 # correct bundle and the red named no file, so learning which one meant
