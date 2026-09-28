@@ -2,11 +2,31 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agent-sort-'));
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+const fleet = require('./test-support/fleet');
 const { withAgentSortFields } = require('./server');
 
-const card = (name, id) => ({ name, sessionName: name.toLowerCase(), profile: id ? { id } : {} });
+const board = fleet.install(['ada', 'bea', 'cam', 'dee', 'eli', 'fia'].map((name) => (
+  fleet.agent(name, { displayName: name[0].toUpperCase() + name.slice(1), state: 'idle' })
+)));
+test.after(() => {
+  board.restore();
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const card = (name, id) => Object.assign({}, board.card(name.toLowerCase()), { profile: id ? { id } : {} });
 
 test('#4428: the status payload derives each agent sort time from existing records', () => {
   const ada = card('Ada', 'agent-ada');

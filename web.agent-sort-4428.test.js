@@ -3,6 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agent-sort-ui-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+const fleet = require('./test-support/fleet');
 
 const SCRIPT = fs.readFileSync(require.resolve('./web/index.html'), 'utf8');
 
@@ -38,10 +47,18 @@ function api() {
   return new Function(`${constants[0]}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, agentSortMode, agentFirstProject, sortAgents };`)();
 }
 
-const a = (name, extra) => ({ sessionName: name.toLowerCase(), name, ...(extra || {}) });
+const board = fleet.install(['a', 'ada', 'b', 'bea', 'cam', 'dee', 'missing', 'zed', 'zulu'].map((name) => (
+  fleet.agent(name, { displayName: name[0].toUpperCase() + name.slice(1), state: 'idle' })
+)));
+test.after(() => {
+  board.restore();
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const a = (name, extra) => Object.assign({}, board.card(name.toLowerCase()), extra || {});
 const projects = [
-  { id: 'z', name: 'Zebra', agents: [{ sessionName: 'bea' }] },
-  { id: 'a', name: 'Alpha', agents: [{ sessionName: 'cam' }, { sessionName: 'bea' }] },
+  { id: 'z', name: 'Zebra', agents: [board.card('bea')] },
+  { id: 'a', name: 'Alpha', agents: [board.card('cam'), board.card('bea')] },
 ];
 
 test('#4428: saved modes are allow-listed and Last talked to is the default', () => {

@@ -70,7 +70,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       document.documentElement.setAttribute('data-layout', 'consolidated');
       showTab('projects');
       openConsolidatedAgents();
-      const cons = document.getElementById('agent-sort-cons');
+      const cons = document.querySelector('#panel-cons-agents .agent-sortctl select');
       const consShared = !!cons && cons.value === AGENT_SORT && cons.getClientRects().length > 0;
       document.querySelector('#panel-cons-agents [data-conslay="org"]').click();
       const consHiddenInOrg = cons.closest('.agent-sortctl').hidden === true;
@@ -96,8 +96,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.documentElement.setAttribute('data-layout', 'tabs');
         showTab('agents');
         layoutApply('agents', 'grid');
-        document.getElementById('uoffline-slot').innerHTML = '';
-        document.getElementById('removed-msg').textContent = '';
+        document.getElementById('uoffline-slot').hidden = true;
+        document.getElementById('removed-msg').hidden = true;
       });
       await page.screenshot({ path: path.join(SHOTS, `agent-sort-${theme}.png`), fullPage: false });
     }
