@@ -27809,8 +27809,8 @@ const CN_HTML = '<div class="rm-back" id="cmnotice">'
 function cnHeld() {
   if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) return true;
   if (document.getElementById('whatsnew')) return true;
-  if (document.querySelector('.fr-back:not([hidden]), .upd-back')) return true;
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice)');
+  // The same covering set as tipModalOpen, less this notice itself.
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, dialog[open]');
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;

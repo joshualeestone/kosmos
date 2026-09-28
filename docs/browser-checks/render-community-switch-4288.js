@@ -236,6 +236,24 @@ async function run() {
     check('NOTICE: Change in Settings puts focus on the Community switch', t.focus === 'community-toggle', JSON.stringify(t));
     await n4.pg.close();
 
+    // The switch could not be painted (its read failed) while the notice was pending: Change in Settings
+    // still lands on the Community row. The Settings row reads first (refreshCommunity runs before
+    // communityNoticeCheck in the page), so the first GET fails and the later ones find the notice pending.
+    const n5 = await page();
+    let gets = 0;
+    await n5.route(ROUTE, (route) => (++gets === 1 ? answer({ error: 'gated' }, 403)(route) : answer(pending)(route)));
+    await n5.route(SEEN, (route) => answer({ ...pending, noticeSeen: true })(route));
+    await n5.goto(BASE, { waitUntil: 'networkidle' });
+    if (!(await n5.$('#firstrun[hidden]'))) { await n5.keyboard.press('Escape'); await n5.waitForTimeout(400); }
+    await n5.waitForTimeout(1500);
+    const pre = await n5.evaluate(() => ({ open: Boolean(document.getElementById('cmnotice')), tog: (document.getElementById('community-toggle') || {}).hidden }));
+    check('NOTICE fallback: precondition, the notice is up and the switch is hidden', pre.open === true && pre.tog === true, JSON.stringify(pre));
+    await n5.click('#cn-settings');
+    await n5.waitForTimeout(500);
+    const fb = await n5.evaluate(() => (document.activeElement ? document.activeElement.id : ''));
+    check('NOTICE fallback: with the switch hidden, Change in Settings puts focus on the Community row', fb === 'community-row', fb);
+    await n5.close();
+
     for (const [label, body] of [['a seen notice', { on: true, ok: true, share: null, noticeSeen: true }], ['an OFF switch', { on: false, ok: true, share: null, noticeSeen: false }], ['an unread setting', { on: false, ok: false, share: null, noticeSeen: false }]]) {
       const n = await noticeFor(body);
       const st = await noticeState(n.pg);

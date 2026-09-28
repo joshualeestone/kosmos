@@ -11033,11 +11033,11 @@ test('community: POST /api/community-setting/notice-seen records the notice and 
   try {
     const r = await seen();
     assert.equal(r.status, 200, r.body);
-    assert.deepEqual(JSON.parse(r.body), { on: true, ok: true, share: null, noticeSeen: true }, 'marking the notice changed the switch');
+    assert.deepEqual(JSON.parse(r.body), { on: true, ok: true, share: null, noticeSeen: true }, 'marking the notice moved the switch off its default, or did not record the notice');
     assert.equal(JSON.parse((await req('/api/community-setting')).body).noticeSeen, true, 'the notice was not recorded');
     await req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
     const again = await seen();
-    assert.deepEqual(JSON.parse(again.body), { on: false, ok: true, share: null, noticeSeen: true }, 'marking the notice turned the switch back on');
+    assert.deepEqual(JSON.parse(again.body), { on: false, ok: true, share: null, noticeSeen: true }, 'marking the notice again moved the switch the person had turned OFF');
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
   }

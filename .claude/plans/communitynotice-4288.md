@@ -29,6 +29,16 @@ Nothing goes out until you release it." with Got it and Change in Settings. Acce
   backdrop close it; Change in Settings lands on the switch; a seen notice, an OFF switch and an unread
   setting open nothing.
 
+## Review 1
+
+- No blocker. `cnHeld` did not count an open `<dialog>`, unlike `tipModalOpen`; it now uses the same set.
+- The Change in Settings fallback (focus the row when the switch is hidden) was untested: an arm makes the
+  first read fail and the notice pending, and asserts focus lands on the row.
+- Two server.test.js failure messages said the opposite of what they check; reworded.
+- Not changed: the reviewer suspected the notice pops up mid-check for the flaky local runs. The board's
+  migrate step wrote noticeSeen true and every stubbed arm answers without a pending notice, so that does
+  not fit the evidence; it stays under Open.
+
 ## Weakest premise
 
 That a FRESH install is told in first run. The install-screen checkbox that does that is Mona's
@@ -41,4 +51,7 @@ every browser check that runs on a freshly booted board, and the Settings row st
 On this Mac the part A browser check failed in 5 of 13 local runs, in ways that point at the page going
 away at load (`showTab` undefined, a click that never lands). An instrumented rerun saw no reload, crash
 or page error in three runs, and CI's own runner ran the part A check green. Not explained yet; recorded
-rather than retried away.
+rather than retried away. Narrowed since: every local failure is at page load (a `goto` that never
+reaches network idle within 30 s, or an evaluate before the page's scripts ran), never an assertion about
+the switch or the notice. The board answered in under 0.3 s throughout, and the machine's load average
+was 7 to 12 during the failures; but some green runs were at 9 to 10 too, so load is a lead, not a cause.
