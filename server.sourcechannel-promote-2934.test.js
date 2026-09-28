@@ -70,44 +70,57 @@ for (const [name, v] of [['RUNNING', RUNNING], ['PROD_BEHIND', PROD_BEHIND], ['P
  * look:   pass false to skip refresh() entirely -- the never-looked state a real board
  *         serves in the window between boot and its first poll landing.
  */
-function statusWith({ content, latest, channel, look = true }) {
+// One child serves every arm in a logical assertion. resetCache() keeps the
+// scenarios independent without paying for a full server boot per value, which
+// is the measured stall these sibling suites shared under full-suite load.
+function statusesWith(scenarios) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-sc2934-'));
   const dataRoot = nodePath.join(sb, 'data', store.APP);
   fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'launch'), { recursive: true });
-  if (content !== undefined) fs.writeFileSync(nodePath.join(dataRoot, 'source-channel'), content);
+  const sourceFile = nodePath.join(dataRoot, 'source-channel');
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `
     const http = require('node:http');
+    const fs = require('node:fs');
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const updates = require(${JSON.stringify(nodePath.join(REPO, 'engine', 'update.js'))});
-    const LATEST = ${JSON.stringify(latest)};
-    const LOOK = ${JSON.stringify(look)};
+    const scenarios = ${JSON.stringify(scenarios)};
+    const sourceFile = ${JSON.stringify(sourceFile)};
     // Never let a look try to install anything in a sandbox.
     updates.setAutoPref(() => false);
     updates.setInstalledRoot(() => null);
-    updates.setFetcher(async () => {
-      if (LATEST === null) throw new Error('offline');
-      return { ok: true, json: async () => ({ version: LATEST }) };
-    });
     const srv = app.server || app;
-    (async () => {
-      // poke()/refresh() reject on an unreachable host; production catches it too and the
-      // miss stamp is written in refresh()'s finally.
-      if (LOOK) await updates.refresh().catch(() => {});
-      srv.listen(0, '127.0.0.1', () => {
+    const status = () => new Promise((resolve, reject) => {
         http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {
-          let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
-            process.stdout.write(s);
-            srv.close(); process.exit(0);
-          });
+          let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => resolve(JSON.parse(s)));
+        }).on('error', reject);
+    });
+    srv.listen(0, '127.0.0.1', async () => {
+      const out = [];
+      for (const scenario of scenarios) {
+        if (scenario.content === null) { try { fs.unlinkSync(sourceFile); } catch {} }
+        else fs.writeFileSync(sourceFile, scenario.content);
+        delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+        delete process.env.KOSMOS_UPDATE_CHANNEL;
+        if (scenario.channel) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = scenario.channel;
+        updates.resetCache();
+        updates.setFetcher(async () => {
+          if (scenario.latest === null) throw new Error('offline');
+          return { ok: true, json: async () => ({ version: scenario.latest }) };
         });
-      });
-    })();
+        // poke()/refresh() reject on an unreachable host; production catches it too and the
+        // miss stamp is written in refresh()'s finally.
+        if (scenario.look) await updates.refresh().catch(() => {});
+        out.push(await status());
+      }
+      process.stdout.write(JSON.stringify(out));
+      srv.close();
+    });
   `;
   const env = {
     ...process.env,
@@ -122,7 +135,6 @@ function statusWith({ content, latest, channel, look = true }) {
   // An operator running the suite on a staging-subscribed box must not change the answer.
   delete env.AGENT_WORKFORCE_UPDATE_CHANNEL;
   delete env.KOSMOS_UPDATE_CHANNEL;
-  if (channel) env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
 
   // finally, so a child that exits non-zero (or unparseable output) does not leave the
   // sandbox behind under os.tmpdir() on every failing run.
@@ -132,6 +144,10 @@ function statusWith({ content, latest, channel, look = true }) {
   } finally {
     fs.rmSync(sb, { recursive: true, force: true });
   }
+}
+
+function statusWith({ content, latest, channel, look = true }) {
+  return statusesWith([{ content: content === undefined ? null : content, latest, channel, look }])[0];
 }
 
 // ---- THE REPORTED BOX -------------------------------------------------------------
@@ -175,20 +191,20 @@ test('polling the STAGING pointer -- its version says nothing about prod -> keep
 });
 
 test('a prod stamp is never re-derived into staging, whatever the cache says', () => {
-  for (const latest of [PROD_BEHIND, RUNNING, PROD_AHEAD, null]) {
-    assert.equal(statusWith({ content: 'prod', latest }).sourceChannel, 'prod');
-  }
-  assert.equal(statusWith({ content: undefined, latest: PROD_BEHIND }).sourceChannel, 'prod');
+  const scenarios = [PROD_BEHIND, RUNNING, PROD_AHEAD, null]
+    .map((latest) => ({ content: 'prod', latest, look: true }));
+  scenarios.push({ content: null, latest: PROD_BEHIND, look: true });
+  assert.deepEqual(statusesWith(scenarios).map((s) => s.sourceChannel), Array(5).fill('prod'));
 });
 
 // ---- #2066's contract, re-asserted against the new code path ----------------------
 
 test('#2066 still holds: trimmed, lowercased, and anything unexpected folds to prod', () => {
-  assert.equal(statusWith({ content: 'STAGING\n', latest: PROD_BEHIND }).sourceChannel, 'staging');
-  assert.equal(statusWith({ content: '  Staging  ', latest: PROD_BEHIND }).sourceChannel, 'staging');
-  for (const bad of ['production', 'stage', 'xyzzy', '', 'staging extra']) {
-    assert.equal(statusWith({ content: bad, latest: PROD_BEHIND }).sourceChannel, 'prod',
-      JSON.stringify(bad) + ' must not paint STAGING');
+  const values = ['STAGING\n', '  Staging  ', 'production', 'stage', 'xyzzy', '', 'staging extra'];
+  const got = statusesWith(values.map((content) => ({ content, latest: PROD_BEHIND, look: true })));
+  assert.deepEqual(got.slice(0, 2).map((s) => s.sourceChannel), ['staging', 'staging']);
+  for (let i = 2; i < values.length; i++) {
+    assert.equal(got[i].sourceChannel, 'prod', JSON.stringify(values[i]) + ' must not paint STAGING');
   }
 });
 

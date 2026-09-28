@@ -41,30 +41,41 @@ const REPO = __dirname;
 
 // Boot the real server against a fresh sandbox, optionally seeding the
 // source-channel file in the store root the server reads, and return /api/status.
-function statusWithChannelFile(content) {
+// One child serves every arm in a logical assertion. Requiring the full server
+// once per value made the seven-value case spend nearly all its time booting
+// seven identical boards; under full-suite CPU contention that crossed 15 s.
+function statusesWithChannelFiles(contents) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-sc-'));
   const dataRoot = nodePath.join(sb, 'data', store.APP); // store.ROOT resolves here
   fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'launch'), { recursive: true });
-  if (content !== undefined) {
-    fs.writeFileSync(nodePath.join(dataRoot, 'source-channel'), content);
-  }
+  const sourceFile = nodePath.join(dataRoot, 'source-channel');
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `
     const http = require('node:http');
+    const fs = require('node:fs');
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
-    srv.listen(0, '127.0.0.1', () => {
+    const contents = ${JSON.stringify(contents)};
+    const sourceFile = ${JSON.stringify(sourceFile)};
+    const status = () => new Promise((resolve, reject) => {
       http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {
-        let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
-          process.stdout.write(s);
-          srv.close(); process.exit(0);
-        });
-      });
+        let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => resolve(JSON.parse(s)));
+      }).on('error', reject);
+    });
+    srv.listen(0, '127.0.0.1', async () => {
+      const out = [];
+      for (const content of contents) {
+        if (content === null) { try { fs.unlinkSync(sourceFile); } catch {} }
+        else fs.writeFileSync(sourceFile, content);
+        out.push(await status());
+      }
+      process.stdout.write(JSON.stringify(out));
+      srv.close();
     });
   `;
   const out = execFileSync(process.execPath, ['-e', script], {
@@ -84,6 +95,10 @@ function statusWithChannelFile(content) {
   return JSON.parse(out);
 }
 
+function statusWithChannelFile(content) {
+  return statusesWithChannelFiles([content === undefined ? null : content])[0];
+}
+
 test('no source-channel file -> prod (the default every real install reads)', () => {
   assert.equal(statusWithChannelFile(undefined).sourceChannel, 'prod');
 });
@@ -93,13 +108,15 @@ test("'staging' -> staging", () => {
 });
 
 test('a channel file is trimmed and lowercased before it is trusted', () => {
-  assert.equal(statusWithChannelFile('STAGING\n').sourceChannel, 'staging');
-  assert.equal(statusWithChannelFile('  Staging  ').sourceChannel, 'staging');
+  const got = statusesWithChannelFiles(['STAGING\n', '  Staging  ']);
+  assert.deepEqual(got.map((s) => s.sourceChannel), ['staging', 'staging']);
 });
 
 test('an unexpected value folds to prod -- a corrupt file cannot paint STAGING on a prod board', () => {
-  for (const bad of ['prod', 'production', 'stage', 'nonprod', 'xyzzy', '', 'staging extra']) {
-    assert.equal(statusWithChannelFile(bad).sourceChannel, 'prod',
-      JSON.stringify(bad) + ' should read as prod, not staging');
+  const badValues = ['prod', 'production', 'stage', 'nonprod', 'xyzzy', '', 'staging extra'];
+  const got = statusesWithChannelFiles(badValues);
+  for (let i = 0; i < badValues.length; i++) {
+    assert.equal(got[i].sourceChannel, 'prod',
+      JSON.stringify(badValues[i]) + ' should read as prod, not staging');
   }
 });
