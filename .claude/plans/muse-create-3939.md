@@ -87,7 +87,7 @@ logs, the supervisor loop) is reused unchanged.
 The Create Agent form option and its create branch, the Connections box, connections.js text (3c-3b);
 the first-run Meta row; a real signed-in turn (the Mortals-Mac run, Josh approves the device code).
 
-## Status (2026-09-28 03:25, Angel)
+## Status (2026-09-28 03:16, Angel)
 
 Built, then changed by the challenge loop:
 - Round 1 found that Stop did nothing for a Muse agent (one Escape was swallowed with the next typed
