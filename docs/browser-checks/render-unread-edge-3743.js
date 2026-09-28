@@ -26,18 +26,24 @@
 require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const pw = require('playwright');
+/* Both engines: the tail's curve and the stroke's row are drawn differently by Chromium and WebKit (WebKit stands
+   in for Safari, which Josh's Mac uses), and U17c's numbers differ between them. The runner installs what this
+   list names. */
+const ENGINES = ['chromium', 'webkit'];
+let ENGINE = '';
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 const SHOTS = process.argv[2] || null;
 const fail = [];
 function chk(ok, label, extra) {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
-  if (!ok) fail.push(label);
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + '[' + ENGINE + '] ' + label + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push('[' + ENGINE + '] ' + label);
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  for (ENGINE of ENGINES) {
+  const browser = await pw[ENGINE].launch({ headless: process.env.HEADED === '0' });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     const errs = [];
@@ -125,6 +131,29 @@ function chk(ok, label, extra) {
     const carve = await page.evaluate(() => { const b = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd');
       return { after: getComputedStyle(b, '::after').borderBottomRightRadius, mask: getComputedStyle(b, '::before').webkitMaskImage || getComputedStyle(b, '::before').maskImage }; });
     chk(carve.after === '12px 16px' && /radial-gradient\(12px 16px at -4px 0px/.test(carve.mask), 'U17d the wing\'s mask and the ground mask carve the same ellipse', JSON.stringify(carve));
+
+    // U19: a READ bubble looks exactly as before this change: the wing's mask only removes pixels the ground mask
+    // (::after) already paints over, so switching the mask off changes nothing on a read bubble. In light, dark and
+    // Kosmos+ navy (each ground differs). Pixels counted as changed past a small tolerance, over the tail's region.
+    const diffCount = (a, b) => page.evaluate(async ([x, y]) => {
+      const load = async (src) => { const i = new Image(); i.src = 'data:image/png;base64,' + src; await i.decode(); const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const g = c.getContext('2d'); g.drawImage(i, 0, 0); return g.getImageData(0, 0, c.width, c.height).data; };
+      const A = await load(x); const B = await load(y); let n = 0;
+      for (let i = 0; i < A.length; i += 4) if (Math.max(Math.abs(A[i] - B[i]), Math.abs(A[i + 1] - B[i + 1]), Math.abs(A[i + 2] - B[i + 2])) > 24) n += 1;
+      return n;
+    }, [a, b]);
+    const readSame = {};
+    for (const look of ['light', 'dark', 'navy']) {
+      await page.evaluate((how) => { if (how === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); if (how === 'navy') document.body.classList.add('plus-active'); }, look);
+      const bb = await bds[0].boundingBox();
+      const clip = { x: bb.x - 16, y: bb.y + bb.height - 24, width: 32, height: 26 };
+      const withMask = (await page.screenshot({ clip })).toString('base64');
+      await page.addStyleTag({ content: '#d-dmthread .msg-bd::before { -webkit-mask: none !important; mask: none !important; }' });
+      const noMask = (await page.screenshot({ clip })).toString('base64');
+      readSame[look] = await diffCount(withMask, noMask);
+      await page.evaluate(() => { const t = [...document.querySelectorAll('style')].pop(); if (t && /mask: none !important/.test(t.textContent)) t.remove();
+        document.documentElement.removeAttribute('data-theme'); document.body.classList.remove('plus-active'); });
+    }
+    chk(Object.values(readSame).every((n) => n === 0), 'U19 a read bubble is unchanged by the wing\'s mask (light, dark, navy)', JSON.stringify(readSame));
 
     // U18: scrolled to the end, the newest bubble's bottom stroke shows (a filter is not scrollable content; the DM
     // thread's 2px bottom padding keeps it inside). CONTROL: the same strip on a read bubble has no gold.
@@ -358,6 +387,7 @@ function chk(ok, label, extra) {
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {
     await browser.close();
+  }
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nall unread-edge checks passed');
