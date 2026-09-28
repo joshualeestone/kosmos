@@ -106,7 +106,7 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.deepEqual(w.avatars, [], 'renderAvatar re-fetches a photo and redraws a swarm cluster; the rename does not need it');
   assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
   assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW, 'the memory box names the new name');
-  assert.equal(w.mems[0], w.get(), 'the memory box was drawn from the fresh card, not CURRENT (whose reading the ring and badge show)');
+  assert.equal(w.mems[0], w.get(), 'the memory box must be drawn from CURRENT (the reading the ring and badge show), not the fresh card');
   assert.equal(w.metas.length, 1);
   assert.equal(w.metas[0], fresh, 'the title line (and its "no name was chosen" note) was not repainted from the renamed card');
   assert.equal(w.els['d-rename'].value, NEW, 'the rename box, which Save sends as the name');
@@ -196,4 +196,17 @@ test('#4421: a room row\'s picture takes its letter and tint from the name it sh
   assert.doesNotMatch(row, /discTint\(m\.from\)/, 'the room row\'s picture is drawn from the id again');
   const dm = page.lift(SCRIPT, 'dmRow');
   assert.doesNotMatch(dm, /discTint\(m\.from\)/, 'the DM row\'s picture is drawn from the id again');
+});
+
+test('#4421: Save sends a name ONLY when the box was edited (a role-only Save must not rename the agent back)', () => {
+  /* Johnny's review of #4437: only the browser check guarded this, so the node suite stayed green over a return of
+     the rename-back. The handler is an anonymous listener, so its source is read from the listener to its end. */
+  const at = SCRIPT.indexOf("document.getElementById('d-save').addEventListener");
+  assert.ok(at > 0, 'the Save handler moved');
+  const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});', at));
+  assert.match(handler, /\.\.\.\(nameEdited \? \{ displayName: renameTo \} : \{\}\)/,
+    'the request no longer sends the name only under nameEdited');
+  assert.doesNotMatch(handler, /^\s*displayName: renameTo,/m, 'the request sends the box every time again: a role-only Save renames the agent back');
+  assert.match(handler, /const nameEdited = !!renameTo && renameTo !== \(\(renameBox\.dataset\.shown \|\| ''\)/,
+    'nameEdited no longer compares the box with what it was filled with');
 });
