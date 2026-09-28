@@ -52,7 +52,7 @@
 #
 # Overrides (for a local proof against a dev relay and coordinator; defaults are the live ones):
 #   --state-dir DIR --coordinator URL --relay HOST:PORT --relay-ca FILE
-#   --visit-resolve HOST:PORT:IP (curl --resolve) --visitor-ca FILE --timeout SECS (per attempt)
+#   --visit-resolve HOST:PORT:IP (curl --resolve) --visitor-ca FILE --timeout SECS (per attempt, the wait for "tunnel up"; the visit has its own 20 s)
 set -u
 
 TUNNEL=""; TARBALL=""; CTUNNEL=""; CTARBALL=""
