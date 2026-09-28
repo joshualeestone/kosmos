@@ -486,10 +486,14 @@ const chk = (ok, label, extra) => {
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();
   await q(() => { openAcctAdd(); window.__museOn = true; ACCT_FLOW_LAST = 'downloading|probe'; acctFlowPaint({ phase: 'downloading' }); });
   const museCallsBefore = await q(() => window.__posts.length);
-  await q(() => { const s = document.getElementById('acct-provider-pick'); s.value = 'meta'; s.dispatchEvent(new Event('change')); });
+  // Round 10: through the REAL logo picker (its button, then Meta's row), which closes and refocuses itself.
+  await q(() => { const s = document.getElementById('acct-provider-pick'); const t = s.parentElement.querySelector('.pcombo-trigger'); if (t.getAttribute('aria-expanded') !== 'true') t.click(); });
   await settle();
-  const pickedMeta = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, say: document.getElementById('acct-add-pick-say').textContent }));
+  await q(() => { const li = [...document.querySelectorAll('.pcombo li')].find((l) => l.dataset.value === 'meta' && l.offsetParent !== null); li.click(); });
+  await settle();
+  const pickedMeta = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, say: document.getElementById('acct-add-pick-say').textContent, focus: document.activeElement && document.activeElement.id }));
   chk(pickedMeta.pick === 'claude' && !pickedMeta.muse && pickedMeta.claudeShown && /Claude sign-in first/.test(pickedMeta.say), 'Meta picked while a Claude sign-in runs stays on Claude and says so', JSON.stringify(pickedMeta));
+  chk(pickedMeta.focus === 'acct-cancel', 'and focus lands on that sign-in\'s Stop, not left on the picker\'s button', JSON.stringify(pickedMeta.focus));
   await q(() => acctFlowPaint({ phase: 'signin-browser-open' })); await settle();
   chk(await q((n) => window.__posts.length === n, museCallsBefore), 'and no Muse sign-in is started or stopped around it, even as the Claude sign-in moves on');
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();

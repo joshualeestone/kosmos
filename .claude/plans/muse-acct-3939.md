@@ -161,3 +161,12 @@ re-checks hold, repeated same-phase polls leave the line, a failed phase and Sto
 - NITs FIXED: the row's tooltip says "signing in again" (pressing only opens the step);
   the line names the Claude sign-in ("Finish or stop the Claude sign-in first, then sign in
   to Meta again.").
+
+## Review round 10 (sonnet): 0 blockers, 1 warning, 0 nits
+- WARNING FIXED: Meta picked through the REAL logo picker during a Claude sign-in left
+  focus on the picker's own button (the widget closes after the change handler and
+  refocuses itself), two tabs from the Stop the line asks for. My arm drove a synthetic
+  change event, which is why it never saw this. One focus rule now serves both paths
+  (acctFocusRunningSignin: code field, else Stop, else the picker); the picker path defers
+  it past the widget's own refocus. The arm now clicks through the real widget and asserts
+  Stop; both "never focused" and "focused too early" mutations fail it.

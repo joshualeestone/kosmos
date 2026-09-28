@@ -24173,6 +24173,9 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
     acctPick('claude', { focus: false });
     acctClaudeShowSub();
     acctAddPickSay(MUSE_BUSY);
+    /* Round 10: the logo picker closes after this handler and puts focus back on its own button; place focus
+       on the sign-in's Stop (or code field) after that, as Sign in again does. */
+    setTimeout(acctFocusRunningSignin, 0);
     return;
   }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
@@ -26228,6 +26231,18 @@ async function acctGeminiSignInAgain() {
   ACCT_AGY_SUB.next = 'open';
   ACCT_AGY_SUB.start();
 }
+/* #3939 slice 3c-2: focus for a running Claude sign-in brought back on screen, by openAcctAdd's own rule: the
+   code field if it shows, else Stop. Never the page behind (#1918): if that control cannot take focus (its panel
+   not painted yet), the picker can. One rule for Sign in again and for Meta picked in the picker (round 10). */
+function acctFocusRunningSignin() {
+  const codeRow = document.getElementById('acct-code-row');
+  const target = codeRow && !codeRow.hidden ? document.getElementById('acct-code') : document.getElementById('acct-cancel');
+  if (target) target.focus();
+  if (document.activeElement !== target) {
+    const trig = document.querySelector('#acct-provider-field .pcombo-trigger') || document.getElementById('acct-provider-pick');
+    if (trig) trig.focus();
+  }
+}
 /* #3939 slice 3c-2: the Meta Muse row's Sign in again. Opens Add a provider and, once this Kosmos says
    Muse is offered (waiting up to 3 s for the open's own read, as Gemini's does), lands on Meta's step
    with focus on its Start. The answer acts only on the same visit with nothing chosen meanwhile (review
@@ -26258,15 +26273,8 @@ async function acctMuseSignInAgain(ev) {
       acctAddPickSay(MUSE_BUSY);
     }, 60);
     /* Round 6: openAcctAdd tried to focus Stop while its step was still hidden, so focus stayed on the page
-       behind the dialog (#1918). Place it now, by openAcctAdd's own rule: the code field if it shows, else Stop. */
-    const codeRow = document.getElementById('acct-code-row');
-    const target = codeRow && !codeRow.hidden ? document.getElementById('acct-code') : document.getElementById('acct-cancel');
-    if (target) target.focus();
-    // Never on the page behind: if that control cannot take focus (its panel not painted yet), the picker can.
-    if (document.activeElement !== target) {
-      const trig = document.querySelector('#acct-provider-field .pcombo-trigger') || document.getElementById('acct-provider-pick');
-      if (trig) trig.focus();
-    }
+       behind the dialog (#1918). Place it now. */
+    acctFocusRunningSignin();
     return;
   }
   const asking = ACCT_MUSE_ASKING || museAsk();
