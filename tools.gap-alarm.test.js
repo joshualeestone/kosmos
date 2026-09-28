@@ -280,6 +280,17 @@ test('review 7: an all-clear never follows an alarm this channel failed to annou
   assert.deepEqual(alarm.decidePost({ alarm: false, reasons: [] }, { key: 'alarm:main-hours', at: NOW - H }, NOW), { post: 'cleared', key: 'clear' }, 'CONTROL');
 });
 
+test('a git failure is could-not-tell with GIT\'s own first stderr line, not the command line', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
+  // A git on PATH whose fetch fails with multi-line stderr, and is the real git otherwise.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-gitfail-'));
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n[ "$5" = fetch ] && { printf "fatal: could not read Username for https://github.com: terminal prompts disabled\\nsecond line\\n" >&2; exit 128; }\nexec "' + REAL_GIT + '" "$@"\n', { mode: 0o755 });
+  const r = run(['--check'], { KOSMOS_REPO_DIR: dir, GAP_ALARM_NO_FETCH: '', PATH: bin + ':' + process.env.PATH,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - H) });
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.equal(JSON.parse(r.out).why, 'git fetch: fatal: could not read Username for https://github.com: terminal prompts disabled');
+});
+
 test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH that hangs on fetch and is the real git for everything else.

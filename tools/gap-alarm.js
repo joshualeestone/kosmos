@@ -318,7 +318,6 @@ async function main(argv) {
   if (argv.includes('--check')) { process.stdout.write(JSON.stringify(v) + '\n'); return code; }
   const state = readState();
   const next = {};
-  let changed = true;    // every run records lastRunAt (review 7: a stopped job must be visible)
   const due = {};
   for (const ch of CHANNELS) {
     const last = lastFor(state, ch);
@@ -326,7 +325,7 @@ async function main(argv) {
     const d = decidePost(v, last, v.now);
     due[ch] = d;
     // Nothing to say, but a new resting key (clear after clear, say) is recorded without a post.
-    if (!d.post && (!last || last.key !== d.key)) { next[ch] = { key: d.key, at: v.now }; changed = true; }
+    if (!d.post && (!last || last.key !== d.key)) { next[ch] = { key: d.key, at: v.now }; }
   }
   // Proof of life on the card: clear, and the card last said something a week or more ago.
   const cardLast = next.card;
@@ -352,17 +351,18 @@ async function main(argv) {
       // A channel's clock advances only on its OWN post that went, or a dead channel would count as
       // told. A post that was TRIED and failed records the failure (for the backoff) and keeps the
       // last success; a channel with no command was not tried and records nothing.
-      if (went[ch]) { next[ch] = { key: due[ch].key, at: v.now }; changed = true; }
+      if (went[ch]) { next[ch] = { key: due[ch].key, at: v.now }; }
       else if (tried[ch]) {
         const keep = next[ch] ? { key: next[ch].key, at: next[ch].at } : {};
-        next[ch] = Object.assign(keep, { failedKey: due[ch].key, failedAt: v.now }); changed = true;
+        next[ch] = Object.assign(keep, { failedKey: due[ch].key, failedAt: v.now });
       }
     }
     // The log says what went, after it went.
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  if (changed) writeState({ pane: next.pane, card: next.card, lastRunAt: v.now });
+  // Every run writes, so lastRunAt shows the job is alive (review 7).
+  writeState({ pane: next.pane, card: next.card, lastRunAt: v.now });
   return code;
 }
 
