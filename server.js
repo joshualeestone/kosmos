@@ -13293,7 +13293,36 @@ const server = http.createServer((req, res) => {
            has been set in Settings, so the agent is told the time on every direct
            operator message rather than having to be instructed to know it. No
            timezone set (or an unreadable id) yields the bare prefix, unchanged. */
-        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
+        /* #4256: a reply names the message it answers by its `at` (a DM row has no id), and it must be
+           a message in THIS conversation, the agent's or the person's own. Checked before anything is
+           typed, so a stale or foreign one is refused with nothing sent. '' is refused like the room's
+           route does: the page never sends it. A numbered menu answer (`chose`) is never a reply. */
+        let answered = null;
+        if (!chose && body.reply_to !== undefined && body.reply_to !== null) {   // a menu answer is never a reply, so it is not checked as one
+          if (typeof body.reply_to !== 'string' || !body.reply_to) {
+            const bad = new Error('That is not a message you can reply to.'); bad.status = 400; throw bad;
+          }
+          /* Could not read is not gone (the room draws them apart too): a read that failed says so and
+             leaves the reply for a retry, rather than telling the person their original has left. */
+          let kept;
+          try { kept = chat.readThread(chat.DIRECT, name).messages || []; } catch (err) {
+            // A name that can never be filed under is standing, not a blip (the GET's historyUnfilable): no retry.
+            const standing = err && err.code === 'BAD_THREAD';
+            const unread = new Error(standing
+              ? 'This conversation is not kept on this computer, so there is no message to reply to. Send it as a new message.'
+              : 'We could not read this conversation just now to find the message you are replying to. Try again in a moment.');
+            unread.status = standing ? 409 : 503; throw unread;
+          }
+          // Only the agent's own messages and the person's: the tag inside the operator's bracket names one of the two.
+          answered = kept.find((r) => r && r.at === body.reply_to && typeof r.text === 'string'
+            && r.kind !== 'kosmos' && r.kind !== 'question' && (!r.from || r.from === name)) || null;
+          if (!answered) {
+            const gone = new Error('That message is no longer in this conversation. Press \u00d7 to send this as a new message.');
+            gone.status = 409; throw gone;
+          }
+        }
+        const replied = messages.dmAnsweredParts(answered, name);
+        const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone), replied.tag);
         /* #3650: reactions the person put on the agent's messages since it was last told
            ride this message as one `[kosmos]` note after the person's words (a reaction
            is feedback, so it waits for a message rather than waking the agent). */
@@ -13301,7 +13330,11 @@ const server = http.createServer((req, res) => {
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
         const reactionNote = news.note;
-        const delivery = chat.deliver(name, body.text, roster, opPrefix,
+        /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
+           person's words reach deliver unchanged, so their length budget and the paused-agent command check see
+           exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
+        const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        const delivery = chat.deliver(name, body.text, roster, envelope,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
@@ -13333,6 +13366,9 @@ const server = http.createServer((req, res) => {
           wire: chose ? chat.cleanMessage(body.text) : null,
           at: delivery.at,
           delivery,
+          /* #4256: stored only on a reply, so an ordinary message's row is unchanged. `wire` stays null on a reply:
+             the '(answering: "...")' in front of the words is Kosmos's framing, like the envelope, not the person's. */
+          ...(answered ? { replyTo: answered.at } : {}),
         });
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.

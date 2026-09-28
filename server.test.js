@@ -15184,6 +15184,121 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
   }
 });
 
+/**
+ * #4256: replying to a message in a Direct Message. The reply names the message by its `at`; the
+ * agent is told which message it answers (inside the operator's bracket) and its first words (after
+ * it); the kept row carries `replyTo`, and the thread read serves it. A reply to a message that is not
+ * in this conversation is refused with nothing typed.
+ */
+test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refuses a stale one', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('lena', { state: 'idle', displayName: 'Lena' })]);
+  const AT = '2026-09-24T21:00:00.000Z';
+  try {
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'Done with the login fix\nsecond line', from: 'lena', at: AT });
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const say = (body) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    /* CONTROL: an ordinary message carries no answers tag and no quote, and keeps no replyTo. */
+    const plain = await say({ text: 'hello' });
+    assert.ok([200, 202].includes(plain.status), plain.body);
+    const typedPlain = pastedChunks(sends).join('');
+    assert.ok(typedPlain.includes('hello'), 'CONTROL: the plain message was not typed: ' + typedPlain);
+    assert.equal(/answers your message|answering:/.test(typedPlain), false, 'an ordinary message was told it answers something: ' + typedPlain);
+    sends.length = 0;
+
+    const reply = await say({ text: 'great, ship it', reply_to: AT });
+    assert.ok([200, 202].includes(reply.status), reply.body);
+    const typed = pastedChunks(sends).join('');
+    assert.match(typed, /\[message from your operator[^\]]* · answers your message, posted [^\]]+ · to answer, run: kosmos reply\]/,
+      'the bracket does not say which message is answered: ' + typed);
+    assert.ok(typed.includes('] (answering: "Done with the login fix") great, ship it'),
+      'the first words were not quoted after the bracket, in front of the reply: ' + typed);
+    assert.equal(typed.includes('second line'), false, 'more than the first line was quoted: ' + typed);
+
+    const kept = chatEngine.readThread(chatEngine.DIRECT, 'lena').messages;
+    const row = kept.find((m) => !m.from && m.text === 'great, ship it');
+    assert.ok(row, 'the reply was not kept');
+    assert.equal(row.replyTo, AT, 'the kept reply does not name what it answers');
+    assert.equal(kept.find((m) => !m.from && m.text === 'hello').replyTo, undefined, 'an ordinary row carries replyTo');
+    const served = JSON.parse((await req('/api/agent/lena/thread')).body).messages.find((m) => m.text === 'great, ship it');
+    assert.equal(served && served.replyTo, AT, 'the thread read does not serve replyTo');
+
+    /* A reply to the person's OWN earlier message says so, not "your message". */
+    sends.length = 0;
+    const own = await say({ text: 'as I said', reply_to: row.at });
+    assert.ok([200, 202].includes(own.status), own.body);
+    assert.match(pastedChunks(sends).join(''), /answers their earlier message, posted /, 'a reply to the person\'s own message was misattributed');
+
+    /* A message that is not in this conversation: refused, and nothing typed. */
+    sends.length = 0;
+    const stale = await say({ text: 'too late', reply_to: '2020-01-01T00:00:00.000Z' });
+    assert.equal(stale.status, 409, stale.body);
+    assert.match(stale.body, /no longer in this conversation/);
+    assert.equal(pastedChunks(sends).join('').includes('too late'), false, 'a refused reply was typed');
+    /* deliver gets the person's words UNCHANGED as the message, and the quote in the envelope: every check
+       deliver makes on the message (its length budget, the commands a paused swarm may take) sees exactly what
+       the person typed, reply or not. */
+    const realDeliver = chatEngine.deliver;
+    const seen = [];
+    chatEngine.deliver = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
+    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliver = realDeliver; }
+    assert.equal(seen.length, 1, 'CONTROL: deliver was not reached, so this arm tests nothing');
+    assert.equal(seen[0].raw, '/status', 'the quote was glued onto the person\'s words: ' + JSON.stringify(seen[0].raw));
+    assert.match(seen[0].envelope, /\] \(answering: "Done with the login fix"\)$/, 'the quote is not in the envelope: ' + seen[0].envelope);
+
+    /* A thread that cannot be read is not a message that is gone: its own error, and nothing typed. */
+    const realRead = chatEngine.readThread;
+    chatEngine.readThread = () => { throw new Error('EACCES'); };
+    sends.length = 0;
+    let unread;
+    try { unread = await say({ text: 'still there?', reply_to: AT }); } finally { chatEngine.readThread = realRead; }
+    assert.equal(unread.status, 503, unread.body);
+    assert.match(unread.body, /could not read this conversation just now/);
+    assert.equal(pastedChunks(sends).join('').includes('still there?'), false, 'a reply whose thread could not be read was typed');
+    /* At the length limit the quote still rides: it is Kosmos's framing (the envelope), not the person's words. */
+    sends.length = 0;
+    const long = 'a'.repeat(chatEngine.MAX_TEXT - 10);
+    const atLimit = await say({ text: long, reply_to: AT });
+    assert.ok([200, 202].includes(atLimit.status), atLimit.body);
+    const typedLong = pastedChunks(sends).join('');
+    assert.ok(typedLong.includes(long.slice(0, 200)), 'CONTROL: the long reply was not typed at all');
+    assert.match(typedLong, /answers your message, posted /, 'the tag was dropped with the quote');
+    assert.ok(typedLong.includes('(answering: "Done with the login fix") ' + long.slice(0, 50)), 'at the limit the quote did not ride in front of the words');
+
+
+    /* THIS conversation only: a real `at` from ANOTHER agent's DM is refused here. (Kosmos and question rows are added
+       at read time and never stored, so the route's exclusion of them has no stored row to test against.) */
+    const OTHER = '2026-09-24T22:00:00.000Z';
+    chatEngine.appendMessage(chatEngine.DIRECT, 'mira', { text: 'Not Lena', from: 'mira', at: OTHER });
+    const foreign = await say({ text: 'x', reply_to: OTHER });
+    assert.equal(foreign.status, 409, 'a reply to another agent\'s message was accepted: ' + foreign.body);
+    /* And within this thread, only the agent's own rows and the person's: a row some third sender wrote here is
+       refused, so the tag inside the operator's bracket can never misname whose message is answered. */
+    const THIRD = '2026-09-24T21:45:00.000Z';
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'From someone else', from: 'mira', at: THIRD });
+    assert.ok(chatEngine.readThread(chatEngine.DIRECT, 'lena').messages.some((m) => m.at === THIRD && m.from === 'mira'), 'CONTROL: the third-sender row was not kept, so this arm tests nothing');
+    const third = await say({ text: 'x', reply_to: THIRD });
+    assert.equal(third.status, 409, 'a reply to a third sender\'s row was accepted: ' + third.body);
+
+    const junk = await say({ text: 'x', reply_to: 42 });
+    assert.equal(junk.status, 400, junk.body);
+    const empty = await say({ text: 'x', reply_to: '' });
+    assert.equal(empty.status, 400, empty.body);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
 test('#3679: the DM route refuses a message whose stored form is past the ceiling, and says why', async () => {
   const chatEngine = require('./engine/chat');
   const board = fleet.install([fleet.agent('indenta', { state: 'idle' })]);

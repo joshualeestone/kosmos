@@ -6253,7 +6253,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    popout in Josh's mockup. Anchored to .msg-b (position:relative). */
 /* #3745: an agent's bar sits at its bubble's right edge; on a bubble too short for it (Reply made the
    bar wider), it would run off the thread's left edge, so it is set from the bubble's left instead. */
-#pj-room .msg.rxn-left .rxn-quick { right: auto; left: 0; }
+#pj-room .msg.rxn-left .rxn-quick, #d-dmthread .msg.rxn-left .rxn-quick { right: auto; left: 0; }   /* #4256: the DM's agent bar too */
 .rxn-quick { position: absolute; top: -10px; right: 0; z-index: 3;
              display: inline-flex; align-items: center; gap: 2px; opacity: 0;
              pointer-events: none; transition: opacity .12s ease; }
@@ -6389,7 +6389,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more { min-width: var(--room-tap); min-height: var(--room-tap); }
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -10718,6 +10718,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- The room's box, on the agent page too (#385, Josh 2026-08-23): one
          composer drawn one way. The input element and every id stay, so the
          send logic is untouched; only the box around it changed. -->
+    <!-- #4256: "Replying to <name>: <first words>" with an x, as the room's (#3745). -->
+    <div class="pj-replying" id="d-reply" hidden></div>
+    <p class="vh" id="d-reply-say" role="status" aria-live="polite"></p>
     <div class="dmbar composerbox">
       <button class="attachbtn" id="d-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
       <input id="d-attach-file" type="file" multiple hidden>
@@ -30343,7 +30346,7 @@ function dmWho(from, name) {
   return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : String(from);
 }
 
-function dmRow(m, name) {
+function dmRow(m, name, replyAdjacent) {
   /**
    * 🛑 A ROW THE AGENT WROTE, which this thread could not hold until now. Every
    * row was the person's by definition — this function said "You" with no
@@ -30406,10 +30409,12 @@ function dmRow(m, name) {
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
-      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions) + '</div>' : '';
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
+      + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
@@ -30468,12 +30473,85 @@ function dmRow(m, name) {
     : '<div class="msg-av mine" aria-hidden="true"></div>';
   return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
+    + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256: the message this answers
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="msg-t">' + whenStr + wire
     + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
     + '</span></div></div></div>';
 }
 
+
+/* #4256: replying in a Direct Message, the room's Reply (#3745) on the agent's own page. A DM row has
+   no id, so a message is named by its `at` (the reactions' key too). One pending reply per agent, like
+   the drafts; the rows by `at` are refreshed on every paint so a header can name what it answers and a
+   jump can tell "hidden by your search" from gone. Reply is offered on the agent's messages, where the
+   DM's hover bar lives; any row that answers another carries the header. */
+const DM_REPLY = {};
+let DM_REPLY_SENDING = null;   // { agent, at } of the reply on its way, so x knows whether THIS one already left
+let DM_JUMP_FOCUS = null;      // the `at` of the message a jump focused, so a repaint can put focus back on it
+let DM_ROWS = new Map();
+let DM_ROWS_OF = null;         // which agent DM_ROWS was painted for
+let DM_ROWS_NAME = '';         // that agent's display name
+let DM_ROWS_OLDER = 0;         // older messages the thread did not send (only the last 200 come)
+let DM_ROWS_OLDEST = null;     // the `at` of the oldest row the thread did send
+function dmReplyWho(m, name) { return m && m.from ? dmWho(m.from, name) : 'You'; }
+function dmReplyHead(m, name, adjacent) {
+  if (!m || typeof m.replyTo !== 'string' || !m.replyTo) return '';
+  const orig = DM_ROWS.get(m.replyTo);
+  /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
+     header is left out; a screen reader still hears what it answers. */
+  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
+  /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
+  /* "Further back" only when older messages were left out AND the original is older than the oldest one sent;
+     otherwise it is gone (pruned, or never here). */
+  if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER && DM_ROWS_OLDEST && m.replyTo < DM_ROWS_OLDEST ? 'Original message is further back' : 'Original message unavailable') + '</span>';
+  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
+  return '<button type="button" class="msg-replyto" data-jump-at="' + esc(m.replyTo) + '" aria-label="'
+    + esc(who + ': ' + gist + ', the message this answers. Go to it') + '"><b>' + esc(who) + ':</b> ' + esc(gist) + '</button>';
+}
+/* The strip above the DM composer, for the agent on screen. Redrawn only when it changes, so a poll
+   does not replace the x under a keyboard user's focus. */
+function dmReplyPaint(agent) {
+  const el = document.getElementById('d-reply');
+  if (!el) return;
+  const r = agent ? DM_REPLY[agent] : null;
+  const input = document.getElementById('d-say');
+  const key = r ? agent + '\u0000' + r.at : '';
+  if (el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
+  el.dataset.key = key;
+  if (!r) {
+    el.hidden = true; el.innerHTML = '';
+    if (input) input.removeAttribute('aria-describedby');
+    return;
+  }
+  el.hidden = false;
+  if (input) input.setAttribute('aria-describedby', 'd-reply-what');   // heard each time the box is reached
+  el.innerHTML = '<span class="pj-replying-t" id="d-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+    + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
+}
+function dmReplySay(words) {
+  const said = document.getElementById('d-say-msg');
+  if (said) said.textContent = words;
+}
+/* Heard, not seen: the strip itself is not a live region (as the room's pjRoomAnnounce). */
+function dmReplyAnnounce(words) {
+  const el = document.getElementById('d-reply-say');
+  if (el) { el.textContent = ''; setTimeout(() => { el.textContent = words; }, 30); }
+}
+function dmReplyStart(at) {
+  const agent = CURRENT && CURRENT.sessionName;
+  const m = at ? DM_ROWS.get(at) : null;
+  // Between an agent switch and the new thread's first paint the rows are the last agent's. The real
+  // guard is the server's: it refuses a reply to a message that is not in this conversation.
+  if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
+  DM_REPLY[agent] = { at, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  dmReplyPaint(agent);
+  dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
+  const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
+  if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
+  const input = document.getElementById('d-say');
+  if (input) input.focus();
+}
 
 /* The in-flight (or not-kept) message, in the person's own bubble. The pill is
    the thread's delivery pill: dashed while it is on its way, red if it did not go. */
@@ -30511,6 +30589,17 @@ function talkFilterRows(rows, name, q) {
 let TALK_QUERY = '';
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
+  /* #4256: the rows by `at` and the reply strip, for the agent this paint is for, before any branch below can
+     return: an empty or unreadable thread must not keep another agent's "Replying to" strip. The first row
+     with an `at` wins, as the server's lookup does. */
+  DM_ROWS = new Map();
+  for (const r of allRows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
+  DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
+  DM_ROWS_NAME = name;
+  DM_ROWS_OLDER = Number(body.olderCount) || 0;
+  DM_ROWS_OLDEST = null;
+  for (const r of allRows) if (r && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;
+  dmReplyPaint(DM_ROWS_OF);
   /* #2660: record WHEN THIS PAGE LEARNED of the agent's latest reply, so the
      working line can tell a state sample that is merely OLD from one that is
      wrong. Mirrors the room's loop deliberately, including its deny test: a row
@@ -30625,14 +30714,32 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
+    /* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
+       message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
+       unbroken). Not while searching, which hides the rows between. */
+    let prevHid = false;
+    const dmHtml = rows.map((m, i) => {
+      const prev = i > 0 ? rows[i - 1] : null;
+      const adjacent = !filtering && !!prev && typeof m.replyTo === 'string' && !!m.replyTo
+        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
+      prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
+      return dmRow(m, name, adjacent);
+    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
+    /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
+    if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
+      const r = thread.querySelector('.msg[data-mid="' + CSS.escape(DM_JUMP_FOCUS) + '"]');
+      if (r) { r.setAttribute('tabindex', '-1'); r.focus({ preventScroll: true }); }
+    }
     if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
 }
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  /* #4256: this agent's pending reply, not the last one's, before any read answers: the read's failure arm
+     returns without painting rows, and must not leave another agent's "Replying to" up. */
+  dmReplyPaint(sessionName);
   /* #2863: reading an agent's thread clears its unread-DM count. This mirrors
      the project /seen precisely, and BOTH halves matter: paintTalk re-runs on
      every ~5s poll while the panel is open, so an ungated POST would do a full
@@ -31247,8 +31354,10 @@ async function sendTalk(text, attachment) {
    * restores at both exits. This does both halves too.
    */
   const sendHadFocus = document.activeElement === send;
+  const replying = DM_REPLY[sentName] || null;   // #4256: the message this answers, if any
   TALK_SENDING = true;
   TALK_FLIGHT = sentName;
+  DM_REPLY_SENDING = replying ? { agent: sentName, at: replying.at } : null;
   /**
    * ⚠️ EVERYTHING AFTER THE FLAG IS INSIDE THE TRY. Three DOM statements used
    * to sit between the flag and the `try`, and a throw in any of them would
@@ -31271,7 +31380,9 @@ async function sendTalk(text, attachment) {
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(pendingIds.length ? { text, attachments: pendingIds } : { text }),
+      body: JSON.stringify(Object.assign({ text },
+        pendingIds.length ? { attachments: pendingIds } : {},
+        replying ? { reply_to: replying.at } : {})),   // #4256: the room's form (#3745), so both senders read alike
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
@@ -31314,6 +31425,11 @@ async function sendTalk(text, attachment) {
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
          send keeps them for the retry the sentence invites. */
       if (pendingIds.length) attachClear(ATTACH_AGENT, sentName);
+      /* #4256: the reply went with the words, so the strip goes too, but only if it is still THIS reply. */
+      if (replying && DM_REPLY[sentName] && DM_REPLY[sentName].at === replying.at) {
+        delete DM_REPLY[sentName];
+        if (!flightMoved()) dmReplyPaint(sentName);
+      }
     };
     let line;
     if (d.state === 'placed') {
@@ -31358,6 +31474,7 @@ async function sendTalk(text, attachment) {
   } finally {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
+    DM_REPLY_SENDING = null;   // #4256
     // The repaint is about the takeoff agent too: with the flight moved, the
     // open page belongs to somebody else and its own poll is already painting
     // it. The record is the account of what happened, visible when that agent
@@ -51688,10 +51805,60 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     }
     return;
   }
+  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
 });
+/* #4256: a reply's header jumps to the message it answers and briefly highlights it, as in a room. */
+document.getElementById('d-dmthread').addEventListener('click', (e) => {
+  const head = e.target && e.target.closest ? e.target.closest('.msg-replyto[data-jump-at]') : null;
+  if (!head) return;
+  const at = head.getAttribute('data-jump-at');
+  const row = document.querySelector('#d-dmthread .msg[data-mid="' + CSS.escape(at) + '"]');
+  if (!row) { dmReplySay(DM_ROWS.has(at) ? 'That message is hidden by your search.' : 'The original message is unavailable.'); return; }
+  const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  row.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
+  row.focus({ preventScroll: true });   // keyboard and screen-reader users land on the original too
+  DM_JUMP_FOCUS = at;
+  row.classList.remove('msg-flash'); void row.offsetWidth; row.classList.add('msg-flash');
+  setTimeout(() => row.classList.remove('msg-flash'), 1800);
+});
+/* #4256: the person moved on from a jumped-to message (as the room's #3745 does). */
+document.addEventListener('focusin', (e) => {
+  if (!DM_JUMP_FOCUS) return;
+  const row = e.target && e.target.closest ? e.target.closest('#d-dmthread .msg') : null;
+  if (!(row && e.target === row && row.getAttribute('data-mid') === DM_JUMP_FOCUS)) DM_JUMP_FOCUS = null;
+});
+document.addEventListener('pointerdown', () => { DM_JUMP_FOCUS = null; }, true);
+document.getElementById('d-reply').addEventListener('click', (e) => {
+  const agent = CURRENT && CURRENT.sessionName;
+  if (!e.target.closest('.pj-replying-x') || !agent) return;
+  const r = DM_REPLY[agent];
+  if (DM_REPLY_SENDING && DM_REPLY_SENDING.agent === agent && r && r.at === DM_REPLY_SENDING.at) {
+    dmReplySay('This is already being sent as a reply.');   // cancelling now would only look like it worked
+    return;
+  }
+  delete DM_REPLY[agent];
+  dmReplyPaint(agent);
+  const said = document.getElementById('d-say-msg');
+  if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
+  dmReplyAnnounce('Not replying.');
+  document.getElementById('d-say').focus();
+});
+/* #4256: the DM's agent bar is kept inside the thread the same way the room's is (a short bubble with
+   Reply in its bar would run off the thread's left edge). */
+function dmRxnKeepInside(e) {
+  const row = e.target && e.target.closest ? e.target.closest('#d-dmthread .msg') : null;
+  if (!row || row.classList.contains('you')) return;
+  const q = row.querySelector('.rxn-quick'); const thread = document.getElementById('d-dmthread');
+  if (!q) return;
+  row.classList.remove('rxn-left');
+  if (q.getBoundingClientRect().left < thread.getBoundingClientRect().left) row.classList.add('rxn-left');
+}
+document.getElementById('d-dmthread').addEventListener('mouseover', dmRxnKeepInside);
+document.getElementById('d-dmthread').addEventListener('focusin', dmRxnKeepInside);   // a keyboard reaching the bar
 
 /* #718 mobile: on a phone (max-width 30rem) the conversation comes FIRST on the project page,
    before Members and Files. Moved in the DOM, not with CSS order: a visual-only reorder makes
@@ -52225,6 +52392,9 @@ function pjReplyGist(m) {
   const f = pjFiles(m)[0];
   return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
 }
+/* #3745 / #4256: what a screen reader hears for a reply whose header is left out, in rooms and DMs alike: one
+   full stop, not a second after a line that already ends in one. */
+function replyHeardLine(who, gist) { return 'Answers ' + who + ': ' + gist + (/[.!?\u2026]$/.test(gist) ? '' : '.'); }
 function pjReplyWho(p, m) { return m && m.operator === true ? 'You' : (pjNameOf(p, m && m.from) || (m && m.from) || 'someone'); }
 /* The strip above the composer, for the project on screen. */
 function pjReplyPaint(projectId) {
@@ -52491,7 +52661,7 @@ function rxnsInner(list, withReply) {
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
      gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
-  /* #3745: Reply, in the same hover bar, for a ROOM post only (the DM thread shares this bar). */
+  /* #3745 / #4256: Reply, in the same hover bar, for a room post and for an agent's message in a DM. */
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">Reply</button>' : '';
   return pills
     + '<span class="rxn-quick">' + quicks + reply
@@ -52507,7 +52677,7 @@ function pjReactions(m) {
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post'));   // a room row keeps its Reply
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'));   // a room row and a DM row (#4256) keep their Reply
 }
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
@@ -52678,7 +52848,7 @@ function pjRoomRow(m, p, hideHeader) {
     ? PJ_ROOM_POSTS.get(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
-  if (origForSr) replyEl = '<span class="vh">Answers ' + esc(pjReplyWho(p, origForSr)) + ': ' + esc(pjReplyGist(origForSr)) + '.</span>';
+  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
     const orig = PJ_ROOM_POSTS.get(m.replyTo);
@@ -53100,6 +53270,8 @@ function paintRoom(body) {
    across projects it would hide another room's posts silently). */
 document.getElementById('d-talk-search').addEventListener('input', () => {
   TALK_QUERY = document.getElementById('d-talk-search').value;
+  const said = document.getElementById('d-say-msg');   // #4256: "hidden by your search" is stale once the search changes
+  if (said && said.textContent === 'That message is hidden by your search.') said.textContent = '';
   const th = document.getElementById('d-dmthread');
   if (!th.__lastBody) return;
   paintTalkThread(th.__lastBody, th.__lastName);

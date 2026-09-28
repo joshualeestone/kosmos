@@ -2614,6 +2614,9 @@ function appendLocked(projectId, agent, entry, bornAt) {
       ...(entry && Array.isArray(entry.attachments) && entry.attachments.length
         ? { attachments: entry.attachments.filter((a) => a && typeof a === 'object' && typeof a.id === 'string').map(keptAttachment) }
         : {}),
+      /* #4256: the message this one answers, by its `at` (a DM row has no id). The route has already
+         checked it names a message in this conversation; kept only as a string, and only when set. */
+      ...(entry && typeof entry.replyTo === 'string' && entry.replyTo ? { replyTo: entry.replyTo } : {}),
       /**
        * 🛑 A ROW WITH A SENDER HAS NO DELIVERY, and the default here was
        * claiming one. `state` falls back to COULD_NOT — which is right for the

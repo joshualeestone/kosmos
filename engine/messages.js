@@ -234,13 +234,10 @@ function postedLabel(at, zone) {
     return day.replace(/,/g, '') + ' ' + clock;
   } catch { return clock; }
 }
-function answeredParts(row) {
-  if (!row || typeof row.id !== 'string') return { tag: '', quote: '' };
-  const name = Array.from(String(row.from || '').replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim().replace(/(\p{M}{2})\p{M}+/gu, '$1'));
-  /* "your operator" only from the operator flag; everyone else is "your colleague <name>", as the
-     envelope already names a sender, so an agent named "your operator" cannot pass as the person. */
-  const who = row.operator === true ? 'your operator'
-    : (name.length ? 'your colleague ' + (name.length > 40 ? name.slice(0, 40).join('') + '…' : name.join('')) : 'a colleague');
+/* #3745: the first words a reply quotes, cleaned for the wire: the first line (or the file's name for a
+   post with only a file), allow-listed and capped at 60 characters. Shared by rooms (answeredParts) and
+   Direct Messages (#4256, dmAnsweredParts), so the two quote the same way. */
+function answeredWords(row) {
   /* #3769: the words as a reader sees them. A setup-guide post stored before the write-side mask
      still holds its raw text, and every read path masks it on the way out, so this one does too
      (the whole post, before its first line is taken, so a secret split over lines is still caught). */
@@ -253,6 +250,16 @@ function answeredParts(row) {
   words = words.replace(/(\p{M}{2})\p{M}+/gu, '$1');   // at most two marks on a letter: a stack of them ("zalgo") stays one short line
   const chars = Array.from(words);
   if (chars.length > 60) words = chars.slice(0, 60).join('').trimEnd() + '…';
+  return words;
+}
+function answeredParts(row) {
+  if (!row || typeof row.id !== 'string') return { tag: '', quote: '' };
+  const name = Array.from(String(row.from || '').replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim().replace(/(\p{M}{2})\p{M}+/gu, '$1'));
+  /* "your operator" only from the operator flag; everyone else is "your colleague <name>", as the
+     envelope already names a sender, so an agent named "your operator" cannot pass as the person. */
+  const who = row.operator === true ? 'your operator'
+    : (name.length ? 'your colleague ' + (name.length > 40 ? name.slice(0, 40).join('') + '…' : name.join('')) : 'a colleague');
+  const words = answeredWords(row);
   /* Who wrote it and when go INSIDE the bracket: Kosmos read them from the record, and outside it a
      member could type the same line and pass off made-up words as the person's (review round 15). The
      time carries the day when it is not today, so an old post answered late never reads as fresh. */
@@ -291,9 +298,28 @@ function answeredParts(row) {
    timezone it is the bare prefix, unchanged. The opening '[message from your
    operator' is unchanged in both forms, so the MARKERS forgery guard above still
    matches it and a body an agent tries to forge is still refused. */
-function operatorDirect(nowLabel) {
+function operatorDirect(nowLabel, answers) {
   const at = nowLabel ? (' at ' + nowLabel) : '';
-  return '[message from your operator' + at + ' \u00b7 to answer, run: kosmos reply]';
+  return '[message from your operator' + at + (answers || '') + ' \u00b7 to answer, run: kosmos reply]';
+}
+
+/**
+ * #4256: what a Direct Message reply answers, in the same two parts as a room's (answeredParts):
+ * `tag` inside the operator's bracket (" · answers your message, posted 09:30"), read from the record,
+ * and `quote` ('(answering: "first words") ') in front of the body. A DM row has no id, so the message
+ * is named by who wrote it and when. `agent` is the agent this thread is with: its own message is
+ * "your message"; the person's is "their earlier message". Both '' when nothing is answered.
+ */
+function dmAnsweredParts(row, agent) {
+  if (!row || typeof row.at !== 'string') return { tag: '', quote: '' };
+  // The route passes only the agent's own row or the person's (no `from`); anything else names nothing.
+  if (row.from && row.from !== agent) return { tag: '', quote: '' };
+  const whose = row.from === agent ? 'your message' : 'their earlier message';
+  let zone = null;
+  try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
+  const tag = ' \u00b7 answers ' + whose + ', posted ' + postedLabel(row.at, zone);
+  const words = answeredWords(row);
+  return { tag, quote: words ? '(answering: "' + words + '") ' : '' };
 }
 
 /* #1668: the operator's current local time as a short label ("9:14 PM CDT"),
@@ -2422,7 +2448,7 @@ module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
-  operatorDirect, operatorNowLabel, validTimeZone, roomClock,
+  operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
