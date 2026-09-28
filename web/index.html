@@ -20727,6 +20727,7 @@ async function tick() {
     // one call. Same fact, one source: the shape this whole branch is about.
     if (CURRENT) {
       const fresh = data.agents.find((a) => a.sessionName === CURRENT.sessionName);
+      followRename(fresh);   // #4421: before anything below paints a name from CURRENT
       if (fresh) swarmPagePaint(fresh);   // #3564: the swarm panel and cluster follow every poll
 
       /* The window box rides the SAME fresh-card lookup as the write
@@ -30596,6 +30597,27 @@ function renderAvatar(a) {
  * Refresh the open agent's picture from the latest poll, keeping everything
  * else on the panel, including anything typed and not yet saved.
  */
+/**
+ * #4421: the open agent's NAME follows every poll. CURRENT is the card as it was when the agent was opened, and a
+ * dozen places read CURRENT.name: the "Direct Message to" title, every agent message's label, the "is working"
+ * line, the send path, the Fresh start and restart sentences. After a rename (Josh, 2026-09-28: "Demis Hassabis -
+ * Gemini" in the heading, "Gemini-Sub" everywhere under it) they all kept the old name until the agent was opened
+ * again, and a restart does not reopen it. The fresh card's name is the one derivation (engine/status.js
+ * readIdentity: the recorded name, whatever the provider), so it is copied onto CURRENT here, once per poll,
+ * rather than each reader looking it up. Only the name: the rest of CURRENT keeps its open-time meaning. The
+ * heading follows too, so a rename made anywhere else (another tab, the Tasks page) reaches this page.
+ * No card this poll, or a card with no name, keeps the last one rather than guessing.
+ */
+function followRename(fresh) {
+  if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
+  if (typeof fresh.name !== 'string' || !fresh.name || fresh.name === CURRENT.name) return;
+  CURRENT.name = fresh.name;
+  const h = document.getElementById('d-name');
+  if (h) h.textContent = fresh.name;
+  detailNavNames(fresh.name);
+  fitDetailName();
+}
+
 function refreshAvatar() {
   if (!CURRENT) return;
   const a = LAST.find((x) => x.sessionName === CURRENT.sessionName);
