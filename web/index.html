@@ -63918,10 +63918,14 @@ function asbSayNotMade(made) {
   if (!m) return;
   const noModel = made.state === 'no-model';
   const deadModel = made.state === 'no-usable-model';
+  /* names-taken is final until the board restarts (engine/setup-assistant.js namesTaken), so "in a moment" would be false. */
+  const taken = made.state === 'names-taken';
   m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
     : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
+    : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
     : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
   m.hidden = false;
+  m.dataset.notMade = '1';   // cleared by asbPaintSetting once a guide is here
   if (noModel || deadModel) {
     const go = document.createElement('button');
     go.type = 'button';
@@ -63942,7 +63946,7 @@ async function asbTurnOn(ctl) {
   let ok = false;
   try { ok = await asbSaveSetting({ on: true }); } catch { ok = false; }
   const m = document.getElementById('asb-row-msg');
-  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; delete m.dataset.notMade; }
   const made = ASB.lastGuide;
   if (ok && made && !made.seeded && !asbIsHosted()) {
     ASB.holding = false;
@@ -63981,9 +63985,9 @@ function asbPaintSetting() {
   const none = !row.hidden && asbSwitchShowsOn() && !ASB.guide && !asbIsHosted();
   const st = document.getElementById('asb-row-state');
   if (st) st.hidden = !none || !!ASB.holding;
-  /* A "could not set it up" line is stale once there IS a guide. */
+  /* Any "could not set it up" line is stale once there IS a guide (made by this click or later by the sweep). */
   const m = document.getElementById('asb-row-msg');
-  if (m && !none && m.querySelector('#asb-row-models')) { m.textContent = ''; m.hidden = true; }
+  if (m && !none && m.dataset.notMade) { m.textContent = ''; m.hidden = true; delete m.dataset.notMade; }
   paintTipsToggle();   // the Help box shows while either of its rows does
 }
 document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
