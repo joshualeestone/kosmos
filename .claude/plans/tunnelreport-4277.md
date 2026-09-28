@@ -19,7 +19,7 @@ Rejected:
 - **Relaxing `enrolled()` to start the tunnel on a half-enrolled state dir.** A tunnel without its certificate cannot serve. The fix is to report the half state, not to paper over it.
 
 ## Evidence
-- `node --test engine/remote-report.test.js`: 11 of 11 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
+- `node --test engine/remote-report.test.js`: 12 of 12 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 17 of 17, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
 - `engine/remote.test.js`: all pass, plus the new #4277 self-heal acceptance test.
 
@@ -29,11 +29,22 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 10
+- heal is judged by the supervisor's PROCESS (remote.supervisorState: alive, waiting, none), not status(): status() reads `restarting` for the tunnel's own in-process reconnects too, so a routine reconnect after any relaunch read `relaunch-failed`, and a relaunched tunnel stuck dialling read `none` forever.
+- A restart timer firing while a register is out no longer leaves the register's own start counted as a relaunch.
+- `relay did not answer AUTH` (session.rs AUTH read timeout) is relay-unreachable, not relay-refused.
+- `relay TLS handshake: invalid peer certificate` is its own code, relay-certificate.
+- The coordinator's `Kosmos+` sentences are classified before the relay patterns, so a gateway page in a 5xx body cannot read as relay-dropped.
+- The server report timer's TTL is 9 minutes under its 10-minute interval; with equal values every other tick was skipped (the refresh stamps its time after the fetch).
+
 ## Review 9
 - A 5xx whose body parses as a refusal (coordinator.rs writes `Kosmos+ refused this Mac: ... (HTTP 503 on ...)`) read coordinator-refused; a 5xx is now taken out first as coordinator-unreachable, with a test.
 - CODES order no longer carries the healthy sentences: a test asserts each healthy dialling sentence matches `starting` and no other pattern (a loosened relay-unreachable mutant fails it).
 - mac-standing's home-directory assertion could not fail (the fixtures live under tmpdir); it now asserts the state dir path and its basename are absent (a path-leak mutant fails it).
 - Nits: the unused `home` test parameter removed, a backwards assertion message fixed, a stray stderr line in one test silenced.
+
+## Deferred (review 10)
+- The register-overlap fix in ensure() (clear restartPending while a register is out) has no test: reproducing it needs a restart timer to fire inside a register window. It is one line, and its effect is only on the heal count.
 
 ## Deferred (review 8)
 - The ten-minute report timer in server.js has no behavioural test (server.js boot is not unit-tested here). What it calls, refreshStandingIfStale, is covered, and the timer is two lines beside the ensure tick.

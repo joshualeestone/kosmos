@@ -22,7 +22,9 @@
  *   macId     whether the state dir holds mac_id; macKey whether it holds mac_key
  *   app       this build's version
  *   heal      what the board's supervisor did since the last report that WENT OUT
- *             (relaunched | relaunch-failed | none); the supervisor is remote.js's
+ *             (relaunched | relaunch-failed | none), judged by whether the relaunched tunnel
+ *             PROCESS is up (remote.supervisorState), not by status(), whose `restarting`
+ *             also covers the tunnel's own in-process reconnects; the supervisor is remote.js's
  *             ensure()/scheduleRestart, which already relaunches a dead tunnel
  */
 const fs = require('node:fs');
@@ -61,11 +63,18 @@ const CODES = [
   // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
   ['ticket-mismatch', /ticket does not verify|ticket names /i],
   ['cert-renewal', /renewal/i],
+  // The coordinator's own sentences (coordinator.rs) start with `Kosmos+`, so they are taken before
+  // the relay patterns, which a gateway error page in their detail could otherwise match (review 10).
+  ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
+  ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
-  ['relay-unreachable', /^connecting to \S+: |relay TLS handshake/i],
-  ['relay-refused', /relay refused|relay answered AUTH|relay did not answer AUTH/i],
+  // A certificate the Mac does not trust is a trust or configuration fault, not an outage (review 10).
+  ['relay-certificate', /relay TLS handshake: invalid peer certificate/i],
+  // `relay did not answer AUTH` is session.rs's AUTH read timeout: the relay never answered (review 10).
+  ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH/i],
+  ['relay-refused', /relay refused|relay answered AUTH/i],
   ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
   // A 4xx from Kosmos+ is a refusal; a 5xx is an outage, so it reads as unreachable. The tunnel
   // (coordinator.rs) writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for ANY status
@@ -92,8 +101,9 @@ const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
    baseline; commitHeal() adopts it once a report is sent, so a refused or failed send does
-   not swallow a relaunch. A relaunch whose tunnel is still starting is not yet a result:
-   it reads `none` and stays pending for the next report. */
+   not swallow a relaunch. A relaunch whose process is up is `relaunched` whatever the tunnel is
+   doing inside it; one that died again (a relaunch is scheduled) is `relaunch-failed`; with no
+   process and nothing scheduled (a deliberate stop) it is not a result and reads `none`. */
 let lastRestarts = 0;   // restarts counts from process start, so 0 is the true baseline
 
 /**
@@ -112,13 +122,13 @@ function build(deps) {
     const dirThere = (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })();
     const tunnel = tunnelState(st.state, on);
     const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
+    const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
     let heal = 'none';
-    let proposedRestarts = restarts;
     if (restarts > lastRestarts) {
-      if (tunnel === 'running') heal = 'relaunched';
-      else if (tunnel === 'starting') proposedRestarts = lastRestarts;   // not a result yet
-      else heal = 'relaunch-failed';
+      if (sup === 'alive') heal = 'relaunched';
+      else if (sup === 'waiting') heal = 'relaunch-failed';
     }
+    const proposedRestarts = restarts;
     let app = null;
     try { app = (deps && deps.appVersion) || require('../package.json').version || null; } catch { app = null; }
     const r = {

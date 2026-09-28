@@ -516,7 +516,7 @@ function ensure(port) {
     // address first and fetches the certificate last, so a tunnel started in that
     // minute would run the new identity on the old certificate. The register
     // brings it up itself when it finishes.
-    if (registerInFlight) return;
+    if (registerInFlight) { restartPending = false; return; }   // the register's start is not a relaunch (#4277 review 10)
     startChild();
   } catch (err) {
     process.stderr.write('remote: ensure failed: ' + (err && err.message) + '\n');
@@ -1867,6 +1867,10 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   stateDir: STATE_DIR,
   /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
   restartCount: () => restarts,
+  /* kosmos#4277 review 10: whether the supervisor's tunnel process is up ('alive'), dead with a
+     relaunch scheduled ('waiting'), or not running ('none'). This, not status(), says whether a
+     relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */
+  supervisorState: () => (restartTimer ? 'waiting' : (child ? 'alive' : 'none')),
   KEY_ONLY_ROUTE,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any

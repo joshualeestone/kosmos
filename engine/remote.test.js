@@ -587,6 +587,7 @@ test('#4277: a killed tunnel is relaunched by the supervisor, counted, and comes
   await until(() => remote.status().state === 'up' && remote.currentChildPid() && remote.currentChildPid() !== first,
     'the supervisor to relaunch the killed tunnel as a new process');
   assert.equal(remote.restartCount(), before + 1, 'the relaunch was not counted');
+  assert.equal(remote.supervisorState(), 'alive', 'the relaunched tunnel process is up');
   // The update path: the board goes away (its child with it) and starts again with the switch on.
   remote.resetForTests();
   assert.equal(remote.currentChildPid(), null, 'the old board left a tunnel running');
@@ -607,6 +608,7 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
   remote.ensure(4320);
   await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
   const before = remote.restartCount();
+  assert.equal(remote.supervisorState(), 'waiting', 'a crashed tunnel with a relaunch scheduled');
   // The board stops being enrolled before the restart timer fires: ensure() finds it unwanted.
   const crt = nodePath.join(remote.stateDir(), 'tls.crt');
   const saved = fs.readFileSync(crt);

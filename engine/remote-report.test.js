@@ -16,8 +16,10 @@ const path = require('node:path');
 const report = require('./remote-report');
 
 
-function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0 }) {
+function fakeRemote({ on = true, ok = true, state = 'up', because = null, dir, restarts = 0, sup }) {
+  const supervisor = sup || (state === 'restarting' ? 'waiting' : (state === 'up' || state === 'connecting' ? 'alive' : 'none'));
   return {
+    supervisorState: () => supervisor,
     read: () => ({ ok, on }),
     status: () => ({ state, because }),
     stateDir: () => dir,
@@ -79,7 +81,15 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['starting the connection', 'starting'],
     ['connecting to relay.plus.installkosmos.com:443: Connection refused (os error 61)', 'relay-unreachable'],
     ['connecting to relay.plus.installkosmos.com:443: failed to lookup address information', 'relay-unreachable'],
-    ['relay TLS handshake: invalid peer certificate: Expired', 'relay-unreachable'],
+    ['relay TLS handshake: invalid peer certificate: Expired', 'relay-certificate'],
+    ['relay TLS handshake: invalid peer certificate: UnknownIssuer', 'relay-certificate'],
+    ['relay TLS handshake: received fatal alert: HandshakeFailure', 'relay-unreachable'],
+    // session.rs AUTH read timeout: the relay never answered, which is not a refusal (review 10).
+    ['relay did not answer AUTH: deadline has elapsed', 'relay-unreachable'],
+    ['relay answered AUTH with ERROR', 'relay-refused'],
+    // A gateway page with relay words in a coordinator 5xx is still the coordinator (review 10).
+    ['Kosmos+ answered 502 for /v1/mac/relay-ticket: <html>connection lost keepalive</html>', 'coordinator-unreachable'],
+    ['Kosmos+ answered 403 for /v1/mac/relay-ticket: <html>connection lost</html>', 'coordinator-refused'],
     ['unexpected Ping frame from the relay', 'relay-dropped'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: busy', 'coordinator-unreachable'],
     ['Kosmos+ answered 409 for /v1/mac/relay-ticket: taken', 'coordinator-refused'],
@@ -131,7 +141,7 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
   let last = null;
-  const at = (restarts, state) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {} }); return last.heal; };
+  const at = (restarts, state, sup) => { last = report.build({ remote: fakeRemote({ dir, restarts, state, sup, because: state === 'up' ? null : 'x' }), env: {} }); return last.heal; };
   const commit = () => report.commitHeal(last);
   // The baseline is 0 (restarts counts from process start), so relaunches before the first
   // successful send are not lost.
@@ -143,11 +153,16 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
   commit();
   assert.equal(at(4, 'up'), 'none', 'the same count again is not a new relaunch');
   commit();
-  assert.equal(at(5, 'connecting'), 'none', 'a tunnel still starting was called a failure');
+  // A relaunched process still dialling is a relaunch that held, not a failure (review 10).
+  assert.equal(at(5, 'connecting'), 'relaunched', 'a relaunched tunnel still dialling was not reported');
   commit();
-  assert.equal(at(5, 'up'), 'relaunched', 'the pending relaunch was lost while the tunnel was starting');
+  assert.equal(at(6, 'restarting'), 'relaunch-failed', 'a relaunch that died again was not reported');
   commit();
-  assert.equal(at(6, 'restarting'), 'relaunch-failed');
+  // The tunnel reconnecting INSIDE a live process reads `restarting` too; the relaunch held (review 10).
+  assert.equal(at(7, 'restarting', 'alive'), 'relaunched', 'an in-process reconnect after a relaunch read as relaunch-failed');
+  commit();
+  // A deliberate stop after a relaunch: nothing is running and nothing is scheduled, so no result.
+  assert.equal(at(8, 'off', 'none'), 'none', 'a deliberate stop read as a relaunch result');
 });
 
 test('a remote that throws gives no report, never an exception', () => {

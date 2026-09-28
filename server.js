@@ -17015,9 +17015,11 @@ function start(port = PORT) {
          only other caller): a board nobody is watching is the one whose status we most need.
          Every ten minutes the refresh runs on its own. It is single-flighted and TTL-gated, so an
          open tab adds nothing, and this timer adds at most one standing call per board per ten
-         minutes. unref'd so it never holds the process open. */
+         minutes. The TTL sits under the interval: the refresh stamps its time AFTER the fetch returns,
+         so a TTL equal to the interval skipped every other tick (review 10). unref'd so it never
+         holds the process open. */
       const reportTick = setInterval(() => {
-        try { Promise.resolve(remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 })).catch(() => {}); } catch { /* best-effort */ }
+        try { Promise.resolve(remote.refreshStandingIfStale({ ttlMs: 9 * 60 * 1000 })).catch(() => {}); } catch { /* best-effort */ }
       }, 10 * 60 * 1000);
       if (typeof reportTick.unref === 'function') reportTick.unref();
       /* #185: the nudge sweep. Its own timer, never the status GET (a
