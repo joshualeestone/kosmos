@@ -18,12 +18,13 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/mktemp-template-4298.XXXXXXXXXX")" || { echo "FAIL  no scratch dir"; exit 1; }
 trap 'rm -rf "$T"' EXIT
 
-# The scope: every script under tools/ and its lib, not only the tests: the suite
-# runs release.sh, verify-served.sh and the build scripts too, and measured, those
-# left most of the tmp.* a run made. A glob that matched nothing would pass the
+# The scope: every script under tools/ and its lib, not only the tests, plus the
+# installer and bin scripts: the suite runs release.sh, verify-served.sh, the build
+# scripts and the pkg postinstall too, and measured, those left most of the tmp.* a
+# run made. A glob that matched nothing would pass the
 # clean arm vacuously, so it carries a floor.
 scope=()
-for f in tools/*.sh tools/lib/*.sh; do
+for f in tools/*.sh tools/lib/*.sh install/*.sh install/kosmos install/pkg-scripts/* bin/*.sh; do
   # This file's own fixtures below are bare on purpose.
   [ "$f" = "tools/test-mktemp-template-4298.sh" ] || scope+=("$f")
 done
@@ -32,7 +33,7 @@ done
   || bad "the scope glob matched ${#scope[@]} files; the clean arm would prove nothing"
 
 out="$(node tools/mktemp-template-check.js "${scope[@]}" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && ok "no script under tools/ calls mktemp without a path template" \
+[ "$rc" -eq 0 ] && ok "no script under tools/, install/ or bin/ calls mktemp without a path template" \
   || bad "template-less mktemp calls (give each \"\${TMPDIR:-/tmp}/<name>.XXXXXXXXXX\"):
 $out"
 
@@ -45,16 +46,19 @@ d="$(mktemp -t kosmos)"
 e="$(mktemp -d -t kosmos)"
 mktemp -d >/dev/null
 f=$(mktemp -d) && g=1
+h="$(/usr/bin/mktemp -d)"
+i="$(mktemp 2>/dev/null || echo /tmp/x)"
 SH
 n="$(node tools/mktemp-template-check.js "$T/bare.sh" | wc -l | tr -d ' ')"
-[ "$n" = "7" ] && ok "CONTROL: all 7 bare shapes are found" \
-  || bad "CONTROL: expected 7 bare calls found, got $n"
+[ "$n" = "9" ] && ok "CONTROL: all 9 bare shapes are found" \
+  || bad "CONTROL: expected 9 bare calls found, got $n"
 
 # The other side: templated calls and mentions are not calls to fix.
 cat > "$T/good.sh" <<'SH'
 a="$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXXXXXX")"
 b="$(mktemp "$out.archive.XXXXXX")"
 c="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)"
+j="$(/usr/bin/mktemp /tmp/kosmos-installing.XXXXXX 2>/dev/null || true)"
 echo "FAIL  mktemp failed, so nothing ran"
 # a bare mktemp -d in a comment is not a call
 SH

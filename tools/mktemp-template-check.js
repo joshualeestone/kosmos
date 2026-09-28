@@ -17,8 +17,9 @@
  */
 const fs = require('node:fs');
 
-/* The arguments stop at a redirection too: `mktemp -d >/dev/null` has no template. */
-const CALL = /(?:\$\(|`|^|[;&|]\s*)\s*mktemp\b([^)`;&|<>\n]*)/g;
+/* A call may name the binary by path (`/usr/bin/mktemp`). Its arguments stop at a
+   redirection, and the fd number in front of one (`2>/dev/null`) is not a template. */
+const CALL = /(?:\$\(|`|^|[;&|]\s*)\s*(?:\/[\w./-]*\/)?mktemp\b([^)`;&|<>\n]*)/g;
 
 /** The arguments of one call, split on whitespace with simple quote awareness. */
 function words(s) {
@@ -31,7 +32,7 @@ function words(s) {
 
 /** True when the call passes a positional template. `-t` takes a value, which is NOT a template on macOS. */
 function hasTemplate(args) {
-  const w = words(args.replace(/\s#.*$/, ''));
+  const w = words(args.replace(/\s#.*$/, '').replace(/\s\d+\s*$/, ''));
   for (let i = 0; i < w.length; i += 1) {
     if (w[i] === '-t' || w[i] === '-p') { i += 1; continue; }
     if (w[i].startsWith('-')) continue;

@@ -196,7 +196,9 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # `curl | sh` would have to fetch the thing to check the thing, over the same
    # channel, so it has no independent anchor. Only the pkg does.
    set -e
-   d=$(/usr/bin/mktemp -d) || exit 1
+   # kosmos#4298: a path template, because mktemp with none ignores TMPDIR. Same place
+   # under installd; under the test runner it lands in the per-run temp root.
+   d=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/kosmos-pkg-verify.XXXXXXXXXX") || exit 1
    trap "/bin/rm -rf \"$d\"" EXIT
    # AN UNREACHABLE CHECKSUM REFUSES TOO, AND THAT IS DELIBERATE. The threat this
    # guards is a MISCONFIGURED origin, not a malicious one: an origin that can
