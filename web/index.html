@@ -1352,6 +1352,16 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
    drawn at 2x and displayed at half, so it stays crisp on this screen. */
 .upd-back .upd-msg { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
 .upd-back .upd-k { width: 88px; height: 103px; display: block; }
+/* #4343 (Josh, 2026-09-28): the full-restart screen. Unlike the update overlay it is OPAQUE, on
+   the page's own ground, because his ask was that nothing else shows: no header, chips or panels. */
+.restart-back { position: fixed; inset: 0; z-index: 60; background: var(--k-bg);
+                display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
+.restart-back .restart-msg { display: flex; flex-direction: column; align-items: center; text-align: center;
+                             max-width: 26rem; color: var(--k-ink); outline: none; }
+.restart-back .restart-k { width: 88px; height: 103px; display: block; margin-bottom: 22px; }
+.restart-back h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.restart-back p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--k-ink-2); }
+.restart-back small { margin-top: 28px; font-size: 12px; color: var(--k-ink-3, #8a857c); }
 /* The pack's header: a three-column sticky grid (left group | centred nav
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
@@ -17362,6 +17372,7 @@ function windowsCopyTable() {
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
     offlineRemedy: 'Double-click Kosmos.exe in your Kosmos folder and it will start again if it needs to.',
+    restartHow: 'Close the Kosmos window, then double-click Kosmos.exe in your Kosmos folder.',
   };
 }
 function windowsCopy(key) {
@@ -20346,6 +20357,66 @@ function paintOfflineNote(down, deviceIsOffline) {
     + '</div></div>';
 }
 
+/* #4343 (Josh, 2026-09-28): "a nice clean centered graphic that says, 'Kosmos requires a full
+ * restart'", and nothing else on screen. It takes over from the note above once this window's own
+ * board has not answered for RESTART_SCREEN_AFTER_MS, and goes away by itself on the first poll
+ * that answers.
+ *
+ * It is a separate function from paintOfflineNote on purpose: that note names no cause and no
+ * remedy beyond reopening, and its tests hold it to that. This screen is Josh's ruling to say
+ * "restart" plainly, as the thing to do, and it still names no cause.
+ *
+ * Not shown when the note is telling a different story: the device itself is offline, the page
+ * is a Kosmos+ remote view (the Mac is somewhere else, and quitting this window restarts nothing),
+ * or an update is running (its own overlay owns the screen while the board is away on purpose).
+ * Nor on a page that no board served (file://, as the hermetic browser checks load it): there is
+ * nothing there to restart, and the poll fails on every tick.
+ * The page cannot restart the board itself, so there is no button: it says how.
+ */
+const RESTART_SCREEN_AFTER_MS = 15000;
+let BOARD_NO_ANSWER_SINCE = null;
+let RESTART_SCREEN_INERTED = [];
+function paintRestartScreen(down, deviceIsOffline) {
+  const shown = document.querySelector('.restart-back');
+  if (!down) BOARD_NO_ANSWER_SINCE = null;
+  let remote = false;
+  try { remote = !onWindows() && kplusRemote(); } catch { /* a document with no location is not remote */ }
+  let served = false;
+  try { served = location.protocol === 'http:' || location.protocol === 'https:'; } catch { /* no location: not served */ }
+  if (!down || deviceIsOffline || remote || !served || UPDATING_NOW) {
+    if (shown) {
+      shown.remove();
+      RESTART_SCREEN_INERTED.forEach((el) => { el.inert = false; });
+      RESTART_SCREEN_INERTED = [];
+    }
+    return;
+  }
+  const now = Date.now();
+  if (BOARD_NO_ANSWER_SINCE === null) BOARD_NO_ANSWER_SINCE = now;
+  if (shown || now - BOARD_NO_ANSWER_SINCE < RESTART_SCREEN_AFTER_MS) return;
+  const detail = [];
+  const v = bakedVersion();
+  if (v) detail.push('Version ' + esc(v));
+  try { if (location && location.host) detail.push('nothing answered at ' + esc(location.host)); }
+  catch { /* no location: the version stands alone */ }
+  const back = document.createElement('div');
+  back.className = 'restart-back';
+  back.innerHTML = '<div class="restart-msg" role="alert" tabindex="-1">'
+    + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
+    + '<h1>Kosmos requires a full restart</h1>'
+    + '<p>' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
+    + (detail.length ? '<small>' + detail.join(', ') + '.</small>' : '')
+    + '</div>';
+  document.body.appendChild(back);
+  startKLoader(back.querySelector('.restart-k'), { still: true });
+  /* Everything behind it goes inert, and only what this screen made inert is given back when it
+     clears, so a dialog that was already inert for its own reason stays that way. */
+  document.querySelectorAll('body > *:not(.restart-back)').forEach((el) => {
+    if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }
+  });
+  back.querySelector('.restart-msg').focus();
+}
+
 /* #3124: the agent-status freshness stamp now ages on the OBSERVER'S clock, on
    its own timer, so it can show the ABSENCE of new data -- the one thing a stamp
    painted only when data ARRIVES can never show. Before this it read
@@ -21088,6 +21159,7 @@ async function tick() {
     /* The board answered, so whatever this said is no longer true. Cleared on
        the same paint that proves it. */
     paintOfflineNote(false);
+    paintRestartScreen(false);
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
@@ -21166,6 +21238,7 @@ async function tick() {
        engine's sentence; painting "not answering" over it would be the screen
        contradicting itself, and the person would believe the louder half. */
     paintOfflineNote(!answered, BOARD_DEVICE_OFFLINE);
+    paintRestartScreen(!answered, BOARD_DEVICE_OFFLINE);
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
     // #3124: the failed poll owns the stamp; stop the ~1s ager repainting an age
@@ -38750,7 +38823,7 @@ let ROLES = null;          // the menu, fetched once
      least ... a single animation of the K animating into the circle"), so it lives
      here as the one source rather than a magic 4400 duplicated at the two sites. */
   const K_LOADER_CYCLE_MS = 4400;
-  function startKLoader(cv) {
+  function startKLoader(cv, opts) {
     if (!cv || !cv.getContext) return;
     var g = cv.getContext('2d');
     var W = cv.width, H = cv.height;
@@ -38877,7 +38950,8 @@ let ROLES = null;          // the menu, fetched once
       }
     }
 
-    if (slow) {
+    /* #4343: `still` draws the finished mark and nothing moves, for a screen where nothing is working. */
+    if (slow || (opts && opts.still)) {
       /* Reduced motion still gets both STATES, because they are information:
          the mark, and the mark completed. It just does not travel between them. */
       frame(1, 0);
