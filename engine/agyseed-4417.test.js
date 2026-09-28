@@ -90,6 +90,8 @@ test('#4417: the supervisor seeds idle AFTER claiming the session, only for an a
   assert.match(arm, /_AGY_TRUSTED="\$\("\$NODE_BIN" "\$_eng\/agytrust\.js" "\$WORKDIR" \|\| true\)"/);
   assert.match(arm, /_AGY_PANE="\$\("\$TMUX_BIN" new-session -d -s "\$SESSION" -P -F '#\{pane_id\}' -c "\$WORKDIR"/,
     'the pane id is not taken from new-session itself (a lookup by name can resolve another agent\'s session)');
+  const reset = sh.indexOf('_AGY_TRUSTED=""; _AGY_HOOKED=""; _AGY_PANE=""; _AGY_BRIDGE=""');
+  assert.ok(reset > -1 && reset < sh.indexOf('\nadopt='), 'the gate values are not reset before any path runs, so an inherited value could pass the gate on the adopt path');
   assert.ok(!arm.includes('KosmosLaunch'), 'the seed is inside the launch arm again, BEFORE the session is claimed: the board drops it');
   /* The seed itself: after the claim, because the board ties a report to an agent only through @kosmos_agent. */
   const claim = sh.indexOf('"$TMUX_BIN" set-option -t "$SESSION" @kosmos_agent "$SESSION"');

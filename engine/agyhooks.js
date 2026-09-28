@@ -196,7 +196,8 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   const same = had && typeof had === 'object' && !Array.isArray(had)
     && Object.keys(had).length === Object.keys(want).length
     && Object.keys(want).every((k) => JSON.stringify(had[k]) === JSON.stringify(want[k]));
-  /* #4417: `enabled` says whether agy will actually run the entry (the person may have switched it off). The supervisor
+  /* #4417: `enabled` says whether Kosmos's own entry is on (the person may have switched it off); a switch outside
+     this entry (an agy-wide setting) is not seen here. The supervisor
      sends a launch-time idle only for a hook that is in place AND on: without it nothing ever corrects that idle. */
   const on = want.enabled !== false;
   if (same) return { ok: true, changed: false, why: null, enabled: on };

@@ -67,6 +67,9 @@ MODEL="${6:-}"
 # to the runner binary" -- for a codex agent, create.js writes the codex
 # path there, so this script needs no second binary argument.
 RUNNER="${7:-claude}"
+# #4417: the launch-time idle's inputs start empty on EVERY path (adopt included), so only this run's own agy launch
+# arm can set them; a value inherited from the environment can never satisfy the gate after the session claim.
+_AGY_TRUSTED=""; _AGY_HOOKED=""; _AGY_PANE=""; _AGY_BRIDGE=""
 
 # ⚠️ TWO SPELLINGS OF THE SAME SESSION, and which commands take which was
 # MEASURED on tmux 3.6a rather than assumed, because assuming it broke the claim
@@ -890,8 +893,8 @@ fi
 "$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER" \
   || say "could not record $SESSION's runner -- the board will read it as claude"
 
-# #4417, for an Antigravity agent THIS run launched (the vars below are set only in its launch arm, never on the
-# adopt path). AFTER the claim above, on purpose: the board ties a report to an agent only once its session carries
+# #4417, for an Antigravity agent THIS run launched (the vars below start empty at the top of this script and are
+# set only in its launch arm). AFTER the claim above, on purpose: the board ties a report to an agent only once its session carries
 # @kosmos_agent (launchidentity.paneSessionIsOurs), so a report sent before the claim is not recorded.
 # agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
 # has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but

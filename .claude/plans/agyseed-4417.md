@@ -39,6 +39,10 @@ with no report as UNKNOWN ("Can't tell"). The API-key Gemini CLI has SessionStar
 - Timing: the seed is sent synchronously as the pane starts and agy takes seconds to boot, but it is not guaranteed
   to land before a turn a launch prompt starts. If it lands mid-turn the card reads idle until agy's next hook:
   PreInvocation fires before each model call, so normally within one model call, at worst until that turn's Stop.
+- The seed runs synchronously before the supervisor's keep-alive loop: a board that does not answer delays the start
+  of supervision by the bridge's own bounds (a second or two), not the agent, which is already running.
+- The supervisor half is pinned by source (as engine/agyhooks.test.js pins the agy arm); its runtime evidence is the
+  sandbox runs above, which need a real tmux and a fake agy and are not in the repo (review 6, deferred).
 - Named worlds: the signed-in read (agystatus.lastKnown, via store.ROOT) relies on the supervisor exporting the
   world's AGENT_WORKFORCE_* roots, which it does when KOSMOS_WORLD is set; if that export fails it reads the default
   store, the same fallback the launch-token mint already accepts (review 2, deferred as a known limit).
