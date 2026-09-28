@@ -49,6 +49,21 @@
   - run-tests.sh's default of all.
   - Mutations seen red: dropping shard 2/2 from the matrix; SUITE_TIMEOUT_MIN 30 against 45.
 
+## Measured on the runner (the real test.yml on this branch, via a temporary push trigger, since reverted)
+- Run 36415011074 (ec4a9eb): three source pins went red. #1934, #3605 and #4273 find the suite by
+  `^node --test`, and the line had been indented inside the new part check. It is flush left
+  again (225a6e8), and the #4317 test pins that.
+- Run 36416362440 (225a6e8): **success**.
+
+  | job | wall time | share of its 45 min |
+  |---|---|---|
+  | node | 719 s | 27% |
+  | shell 1/2 | 514 s | 19% |
+  | shell 2/2 | 638 s | 24% |
+
+  The whole suite now finishes in about 12 min of wall time, against 24 to 28 min before. 11142
+  node tests ran.
+
 ## Decided
 - Three jobs: the node part (about 9 min) and two shell shards (about 8 and 9.5 min). One node job
   is well under the bar, so the node files are not split; SHELL_SHARDS is one number to raise.
