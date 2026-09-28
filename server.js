@@ -3896,7 +3896,7 @@ const server = http.createServer((req, res) => {
      sensitive-route check above; carries no keys or remote ids. */
   if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, { posts: communitymine.mine() }); }
-    catch { sendJson(res, 500, { error: 'could not load your community posts' }); }
+    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts' }); }
     return;
   }
 

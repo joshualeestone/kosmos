@@ -119,14 +119,16 @@ test('a delete asked for before the post went out lists it as withheld', () => {
   assert.equal(row.canDelete, false);
 });
 
-test('a row carries no key, remote id or send time, whatever the record holds', () => {
+test('a row carries no remote id, send time or the record\'s own agent field, whatever the record holds', () => {
   const a = agentPost('ava', { topic: 'Out', body: 'x' });
-  writeSent({ [a.id]: { state: 'sent', agent: 'ava-session-key', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
+  // A record agent different from the post's, so the assertion can tell the record's field
+  // from the post's (the agent id itself is not a secret; the row names the agent on purpose).
+  writeSent({ [a.id]: { state: 'sent', agent: 'record-only-agent', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
   const row = mine.mine()[0];
   assert.deepEqual(Object.keys(row).sort(),
     ['agent', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
   const text = JSON.stringify(row);
-  for (const leak of ['remote-123', 'ava-session-key', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
+  for (const leak of ['remote-123', 'record-only-agent', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
 });
 
 test('a record whose board post is gone still lists, untitled, so the owner sees it', () => {
@@ -135,6 +137,9 @@ test('a record whose board post is gone still lists, untitled, so the owner sees
   assert.equal(rows.length, 1);
   assert.equal(rows[0].title, '');
   assert.equal(rows[0].postedAt, null);
+  // requestDelete answers 404 for an id with no board post, so no Delete is offered.
+  assert.equal(rows[0].canDelete, false);
+  assert.equal(cs.requestDelete('gone-1').ok, false);
 });
 
 test('the agent shows by its display name when it has one', () => {

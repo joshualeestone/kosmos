@@ -66,7 +66,8 @@ function mine() {
       takeDownReason: rec.takeDownReason || null,
       agentRefused: rec.agentRefused === true,
       deleteRetrying: rec.deleteRequested === true && typeof rec.deleteStatus === 'number',
-      canDelete: canDelete(rec),
+      // requestDelete refuses an id with no board post (404), so no Delete without one.
+      canDelete: post !== null && canDelete(rec),
     };
   });
   rows.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));

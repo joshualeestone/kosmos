@@ -97,6 +97,33 @@ test('#4287: with the board token, /sent answers, /delete 404s an unknown post a
   assert.equal(bad.status, 400);
 });
 
+test('#4313 CONTROL: GET /api/community/mine STAYS gated (403 without a token)', async () => {
+  assert.equal(await hit('/api/community/mine'), 403, 'the owner\'s list of their agents\' posts must require the board token');
+});
+
+test('#4313: with the board token, /mine lists a sent agent post with Delete, and the delete route turns it off', async () => {
+  const empty = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
+  assert.equal(empty.status, 200);
+  assert.deepEqual(await empty.json(), { posts: [] });
+  // An agent post published through the real choke, and the record shape the send sweep writes.
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('ava');
+  const pub = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic: 'Weekly ops', body: 'We moved invoicing.' }, { agentId: 'ava' });
+  assert.equal(pub.ok, true, JSON.stringify(pub));
+  fs.mkdirSync(path.dirname(communitysend._paths.sentFile()), { recursive: true });
+  fs.writeFileSync(communitysend._paths.sentFile(), JSON.stringify({ [pub.id]: { state: 'sent', agent: 'ava', remoteId: 'r1', sentAt: '2026-09-28T08:00:00Z' } }));
+  const listed = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.equal(listed.posts.length, 1);
+  assert.deepEqual([listed.posts[0].id, listed.posts[0].title, listed.posts[0].canDelete], [pub.id, 'Weekly ops', true]);
+  assert.ok(!JSON.stringify(listed).includes('r1'), 'no remote id reaches the page');
+  const d = await post('/api/community/delete', { id: pub.id }, { 'x-kosmos-board-token': TOK });
+  assert.equal(d.status, 200, JSON.stringify(d.json));
+  const after = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.deepEqual([after.posts[0].deleteRequested, after.posts[0].canDelete], [true, false]);
+});
+
 // ── With the token, the gated moderation route is reachable (not 403).
 test('#3485: the moderation route is reachable WITH the board token', async () => {
   assert.notEqual(await hit('/api/community/moderation', { headers: { 'x-kosmos-board-token': TOK } }), 403,

@@ -11797,7 +11797,6 @@ window.kosmosMeasureScrollbarWidth();
   </div>
 </div>
 
-
 <!-- 🛑 RESTART CONFIRMS, AND THE CONFIRMATION IS THE REASON commitments.js
      EXISTS. Its own opening line: restarting an agent kills whatever it had in
      flight, and the fresh session reports a confident all-clear. Its purpose
@@ -16257,7 +16256,6 @@ window.kosmosMeasureScrollbarWidth();
       <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts in the community</h4>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts have gone to the community yet.</p>
       <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
-      <p class="dhint" id="community-mine-msg" role="status" style="margin:6px 0 0;"></p>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
@@ -28252,13 +28250,17 @@ function communityMineWord(r) {
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
   if (r.state === 'withheld') return 'Deleted before it was sent';
+  if (r.state === 'refused') return 'Not accepted by the community';
+  /* refused agent before deleteRequested: the send layer sends nothing for a refused agent
+     (no DELETE, no settling), so a delete asked for on its post would otherwise promise
+     "comes down within a few minutes" forever. */
+  if (r.agentRefused) return (r.state === 'unconfirmed' ? 'Sent, not confirmed yet' : 'In the community')
+    + '. The community refused this agent, so Kosmos cannot delete its posts.';
   if (r.deleteRetrying) return 'Deleting. The community has not taken it down yet; Kosmos tries again every few minutes.';
   if (r.deleteRequested) return 'Deleting. It comes down from the community within a few minutes.';
-  if (r.agentRefused && r.state === 'sent') return 'In the community. The community refused this agent, so Kosmos cannot delete its posts.';
   switch (r.state) {
     case 'sent': return 'In the community';
     case 'unconfirmed': return 'Sent, not confirmed yet';
-    case 'refused': return 'Not accepted by the community';
     default: return '';
   }
 }

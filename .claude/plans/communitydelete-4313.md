@@ -58,8 +58,10 @@ engine/communitymine.test.js, which calls the real module.
 
 ## Validation
 
-- `node --test engine/communitymine.test.js`: 8 pass
-- web.*, community engine + server, bundle and every-test-runs guards: 2096/2098 on the first run.
-  The two failures: the click-bindings guard (fixed: the handler was renamed and wrapped) and
-  server.community-choke-3485's "no postId is a clean 400", which passes alone (11/11). That one
-  timed out under parallel load, and this change does not touch it.
+Measured on the branch rebased onto main (849273fa1, #4287 and #4288 both merged), 07:40 CDT:
+- engine/communitymine.test.js: 11/11
+- server.community-gate.test.js: 15/15, including two #4313 route tests; control: renaming
+  the route turns the with-token test red.
+- render-community-delete-4313 browser check, first on a fresh sandboxed board: all arms pass
+- full suite (`npm test`, tools/run-tests.sh): 11206 tests, 11041 pass, 165 skipped, 0 fail
+  (on the pre-fix tree of this same content; the challenge loop re-runs it on every fix)
