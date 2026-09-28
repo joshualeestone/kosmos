@@ -216,6 +216,9 @@ function chk(ok, label, extra) {
     chk(ment.stranger.value === 'draft' && ment.stranger.caret === 5, 'a post from someone not on the project gets no mention, and the cursor stays put', JSON.stringify(ment.stranger));
     chk(ment.afterX === '', 'x on a reply whose box holds only the mention empties the box', JSON.stringify(ment.afterX));
     // The real click: make the second post read as roomer's (its row is on screen), hover it, click its Reply.
+    // The room poll (every 5 s) rebuilds PJ_ROOM_POSTS; hold it for this arm so the edit below stays put.
+    await p.evaluate(() => { window.__loadRoom4359 = loadRoom; loadRoom = async () => {}; });
+    try {
     const secondId = await p.evaluate(() => {
       const box = [...document.querySelectorAll('#pj-room .rxns[data-post]')].find((b) => /Unrelated second post/.test(b.closest('.msg').textContent));
       const id = box && box.getAttribute('data-post');
@@ -257,10 +260,25 @@ function chk(ok, label, extra) {
         document.getElementById('pj-room-msg').textContent = '';
         return out && { text: out.text, attachments: out.attachments };
       });
+      // A Reply while a post is on its way leaves the box alone (the words in it are the ones being sent).
+      const midSend = await p.evaluate((id) => {
+        const box = document.getElementById('pj-post');
+        box.value = '@roomer sent words';
+        PJ_POSTING = true;
+        pjReplyStart(PJ_REPLY_ORIGINAL_ID);
+        const out = { value: box.value, rec: PJ_REPLY[PJ_CURRENT].mention };
+        PJ_POSTING = false;
+        box.value = ''; pjReplyStart(id);   // back to Reply's own mention for the arms that follow
+        return out;
+      }, secondId);
+      chk(midSend.value === '@roomer sent words' && midSend.rec === null, 'a Reply while a post is on its way leaves the box (the words being sent) alone', JSON.stringify(midSend));
       chk(!!withFile && withFile.text === '@roomer notes.pdf' && JSON.stringify(withFile.attachments) === '["att-4359"]', 'with only the mention and a file waiting, the post reads "@roomer notes.pdf" and carries the file', JSON.stringify(withFile));
-      await p.evaluate((id) => { const m = PJ_ROOM_POSTS.get(id); Object.assign(m, window.__was4359); document.getElementById('pj-room-msg').textContent = '';
+      await p.evaluate((id) => { const m = PJ_ROOM_POSTS.get(id); if (m) Object.assign(m, window.__was4359); document.getElementById('pj-room-msg').textContent = '';
         document.querySelector('#pj-reply .pj-replying-x').click(); }, secondId);
       chk(await p.evaluate(() => document.getElementById('pj-post').value) === '', 'x after that empties the box again');
+    }
+    } finally {
+      await p.evaluate(() => { if (window.__fetch4359) window.fetch = window.__fetch4359; if (window.__loadRoom4359) loadRoom = window.__loadRoom4359; });
     }
     await firstRow.hover();
     await firstRow.locator('.rxn-reply').click();

@@ -6306,7 +6306,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px;   /* WCAG 2.5.8 target size */
               display: inline-flex; align-items: center; justify-content: center; gap: 4px; }   /* #4358: the arrow and the word, centred */
 .rxn-reply-ico { flex: none; display: block; }
-/* #4358 (Josh): hover is a bright gold outline, not a dark one. On the light surface --gold-bright is
+/* #4358 (Josh): hover is a bright gold outline, not a dark one. Keyboard focus shows the gold AND keeps the
+   bar's 2px ink ring below, which is the focus indicator. On the light surface --gold-bright is
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
@@ -52436,7 +52437,7 @@ document.getElementById('pj-reply').addEventListener('click', (e) => {
   pjReplyPaint(PJ_CURRENT);
   // #4359: a box holding nothing but the mention Reply put there goes back to empty.
   const box = document.getElementById('pj-post');
-  if (box && r && r.mention && box.value === r.mention) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
+  if (box && r && r.mention && box.value.trim() === r.mention.trim()) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
   const said = document.getElementById('pj-room-msg');   // a refusal that said "Press ×" is done with
   if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
   pjRoomAnnounce('Not replying.');
@@ -53111,6 +53112,9 @@ function pjReplyStart(postId) {
 function pjReplyMention(p, m, previous) {
   const input = document.getElementById('pj-post');
   if (!input) return;
+  /* While a post is on its way the box still holds the words being sent (they clear on success only
+     if unchanged), so a Reply now records no mention and leaves the box alone. */
+  if (PJ_POSTING) { if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = null; return; }
   const before = input.value;
   const caret = typeof input.selectionStart === 'number' ? input.selectionStart : before.length;
   let text = before;
@@ -53121,7 +53125,7 @@ function pjReplyMention(p, m, previous) {
   /* The mention is Reply's to take back out later (on x, or on a Reply to another post) only if Reply
      wrote it: now, or on an earlier Reply whose mention is still at the front. One the person typed
      is theirs, and nothing here ever removes it. */
-  const typed = !!ins && text.startsWith(ins) && cut === 0;
+  const typed = !!ins && text.startsWith(ins);   // left at the front once Reply's own is taken out: the person's
   if (ins && text.startsWith(ins)) { text = text.slice(ins.length); cut += ins.length; }   // already there: not twice
   if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins && !typed ? ins : null;
   const after = ins + text;
