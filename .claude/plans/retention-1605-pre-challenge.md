@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: retention-1605
-diff_hash: 462740abdac4a9a4bd3da9c1cdcc5862c1e912aada01a9e34d4c69eadfc2c877
+diff_hash: 1446b4fcc5c80978828513c9969094a3fe73dce7ef20ba6ce1bb49b2f741d980
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T16:17:24Z
-iterations: 6
+timestamp: 2026-09-28T18:45:40Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (iterations 4 and 6 raised no BLOCKER or WARNING; 5 was a CI-driven reopen)
+**Iterations:** 7
+**Converged:** Yes (iterations 4, 6 and 7 raised no BLOCKER or WARNING; 5 and 7 were CI-driven reopens)
 **Total findings:** 26 (2 BLOCKERs, 8 WARNINGs, 0 CONVENTIONs, 16 NITs across rounds; counted from the reviewers' reports)
 **Fixed:** 2 BLOCKERs, 8 WARNINGs, 9 NITs | **Deferred:** 7 NITs (reasons in the plan and below) | **Asked (awaiting user):** 0
 
@@ -64,5 +64,11 @@ PR #4360's macOS runner failed Gate 10: "the local https server did not start", 
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs (a double `wait` on one pid, harmless; bash's own "Killed: 9" job line alongside the FAIL line). No issues found at BLOCKER or WARNING; both failure modes reproduced as reported correctly, with no hang or leak.
 **Self-generated:** 0
 
+#### Iteration 7 (reopened by CI again)
+**Reviewer model:** sonnet
+PR #4360's shell 2/2 on 1c2fd5d failed Gate 10 again. This time the iteration-5 diagnostic named the cause: "still running after ~30s with no port; cert made; server stderr: (empty)". `http.server.HTTPServer.server_bind` calls `socket.getfqdn()`, a reverse-DNS lookup that blocks on a runner with slow DNS. My first guess, a python3 stub without Command Line Tools, was wrong: the log shows GitHub's macos-26-arm64 image. Fixed: the server binds like `socketserver.TCPServer` with no lookup. Proven both ways with getfqdn patched to sleep 40s.
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs. The reviewer reproduced the A/B on Python 3.9 and 3.14 and confirmed getfqdn is the only lookup before the print.
+**Self-generated:** 1 (Gate 10 was this loop's own test)
+
 ### Final validation (6j)
-Full validation helper on HEAD dc397dd06: PASSED, hash 462740abdac4, exit 0; tools/test-dist-retention.sh 146 passed, 0 failed inside it. (An earlier pass on 950ecd4ba, hash bf61ab4d4bb8, preceded the CI reopen.) CI on dc397dd06 then ran Gate 10 green on the macOS runner (both redirect arms PASS, test-dist-retention 146/146, job 109012212603). Every fix was also mutation-checked (14 mutants; the one standalone survivor, the file_id shape check, is killed in combination with the pre-fix ordering).
+Full validation helper on HEAD c682e9d09: PASSED, hash 1446b4fcc5c8, exit 0 (earlier: dc397dd06, hash 462740abdac4); tools/test-dist-retention.sh 146 passed, 0 failed inside it. (An earlier pass on 950ecd4ba, hash bf61ab4d4bb8, preceded the CI reopen.) CI on dc397dd06 then ran Gate 10 green on the macOS runner (both redirect arms PASS, test-dist-retention 146/146, job 109012212603). Every fix was also mutation-checked (14 mutants; the one standalone survivor, the file_id shape check, is killed in combination with the pre-fix ordering).
