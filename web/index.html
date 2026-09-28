@@ -20425,14 +20425,16 @@ function paintRestartScreen(down, deviceIsOffline) {
   if (v) detail.push('Version ' + v);
   try { if (location && location.host) detail.push('nothing answered at ' + location.host); }
   catch { /* no location: the version stands alone */ }
-  const back = document.createElement('div');
-  back.className = 'restart-back';
-  // A modal that takes the whole page: announced once, by its heading and its how-to, on focus.
-  back.innerHTML = '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
+  /* A modal that takes the whole page: announced once, by its heading and its how-to, on focus. Built
+     as one string with the backdrop's id first, so web.modal-way-out-1316's sweep names it. */
+  const holder = document.createElement('div');
+  holder.innerHTML = '<div class="restart-back" id="restart-screen">'
+    + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
     + '<p id="restart-how">' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
-    + '</div>';
+    + '</div></div>';
+  const back = holder.firstElementChild;
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
      not answer go to the log, not onto the page. */
   if (detail.length) { try { console.info('Kosmos requires a full restart: ' + asSentence(detail.join(', '))); } catch { /* no console */ } }
