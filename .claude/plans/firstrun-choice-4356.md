@@ -5,8 +5,15 @@
   the app treats every Mac as run before reading anything, so there is no first screen and no connect,
   and first run is exactly as before. A test pins it off. #4382 (Johnny Cage, a connect Mac updating
   itself) turns it on in its own PR, so Connect reaches no release before a connect Mac can update.
-- The one thing that runs with it off: an update of a set-up pre-#4356 install records `run`, which
-  changes nothing a person sees (absent and run both start the board).
+- With it off, the app never writes the file, so on main it can only be absent or `run` (the
+  migration), and both start the board as before. The installer is NOT behind the switch: it honours
+  whatever file it finds. A Mac that chose connect (or has a damaged file) on a switch-on dogfood
+  build keeps its board off through an update, and its lines say the app will stop it or ask, which a
+  switch-off app does not do; that app starts the board as run, so the outcome heals. Known, accepted
+  (review round 30).
+- Also known (review round 30): a choice that becomes connect after the start step reads "will not
+  start itself at login" before the end-of-run stop has written the marker; the file names this
+  read-then-act window.
 - Everything under "Finished means" below describes the switch ON.
 
 ## Finished means (Liu Kang's plan on the card, and m2433/m2435/m2442)

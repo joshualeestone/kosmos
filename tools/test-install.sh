@@ -835,7 +835,7 @@ chk "an unreadable choice does not become run: the board stays down" "! curl -s 
 chk "and board.stopped is there for launchd and the watchdog" "[ -e \"$SB/home/board.stopped\" ]"
 chk "its step lines give the unreadable reason, not the connect one" "grep -q \"It stays off until this computer.s setup is chosen in the Kosmos app\" \"$SB/update-unreadable.log\""
 chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
-chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board runs on this computer, on purpose' \"$SB/update-unreadable.log\""
+chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board of this install runs here, on purpose' \"$SB/update-unreadable.log\""
 # The migration, measured by running it (the grep above only finds its lines): an update of an install
 # from before #4356 with no choice records run when first run is done, records nothing when it is not,
 # and never overwrites a choice that exists.
@@ -866,6 +866,7 @@ chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
 chk "the launchd bootstrap's restart reads the choice again first" "grep -B1 'restart >/dev/null 2>&1 || true' \"$SETUP\" | grep -q '_kosmos_board_decide'"
+chk "and the restart itself is held by the board-off decision (the sandbox never reaches it)" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
 chk "a marker this run wrote goes if the choice became run or both during it" "grep -A3 '^elif \\[ \"\$_kosmos_board_off\" = no \\] && \\[ \"\$_kosmos_wrote_marker\" = yes \\]; then' \"$SETUP\" | grep -q 'rm -f \"\$KOSMOS_HOME/board.stopped\"'"
 chk "and the run ends by stopping a board that became connect during it" "grep -A2 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' \"$SETUP\" | grep -q 'kosmos\" stop'"
 rm -f "$SB/home/mode"

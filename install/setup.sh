@@ -3827,7 +3827,7 @@ ok
 # #4356: the heading says what this run does. On a computer set not to run a board, the login item is
 # still installed (so "Run agents on this computer" works later) and board.stopped keeps it off.
 if [ "$_kosmos_board_off" = yes ]; then
-  step "Setting Kosmos to open at login. It stays off $(_kosmos_off_why)."
+  step "Preparing Kosmos to start at login. It stays off $(_kosmos_off_why)."
 else
   step "Keeping Kosmos running after a restart."
 fi
