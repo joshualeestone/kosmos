@@ -162,7 +162,8 @@ test('the module has no card-creation surface -- triage cannot open a card by co
 test('#4415: a negated action word is not an action; a report that nothing went wrong is below the bar', () => {
   const t = require('./feedback-triage');
   for (const clean of ['Nothing appears broken in the interactions checked.', 'No errors today in any of the flows I ran.',
-    'Everything worked as expected across the three rooms.', 'The update ran without any issues on this Mac.']) {
+    'Everything worked as expected across the three rooms.', 'The update ran without any issues on this Mac.',
+    'The queue is completely idle and ready for work rather than stuck or blocked.']) {
     assert.equal(t.classify(clean).score, 0, clean + ' scored as a candidate');
   }
   assert.ok(t.classify('The room scroll is broken: it lands higher up on every return.').score > 0, 'control: a real report still scores');

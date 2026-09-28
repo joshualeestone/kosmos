@@ -64,7 +64,7 @@ const ACTION = new Set([
  *  crash" name a thing that went RIGHT; counting the action word made a clean report the top candidate (raised 7
  *  times in the live store). An action word within NEGATION_REACH words after one of these does not count. */
 const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
-  'werent', 'nor', 'neither', 'free']);
+  'werent', 'nor', 'neither', 'free', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
 const NEGATION_REACH = 3;
 
 /** kosmos#4415: an item made only of this kind of statement reports that nothing was wrong. */
