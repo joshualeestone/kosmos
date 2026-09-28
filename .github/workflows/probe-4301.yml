@@ -1,0 +1,36 @@
+# TEMP (#4301): measure win32apply's W4 on windows-latest, quiet and under load. Removed before the PR.
+name: probe-4301
+on:
+  push:
+    branches: ["w4-4301"]
+permissions:
+  contents: read
+jobs:
+  w4:
+    strategy:
+      fail-fast: false
+      matrix:
+        load: [0, 1, 2]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: W4 eight times, with LOAD whole win32apply runs alongside
+        run: |
+          for j in $(seq 1 ${{ matrix.load }}); do
+            ( while true; do node --test engine/win32apply.test.js < /dev/null > /dev/null 2>&1; done ) &
+          done
+          pass=0; fail=0
+          for i in 1 2 3 4 5 6 7 8; do
+            node --test --test-name-pattern="ROUND 8 decisions 1 and 2 \(W4\)" engine/win32apply.test.js < /dev/null > w4.txt 2>&1
+            d=$(grep -oE "✔ ROUND 8 decisions 1 and 2 \(W4\).*\(([0-9.]+)ms\)" w4.txt | grep -oE "[0-9.]+ms\)$" | tr -d 'ms)')
+            if grep -q "^ℹ pass 1" w4.txt; then pass=$((pass+1)); echo "LOAD ${{ matrix.load }} run $i PASS ${d}ms"; else fail=$((fail+1)); echo "LOAD ${{ matrix.load }} run $i FAIL"; awk '/failing tests:/{f=1} f' w4.txt | grep -v "^\s*at " | head -40; fi
+          done
+          echo "LOAD ${{ matrix.load }}: pass=$pass fail=$fail"
