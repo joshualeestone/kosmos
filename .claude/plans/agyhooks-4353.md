@@ -6,7 +6,7 @@ board adopts running agents rather than restarting them, so its card said "Can't
 ## Design
 - `engine/agyrefresh.js`: for every RUNNING agent of this Kosmos (create.runningJobs) whose job
   runner is 'antigravity' AND whose launch folder has no Kosmos entry in `.agents/hooks.json`
-  yet (an object entry, the same test ensureHooks applies), call
+  yet (an object entry; a malformed one is repaired), call
   agyhooks.ensureHooks(folder, allowance.stableNode(), create.agyBridgePath(), false).
   - The folder is argument 3 of the agent's own plist (what the running supervisor was started
     with), decoded with create.unxml, falling back to create.workerDir(name).

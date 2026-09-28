@@ -30,8 +30,8 @@ function hasKosmosHook(workdir, hookName) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(workdir, '.agents', 'hooks.json'), 'utf8'));
     const e = j && typeof j === 'object' ? j[hookName] : null;
-    // The same test ensureHooks applies: only an object entry counts (a null or a string there
-    // is malformed, and ensureHooks would replace it, so it must not read as "already hooked").
+    // Only an object entry counts (a null, a string or a list there is malformed, and
+    // ensureHooks replaces it, so it must not read as "already hooked").
     return !!(e && typeof e === 'object' && !Array.isArray(e));
   } catch { return false; }
 }
@@ -90,12 +90,9 @@ async function refreshRunningAgyHooks(deps) {
     the job was rewritten since without a restart. Falls back to create.workerDir(name) (what
     plistFor writes there) when the plist cannot be read. */
 function launchDir(create, name) {
-  try {
-    const text = fs.readFileSync(create.plistPath(name), 'utf8');
-    const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
-    const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]) : [];
-    if (args[3]) return create.unxml(args[3]);
-  } catch { /* fall back */ }
+  let read = null;
+  try { read = create.plistArgs(name); } catch { read = null; }
+  if (read && read.args[3]) return read.args[3];
   return create.workerDir(name);
 }
 
