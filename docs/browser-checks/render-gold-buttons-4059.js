@@ -185,6 +185,27 @@ async function fillContrast(page, sel) {
       for (let j = 4; j < shotBefore.h - 4; j += 1) for (let i = Math.floor(shotBefore.h / 2); i < shotBefore.w - shotBefore.h / 2; i += 1) if (diffAt(i, j) > 12) insideMoved += 1;
       chk(insideMoved > 50, 'G4 the light is really drawn: pixels inside the pill changed', 'changed=' + insideMoved);
       chk(cornerMoved === 0, 'G4 the light stays inside the pill: the bounding-box corners outside it are unchanged', 'corners changed=' + cornerMoved);
+      // G4 by pixels, whatever the light happens to reach: the dye may never touch a corner, so the arm above can pass
+      // with no clip at all (measured: it did). Here the canvas ITSELF is painted solid magenta, unblended, for one
+      // screenshot, so every pixel of its box shows unless the clip removes it: magenta inside the pill, none in the
+      // corners of the box that lie outside it.
+      await page.evaluate(() => { const c = document.querySelector('canvas.gold-light'); c.style.background = '#ff00ff'; c.style.mixBlendMode = 'normal'; c.style.opacity = '1'; });
+      await settle(page);
+      const mag = await pixels(page, clip1);
+      await page.evaluate(() => { const c = document.querySelector('canvas.gold-light'); if (c) { c.style.background = ''; c.style.mixBlendMode = ''; c.style.opacity = ''; } });
+      const isMag = (i, j) => { const k = idx(mag, i, j); return mag.d[k] > 180 && mag.d[k + 1] < 110 && mag.d[k + 2] > 180; };
+      let magCorner = 0, magInside = 0;
+      const rr = mag.h / 2;
+      for (let j = 0; j < mag.h; j += 1) {
+        for (let i = 0; i < mag.w; i += 1) {
+          const cx = i + 0.5, cy = j + 0.5;
+          const capX = cx < rr ? rr : (cx > mag.w - rr ? mag.w - rr : cx);
+          const d = Math.hypot(cx - capX, cy - rr);
+          if (d > rr + 1 && isMag(i, j)) magCorner += 1;          // clearly outside the pill
+          if (d < rr - 3 && isMag(i, j)) magInside += 1;          // clearly inside it
+        }
+      }
+      chk(magInside > 200 && magCorner === 0, 'G4 the canvas is clipped to the pill: painted solid, it shows inside the pill and not in the box corners outside it', JSON.stringify({ magInside, magCorner }));
 
       // G3: the second button takes the same canvas.
       await swipe(page, '[data-gx=g2]', 2);
