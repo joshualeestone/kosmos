@@ -14,14 +14,31 @@ require('./test-support/tmpscope');   // #4273: this file's temp dirs are remove
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
 const page = require('./test-support/page');
+/* Real cards (fixture discipline: no hand-built card), so a sandbox for the fleet fixture's worker files first. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-rename-4421-web-')));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+const fleet = require('./test-support/fleet');
 
 const HTML = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
 
-const OLD = 'Gemini-Sub';          // the session name, which the old surfaces kept showing
+const OLD = 'gemini-sub';          // the session name, which the old surfaces kept showing
 const NEW = 'Demis Hassabis - Gemini';
+
+/* The agent as the board served it when opened (named by its id: nothing names it yet) and as the next poll serves
+   it after the rename (its own instructions file now names it). In this order: the second writes the name file. */
+function cardOf(key, opts) {
+  const board = fleet.install([fleet.agent(key, { state: 'working', ...opts })]);
+  try { return board.agents.find((c) => c.sessionName === key); } finally { board.restore(); }
+}
+const OPENED = cardOf(OLD, {});
+const POLLED = cardOf(OLD, { displayName: NEW });
+const APRIL = cardOf('april', { displayName: 'April Ludgate' });
+const SOMEONE = cardOf('someone-else', { displayName: 'Someone Else' });
 
 function world({ boxValue = OLD, focused = false, photo = false } = {}) {
   const state = { focused };
@@ -46,14 +63,21 @@ function world({ boxValue = OLD, focused = false, photo = false } = {}) {
      runs the real ones). */
   const metas = [];
   const avatars = [];
+  const mems = [];
   const w = new Function('document', 'detailNavNames', 'fitDetailName', 'memoryBox', 'paintDetailMeta', 'renderAvatar', src)(
-    doc, (n) => nav.push(n), () => {}, (a) => 'memory of ' + (a && a.name) + ' at ' + (a && a.memPct), (a) => metas.push(a),
+    doc, (n) => nav.push(n), () => {}, (a) => { mems.push(a); return 'memory of ' + (a && a.name); }, (a) => metas.push(a),
     (a) => avatars.push(a && a.name));
-  return { ...w, heading, nav, els, metas, avatars, state };
+  return { ...w, heading, nav, els, metas, avatars, mems, state };
 }
 
-const opened = () => ({ sessionName: OLD, name: OLD, state: 'working', hasAvatar: false, memPct: 40, nameDerived: false });
-const polled = () => ({ sessionName: OLD, name: NEW, state: 'working', hasAvatar: false, memPct: 90, nameDerived: true });
+const opened = () => ({ ...OPENED });   // a copy: followRename writes CURRENT.name
+const polled = () => ({ ...POLLED });
+
+test('#4421 fixture: the real cards are the agent before and after the rename', () => {
+  assert.equal(OPENED.name, OLD);
+  assert.equal(POLLED.name, NEW);
+  assert.equal(POLLED.sessionName, OPENED.sessionName);
+});
 
 test('#4421 fixture: before the poll, the page shows the name it was opened with (the bug\'s starting point)', () => {
   const w = world();
@@ -81,17 +105,17 @@ test('#4421: after a rename, the poll moves every surface to the new name, and t
   assert.equal(disc.parentElement.style.background, w.discTint(NEW));
   assert.deepEqual(w.avatars, [], 'renderAvatar re-fetches a photo and redraws a swarm cluster; the rename does not need it');
   assert.match(w.els['d-instr-lede'].textContent, /^What Demis Hassabis - Gemini is for/, 'the Instructions lede');
-  assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW + ' at 40',
-    'the memory box: the new name, and still the open-time reading the ring and badge beside it show');
+  assert.equal(w.els['d-memory'].innerHTML, 'memory of ' + NEW, 'the memory box names the new name');
+  assert.equal(w.mems[0], w.get(), 'the memory box was drawn from the fresh card, not CURRENT (whose reading the ring and badge show)');
   assert.equal(w.metas.length, 1);
-  assert.equal(w.metas[0].nameDerived, true, 'the title line was not repainted from the renamed card (its "no name was chosen" note)');
+  assert.equal(w.metas[0], fresh, 'the title line (and its "no name was chosen" note) was not repainted from the renamed card');
   assert.equal(w.els['d-rename'].value, NEW, 'the rename box, which Save sends as the name');
 });
 
 test('#4421: a DM row from someone other than the open agent is named by their card, not their id', () => {
   const w = world();
   w.set(opened());
-  w.setLast([{ sessionName: 'april', name: 'April Ludgate' }]);
+  w.setLast([APRIL]);
   assert.equal(w.dmWho('april', OLD), 'April Ludgate');
   w.setLast([]);
   assert.equal(w.dmWho('april', OLD), 'april', 'with no card, the id is all there is');
@@ -122,12 +146,12 @@ test('#4421: a room or task label for an agent that has left the project uses it
   // eslint-disable-next-line no-new-func
   const f = new Function(src)();
   const project = { agents: [] };   // it left
-  f.setLast([{ sessionName: OLD, name: NEW }]);
+  f.setLast([POLLED]);
   assert.equal(f.pjNameOf(project, OLD), NEW, 'a room post from a former member showed its id');
   assert.equal(f.tkMemberName(project, OLD), NEW, 'a task row for a former member showed its id');
   f.setLast([]);
   assert.equal(f.pjNameOf(project, OLD), OLD, 'with no card anywhere, the id is all there is');
-  assert.equal(f.pjNameOf({ agents: [{ sessionName: OLD, name: 'Member Name' }] }, OLD), 'Member Name', 'a member keeps its project name');
+  assert.equal(f.pjNameOf({ agents: [{ ...OPENED, name: 'Member Name' }] }, OLD), 'Member Name', 'a member keeps its project name');
 });
 
 test('#4421: an agent with a photo keeps its photo: the hidden letter disc is not restyled', () => {
@@ -142,8 +166,8 @@ test('#4421: no card this poll, another agent\'s card, or a card with no name ke
   const w = world();
   w.set(opened());
   w.followRename(null);
-  w.followRename({ sessionName: 'someone-else', name: 'Someone Else' });
-  w.followRename({ sessionName: OLD, name: '' });
+  w.followRename(SOMEONE);
+  w.followRename({ ...POLLED, name: '' });
   assert.equal(w.get().name, OLD);
   assert.equal(w.heading.textContent, OLD);
   assert.deepEqual(w.nav, [], 'the heading was repainted for nothing');
