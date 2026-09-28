@@ -19712,7 +19712,16 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     if (UPD_ASKED && pageIsStale(running)) {
       put('This page is older than the Kosmos running it. Reload the page to get the newer one.');
     } else {
-      put(UPD_ASKED ? 'Up to date.' : '');
+      /* #2969: THE VERDICT NAMES THE CHANNEL IT CHECKED. Josh's laptop, 2026-09-28, read
+         "Up to date." on 0.7.03 while staging served 0.7.05: it was installed from staging but
+         polling the release pointer, and nothing on the card said which one it had asked. A bare
+         "Up to date" is only true relative to a channel, so it says which. A channel this page
+         was not told (an older board, a harness) keeps the bare sentence rather than guess one. */
+      /* Inside the painter, not a helper beside it: the render harnesses lift this function's
+         source alone. */
+      const upToDate = channel === 'staging' ? 'Up to date on the staging channel.'
+        : channel === 'prod' ? 'Up to date on the release channel.' : 'Up to date.';
+      put(UPD_ASKED ? upToDate : '');
     }
     /**
      * 🛑 THE CONTROL, NOT THE VERDICT, AND THEY ARE GATED DIFFERENTLY (#995).

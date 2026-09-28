@@ -225,7 +225,7 @@ test('THE OLD BUG\'S SHAPE: a newer MAC build with the Windows build current is 
   assert.equal(st.update, null, 'nothing newer for this platform');
   assert.equal(st.updateManual, null);
   const card = paintStatus(st, true);
-  assert.equal(card.line, 'Up to date.');
+  assert.equal(card.line, 'Up to date on the release channel.', '#2969: the verdict names the channel it checked');
   assert.equal(card.downloadHidden, true, 'a Download link with nothing newer to download');
   assert.equal(card.btnHidden, false, 'CONTROL: the check button is back when there is no offer');
 });
@@ -253,6 +253,14 @@ test('staging: the card says "Staging channel" beside the [Update] offer on a no
   assert.equal(card.line, 'Version ' + NEWER + ' is ready.');
   assert.match(PAGE, /<small id="upd-channel"[^>]*hidden>Staging channel<\/small>/, 'the tag\'s words moved');
 
+  /* #2969: current on staging says WHICH channel it is current on. Josh's laptop read a bare
+     "Up to date." on 0.7.03 while it was polling the release pointer and staging served 0.7.05. */
+  const cur = await statusAfterLook(winFetch(RUNNING));
+  assert.equal(cur.updateChannel, 'staging');
+  assert.equal(paintStatus(cur, true).line, 'Up to date on the staging channel.');
+  /* A channel the page was not told (an older board's payload) is not guessed. */
+  assert.equal(paintStatus(Object.assign({}, cur, { updateChannel: undefined }), true).line, 'Up to date.');
+
   /* Staging unreachable: no offer, the channel still shown, and the failure named. */
   const down = await statusAfterLook(async () => { throw new Error('offline'); });
   const d = paintStatus(down, true);
@@ -279,7 +287,7 @@ test('source checkout on Windows: no in-app offer and no manual offer (this box 
   assert.equal(st.update, null, 'a from-source Windows board offered an in-app update');
   assert.equal(st.updateManual, null, 'a from-source Windows board was told to unpack a zip over itself');
   const card = paintStatus(st, true);
-  assert.equal(card.line, 'Up to date.', 'a dev checkout is not nagged with an update it cannot take');
+  assert.equal(card.line, 'Up to date on the release channel.', 'a dev checkout is not nagged with an update it cannot take');
   assert.equal(card.downloadHidden, true);
 });
 
@@ -314,7 +322,7 @@ test('S5 (#3017): the Roll back button shows and names its version when a kept b
   current.updateRollback = { version: '0.6.50' };
   const upToDate = paintStatus(current, true);
   assert.equal(upToDate.rollbackShown, true, 'the Roll back button hid when up to date, so people cannot find rollback');
-  assert.equal(upToDate.line, 'Up to date.');
+  assert.equal(upToDate.line, 'Up to date on the release channel.');
   /* No kept build: hidden. */
   st.updateRollback = null;
   const none = paintStatus(st, true);

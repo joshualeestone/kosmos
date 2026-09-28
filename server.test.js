@@ -7832,6 +7832,7 @@ test("the update card's states are mutually exclusive, and the line is blank onl
     // Current: up-to-date needs BOTH reached and readable.
     els = mk();
     paint('0.1.9', null, { reached: true, readable: true });
+    // No channel is passed here, so this is the untold-channel arm (#2969); a real status names it.
     assert.equal(els['upd-line'].textContent, 'Up to date.');
     assert.equal(els['upd-btn'].textContent, 'Check for Update');
     // Reached but unreadable (the captive-portal shape): NEVER up-to-date.
