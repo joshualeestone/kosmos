@@ -468,7 +468,10 @@ function engineFreshness() {
       try {
         const m = fs.statSync(file).mtimeMs;
         if (m === seen.mtimeMs) continue;
-        if (engineFileSha(file) === seen.sha) { seen.mtimeMs = m; continue; }   // touched, or restored byte-for-byte
+        /* A file already found changed is not re-hashed until its time moves again. */
+        const sha = m === seen.lastMtimeMs ? seen.lastSha : engineFileSha(file);
+        seen.lastMtimeMs = m; seen.lastSha = sha;
+        if (sha === seen.sha) { seen.mtimeMs = m; continue; }   // touched, or restored byte-for-byte
         changed.push(path.relative(__dirname, file).split(path.sep).join('/'));
         if (m > newest) newest = m;
       } catch { /* gone or unreadable: not evidence of staleness */ }

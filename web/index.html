@@ -19614,14 +19614,17 @@ function renderUpdateToast(u) {
      (POST /api/engine/restart). No version number: the merges that caused this never moved one, which is
      why this compares files to the process and not numbers. */
   if (ENGINE_STALE && ENGINE_STALE.staleSince) {
-    const can = ENGINE_STALE.canRestart === true;
+    /* A Kosmos+ view (a phone) is not the computer that runs Kosmos: it says so, and offers no restart of it. */
+    const remote = typeof offlineRemoteView === 'function' && offlineRemoteView();
+    const can = ENGINE_STALE.canRestart === true && !remote;
+    const where = remote ? 'on your Kosmos computer' : 'on this computer';
     /* #4408: say WHAT changed and that it changed on this computer. the tester's banner came from an agent editing
        an installed file, not an update, so "finish updating" would have been false. */
     const changed = Array.isArray(ENGINE_STALE.changed) ? ENGINE_STALE.changed.filter((f) => typeof f === 'string' && f) : [];
     const what = changed.length
-      ? 'A Kosmos file was changed on this computer (' + esc(changed[0]) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '')
+      ? 'A Kosmos file was changed ' + where + ' (' + esc(changed[0]) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '')
         + '), and Kosmos is still running the old copy.'
-      : 'A Kosmos file was changed on this computer, and Kosmos is still running the old copy.';
+      : 'A Kosmos file was changed ' + where + ', and Kosmos is still running the old copy.';
     const key = can ? 'engine-btn' : 'engine';
     const names = changed.join('|');
     if ((slot.dataset.v === key && slot.dataset.changed === names) || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) return;

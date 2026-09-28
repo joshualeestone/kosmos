@@ -47,7 +47,13 @@ function chk(ok, label, extra) {
         : { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: can };
       return route.fulfill({ response: res, body: JSON.stringify(body) });
     });
-    await page.route('**/api/engine/restart', (route) => { posts += 1; restarted = true; return route.fulfill({ status: 202, contentType: 'application/json', body: '{"ok":true,"restarting":true}' }); });
+    let refuse = true;   // the first press is refused, the second accepted
+    await page.route('**/api/engine/restart', (route) => {
+      posts += 1;
+      if (refuse) return route.fulfill({ status: 409, contentType: 'application/json', body: '{"ok":false,"because":"refused for this check"}' });
+      restarted = true;
+      return route.fulfill({ status: 202, contentType: 'application/json', body: '{"ok":true,"restarting":true}' });
+    });
     /* A fresh board opens on first run, whose window would sit over the toast: finish it through the
        board's own route first (a board that already finished answers the same). */
     await page.request.post(URL + '/api/first-run/complete').catch(() => {});
@@ -73,6 +79,17 @@ function chk(ok, label, extra) {
     chk(/Your agents keep running/.test(yes.text), 'it says the agents keep running', yes.text);
     await page.screenshot({ path: path.join(OUT, 'engine-restart.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } }).catch(() => {});
 
+    /* REFUSED: the toast says so in its title (read even when narrow), and the button comes back. */
+    await page.click('#ut-engine-restart');
+    await page.waitForFunction(() => /could not restart itself/.test(((document.querySelector('#utoast-slot b') || {}).textContent) || ''), null, { timeout: 5000 }).catch(() => {});
+    const ref = await page.evaluate(() => ({ title: (document.querySelector('#utoast-slot b') || {}).textContent || '',
+      small: (document.querySelector('#utoast-slot small') || {}).textContent || '',
+      btn: (() => { const b = document.getElementById('ut-engine-restart'); return b ? { on: !b.disabled, t: b.textContent } : null; })() }));
+    chk(ref.title === 'Kosmos could not restart itself', 'a refused restart says so in the title', ref.title);
+    chk(!/restart your computer|Kosmos\.exe|sign out/i.test(ref.small), 'and promises no remedy it cannot keep', ref.small);
+    chk(!!ref.btn && ref.btn.on && ref.btn.t === 'Restart Kosmos', 'and the button is back to press again', JSON.stringify(ref.btn));
+    refuse = false;
+    posts = 0;
     const nav = page.waitForNavigation({ timeout: 20000 }).then(() => true).catch(() => false);
     await page.click('#ut-engine-restart');
     const label = await page.evaluate(() => { const b = document.getElementById('ut-engine-restart'); return b ? b.textContent : 'gone'; }).catch(() => 'gone');

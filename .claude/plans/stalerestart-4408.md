@@ -20,7 +20,7 @@ board process, so it never cleared.
    server.engine-restart-4408.test.js (boardrestart stubbed; CONTROL; double press). Mutation removing the latch: red.
 3. web/index.html: "Kosmos needs a quick restart" / "A Kosmos file was changed on this computer (<file> and N more),
    and Kosmos is still running the old copy." With canRestart: "A restart picks it up. Your agents keep running." and
-   one Restart Kosmos button; without, on a Mac: "Restarting your computer picks it up." (Windows keeps its own copy).
+   one Restart Kosmos button; without it, one platform-neutral sentence that promises no remedy ("Kosmos cannot restart itself here, so it keeps running the old copy until it is next started."): every specific remedy reviewers checked (restart the computer, sign out and in) was false for some board that shows it. A Kosmos+ remote view says "your Kosmos computer" and gets no button.
    No Terminal wording (#996). The button POSTs, says Restarting, keeps the did-not-answer screen down, reloads when
    a board with a new start time answers; an already-current 409 reloads; other refusals are plain words, the detail
    to the console. Browser check render-engine-restart-4408.

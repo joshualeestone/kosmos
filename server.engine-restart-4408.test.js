@@ -55,7 +55,10 @@ test('#4408: a current board is not restarted, and the page is told no button', 
   assert.deepEqual(spawned, [], 'a current board restarted itself');
 });
 
-test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once', async () => {
+/* The stubs above pin the Mac arms (launchctl, the installed CLI); on Windows canSelfRestart takes the logon-task
+   arm and would ask the real schtasks, so the restart arm runs on the Mac only. */
+test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once',
+  { skip: process.platform === 'win32' && 'the Windows arm (schtasks) is not stubbed here' }, async () => {
   /* A throwaway module at the app root, never a real source file (server.test.js edits its own beside this). */
   /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
   const dir = path.join(__dirname, `.probe-restart-${process.pid}`);

@@ -401,3 +401,25 @@ test('#4347: What\'s New deciding or open, or the person active in the last 30 s
   assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true; window\.kosmosWhatsNewSince = Date\.now\(\);/, 'whatsNewCheck no longer marks itself pending');
   assert.match(SCRIPT, /\} finally \{\n\s*if \(typeof window !== 'undefined'\) window\.kosmosWhatsNewPending = false;/, 'whatsNewCheck no longer clears its pending mark');
 });
+
+test('#4408: a Kosmos+ remote view (a phone) says "your Kosmos computer" and offers no restart of it', () => {
+  const slot = { dataset: {}, innerHTML: '' };
+  const doc = {
+    getElementById: (id) => (id === 'utoast-slot' ? slot : { addEventListener() {}, focus() {}, hidden: true }),
+    querySelector: () => ({ getAttribute: () => '0.2.75' }),
+  };
+  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: true };
+  const draw = (remote) => {
+    slot.innerHTML = ''; slot.dataset = {};
+    new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE', 'offlineRemoteView',
+      page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'renderUpdateToast'])
+      + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), false, '0.2.75', () => false, null, null, engine, () => remote);
+    return slot.innerHTML;
+  };
+  const far = draw(true);
+  assert.match(far, /A Kosmos file was changed on your Kosmos computer \(engine\/roles\.js\)/);
+  assert.doesNotMatch(far, /ut-engine-restart/, 'a phone was offered a restart of the Mac');
+  const near = draw(false);
+  assert.match(near, /changed on this computer/, 'CONTROL: the computer itself says this computer');
+  assert.match(near, /ut-engine-restart/, 'CONTROL: and gets the button');
+});
