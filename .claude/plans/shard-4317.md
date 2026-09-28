@@ -67,6 +67,8 @@
   | shell 1/2 | 514 s | 19% |
   | shell 2/2 | 638 s | 24% |
 
+  Run 36419129296 (c07e463, after review round 1): success again. node 697 s (26%), shell 1/2
+  481 s (18%), shell 2/2 681 s (25%).
   The whole suite now finishes in about 12 min of wall time, against 24 to 28 min before. 11142
   node tests ran.
 
