@@ -1785,9 +1785,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
    aria-hidden with a visible label beside it, so this is the promo staying legible, not a
    hard SC 1.4.11 case. */
 .userpop-plus .userpop-ico { color: var(--gold-deep); }
-/* The logged-in member line: a check + "Kosmos+ member". Dormant until a real membership
-   signal exists (plusMember() is a stub returning false today, same gap as #plus-state2),
-   so the logged-out promo shows for everyone for now. */
+/* The logged-in member line: a star + "Kosmos+ member", shown instead of the promo when
+   plusMember() reads data-fed-member (a Kosmos+ member in good standing, from /api/status). */
 /* .userpop-plus-member always co-occurs with .userpop-plus on the same button, so
    `.userpop-plus .userpop-ico` above already golds its icon -- no separate rule needed. */
 .userpop-plus-badge { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: var(--k-sunk);
@@ -10566,10 +10565,8 @@ window.kosmosMeasureScrollbarWidth();
       <div class="userpop-menu" id="userpop-menu" hidden>
         <!-- #3360: Kosmos+ promo at the top. Logged-out shows "Log in to Kosmos+" (deep-links
              to Settings > Kosmos Plus, the real sign-in surface -- sign-up itself happens on
-             the site). The member line below is DORMANT until a membership signal exists (the
-             plusMember() stub returns false, the same gap #plus-state2 already carries by
-             design), so the promo shows for everyone for now. syncUserpopPlus() shows exactly
-             one of the two. -->
+             the site). A member in good standing sees the member line below instead
+             (plusMember() reads data-fed-member). syncUserpopPlus() shows exactly one of the two. -->
         <button class="userpop-item userpop-plus" id="userpop-plus" type="button">
           <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.6-4.6 4.1 1.4 6L12 18.9 6.5 19.3l1.4-6L3.3 9.2l6.1-.6z"/></svg>
           <span>Log in to Kosmos+</span>
@@ -25646,13 +25643,12 @@ async function worldHideSubmit() {
   function open() { if (!menu.hidden) return; syncUserpopPlus(); menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
   function close() { if (menu.hidden) return; menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
   /* #3360: the Kosmos+ line has two states -- the logged-out "Log in to Kosmos+" promo and a
-     logged-in "Kosmos+ member" line -- and exactly one shows. plusMember() is the signal, and
-     there is none in the app yet (the same gap #plus-state2 carries: reachable by design, not
-     by a signal), so it returns false and the promo shows for everyone. When a real membership
-     signal lands, wire it here and the member line appears with no other change. The signal
-     itself is the engine piece, flagged to Splinter/Angel. Re-checked on every open so it
-     tracks a signal that can change at runtime. */
-  function plusMember() { return false; }
+     logged-in "Kosmos+ member" line -- and exactly one shows. plusMember() reads data-fed-member,
+     which fedGateStamp() sets on every /api/status poll from kosmos_plus (fedKosmosPlusNow(): this
+     account is an authenticated Kosmos+ member in good standing). The SAME field the federation
+     gate reads, so the menu can never disagree with it; no second account call. Re-checked on
+     every open, so a lapse or an upgrade shows on the next open after the poll that saw it. */
+  function plusMember() { return document.documentElement.hasAttribute('data-fed-member'); }
   function syncUserpopPlus() {
     const promo = document.getElementById('userpop-plus');
     const member = document.getElementById('userpop-plus-member');
@@ -25689,7 +25685,7 @@ async function worldHideSubmit() {
     close();
   }
   // The "AI Models" line lands on the 'accounts' settings section (its data-go is "accounts",
-  // labelled "AI Models" in the nav). "Log in to Kosmos+" and the dormant member line both open
+  // labelled "AI Models" in the nav). "Log in to Kosmos+" and the member line both open
   // Settings > Kosmos Plus, the real in-app sign-in surface. #userpop-settings keeps its id.
   const goMap = {
     'userpop-settings': null,
