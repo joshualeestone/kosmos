@@ -123,6 +123,18 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - Not changed: the redundant own-path disjuncts in leftoverJob stay, since it is exported and a caller may
   pass an `ours` that exists; a comment says so.
 
+## Review 11
+
+- The review said the refusal copy's literal own-path compare would call our own EXISTING plist, printed
+  as `/private/var/...`, "a file Kosmos did not make". Measured: unreachable through create, which refuses an
+  existing own plist earlier ("no folder for it") without asking launchctl; reverting that line reds nothing.
+  Tracing the same shape found a live one: with our plist ABSENT, realpath of it throws, so its `/private`
+  spelling slipped leftoverJob's own check, read as gone, and our own job was booted out. Fixed with one `isOurs` (realpath through the folder, so an
+  absent file still canonicalises) used at all three own-path checks. The absent arm is pinned through create (dropping the folder
+  fallback reds it); the existing arm by a unit test, since create cannot reach it.
+- The $HOME fixtures also clean up on SIGINT/SIGTERM. A SIGKILL runs no hook; that residual is stated in the
+  test file.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to

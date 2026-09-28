@@ -763,24 +763,28 @@ test('a name a live session already answers to is refused, even with no folder',
     'the refusal above was not caused by the roster, so this test proves nothing about it');
 });
 
-/* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
-   The runner is stateful: `print` describes the job until `bootout` runs, then
-   describes nothing, which is what launchctl does. */
 /* #4279: fixtures that must be OUTSIDE every temp root live under $HOME (this file's SANDBOX
-   is in temp). Each test removes its own in a finally; this exit hook is the backstop for a
-   hard-killed run, and it unlocks a chmod 000 folder before removing it. */
+   is in temp). Each test removes its own in a finally. The exit and SIGINT/SIGTERM hooks are the
+   backstop for a failed or interrupted run, unlocking a chmod 000 folder first. A SIGKILL runs
+   no hook, so one can still strand a fixture there. */
 const HOME_FIXTURES = [];
 function homeFixture(prefix) {
   const d = fs.mkdtempSync(nodePath.join(os.homedir(), prefix));
   HOME_FIXTURES.push(d);
   return d;
 }
-process.on('exit', () => {
-  for (const d of HOME_FIXTURES) {
+function removeHomeFixtures() {
+  for (const d of HOME_FIXTURES.splice(0)) {
     try { fs.chmodSync(d, 0o700); } catch { /* already gone */ }
     try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
   }
-});
+}
+process.on('exit', removeHomeFixtures);
+for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => { removeHomeFixtures(); process.kill(process.pid, sig); });
+
+/* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
+   The runner is stateful: `print` describes the job until `bootout` runs, then
+   describes nothing, which is what launchctl does. */
 
 function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null } = {}) {
   const calls = [];
@@ -840,6 +844,35 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
   assert.doesNotMatch(r.because, /did not make/, 'our own plist was called a file Kosmos did not make');
   assert.match(r.because, /already set to start on this computer/);
   assert.ok(!bootedOut(calls), 'it unloaded a job loaded from our own plist path');
+});
+
+test('#4279: isOurs and leftoverJob treat our own EXISTING plist under its real path as ours', () => {
+  /* Unit level on purpose: through createAgent an existing own plist is refused earlier ("no folder
+     for it") and launchctl is never asked, so a create-level test of this arm tests nothing. */
+  const own = create.plistPath('leftover-ownreal');
+  fs.mkdirSync(nodePath.dirname(own), { recursive: true });
+  fs.writeFileSync(own, '<plist/>');
+  try {
+    const real = fs.realpathSync.native(own);
+    assert.notEqual(real, own, 'the fixture does not exercise a second spelling');
+    assert.equal(create.isOurs(real, own), true);
+    assert.equal(create.isOurs(own, own), true);
+    assert.equal(create.isOurs(nodePath.join(nodePath.dirname(real), 'someone-else.plist'), own), false);
+    // A relative spelling of our OWN path: resolved against the cwd it IS ours, and it must still be refused.
+    assert.equal(create.isOurs(nodePath.relative(process.cwd(), own), own), false);
+    assert.equal(create.leftoverJob(`x = {\n\tpath = ${real}\n}\n`, own), null, 'our own plist was judged a leftover');
+  } finally { fs.rmSync(own, { force: true }); }
+});
+
+test('#4279: our own ABSENT plist printed by its real folder path is never booted out as gone', WIN_LAUNCHD, () => {
+  const own = create.plistPath('leftover-ownabsent');
+  fs.mkdirSync(nodePath.dirname(own), { recursive: true });
+  const printed = nodePath.join(fs.realpathSync.native(nodePath.dirname(own)), nodePath.basename(own));
+  assert.ok(printed !== own && !fs.existsSync(own), 'the fixture does not exercise an absent second spelling');
+  const calls = leftoverRunner(printed);
+  const r = create.createAgent({ ...BINS, name: 'leftover-ownabsent', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.ok(!bootedOut(calls), 'it unloaded our own job because its /private spelling read as gone');
 });
 
 test('#4279: a job whose plist EXISTS outside a temp folder is still refused, never booted out', WIN_LAUNCHD, () => {

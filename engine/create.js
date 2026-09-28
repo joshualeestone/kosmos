@@ -940,6 +940,20 @@ function printedPath(printed) {
   return m ? m[1].trim() : '';
 }
 
+/* One path through its real folder: a missing file cannot be realpath'd, but its folder can,
+   so /private/var/... and /var/... name the same absent plist. */
+function canonPath(p) {
+  const r = path.resolve(p);
+  try { return fs.realpathSync.native(r); } catch { /* absent: canonicalise the folder */ }
+  try { return path.join(fs.realpathSync.native(path.dirname(r)), path.basename(r)); } catch { return r; }
+}
+/* Is `p` this agent's own plist, under any spelling of it? One helper for every own-path
+   question (#4279 review 11), so the bootout guard and the refusal copy cannot disagree. */
+function isOurs(p, ours) {
+  if (!p || !path.isAbsolute(p)) return false;
+  return path.resolve(p) === path.resolve(ours) || canonPath(p) === canonPath(ours);
+}
+
 function leftoverJob(printed, ours) {
   const loadedFrom = printedPath(printed);
   if (!loadedFrom) return null;
@@ -949,12 +963,7 @@ function leftoverJob(printed, ours) {
      naming a live plist elsewhere. A file that exists is also realpath'd, so a
      symlink in temp that points at a live plist outside it is judged by its target. */
   const resolved = path.resolve(loadedFrom);
-  /* Both spellings of `ours` are compared (resolved and realpath'd) on purpose: create reaches
-     this only when our plist is absent, where the two agree, but leftoverJob is exported and a
-     caller may pass an `ours` that exists. */
-  let oursReal = path.resolve(ours);
-  try { oursReal = fs.realpathSync.native(oursReal); } catch { /* ours may not exist yet */ }
-  if (resolved === path.resolve(ours) || resolved === oursReal) return null;
+  if (isOurs(resolved, ours)) return null;
   /* GONE means ENOENT, and only that: a permission error or a flaky mount also makes
      existsSync say false, and "could not check" is not "deleted". Anything else refuses. */
   try { fs.statSync(resolved); } catch (e) {
@@ -963,7 +972,7 @@ function leftoverJob(printed, ours) {
   }
   let real = resolved;
   try { real = fs.realpathSync.native(resolved); } catch { return null; }
-  if (real === oursReal || real === path.resolve(ours)) return null;
+  if (isOurs(real, ours)) return null;
   if (tempRoots().some((root) => underRoot(real, root))) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
   return null;
 }
@@ -4412,7 +4421,7 @@ function createAgentInner(opts) {
     const namedPath = printedPath(printed);
     let namedExists = false;
     try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && Boolean(fs.statSync(namedPath)); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
-    const namedIsOurs = Boolean(namedPath) && path.resolve(namedPath) === path.resolve(plistPath(name));
+    const namedIsOurs = isOurs(namedPath, plistPath(name));
     if (!tried && namedExists && !namedIsOurs) {
       return {
         outcome: OUTCOME.REFUSED,
@@ -5526,6 +5535,7 @@ module.exports = {
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
   underRoot,
+  isOurs,
   /* #3034: exported so engine/setup-assistant.js reads the CREATED sentinel from
      one source instead of re-declaring the literal 'created' (convention: a
      duplicated fact needs one source or a pin). */
