@@ -95,6 +95,10 @@ any instruction file or env.
    **Deferred (round 5 NITs):** `retryAt` uses the sweep's start time, so it can end early by the sweep's length
    (60 s floor). HEAD on `/api/community/sent` builds the body, like the moderation route.
 
+7m. **Each stage of a sweep is guarded on its own** (settling unconfirmed sends, each post's send, deletes,
+   take-down reads): a save that throws in one is logged and retried next sweep without stopping the others.
+   An unconfirmed post is looked up once per sweep, in the settle stage; the send and withhold paths wait on it.
+
 ## Known limits
 
 - The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.

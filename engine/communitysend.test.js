@@ -681,3 +681,20 @@ test('a 429 on registration waits instead of registering again every sweep', asy
   await cs.sweep();
   assert.equal(registers, 1);
 });
+
+test('a post whose save fails does not stop the sweep: the delete of another post still goes out', async () => {
+  await on();
+  const a = agentPost('ian', { topic: 'public', body: 'b' });
+  await cs.sweep();
+  cs.requestDelete(a.id);
+  agentPost('jen', { topic: 'new agent', body: 'b' });   // registering jen saves keys.json
+  const d = cs._paths.endpointDir();
+  fs.chmodSync(d, 0o500);                                 // every save in this folder now throws
+  try {
+    await cs.sweep();
+  } finally {
+    fs.chmodSync(d, 0o700);
+  }
+  assert.equal([...be.st.posts.values()].find((p) => p.title === 'public').deleted, true,
+    'one failing post stopped the delete of another');
+});

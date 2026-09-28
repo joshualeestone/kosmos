@@ -249,9 +249,9 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
-async function ensureRegistered(agentKey, keys) {
+async function ensureRegistered(agentKey, keys, now) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
-  if ((registerRetryAt.get(agentKey) || 0) > Date.now()) return null;
+  if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
@@ -264,7 +264,7 @@ async function ensureRegistered(agentKey, keys) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
-    if (r.status === 429) registerRetryAt.set(agentKey, Date.now() + Math.max(60, r.retryAfter || 3600) * 1000);
+    if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
   }
@@ -305,16 +305,12 @@ async function findExisting(agentKey, keys, body, sent) {
 async function sendPost(post, keys, sent, now) {
   const agentKey = post.agent;
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
-  const k = await ensureRegistered(agentKey, keys);
+  const k = await ensureRegistered(agentKey, keys, now);
   if (!k || k.refused) return;
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
-  if (rec.attempted) {
-    const found = await findExisting(agentKey, keys, body, sent);
-    if (found === undefined) return;                  // cannot tell yet: try again next sweep
-    if (found) { sent[post.id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() }); return; }
-  }
+  if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
   if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
@@ -404,8 +400,10 @@ async function sweepOnce(now) {
   // Sends that got no answer are settled first, whatever the switch says: a copy the server
   // holds is adopted (so a delete and take-down reads reach it), and one it does not hold
   // is known not to be public.
-  await settleUnconfirmed(keys, sent, now);
-  saveJson(sentFile(), sent);
+  try {
+    await settleUnconfirmed(keys, sent, now);
+    saveJson(sentFile(), sent);
+  } catch (e) { log(`unconfirmed sends: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   if (on && st) {
     const from = sinceForOnPeriod(st);
     const due = communitystore.publishedPosts()
@@ -417,17 +415,27 @@ async function sweepOnce(now) {
       // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
       const nowDeletes = loadJson(deletesFile());
       if (!nowDeletes) break;                         // cannot see the owner's deletes: send nothing more
-      if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
-      else await sendPost(post, keys, sent, now);
-      saveJson(sentFile(), sent);
+      // One post that fails (a save that throws, say) must not stop the others, the
+      // deletes or the take-down reads below.
+      try {
+        if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
+        else await sendPost(post, keys, sent, now);
+        saveJson(sentFile(), sent);
+      } catch (e) {
+        log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
+      }
     }
   }
   // Deletes and take-down reads send nothing new, so they run with the switch OFF too.
-  const deletes = loadJson(deletesFile());
-  if (deletes) await sweepDeletes(keys, sent, deletes);
-  saveJson(sentFile(), sent);
-  await sweepTakedowns(keys, sent, now);
-  saveJson(sentFile(), sent);
+  try {
+    const deletes = loadJson(deletesFile());
+    if (deletes) await sweepDeletes(keys, sent, deletes);
+    saveJson(sentFile(), sent);
+  } catch (e) { log(`deletes: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  try {
+    await sweepTakedowns(keys, sent, now);
+    saveJson(sentFile(), sent);
+  } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -445,18 +453,9 @@ async function settleUnconfirmed(keys, sent, now) {
   }
 }
 
-// The owner deleted a post that is not known to be on the server. If an earlier send of it
-// got no answer, the server may hold it: adopt that copy so its DELETE goes out. Otherwise
-// it is withheld and never sent.
 async function withhold(post, keys, sent) {
   const rec = sent[post.id] || { agent: post.agent };
-  if (rec.attempted) {
-    const k = keys[post.agent];
-    if (!k || !k.apiKey || k.refused) return;         // cannot ask: leave it for the next sweep
-    const found = await findExisting(post.agent, keys, payload(post, rec.channel), sent);
-    if (found === undefined) return;
-    if (found) { sent[post.id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date().toISOString() }); return; }
-  }
+  if (rec.attempted) return;                          // may be on the server: settleUnconfirmed decides
   sent[post.id] = settle(rec, { state: 'withheld' });
 }
 
