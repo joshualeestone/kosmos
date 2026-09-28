@@ -108,8 +108,14 @@ test('a look fetches the pointer pointerFor names, on each platform and channel'
     update.resetCache();
     update.setPlatform(platform);
     if (channel) process.env.KOSMOS_UPDATE_CHANNEL = channel; else delete process.env.KOSMOS_UPDATE_CHANNEL;
+    const from = urls.length;
     await update.refresh();
-    assert.equal(urls[urls.length - 1], 'https://installkosmos.com/dist/' + file, `${platform}/${channel || 'prod'} fetched the wrong pointer`);
+    // The look's OWN pointer is the first read. #2969: a readable Mac staging look then also reads
+    // prod, to offer a prod-only hotfix; no other combination reads a second pointer.
+    const seen = urls.slice(from);
+    assert.equal(seen[0], 'https://installkosmos.com/dist/' + file, `${platform}/${channel || 'prod'} fetched the wrong pointer`);
+    const expected = platform === 'darwin' && channel === 'staging' ? ['https://installkosmos.com/dist/latest.json'] : [];
+    assert.deepEqual(seen.slice(1), expected, `${platform}/${channel || 'prod'} read an unexpected second pointer`);
   }
 });
 
@@ -242,9 +248,10 @@ test('#2969: a staging-stamped Mac with no variable FETCHES the staging pointer'
   try {
     fs.writeFileSync(stamp, 'staging\n');
     update.resetCache();
-    update.setFetcher(async (u) => { url = u; return { ok: true, json: async () => ({ version: RUNNING }) }; });
+    update.setFetcher(async (u) => { if (!url) url = u; return { ok: true, json: async () => ({ version: RUNNING }) }; });
     await update.refresh();
     assert.match(url, /\/latest-staging\.json$/, 'the look went to ' + url);
+    url = '';
     fs.rmSync(stamp, { force: true });
     update.resetCache();
     await update.refresh();
@@ -255,6 +262,68 @@ test('#2969: a staging-stamped Mac with no variable FETCHES the staging pointer'
     if (saved.a !== undefined) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = saved.a;
     if (saved.k !== undefined) process.env.KOSMOS_UPDATE_CHANNEL = saved.k;
   }
+});
+
+/* #2969 review 1: staging is NOT always at or ahead of prod. tools/release.sh cuts straight to prod
+   by default and never touches latest-staging.json, so a staging subscriber that read only its own
+   pointer would sit on "Up to date" past a prod hotfix. A readable staging look is compared with
+   prod; the newer one is the offer, the installer reads THAT pointer, and the stamp stays staging. */
+test('#2969: a staging subscriber is offered a NEWER prod build, installs it from the prod pointer, and stays subscribed to staging', async () => {
+  const bump = (v, d) => { const p = String(v).split('.').map(Number); p[2] += d; return p.join('.'); };
+  const STAGING_V = bump(RUNNING, 1), PROD_V = bump(RUNNING, 2);
+  const saved = { a: process.env.AGENT_WORKFORCE_UPDATE_CHANNEL, k: process.env.KOSMOS_UPDATE_CHANNEL };
+  delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL; delete process.env.KOSMOS_UPDATE_CHANNEL;
+  update.setPlatform('darwin');
+  update.setRecordedChannel(() => 'staging');
+  const urls = [];
+  const serve = (staging, prod) => async (u) => {
+    urls.push(u);
+    if (/latest-staging\.json$/.test(u)) return staging === null ? { ok: false, json: async () => null } : { ok: true, json: async () => ({ version: staging }) };
+    if (/latest\.json$/.test(u)) { if (prod === 'throw') throw new Error('offline'); return { ok: true, json: async () => ({ version: prod }) }; }
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    // prod newer than staging: prod is the offer, the installer reads prod, the stamp stays staging.
+    update.resetCache(); update.setFetcher(serve(STAGING_V, PROD_V)); await update.refresh();
+    assert.deepEqual(update.available(), { version: PROD_V }, 'a prod hotfix newer than staging was not offered to a staging subscriber');
+    assert.equal(update.installPointer(), 'prod', 'the installer would read the staging pointer and install a different version than the card offered');
+    assert.equal(update.updateChannel(), 'staging', 'the subscription must stay staging');
+    // staging newer (the usual case): staging is the offer and the pointer.
+    update.resetCache(); update.setFetcher(serve(PROD_V, STAGING_V)); await update.refresh();
+    assert.deepEqual(update.available(), { version: PROD_V });
+    assert.equal(update.installPointer(), 'staging');
+    // equal: staging wins (only strictly newer moves the pointer).
+    update.resetCache(); update.setFetcher(serve(STAGING_V, STAGING_V)); await update.refresh();
+    assert.equal(update.installPointer(), 'staging');
+    // prod unreachable: the staging answer stands.
+    update.resetCache(); update.setFetcher(serve(STAGING_V, 'throw')); await update.refresh();
+    assert.deepEqual(update.available(), { version: STAGING_V });
+    assert.equal(update.installPointer(), 'staging');
+    // staging UNREADABLE: never retried against prod (unchanged rule): no offer, no prod fetch.
+    urls.length = 0;
+    update.resetCache(); update.setFetcher(serve(null, PROD_V)); await update.refresh();
+    assert.equal(update.available(), null, 'an unreadable staging pointer fell back to prod');
+    assert.deepEqual(urls.filter((u) => /latest\.json$/.test(u)), [], 'prod was fetched after an unreadable staging answer');
+    // a PROD subscriber still reads exactly one URL.
+    update.setRecordedChannel(() => 'prod');
+    urls.length = 0;
+    update.resetCache(); update.setFetcher(serve(STAGING_V, RUNNING)); await update.refresh();
+    assert.equal(urls.length, 1, 'a prod subscriber fetched more than its own pointer: ' + urls.join(' '));
+    assert.equal(update.installPointer(), 'prod');
+  } finally {
+    update.setRecordedChannel(null); update.setPlatform(null); update.setFetcher(null); update.resetCache();
+    if (saved.a !== undefined) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = saved.a;
+    if (saved.k !== undefined) process.env.KOSMOS_UPDATE_CHANNEL = saved.k;
+  }
+});
+
+test('#2969: the spawned installer reads the offer\'s pointer and is told the subscription to stamp', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'update.js'), 'utf8');
+  assert.ok(src.includes("KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel()"),
+    'the installer env must carry the offer\'s pointer AND the subscription (setup.sh stamps KOSMOS_SOURCE_CHANNEL)');
+  const setup = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  assert.ok(setup.includes('case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac'),
+    'setup.sh must stamp the subscription it is told, or a staging box taking a prod hotfix becomes a prod box');
 });
 
 test('the base: KOSMOS_RELEASE_BASE is honoured, and the old name still works and wins', async () => {

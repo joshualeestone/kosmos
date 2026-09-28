@@ -649,9 +649,9 @@ function federationLiveNow() {
    build and would MASK a genuine silent revert. `resolved` is updateChannel() (what the poller
    actually fetches). The signature is: installed-from-staging yet polling-prod.
 
-   ⚠️ This is OBSERVABILITY ONLY. The byte-changing fix (persist the channel across login so the
-   subscription survives) is #2969/#2934 and stays parked on real-fresh-machine verification per
-   Josh's gate; this predicate neither resolves the channel nor changes which bytes install. */
+   ⚠️ This is OBSERVABILITY ONLY: this predicate neither resolves the channel nor changes which
+   bytes install. The byte-changing fix shipped separately in #2969 (updateChannel() falls back to
+   the install stamp), which leaves an explicit non-staging channel variable as the only way here. */
 function stagingRevertWarning(recorded, resolved) {
   return recorded === 'staging' && resolved === 'prod';
 }
@@ -17365,8 +17365,9 @@ function start(port = PORT) {
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
       /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
-         resolving prod -- the #2969 silent revert. Observability only: it changes nothing about which
-         channel resolves or which bytes install (that fix is parked on real-machine verification).
+         resolving prod. Observability only: it changes nothing about which channel resolves or which
+         bytes install. Since #2969 the updater follows the stamp, so this fires only when the board's
+         environment explicitly names a non-staging channel.
          stagingRevertWarningNow() cannot throw on the listen path (both its reads are non-throwing), and
          it wires the RAW install stamp rather than the #2934 badge (see its docstring). */
       emitStagingRevertWarning();

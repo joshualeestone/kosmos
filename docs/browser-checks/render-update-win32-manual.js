@@ -23,7 +23,7 @@
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
  *             the could-not-read sentence, no link, never "Up to date."; then a press whose
  *             check cannot reach the host: the could-not-reach sentence
- *   current   the CONTROL: nothing newer, the press says "Up to date." and no link shows --
+ *   current   the CONTROL: nothing newer, the press says "Up to date on the release channel." (#2969) and no link shows --
  *             without it the states above could pass on a card that never says it
  *
  * The confirm dialog's body and the update overlay's Windows wording are served only to a win32

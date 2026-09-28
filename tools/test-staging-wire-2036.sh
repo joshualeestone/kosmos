@@ -133,12 +133,13 @@ grep -qE 'curl -fsSL .*/setup \| KOSMOS_UPDATE_CHANNEL=staging sh' "$REPO/tools/
 # pre-migration update case, so the board's maybeMigrateLegacyStore later renames legacy -> Kosmos
 # with this file inside rather than orphaning it), else 'Kosmos'. A missing file reads prod, so a
 # staging install that writes nothing masquerades as prod -- that is the failure this guards.
-source_channel_write() {  # $1 = KOSMOS_UPDATE_CHANNEL, $2 = AGENT_WORKFORCE_DATA, $3 = AGENT_WORKFORCE_HOME
-  local KOSMOS_UPDATE_CHANNEL="$1" AGENT_WORKFORCE_DATA="$2" AGENT_WORKFORCE_HOME="${3:-}" _PTR_FILE="latest.json" _wf_base _wf_data_root _source_channel
+source_channel_write() {  # $1 = KOSMOS_UPDATE_CHANNEL, $2 = AGENT_WORKFORCE_DATA, $3 = AGENT_WORKFORCE_HOME, $4 = KOSMOS_SOURCE_CHANNEL
+  local KOSMOS_UPDATE_CHANNEL="$1" AGENT_WORKFORCE_DATA="$2" AGENT_WORKFORCE_HOME="${3:-}" KOSMOS_SOURCE_CHANNEL="${4:-}" _PTR_FILE="latest.json" _wf_base _wf_data_root _source_channel
   [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _PTR_FILE="latest-staging.json"
   if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _wf_base="$AGENT_WORKFORCE_DATA"; else _wf_base="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support"; fi
   if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then _wf_data_root="$_wf_base/AgentWorkforce"; else _wf_data_root="$_wf_base/Kosmos"; fi
   if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+  case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac
   mkdir -p "$_wf_data_root" 2>/dev/null && printf '%s\n' "$_source_channel" > "$_wf_data_root/source-channel"
 }
 scS="$T/sc-staging"; source_channel_write staging "$scS"
@@ -147,6 +148,13 @@ scP="$T/sc-prod"; source_channel_write '' "$scP"
 [ "$(cat "$scP/Kosmos/source-channel" 2>/dev/null)" = prod ] && ok "source-channel: a DEFAULT (prod) install writes 'prod' (an unrecorded install must not masquerade as staging)" || no "source-channel: default install did not write 'prod'"
 scW="$T/sc-whatever"; source_channel_write whatever "$scW"
 [ "$(cat "$scW/Kosmos/source-channel" 2>/dev/null)" = prod ] && ok "source-channel: a non-staging channel value records prod" || no "source-channel: non-staging value not prod"
+# #2969: a staging subscriber taking a newer PROD build installs from latest.json but stays staging;
+# the override is honoured only for the two known values.
+scO="$T/sc-override"; source_channel_write prod "$scO" '' staging
+[ "$(cat "$scO/Kosmos/source-channel" 2>/dev/null)" = staging ] && ok "source-channel: KOSMOS_SOURCE_CHANNEL=staging keeps a staging subscriber staging while it installs from the prod pointer (#2969)" || no "source-channel: a staging subscriber taking a prod hotfix was re-stamped prod (#2969)"
+scX="$T/sc-override-junk"; source_channel_write staging "$scX" '' junk
+[ "$(cat "$scX/Kosmos/source-channel" 2>/dev/null)" = staging ] && ok "source-channel: an unknown KOSMOS_SOURCE_CHANNEL keeps the pointer-derived stamp" || no "source-channel: an unknown override value was written"
+grep -qF 'case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac' "$REPO/install/setup.sh" && ok "source-channel: setup.sh carries the #2969 subscription override (extract matches source)" || no "source-channel: setup.sh #2969 override drifted"
 # the write path must match the READ path: the file lands at AGENT_WORKFORCE_DATA/Kosmos/source-channel
 [ -f "$scS/Kosmos/source-channel" ] && ok "source-channel: the file lands at <AGENT_WORKFORCE_DATA>/Kosmos/source-channel (matches store.ROOT the server reads)" || no "source-channel: file not at the store.ROOT the read side uses"
 # #2439: the pre-migration UPDATE case -- a legacy AgentWorkforce store exists and Kosmos does not.
@@ -165,7 +173,7 @@ grep -qF '_wf_base="$AGENT_WORKFORCE_DATA"' "$REPO/install/setup.sh" && ok "sour
 # not, else Kosmos -- so a pre-migration update does not pre-create Kosmos and orphan the old data (store.js:221).
 grep -qF 'if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then' "$REPO/install/setup.sh" && ok "source-channel: setup.sh writes to the current leaf (legacy-if-present, else Kosmos), so migration relocates rather than orphans" || no "source-channel: setup.sh no longer chooses legacy-vs-new -- a pre-migration update would orphan the old store"
 # Cross-check: the read side (server.js, #2089) reads the same filename this writes.
-grep -qF "'source-channel'" "$REPO/server.js" && ok "source-channel: server.js read side reads the same 'source-channel' filename this writes" || no "source-channel: read side (server.js) does not name source-channel -- the two halves would not meet"
+grep -qF "'source-channel'" "$REPO/engine/update.js" && ok "source-channel: the read side (engine/update.js readSourceChannelAt, used by server.js and the updater, #2969) reads the same 'source-channel' filename this writes" || no "source-channel: read side (engine/update.js) does not name source-channel -- the two halves would not meet"
 # the else-branch (DATA unset) must honor AGENT_WORKFORCE_HOME: store.js root() (store.js:158) reads
 # AGENT_WORKFORCE_HOME||os.homedir(), so a bare $HOME here would write under a different root than the
 # board reads when that seam is set, and the STAGING badge would silently never light.

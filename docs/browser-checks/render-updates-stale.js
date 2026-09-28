@@ -11,7 +11,7 @@
  *
  *   stale    the page's version meta set behind the served version
  *   current  the meta set TO the served version (the control: the verdict
- *            must still say "Up to date.", or the stale assert proves nothing)
+ *            must still say "Up to date on the <channel> channel." (#2969), or the stale assert proves nothing)
  *
  * A source checkout bakes no version (the meta is the untouched marker), so the
  * page can never be stale on its own; the meta is set the way the toast check

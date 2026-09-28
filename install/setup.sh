@@ -3700,6 +3700,11 @@ else
   _wf_data_root="$_wf_base/Kosmos"
 fi
 if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+# #2969: the updater names the SUBSCRIPTION separately from the pointer it installs from. A
+# staging subscriber offered a newer PROD build (a prod-only hotfix cut) installs from latest.json
+# but must stay subscribed to staging, or the next staging build would never reach it. Only the two
+# known values are honoured; anything else keeps the pointer-derived stamp above.
+case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac
 if mkdir -p "$_wf_data_root" 2>/dev/null; then
   printf '%s\n' "$_source_channel" > "$_wf_data_root/source-channel" 2>/dev/null \
     || printf '  (could not record the source channel; the board will read the default, prod)\n'

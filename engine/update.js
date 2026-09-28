@@ -83,6 +83,9 @@ function recordedChannel() {
      stamp is read from the same place setup.sh writes it. */
   try { return readSourceChannelAt(require('./store').ROOT); } catch { return 'prod'; }
 }
+/* `env` decides the variables only. The stamp is always read from THIS process's data root
+   (store.ROOT), the same file setup.sh wrote for this install; a caller passing another env does
+   not move it. */
 function updateChannel(platform = updatePlatform(), env = process.env) {
   /* The Mac honours either name so an operator who sets KOSMOS_UPDATE_CHANNEL (the name setup.sh
      reads, and the one this poller forwards to the spawned installer) is not silently ignored;
@@ -363,15 +366,31 @@ function startPolling(intervalMs) {
   return t;
 }
 
+/* #2969: the prod pointer read beside a staging look; null on any failure, which leaves the
+   staging answer standing (a prod pointer we cannot read says nothing against it). */
+async function readProdAlongside(doFetch, base, platform, signal) {
+  try {
+    const res = await doFetch(`${base}/${pointerFor(platform, 'prod')}`, { signal, cache: 'no-store' });
+    if (!res || !res.ok) return null;
+    return readManifest(platform, await res.json().catch(() => null));
+  } catch { return null; }
+}
+
 async function refresh() {
   const doFetch = fetcher || fetch;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
   const started = Date.now();
   let landed = false;
-  /* ONE URL per look. A staging pointer that cannot be reached, or cannot be read, is that
-     look's answer (no offer); it is never retried against prod, which would put a
-     staging-channel machine back on the prod build without saying so. */
+  /* A staging pointer that cannot be reached, or cannot be read, is that look's answer (no
+     offer); it is never retried against prod, which would put a staging-channel machine back on
+     the prod build without saying so.
+     #2969: BUT A READABLE STAGING ANSWER IS COMPARED WITH PROD, on the Mac. Staging is NOT always
+     at or ahead of prod: tools/release.sh cuts straight to prod by default, and a prod-only cut
+     never touches latest-staging.json. So a staging subscriber offered only the staging pointer
+     would sit on "Up to date" past a prod hotfix until someone cut staging. When prod names a
+     NEWER version, that is the offer, and `pointer` records that it came from prod so the
+     installer reads the same file (beginInstall). The subscription (`channel`) stays staging. */
   const platform = updatePlatform();
   const channel = updateChannel(platform);
   const lookBase = releaseBase();
@@ -386,8 +405,13 @@ async function refresh() {
       // never "up to date" (the false sentence this module exists to
       // prevent).
       const body = res.ok ? await res.json().catch(() => null) : null;
-      const latest = readManifest(platform, body);
-      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel };
+      let latest = readManifest(platform, body);
+      let pointer = channel;
+      if (latest && channel === 'staging' && platform !== 'win32') {
+        const prod = await readProdAlongside(doFetch, lookBase, platform, ctl.signal);
+        if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
+      }
+      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
     }
   } finally {
@@ -1154,7 +1178,10 @@ function beginInstall(opts) {
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
     // decided on. Without it, a staging update would fetch latest-staging.json here but setup.sh
     // would re-fetch latest.json and install the PROD artifact -- a split-brain update.
-    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: updateChannel() },
+    // #2969: the POINTER the offer came from (prod, when a staging subscriber is offered a newer
+    // prod build), and separately the channel to STAMP, so taking a prod hotfix does not quietly
+    // turn a staging subscriber into a prod one. setup.sh reads KOSMOS_SOURCE_CHANNEL for the stamp.
+    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel() },
   });
   wireChild(child, opts);
   child.unref();
@@ -1173,6 +1200,12 @@ function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
+/* #2969: which pointer the installer reads: the one this box's last look took its offer from
+   (so the installer installs exactly the version the card offered), else the subscription. */
+function installPointer() {
+  const sub = updateChannel();
+  return cache && cache.channel === sub && (cache.pointer === 'prod' || cache.pointer === 'staging') ? cache.pointer : sub;
+}
 function setRecordedChannel(f) { recordedChannelFn = f; }   // #2969: null restores the real stamp
 function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; inFlightKindVar = null; autoFailedAt = 0; lastAttempt = null; }
 
@@ -1242,5 +1275,5 @@ module.exports = {
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
   prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
-  readSourceChannelAt, setRecordedChannel, // #2969: the install stamp the Mac channel falls back to, and its test seam
+  readSourceChannelAt, setRecordedChannel, installPointer, // #2969: the install stamp the Mac channel falls back to, its test seam, and the pointer the installer reads
 };
