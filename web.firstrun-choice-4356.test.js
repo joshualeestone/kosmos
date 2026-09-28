@@ -67,6 +67,17 @@ test('#4356: the Kosmos logo is at the top, and nothing else is an image or carr
   assert.match(html, /<h1 class="frc-title" id="frc-title">/);
 });
 
+test('#4356: the K is drawn at no more than its native size on a 2x screen, so it never looks soft', () => {
+  const b64 = screen().match(/class="frc-logo" src="data:image\/png;base64,([^"]+)"/)[1];
+  const png = Buffer.from(b64, 'base64');
+  assert.equal(png.toString('ascii', 1, 4), 'PNG');
+  const w = png.readUInt32BE(16), h = png.readUInt32BE(20);
+  const css = PAGE.match(/\.frc-logo \{ width: ([\d.]+)px; height: ([\d.]+)px;/);
+  assert.ok(css, 'the K has no fixed CSS size, so a layout could stretch it');
+  assert.ok(Number(css[1]) * 2 <= w && Number(css[2]) * 2 <= h, 'the K is drawn at ' + css[1] + 'x' + css[2] + ' from a ' + w + 'x' + h + ' image: soft on a 2x screen');
+  assert.doesNotMatch(PAGE, /\.frc-logo \{[^}]*(max-width|%|vw)/, 'the K scales with the window');
+});
+
 test('#4356: the three buttons are the only controls, and each one\'s accessible name is its label', () => {
   const html = screen().replace(/<!--[\s\S]*?-->/g, '');
   const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
