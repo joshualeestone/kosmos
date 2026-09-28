@@ -99,7 +99,8 @@ test('#4409: read aloud uses on-device voices only, and only an agent\'s message
   assert.match(PAGE, /box\.hasAttribute\('data-speak'\)\);   \/\/ #4409/, 'a reaction repaint drops the read-aloud button');
   assert.match(PAGE, /if \(m\.from === session\) d\.appendChild\(speakButtonEl\(\)\);/, 'the Guide\'s answers cannot be read aloud');
   assert.match(fn('speechTextOfRow'), /'\.msg-nm, \.msg-t, \.msg-replyto, \.vh, \.rxns, button/, 'the name, the time or a button label is read out as the message');
-  assert.match(fn('speechTextOfRow'), /querySelectorAll\('pre'\)\.forEach\(\(n\) => n\.replaceWith\(document\.createTextNode\(' Code block\. '\)\)\)/);
+  assert.match(fn('speechTextOfRow'), /querySelectorAll\('pre, \.mdcb'\)\.forEach\(\(n\) => n\.replaceWith\(document\.createTextNode\(' Code block\. '\)\)\)/, 'a rendered code block (span.mdcb) is spelled out');
+  assert.match(fn('speechTextOfRow'), /querySelectorAll\('br, p, li, div'\)/, 'lines run together when read');
 });
 
 test('#4409: the native recognizer is on-device only, and only the board\'s own page can start it', () => {

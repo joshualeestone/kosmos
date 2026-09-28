@@ -54456,7 +54456,7 @@ function rxnsInner(list, withReply, withSpeak) {
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
     + 'Reply</button>' : '';
-  /* #4409: read an agent's message aloud, last in the same bar. Drawn for agents' messages only, and shown
+  /* #4409: read an agent's message aloud, in the same bar, just before Reply (Reply stays last, #4358). Drawn for agents' messages only, and shown
      only where the page can speak (html.has-speak). */
   const speak = withSpeak ? '<button class="rxn-speak" type="button" aria-label="Read this message aloud" aria-pressed="false" title="Read aloud">'
     + '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>' : '';
@@ -54464,7 +54464,7 @@ function rxnsInner(list, withReply, withSpeak) {
     + '<span class="rxn-quick">' + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
-    + reply + speak
+    + speak + reply   // #4358 keeps Reply LAST, so read-aloud sits between the smiley and Reply
     + '</span>';
 }
 function pjReactions(m) {
@@ -54625,7 +54625,11 @@ function speechTextOfRow(row) {
   if (!src) return '';
   const c = src.cloneNode(true);
   c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
-  c.querySelectorAll('pre').forEach((n) => n.replaceWith(document.createTextNode(' Code block. ')));
+  /* A fenced block renders as span.mdcb (pjRich), not <pre>; both are announced. A line break is a space, or
+     "Run this:<br>then" is read as "this:then". Measured by render-voice-4409.js V7, which the <pre>-only
+     version failed. */
+  c.querySelectorAll('pre, .mdcb').forEach((n) => n.replaceWith(document.createTextNode(' Code block. ')));
+  c.querySelectorAll('br, p, li, div').forEach((n) => n.after(document.createTextNode(' ')));
   return speechTidy(c.textContent);
 }
 function speakVoice() {
