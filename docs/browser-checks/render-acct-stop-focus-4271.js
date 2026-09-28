@@ -15,8 +15,9 @@
  *      is never focused on the way there (a focusin log sees a move that is later overwritten).
  *   4. A start that answers with a phase that has already ended (stuck): focus lands on the note
  *      that says so (#acct-add-note), not the page.
- * Each arm asserts where focus was before it acts, so none can pass vacuously. Without the
- * fix arms 1, 2 and 4 read BODY, which is the control.
+ *   5. Focus elsewhere in the dialog (the provider picker) when the flow ends: left there.
+ * Arms 1, 2, 3 and 5 assert where focus was before the ending, so none can pass vacuously;
+ * arm 4 asserts a positive landing. Without the fix arms 1, 2 and 4 read BODY (the control).
  *
  * Computed-state only, so headless is sound.
  *
@@ -144,12 +145,25 @@ const focusNow = (p) => p.evaluate(() => {
 
     // Arm 4: the start answers with a phase that has already ended (stuck, a real engine phase).
     await pressStart('stuck', { phase: 'stuck', because: 'Claude Code could not start.' });
-    await p.waitForTimeout(500);
+    because = 'Claude Code could not start.';   // the engine's later polls read the same state
+    await p.waitForTimeout(1500);               // past the next poll, so a repaint would show
     chk(await p.isHidden('#acct-flow'), 'arm 4: a start that answers stuck shows no running panel');
     const f4 = await focusNow(p);
     chk(f4.id === 'acct-add-note' && f4.inDialog, 'arm 4: focus lands on the note that says what happened, not the page', JSON.stringify(f4));
     const note4 = await p.textContent('#acct-add-note');
     chk(/could not start/.test(note4 || ''), 'arm 4: and the note carries the reason', JSON.stringify(note4));
+
+    // Arm 5: focus is elsewhere in the dialog (the provider picker) when the flow ends: it
+    // is left where the person put it. This is what the focusWasInFlow guard is for.
+    await pressStart('signin-browser-open');
+    chk(await flowUp(), 'arm 5: the sign-in panel shows again');
+    await p.focus('#acct-provider-field .pcombo-trigger');
+    const before5 = await p.evaluate(() => { const a = document.activeElement; return { cls: (a && a.className) || '', inFlow: document.getElementById('acct-flow').contains(a) }; });
+    chk(/pcombo-trigger/.test(before5.cls) && !before5.inFlow, 'arm 5: before the ending, focus is on the provider picker, outside the panel', JSON.stringify(before5));
+    phase = 'idle';
+    chk(await flowGone(), 'arm 5: the idle poll puts the panel away');
+    const after5 = await p.evaluate(() => { const a = document.activeElement; return (a && a.className) || (a && a.tagName) || ''; });
+    chk(/pcombo-trigger/.test(after5), 'arm 5: focus stays on the provider picker', JSON.stringify(after5));
 
     chk(errors.length === 0, 'no page errors', errors.join(' | '));
   } finally {
