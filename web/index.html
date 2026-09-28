@@ -28999,7 +28999,7 @@ const ORG_SIM = {
   damping: 0.82,
   maxForce: 6,
   minGap: 52,      // two 44px discs plus breathing room
-  sectorMargin: 0.02, // radians kept clear of a sector's edge (#4434)
+  home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29038,7 +29038,7 @@ function orgStep(nodes, hub, alpha, box) {
     const p = n.parent || hub;
     const dx = p.x - n.x; const dy = p.y - n.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    const stretch = d - rest;
+    const stretch = d - (n.rest || rest);
     n.vx += cap(stretch * ORG_SIM.spring) * alpha * (dx / d);
     n.vy += cap(stretch * ORG_SIM.spring) * alpha * (dy / d);
     // The ring it was born on: depth keeps meaning.
@@ -29047,6 +29047,14 @@ function orgStep(nodes, hub, alpha, box) {
     const off = n.ring - hd;
     n.vx += cap(off * ORG_SIM.ring) * alpha * (hx / hd);
     n.vy += cap(off * ORG_SIM.ring) * alpha * (hy / hd);
+    /* #4434: in a TREE layout every node is also pulled back to where orgPlace put it, relative to the hub
+       (so dragging the hub still carries the chart). orgPlace's positions are proven free of crossings
+       and overlaps, so this is what makes a settle, a released drag and a re-parent END crossing-free: the
+       resting state is the placement. A flat fleet has no `home` and moves exactly as before. */
+    if (n.home) {
+      n.vx += cap((hub.x + n.home.dx - n.x) * ORG_SIM.home) * alpha;
+      n.vy += cap((hub.y + n.home.dy - n.y) * ORG_SIM.home) * alpha;
+    }
   }
   if (!hub.fixed) {
     hub.vx += cap((hub.home.x - hub.x) * ORG_SIM.centre) * alpha;
@@ -29055,20 +29063,7 @@ function orgStep(nodes, hub, alpha, box) {
   for (const n of all) {
     if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
     n.vx *= ORG_SIM.damping; n.vy *= ORG_SIM.damping;
-    let tx = n.x + n.vx; let ty = n.y + n.vy;
-    /* #4434: a node stays inside its sector (orgPlace's slice, as an angle around the hub), so settling,
-       a released drag and a re-parent all end inside its own branch and its line cannot cross another. */
-    if (Number.isFinite(n.lo) && Number.isFinite(n.hi)) {
-      const mid = (n.lo + n.hi) / 2;
-      const half = Math.max(0, (n.hi - n.lo) / 2 - ORG_SIM.sectorMargin);
-      const ax = tx - hub.x; const ay = ty - hub.y;
-      const off = Math.atan2(Math.sin(Math.atan2(ay, ax) - mid), Math.cos(Math.atan2(ay, ax) - mid));
-      if (Math.abs(off) > half) {
-        const to = mid + Math.sign(off) * half;
-        const rr = Math.hypot(ax, ay);
-        tx = hub.x + Math.cos(to) * rr; ty = hub.y + Math.sin(to) * rr;
-      }
-    }
+    const tx = n.x + n.vx; const ty = n.y + n.vy;
     const nx = box ? clamp(tx, box.lo, box.hi) : tx;
     const ny = box ? clamp(ty, box.lo, box.hi) : ty;
     moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
@@ -29180,7 +29175,7 @@ function orgPlace(nodes) {
       /* Evenly round the circle. The half-lane offset stops two lanes lining
          up spoke-for-spoke, which reads as one ring with gaps. */
       const ang = -Math.PI / 2 + (Math.PI * 2 * (i % fit)) / inLane + (lane * Math.PI) / Math.max(1, inLane);
-      placed.set(n.agent.sessionName, { ang, r, node: n, lo: ang - Math.PI / inLane, hi: ang + Math.PI / inLane });
+      placed.set(n.agent.sessionName, { ang, r, node: n });
       maxR = Math.max(maxR, r);
     });
     return { placed, maxR };
@@ -29259,7 +29254,15 @@ function orgPlace(nodes) {
         const ks = kids.get(p.agent.sessionName) || [];
         if (!ks.length) continue;
         const ps = placed.get(p.agent.sessionName);
-        const half = Math.min((ps.hi - ps.lo) / 2, Math.acos(ps.r / r) * 0.9);
+        /* The tangent cap applies only to a manager that has a manager of its own: only then does a line
+           from it lie next to another line (its own manager's) that a report's line could dip across. A
+           first-ring manager's reports need no cap, but stay within ~85 degrees of it so no line folds back
+           through the hub. (Capping every manager made one with six plain reports outgrow a phone: #4434
+           review it1.) */
+        /* 0.9 is a safety margin inside the exact tangent (1.0 is still correct in theory, so no test can pin
+           the margin itself; removing the cap is pinned by the LOPSIDED tree). */
+        const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
+        const half = Math.min((ps.hi - ps.lo) / 2, cap);
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
         let from = ps.ang - half;
         for (const k of ks) {
@@ -29631,12 +29634,23 @@ function orgLiveStart(map, placed, cx, cy, size) {
       x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
-      lo: spot.lo, hi: spot.hi,   // #4434: its sector, which orgStep keeps it inside
+      lo: spot.lo, hi: spot.hi,   // #4434: its sector (a tree layout only; a flat fleet has none)
+      /* #4434: a tree node rests where orgPlace put it (relative to the hub), and its parent spring rests
+         at the placed edge length, not the ring step: orgPlace grows rings, and a spring at ORG_STEP would
+         pull a grown ring back in across other branches. */
+      home: Number.isFinite(spot.lo) ? { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r } : null,
+      rest: 0,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
       agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
+  // #4434: a tree node's spring rests at its placed distance from its parent (or the hub).
+  for (const n of nodes.values()) {
+    if (!n.home) continue;
+    const ph = n.parent && n.parent.home ? n.parent.home : { dx: 0, dy: 0 };
+    n.rest = Math.hypot(n.home.dx - ph.dx, n.home.dy - ph.dy);
+  }
   ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN } };
   if (still) {
     /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
