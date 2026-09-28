@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 4
 **Converged:** Yes
-**Total findings:** 17 (0 BLOCKERs, 7 WARNINGs, 0 CONVENTIONs, 10 NITs)
-**Fixed:** 7 WARNINGs and 8 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 20 (0 BLOCKERs, 7 WARNINGs, 0 CONVENTIONs, 13 NITs)
+**Fixed:** 7 WARNINGs and 9 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Initial validation passed. Validation after iteration 2 went red only on the #3011 LaunchAgents leak guard
 (three zz-test-4039-* agents another agent created on the live board at 13:02, mid-run; gone by 13:08).
