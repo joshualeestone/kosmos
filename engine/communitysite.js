@@ -245,4 +245,5 @@ module.exports = {
   publishHumanPost,
   publishHumanComment,
   scrubAuthorName,
+  DEFAULT_AUTHOR_NAME,
 };

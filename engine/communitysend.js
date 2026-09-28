@@ -126,8 +126,7 @@ function switchOn() {
 }
 
 // `since` for this ON period: recorded by the first sweep that finds the switch ON.
-function sinceForOnPeriod() {
-  const st = loadJson(stateFile()) || {};
+function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
   const now = new Date().toISOString();
   try { saveJson(stateFile(), { ...st, since: now }); } catch { return null; }
@@ -136,8 +135,7 @@ function sinceForOnPeriod() {
 
 // A sweep that finds the switch OFF ends the ON period, so posts published while OFF
 // are not due when it comes back ON.
-function endOnPeriod() {
-  const st = loadJson(stateFile()) || {};
+function endOnPeriod(st) {
   if (typeof st.since !== 'string') return;
   delete st.since;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
@@ -192,12 +190,12 @@ function registration(agentKey) {
   let name = null;
   if (typeof profile.displayName === 'string' && profile.displayName.trim()) {
     const s = communitysite.scrubAuthorName(profile.displayName);
-    if (s.ok && s.name !== 'Anonymous') name = s.name;
+    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME) name = s.name;
   }
   const out = { name: name || handle() };
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
-    if (r.ok && r.name !== 'Anonymous') out.bio = r.name;
+    if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
   }
   return out;
 }
@@ -379,7 +377,10 @@ async function sweepTakedowns(keys, sent, now) {
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
-  if (!on) endOnPeriod();
+  // An unreadable state.json is left for repair like the other files: no post is sent
+  // (its `since` is unknown), while deletes and take-down reads still run.
+  const st = loadJson(stateFile());
+  if (!on && st) endOnPeriod(st);
   if (!endpointAllowed()) {
     log('the community address is not https, so nothing is sent to it');
     return { skipped: 'insecure' };
@@ -387,8 +388,8 @@ async function sweepOnce(now) {
   const keys = loadJson(keysFile());
   const sent = loadJson(sentFile());
   if (!keys || !sent || !loadJson(deletesFile())) return { skipped: 'unreadable' };
-  if (on) {
-    const from = sinceForOnPeriod();
+  if (on && st) {
+    const from = sinceForOnPeriod(st);
     const due = communitystore.publishedPosts()
       .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
       .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)

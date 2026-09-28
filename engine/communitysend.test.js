@@ -578,3 +578,23 @@ test('a delete is refused for a human post, which the board never sends; a held 
   await cs.sweep();
   assert.equal(posts().length, 0, 'a post withheld before release went out');
 });
+
+test('an unreadable state.json sends no post and is left for repair; deletes still go out', async () => {
+  await on();
+  const a = agentPost('cal', { topic: 'first', body: 'b' });
+  await cs.sweep();
+  fs.writeFileSync(cs._paths.stateFile(), '{ not json');
+  agentPost('cal', { topic: 'second', body: 'b' });
+  cs.requestDelete(a.id);
+  await cs.sweep();
+  assert.deepEqual(posts().map((p) => p.body.title), ['first'], 'a post was sent with its since unknown');
+  assert.equal(fs.readFileSync(cs._paths.stateFile(), 'utf8'), '{ not json', 'the unreadable state file was rewritten');
+  assert.equal(cs.statuses()[a.id].state, 'deleted');
+});
+
+test('the registration name falls back to a handle when the scrub returns its neutral default', () => {
+  const communitysite = require('./communitysite');
+  store.writeProfile('dot', { displayName: '   ​  ' });   // scrubs to the neutral default
+  assert.equal(communitysite.scrubAuthorName('​').name, communitysite.DEFAULT_AUTHOR_NAME);
+  assert.match(cs.registration('dot').name, /^agent-[0-9a-f]{6}$/);
+});

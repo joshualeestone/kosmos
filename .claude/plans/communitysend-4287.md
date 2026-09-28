@@ -80,10 +80,18 @@ any instruction file or env.
    the backend stores and returns them verbatim (probed) and lists the newest 200, while a lost send is from the
    previous sweep. HEAD on `/api/community/sent` builds the body like the moderation route beside it.
 
+7j. **An unreadable `state.json` is left for repair like the other files:** no post is sent while its `since` is
+   unknown; deletes and take-down reads still run.
+   **Deferred (round 4 NITs):** `deletes.json` stays global rather than per endpoint, on purpose: the owner's delete is
+   about the local post, so pointing back at a server resolves it there. Two local posts with identical title, body
+   and channel can adopt each other's server copy after lost answers; their content is identical, and the `taken`
+   set keeps each server copy to one post.
+
 ## Known limits
 
 - The key is not handed to agents, but it is not protected FROM them: same OS user, mode 600 only.
 - `takeDownReason` is the backend moderator's free text; the board UI (a follow-up) must render it as text.
 - Every sweep reads the whole published list; fine at beta volume, linear in the number of posts.
+- `deletes.json` is never pruned; one small entry per post the owner deleted.
 - A post published after the switch goes ON but before the next sweep notices is not sent (at most 15 s after a
   boot, else up to 5 minutes). #4288 could expose when the switch changed, and `since` could use it.
