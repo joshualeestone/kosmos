@@ -167,7 +167,8 @@ function writeState(s) {
     fs.mkdirSync(path.dirname(statePath()), { recursive: true });
     const tmp = statePath() + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(s) + '\n');
-    fs.renameSync(tmp, statePath());
+    // A rename that fails must not leave the pid-named file behind: one per failed hour, forever.
+    try { fs.renameSync(tmp, statePath()); } catch (err) { try { fs.unlinkSync(tmp); } catch { /* gone already */ } throw err; }
   } catch (err) {
     process.stderr.write('gap-alarm: posted, but could not record it (' + ((err && err.message) || err) + '); the next run may repost\n');
   }
@@ -183,6 +184,7 @@ function post(text, want = { pane: true, card: true }) {
   const underTest = !!env.NODE_TEST_CONTEXT;
   const went = { pane: false, card: false };
   const tried = { pane: false, card: false };
+  const unsure = { pane: false, card: false };
   const to = env.GAP_ALARM_TO || 'barondraxum-discord:0.0';
   let paneFailed = null;
   let paneUnsure = null;
@@ -208,6 +210,7 @@ function post(text, want = { pane: true, card: true }) {
       // Exit 7 is the same class: delivered but the pane did not repaint, so it could not confirm.
       if (err && (err.status === 8 || err.status === 7)) {
         went.pane = true;
+        unsure.pane = true;
         paneUnsure = 'claude-msg exit ' + err.status + ', which usually means the pane was busy and the message landed (#1909)';
         process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
       } else {
@@ -233,7 +236,7 @@ function post(text, want = { pane: true, card: true }) {
       process.stderr.write('gap-alarm: the #1050 comment did not go: ' + why + '\n');
     }
   }
-  return { went, tried };
+  return { went, tried, unsure };
 }
 
 /* The last post per channel. A state file from before per-channel clocks ({key, at}) is read as both
@@ -325,7 +328,7 @@ async function main(argv) {
   const sendAt = [...new Set(Object.values(texts))];
   for (const text of sendAt) {
     const want = { pane: texts.pane === text, card: texts.card === text };
-    const { went, tried } = post(text, want);
+    const { went, tried, unsure } = post(text, want);
     for (const ch of CHANNELS) {
       if (!want[ch]) continue;
       // A channel's clock advances only on its OWN post that went, or a dead channel would count as
@@ -338,7 +341,7 @@ async function main(argv) {
       }
     }
     // The log says what went, after it went.
-    const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]);
+    const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(v.now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
   if (changed) writeState({ pane: next.pane, card: next.card });

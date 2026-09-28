@@ -239,6 +239,22 @@ test('a state file from before per-channel clocks is read as both channels: no r
   assert.deepEqual(Object.keys(st).sort(), ['card', 'pane']);
 });
 
+test('a state that cannot be recorded is said, is not fatal, and leaves no temp file behind', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  // The state path is an existing non-empty directory, so the rename onto it fails.
+  const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-norecord-'));
+  const statePathDir = path.join(holder, 'state.json');
+  fs.mkdirSync(statePathDir); fs.writeFileSync(path.join(statePathDir, 'x'), 'x');
+  const r = run([], { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: statePathDir, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) });
+  assert.equal(r.code, 1, 'an unrecordable state crashed the run: ' + r.err);
+  assert.match(r.err, /posted, but could not record it/);
+  assert.match(s.gh.read(), /staging-hours/, 'fixture: the card post went');
+  assert.deepEqual(fs.readdirSync(holder).filter((f) => f.endsWith('.tmp')), [], 'a failed rename left its temp file behind');
+  assert.match(r.out, /posted to pane \(unconfirmed\) and card: /, 'the log line hides that the pane post is unconfirmed');
+});
+
 test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH that hangs on fetch and is the real git for everything else.
