@@ -441,6 +441,8 @@ kosmos_refuse_if_harness_live() {
 # The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
 # stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
 # suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
+# Its interpreter pattern, ([^ ]*/)?(ba)?sh, is deliberately wider than the older guards' (/bin/)?(ba)?sh:
+# a suite started by a Homebrew bash is still a suite (review 11). Only more candidates, never fewer.
 _kosmos_suite_candidates() {
   local raw rc
   raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?

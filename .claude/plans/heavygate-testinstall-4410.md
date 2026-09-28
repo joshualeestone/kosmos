@@ -97,6 +97,9 @@
   --quiet-box` as the way to see when the box is quiet and says to expect waiting rather than
   overriding, because the override brings the #4410 collision back. A bounded wait-and-retry is a
   possible follow-up if agents start overriding.
+- Two install harnesses at once are not refused by each other; only a cut refuses a harness. Each
+  probes its own free port from 4460 up, and the card is about a suite beside a harness, so it is
+  left out of scope (review 12 caught a comment that claimed otherwise).
 - The new guard's test seams (KOSMOS_SUITE_PROBE, KOSMOS_SUITE_SELF_PID) could weaken it if left set,
   as the older guards' seams can. Only KOSMOS_HARNESS_KEEP_FIXTURES is one-directional (it only refuses
   more).

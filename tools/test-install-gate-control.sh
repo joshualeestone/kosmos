@@ -9,11 +9,12 @@
 # Needs the staged trees in dist/ (build them first, as test-install.sh says).
 # Minutes, three gate runs (untouched, staged tree broken, tarball broken); run by hand before changing the gate or the
 # installer's post-extract list: `bash tools/test-install-gate-control.sh`.
-# Exit 0: the control holds. Exit 1: a real red. Exit 3: skipped, the box was busy (#4410).
+# Exit 0: the control holds. Exit 1: a real red. Exit 3: skipped, it could not answer (the box was
+# busy, or dist/ is not built) (#4410).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-[ -d dist/kosmos-bundle ] && [ -d dist/tmux-bundle ] || { echo "SKIP: dist/ staged trees missing (build them first)"; exit 1; }
+[ -d dist/kosmos-bundle ] && [ -d dist/tmux-bundle ] || { echo "SKIP: dist/ staged trees missing (build them first)"; exit 3; }
 C="$(mktemp -d "${TMPDIR:-/tmp}/install-gate-control.XXXXXX")"; trap 'rm -rf "$C"' EXIT
 # #3691: test-support/ too. test-install.sh points the board at test-support/fake-tmux.sh
 # (#1651); a copy without it made the untouched arm red on every bundle, so nothing discriminated.
@@ -33,7 +34,7 @@ settle() {
   done
   echo "   (the harness's port range is still busy after 40s; running anyway)"
 }
-# #4410: test-install.sh now refuses to start beside a live suite, another harness or a cut, even
+# #4410: test-install.sh now refuses to start beside a live suite or a cut, even
 # with KOSMOS_INSTALL_GATE=1 (only a cut's own claim holder skips those checks). Such a refusal is
 # not the gate's verdict, so say the box is busy instead of scoring it as green or red, and exit 3
 # (not 1, which is a real red) so `... && echo ok` and a caller's exit check can tell them apart.

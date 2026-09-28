@@ -519,9 +519,9 @@ kill "$suite_sp" 2>/dev/null; wait "$suite_sp" 2>/dev/null
 # and test-install.sh skips it only in a cut's own gate run or on its named override.
 _wired() { grep -vE '^[[:space:]]*#' "$1" | grep -q "$2"; }
 RT="$HERE/run-tests.sh"; TI="$HERE/test-install.sh"
-_wired "$RT" 'kosmos_refuse_if_harness_live "this test run"' \
-  && pass "#4410 run-tests.sh asks whether an install harness is live" \
-  || fail "#4410 run-tests.sh does NOT call kosmos_refuse_if_harness_live -- a suite can start beside a harness"
+_wired "$RT" 'kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway"' \
+  && pass "#4410 run-tests.sh asks whether an install harness is live, naming its own override" \
+  || fail "#4410 run-tests.sh does NOT call kosmos_refuse_if_harness_live with its own override -- a suite can start beside a harness, or names the cut's override"
 _wired "$TI" 'kosmos_refuse_if_suite_live "a full install-harness run"' \
   && pass "#4410 test-install.sh asks whether a test suite is live" \
   || fail "#4410 test-install.sh does NOT call kosmos_refuse_if_suite_live -- a harness can start beside a suite"
