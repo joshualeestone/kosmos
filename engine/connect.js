@@ -96,14 +96,10 @@ function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'funct
    stall the single-threaded board. The body goes straight into loginexpiry.refreshExpiryFor,
    which parses it and returns only the timestamp, so the service name, parsing and secret
    handling stay in one place. */
-function readCredAsync(service) {
-  return new Promise((resolve) => {
-    // Guarded only by readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain
-    // node that drives a reauth would query the real keychain (a sandboxed, suffixed entry).
-    execFile('security', ['find-generic-password', '-s', service, '-w'],
-      { encoding: 'utf8', timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout));
-  });
-}
+/* The shared async read (loginexpiry.readCredAsync, #3997): one definition of the command. Guarded only by
+   readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain node that drives a reauth would query
+   the real keychain (a sandboxed, suffixed entry). */
+const readCredAsync = (service) => loginexpiry.readCredAsync(service);
 async function readRefreshExpiry(ccd) {
   if (refreshExpiryReader) return refreshExpiryReader(ccd);
   // The keychain is macOS-only, and `node --test` never reads the real one.

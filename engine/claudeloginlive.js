@@ -17,7 +17,6 @@
  * READ_BUDGET_MS (validUntilWithin); a read that takes longer goes on, and its answer is there on the next poll.
  * An answer is kept CACHE_MS, no answer (no entry, a slow or refused read) MISS_CACHE_MS, so a missing or slow
  * entry is not asked again every minute (review iteration 1). */
-const { execFile } = require('child_process');
 const loginexpiry = require('./loginexpiry');
 const { OUTCOME } = require('./observed');
 
@@ -36,13 +35,6 @@ const cache = new Map();      // service name -> { at, until }
 const inflight = new Map();   // service name -> the read under way
 function _clearForTest() { cache.clear(); inflight.clear(); }
 
-function readCredAsync(service) {
-  return new Promise((resolve) => {
-    execFile('security', ['find-generic-password', '-s', service, '-w'],
-      { encoding: 'utf8', timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout));
-  });
-}
-
 /* The row's login expiry (epoch ms), or null when there is none to read. Never rejects. */
 function validUntil(row, now = Date.now()) {
   if (!row || row.apiKey) return Promise.resolve(null);   // a key account has its own live check (claudeaccounts)
@@ -57,7 +49,7 @@ function validUntil(row, now = Date.now()) {
     try {
       if (reader) until = await reader(ccd);
       else if (process.platform === 'darwin' && !process.env.NODE_TEST_CONTEXT) {
-        const body = await readCredAsync(service);
+        const body = await loginexpiry.readCredAsync(service);
         until = loginexpiry.refreshExpiryFor(ccd, { readCred: () => body });
       }
     } catch { until = null; }
