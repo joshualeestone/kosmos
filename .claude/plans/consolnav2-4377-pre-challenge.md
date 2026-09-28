@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: consolnav2-4377
-diff_hash: fd93177dcbc402fe927753ad740325367dcf398806b34ff9efe3655ebf37d033
+diff_hash: e72a48823b1e4b30c0e587707f519feff337f541c4cef1de83b5d01a2b574988
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T17:54:21Z
+timestamp: 2026-09-28T22:51:08Z
 iterations: 3
 converged: true
 ---
@@ -50,3 +50,12 @@ CI's browser-checks job on this PR failed `render-tophead-stable-2624`, a slice-
 - render-consolidated-nav-4345.js: 88 checks. Every slice-2 fix is mutation-checked (17 mutants in all; three first survived on test-state gaps and were fixed).
 - The rail's computed styles are unchanged: 120 elements, 2 widths x 2 themes, 0 differences. Positive control: 40 differences when one rescoped rule is pointed away.
 - The whole web.* suite: 2026 of 2026.
+
+### Rebuilt on main after slice 1 squash-merged (2026-09-28 17:15 CDT)
+- #4386 was squash-merged, so this branch's stacked history conflicted with main in 11 hunks. Slice 2's own net diff, from slice 1's final head (6a3d6dea) to this branch's last head (8a628026), was re-applied onto main as one commit. It applied cleanly to all 11 files, with no hand resolution.
+- Re-checked on the rebuilt branch:
+  - web tests 25/25;
+  - render-consolidated-nav-4345 88/88, render-tophead-stable-2624 and render-type-to-focus-3283 green;
+  - the 8 checks the surface gate named, each green, with per-check trailers in a3794724;
+  - validation PASSED (11457 tests, 0 fail, surface gate 0 failed).
+
