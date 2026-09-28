@@ -8,8 +8,8 @@
  * board a harness boots from bash (tools/browser-checks.sh, the shell tests
  * run-tests.sh runs, the release bundle's smoke) has a sandboxed data folder, so
  * it minted a fresh install id and told installkosmos.com a new Mac install
- * exists. Measured 2026-09-27: one allowlisted browser-checks run sent 14, and the
- * public install count took about 7,000 a day of them.
+ * exists. Measured 2026-09-27: one allowlisted browser-checks run sent 14; the public
+ * install count took thousands a day (7,086 on 09-25 alone), across every harness.
  *
  * 🛑 THE BEACON IS NOT CHANGED, and must not be (Josh, 2026-09-14, #3038: the real
  * install ping is never removed or made opt-out-able). The fix is in the
@@ -102,7 +102,10 @@ test('#4253 CONTROL: a board booted outside node --test sends the install ping t
    if/for/while/case block. Counted from column-0 openers and closers, which is how
    these scripts are written; a line-based count, not a shell parser, so a block
    opened and closed on one line is ignored. An export inside a function that is
-   never called, or under `if false`, would otherwise pass a column-0 check. */
+   never called, or under `if false`, would otherwise pass a column-0 check.
+   Like the JS lint below, it reads the shapes these three scripts use: it does not
+   know heredocs, so a heredoc body with a column-0 `fi` or `}` before the export
+   would miscount. None of the three has one there today. */
 function topLevel(lines, i) {
   let depth = 0;
   for (let k = 0; k < i; k += 1) {

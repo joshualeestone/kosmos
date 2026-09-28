@@ -146,6 +146,13 @@ Three false "safe" verdicts in mechanisms the lint claims to model, each now fai
   value is judged now.
 Each is a self-test. None is used by a real spawn in the tree today.
 
+## Review 10
+
+- No blocker. The bash depth reader does not know heredocs (none sits before an export in the three
+  scripts today); its header now says so, as the JS lint's does. The file header called "about 7,000 a
+  day" measured; it now says thousands a day and cites the one measured day (7,086 on 09-25, the admin
+  read's silentByDay).
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live
