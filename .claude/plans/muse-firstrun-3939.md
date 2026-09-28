@@ -114,3 +114,15 @@ handling. It is the first thing to measure.
 - NITs: the try/catch around museCreateAsk was dead (it never rejects), replaced with a comment saying so.
   Row words decided: "Llama" over "Meta", as every other coming-soon row names the model family over the
   vendor (Qwen/Alibaba, Mistral/Open weights).
+
+## Review round 3 (opus, 14:32)
+- Once Meta Muse was signed in the step still offered only "Skip connecting a model": the signed-in branch now
+  offers Next as frPaintKeyed does for Gemini and Grok (step 5, unless Claude offered its own), with an arm.
+- A sign-in that finished but whose follow-up read failed left "Signed in" beside a live Sign in button: the
+  panel is now put away and the line says the sign-in finished and will show once Kosmos can check again.
+- A Connect press whose read answered after first run moved on opened the panel in a hidden pane: it now
+  returns if the step changed or first run closed during the read.
+- The frGo guard `typeof frMuseCollapse === 'function'` was always true (hoisting); removed.
+- Left, decided in 3c-3b's plan: engine/connections.js (agent-facing text) still calls Meta coming soon; it
+  changes in the slice that turns Muse on by default. Left: style comparison of the live row and panel with
+  Grok's (the reviewer measured them identical).

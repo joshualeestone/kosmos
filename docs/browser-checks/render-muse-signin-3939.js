@@ -760,6 +760,8 @@ const chk = (ok, label, extra) => {
   doneSt = await frMeta();
   doneFocus = await q(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
   chk(doneSt.on && !doneSt.soon && doneSt.btn && doneFocus !== 'BODY', 'a failed read right after a first-run sign-in keeps the Meta row, and focus', JSON.stringify(doneSt) + ' focus ' + doneFocus);
+  chk(!doneSt.flow && /^Signed in to Meta\. It shows here as connected once Kosmos can check it again\.$/.test(doneSt.msg),
+    'and the sign-in panel is put away with a line that says what happened (no "Signed in" beside a live Sign in button)', JSON.stringify(doneSt));
   await q(() => { window.__museRead = null; frClose(); window.__status = { state: 'idle' }; });
   // Not installed: Connect says so and opens nothing.
   await q(() => { MUSE_CREATE = null; window.__museInstalled = false; frOpen(); frGo(5); }); await settle(); await settle();
@@ -787,6 +789,9 @@ const chk = (ok, label, extra) => {
     gem.className = was;
     return out;
   });
+  /* The step offers Next once Meta Muse is connected, as it does for Gemini and Grok (not only Skip). */
+  const frAct = await q(() => { const n = document.getElementById('fr-next'); const a = document.getElementById('fr-alt'); return { next: !!n && !n.hidden && n.textContent.trim(), alt: !!a && !a.hidden && a.textContent.trim() }; });
+  chk(frAct.next === 'Next', 'first run, Meta Muse signed in: the step offers Next', JSON.stringify(frAct));
   chk(boxes.gemini !== 'rgba(0, 0, 0, 0)|0px|0px' && boxes.muse === boxes.gemini, 'first run, signed in: the Meta box is drawn like Gemini\'s (background, padding, corners)', JSON.stringify(boxes));
   await q(() => { frClose(); MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; });
 

@@ -26793,7 +26793,15 @@ museSigninWire(ACCT_MUSE, 'acct-muse-');
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
    sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
-const FR_MUSE = museSigninFlow('fr-muse-', { onDone: () => frPaintMeta({ fresh: true }) });
+const FR_MUSE = museSigninFlow('fr-muse-', { onDone: async () => {
+  await frPaintMeta({ fresh: true });
+  if (MUSE_CREATE && MUSE_CREATE.ready) return;
+  /* The sign-in finished but the read after it did not confirm it (it failed, or answered before Muse
+     caught up): the panel goes away rather than say "Signed in" beside a live Sign in button. */
+  frMuseCollapse();
+  const msg = document.getElementById('fr-muse-msg');
+  if (msg) { msg.className = 'dhint'; msg.textContent = 'Signed in to Meta. It shows here as connected once Kosmos can check it again.'; }
+} });
 museSigninWire(FR_MUSE, 'fr-muse-');
 /* Put the panel away and stop its sign-in. Focus inside it goes to Connect, or to the line under the row when
    Connect is down (a disabled button cannot hold focus). */
@@ -26843,6 +26851,10 @@ async function frPaintMeta(opts) {
   if (ready) {
     msg.className = 'fr-connbox';
     msg.innerHTML = frCheckRow({ state: 'ok', title: 'Meta Muse is connected', detail: 'This computer is signed in to Muse Code with your Meta account.' });
+    /* As Gemini's and Grok's rows do (frPaintKeyed): a connected Meta Muse is a usable provider, so the step
+       offers Next rather than only "Skip connecting a model", unless Claude has offered its own. */
+    const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
+    if (!claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
     msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
   }
@@ -26853,7 +26865,9 @@ document.getElementById('fr-meta-connect').addEventListener('click', async () =>
   const msg = document.getElementById('fr-muse-msg');
   if (!flow.hidden) { frMuseCollapse(); btn.focus(); return; }   // a second press closes it, as aria-expanded says
   // Asked again first: someone who installed Muse Code after the last read is not told it is missing.
+  const step = FR_STEP;
   await frPaintMeta();
+  if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
   if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
   if (!MUSE_CREATE.installed) {
     if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
@@ -58909,7 +58923,7 @@ function frGo(step) {
   { const kb = document.getElementById('fr-gemini-confirm'); const to = document.getElementById('fr-pane-' + step);
     if (kb && !(to && to.contains(kb))) frKeyedHideAll(); }   // #3731: Gemini's and Grok's panels
   { const mf = document.getElementById('fr-muse-flow'); const to = document.getElementById('fr-pane-' + step);
-    if (mf && !(to && to.contains(mf)) && typeof frMuseCollapse === 'function') frMuseCollapse(); }   // #3939 3c-4: and Meta's
+    if (mf && !(to && to.contains(mf))) frMuseCollapse(); }   // #3939 3c-4: and Meta's
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
