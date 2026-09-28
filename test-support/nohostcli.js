@@ -16,7 +16,16 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const util = require('node:util');
 const childProcess = require('node:child_process');
+
+// Vercel's own folders under HOME, and the npm log its update check writes. Board code can write
+// elsewhere under HOME/Library itself, so only these are read as a host tool's footprint.
+const HOST_CLI_FOOTPRINT = [
+  path.join('Library', 'Application Support', 'com.vercel.cli'),
+  path.join('Library', 'Caches', 'com.vercel.cli'),
+  path.join('.npm', '_logs'),
+];
 
 function sandboxHostClis(sandbox) {
   process.env.AGENT_WORKFORCE_GH_BIN = path.join(sandbox, 'no-such-gh');
@@ -24,15 +33,20 @@ function sandboxHostClis(sandbox) {
   const started = [];
   for (const name of ['execFile', 'spawn']) {
     const real = childProcess[name];
-    childProcess[name] = function recorded(file, ...rest) { started.push(String(file)); return real.call(this, file, ...rest); };
+    const recorded = function recorded(file, ...rest) { started.push(String(file)); return real.call(this, file, ...rest); };
+    // execFile carries util.promisify.custom (it resolves { stdout, stderr }); a promisify caller uses it
+    // instead of the function, so it is wrapped too, to keep both its shape and the record.
+    const realPromised = real[util.promisify.custom];
+    if (realPromised) recorded[util.promisify.custom] = function recordedPromised(file, ...rest) { started.push(String(file)); return realPromised.call(this, file, ...rest); };
+    childProcess[name] = recorded;
   }
   return {
     started,
     assertNoHostCli(assert, home) {
       const host = started.filter((f) => /(^|\/)(gh|vercel)$/.test(f));
-      assert.deepEqual(host, [], 'a sweep started the host\'s own CLI, which can outlive this test and write into its sandbox after it exits');
-      for (const left of ['Library', '.npm']) {
-        assert.equal(fs.existsSync(path.join(home, left)), false, 'home/' + left + ' exists, so a host tool wrote into this sandbox');
+      assert.deepEqual(host, [], 'a sweep started the host\'s own gh or vercel, which can outlive this test and write into its sandbox after it exits');
+      for (const left of HOST_CLI_FOOTPRINT) {
+        assert.equal(fs.existsSync(path.join(home, left)), false, 'home/' + left + ' exists: the Vercel CLI wrote into this sandbox');
       }
     },
   };

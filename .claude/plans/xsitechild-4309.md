@@ -34,7 +34,13 @@ Addresses #4309 (claimed:raiden, Liu Kang m2189 and m2227). Filed by Johnny Cage
   `child_process.execFile` / `spawn`; that has to happen before `server.js` loads, because
   `devicedoor.js` takes them at require time.
 - Each test ends with `hostClis.assertNoHostCli(assert, HOME)`: no host `gh` or `vercel`
-  started, and `home/Library` and `home/.npm` are absent.
+  started, and none of Vercel's own folders exist under HOME (`Library/Application
+  Support/com.vercel.cli`, `Library/Caches/com.vercel.cli`, `.npm/_logs`). Review iteration 3:
+  board code can write elsewhere under `HOME/Library` itself, so the check does not blame a
+  host tool for that.
+- The recorder keeps `execFile`'s `util.promisify.custom`, wrapped so a promisified call is
+  both shaped `{ stdout, stderr }` and recorded (review iteration 3). Measured: with the
+  symbol merely copied, a promisified call returned the right shape but was NOT recorded.
 - One helper rather than three copies (review iteration 2): a fourth sweep test would
   otherwise copy it again, and the copies could drift.
 - Control: with the helper's two env lines removed, all three tests fail on this Mac.
