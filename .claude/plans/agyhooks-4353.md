@@ -6,10 +6,12 @@ board adopts running agents rather than restarting them, so its card said "Can't
 ## Design
 - `engine/agyrefresh.js`: for every RUNNING agent of this Kosmos (create.runningJobs) whose job
   runner is 'antigravity' AND whose launch folder has no Kosmos entry in `.agents/hooks.json`
-  yet (an object entry whose node and bridge still exist; a malformed or stale one is repaired), call
-  agyhooks.ensureHooks(folder, allowance.stableNode(), create.agyBridgePath(), false).
+  yet (a WORKING entry: each handler present names a node and bridge that exist; a malformed or
+  stale one is repaired), call agyhooks.ensureHooks(folder, allowance.stableNode(),
+  create.agyBridgePath(), keepTools), keepTools true only when the broken entry had the tool hooks.
   - The folder is argument 3 of the agent's own plist (what the running supervisor was started
-    with), decoded with create.unxml, falling back to create.workerDir(name).
+    with), read through create.plistArgs (the same parse readJob uses), falling back to
+    create.workerDir(name).
   - The node is stableNode(), not process.execPath: a versioned Homebrew path dies at upgrade.
   - Working/Idle hooks only (withToolHooks false): the running agy may be older than the binary
     on disk, and the ask_question tool hooks are only safe on a new enough agy, so they are left

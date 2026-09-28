@@ -227,3 +227,19 @@ test('#4353 an entry whose PreInvocation names a missing node is broken even whe
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'a dead PreInvocation read as hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
+
+test('#4353 a dead ask_question tool handler is broken too (it would deny ask_question), a live one is fine', () => {
+  const wd = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agytool-'));
+  try {
+    const bridge = path.join(wd, 'bridge.js');
+    fs.writeFileSync(bridge, '');
+    agyhooks.ensureHooks(wd, process.execPath, bridge, true);
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), true, 'CONTROL: a live entry with tool hooks must read as hooked');
+    const f = path.join(wd, '.agents', 'hooks.json');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const h = j[agyhooks.HOOK_NAME].PreToolUse[0].hooks[0];
+    h.command = h.command.split(process.execPath).join('/gone/node');
+    fs.writeFileSync(f, JSON.stringify(j));
+    assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'a dead PreToolUse read as hooked');
+  } finally { fs.rmSync(wd, { recursive: true, force: true }); }
+});

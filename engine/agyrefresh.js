@@ -12,7 +12,7 @@
  * Why writing the file is enough: agy picks up a hooks.json written while it runs, on its next
  * turn (measured 2026-09-28 on agy 1.2.12; kosmos#4353 comment 5872366045). No restart.
  *
- * ONLY WHERE NO KOSMOS ENTRY EXISTS. An agent the supervisor has already hooked is left to the
+ * ONLY WHERE NO WORKING KOSMOS ENTRY EXISTS (none, or a broken one, repaired below). An agent the supervisor has already hooked is left to the
  * supervisor: the board's node path is not spelled the way the supervisor spells it, and
  * rewriting the entry at every board start (then back at every launch) would churn the file of
  * a running agent for nothing. Only running agents are visited; a stopped one is hooked when it
@@ -37,9 +37,11 @@ function readEntry(workdir, hookName) {
   } catch { return null; }
 }
 
-/** Does this event's first handler run `'<node>' '<bridge>' ...` with both paths present? */
+/** Does this event's first handler run `'<node>' '<bridge>' ...` with both paths present? A tool
+    event (PreToolUse, PostToolUse) nests its handler one level down, under a matcher. */
 function runsLive(e, ev) {
-  const h = Array.isArray(e[ev]) ? e[ev][0] : null;
+  const first = Array.isArray(e[ev]) ? e[ev][0] : null;
+  const h = first && Array.isArray(first.hooks) ? first.hooks[0] : first;
   const cmd = h && typeof h.command === 'string' ? h.command : '';
   const quoted = require('./agyhooks').shUnquoteAll(cmd);   // the inverse of the shQuote that wrote it
   return quoted.length >= 2 && quoted.slice(0, 2).every((p) => fs.existsSync(p));
@@ -51,7 +53,10 @@ function runsLive(e, ev) {
     absent so it is written again. Unreadable = no. */
 function hasKosmosHook(workdir, hookName) {
   const e = readEntry(workdir, hookName);
-  return !!e && runsLive(e, 'PreInvocation') && runsLive(e, 'Stop');
+  if (!e || !runsLive(e, 'PreInvocation') || !runsLive(e, 'Stop')) return false;
+  // A tool hook, when present, must run too: a dead PreToolUse answers nothing, and agy reads
+  // that as a DENY of ask_question (agyhooks.js), which is worse than no hook.
+  return ['PreToolUse', 'PostToolUse'].every((ev) => !(ev in e) || runsLive(e, ev));
 }
 
 /** Did the entry being replaced carry the ask_question tool hooks? Only a current supervisor writes
