@@ -913,20 +913,18 @@ function serviceLabel(name, worldId) {
 }
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
 
-/* #4279: the temp roots a leftover test job's plist can sit in. A real agent's
-   plist never does. The per-user temp folder (os.tmpdir(), $TMPDIR) is the real
-   one, in both spellings (/var/folders/.../T and its /private realpath), since
-   launchd reports whichever the job was loaded with; /tmp is an extra known root. */
+/* #4279: the system temp roots a leftover test job's plist can sit in: /tmp and
+   macOS's per-user /var/folders, each in both spellings, since launchd reports
+   whichever the job was loaded with. FIXED on purpose: os.tmpdir() and $TMPDIR are
+   NOT trusted, because TMPDIR is often repointed (direnv, a sandbox, a shell
+   profile) to a folder that persists, and a plist there could be a live job. */
 function tempRoots() {
-  const roots = new Set();
-  roots.add('/tmp');
-  roots.add('/private/tmp');
-  for (const t of [os.tmpdir(), process.env.TMPDIR]) {
-    if (!t) continue;
-    roots.add(path.resolve(t));
-    try { roots.add(fs.realpathSync.native(t)); } catch { /* not there */ }
-  }
-  return [...roots];
+  const roots = [];
+  roots.push('/tmp');
+  roots.push('/private/tmp');
+  roots.push('/var/folders');
+  roots.push('/private/var/folders');
+  return roots;
 }
 
 /* #4279: whether a LOADED job for a name is a leftover we may boot out, from
@@ -4335,9 +4333,12 @@ function createAgentInner(opts) {
    * `T/rx-launch-*`, respawning 8,096 times with exit 1, and it blocked the setup
    * guide's creation for the name Josh. That kind is booted out and the creation
    * goes on, with a step saying so. Anything else loaded under this name (a
-   * plist at our own path, or outside temp, or a path launchd does not report)
-   * is still refused: labels are world-scoped, so it can only be this board's
-   * agent or its leftover, and we do not unload what we cannot prove is dead.
+   * plist at our own path, or outside the system temp roots, or a path launchd
+   * does not report) is still refused: labels are world-scoped, so it can only
+   * be this board's agent or its leftover.
+   * ⚠️ This is a judgement, not a proof of death. Its weak premise: a live job's
+   * plist is never in a SYSTEM temp root. Only a launch root pointed there on
+   * purpose (AGENT_WORKFORCE_LAUNCH, which tests do) breaks it.
    */
   //
   // ⚠️ Loaded means launchctl actually DESCRIBED the service, not merely that
@@ -4366,8 +4367,10 @@ function createAgentInner(opts) {
       } catch { gone = false; }
       if (gone) {
         try { console.log(`create: removed a leftover startup job for ${name} (${leftover.why}; it was loaded from ${leftover.path})`); } catch { /* never mask */ }
-        steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why})`, ok: true });
+        steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why}: ${leftover.path})`, ok: true });
         loaded = false;
+      } else {
+        steps.push({ label: `tried to remove a leftover startup entry for ${shown} (${leftover.why}: ${leftover.path}), but it would not leave`, ok: false });
       }
     }
   }

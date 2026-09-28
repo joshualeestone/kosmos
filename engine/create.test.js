@@ -793,7 +793,7 @@ test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent
   const r = create.createAgent({ ...BINS, name: 'leftover-temp', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because || '');
   assert.ok(bootedOut(calls), 'the leftover job was not booted out');
-  assert.ok(r.steps.some((s) => /removed a leftover startup entry/.test(s.label) && s.ok), 'the removal is not reported as a step');
+  assert.ok(r.steps.some((s) => /removed a leftover startup entry/.test(s.label) && s.ok && s.label.includes(leaked)), 'the removal is not reported as a step naming the file it removed');
 });
 
 test('#4279: a leftover job whose plist is GONE is booted out and the agent is created', WIN_LAUNCHD, () => {
@@ -812,8 +812,8 @@ test('#4279: a job loaded from THIS board\'s own plist path is still refused, ne
 });
 
 test('#4279: a job whose plist EXISTS outside a temp folder is still refused, never booted out', WIN_LAUNCHD, () => {
-  // This test file itself: absolute, present, and not in a temp folder.
-  const calls = leftoverRunner(__filename);
+  // A file present on every Mac and never in a temp root, wherever the checkout sits.
+  const calls = leftoverRunner('/etc/hosts');
   const r = create.createAgent({ ...BINS, name: 'leftover-live', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.ok(!bootedOut(calls), 'it unloaded a job it cannot prove is dead');
@@ -828,6 +828,7 @@ test('#4279: a bootout that does not take is still a refusal, not a creation', W
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.ok(bootedOut(calls), 'precondition: it tried');
   assert.ok(!calls.some(([, a]) => a && a[0] === 'bootstrap'), 'it loaded a second job over one that would not leave');
+  assert.ok(r.steps.some((s) => /would not leave/.test(s.label) && s.ok === false), 'the failed removal is not reported');
 });
 
 test('#4279: leftoverJob reads only the first-level path, and only temp or gone counts', () => {
@@ -836,10 +837,27 @@ test('#4279: leftoverJob reads only the first-level path, and only temp or gone 
   assert.equal(create.leftoverJob(`\tpath = ${ours}\n`, ours), null, 'our own path');
   assert.equal(create.leftoverJob('\tpath = relative/x.plist\n', ours), null, 'a relative path');
   assert.equal(create.leftoverJob('\t\tpath = /nowhere-4279/x.plist\n', ours), null, 'a NESTED path line is not the job\'s plist');
-  assert.match(create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours).why, /gone/);
+  const gone = create.leftoverJob('\tpath = /nowhere-4279/x.plist\n', ours);
+  assert.match(gone.why, /gone/);
+  assert.equal(gone.path, '/nowhere-4279/x.plist', 'it reports a different file from the one launchd loaded');
   const t = nodePath.join(os.tmpdir(), 'x-4279.plist'); fs.writeFileSync(t, '');
-  try { assert.match(create.leftoverJob(`\tpath = ${t}\n`, ours).why, /temporary/); } finally { fs.rmSync(t, { force: true }); }
-  assert.equal(create.leftoverJob(`\tpath = ${__filename}\n`, ours), null, 'present and not temp');
+  try {
+    const temp = create.leftoverJob(`\tpath = ${t}\n`, ours);
+    assert.match(temp.why, /temporary/);
+    assert.equal(temp.path, t);
+  } finally { fs.rmSync(t, { force: true }); }
+  assert.equal(create.leftoverJob('\tpath = /etc/hosts\n', ours), null, 'present and not temp');
+  // TMPDIR is not trusted: a present plist in a folder TMPDIR merely POINTS at is not a leftover.
+  const persistent = fs.mkdtempSync(nodePath.join(os.homedir(), '.kosmos-4279-'));
+  const saved = process.env.TMPDIR;
+  try {
+    const p = nodePath.join(persistent, 'com.kosmos.agent.a.plist'); fs.writeFileSync(p, '');
+    process.env.TMPDIR = persistent;
+    assert.equal(create.leftoverJob(`\tpath = ${p}\n`, ours), null, 'a plist under a repointed TMPDIR was treated as a leftover');
+  } finally {
+    if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved;
+    fs.rmSync(persistent, { recursive: true, force: true });
+  }
 });
 
 test('a machine we cannot ask about running agents is refused, not risked', WIN_LAUNCHD, () => {
