@@ -767,31 +767,38 @@ test('a name a live session already answers to is refused, even with no folder',
    is in temp). Each test removes its own in a finally. The exit and SIGINT/SIGTERM hooks are the
    backstop for a failed or interrupted run, unlocking a chmod 000 folder first. A SIGKILL runs
    no hook, so one can still strand a fixture there. */
-const HOME_FIXTURES = [];
+const LEFTOVER_FIXTURES = [];
 function homeFixture(prefix) {
   const d = fs.mkdtempSync(nodePath.join(os.homedir(), prefix));
-  HOME_FIXTURES.push(d);
+  LEFTOVER_FIXTURES.push(d);
   return d;
 }
-function removeHomeFixtures() {
-  for (const d of HOME_FIXTURES.splice(0)) {
+function removeLeftoverFixtures() {
+  for (const d of LEFTOVER_FIXTURES.splice(0)) {
     try { fs.chmodSync(d, 0o700); } catch { /* already gone */ }
     try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
-process.on('exit', removeHomeFixtures);
-for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => { removeHomeFixtures(); process.kill(process.pid, sig); });
+/* The temp plists a leftover test makes are removed the same way. */
+function tempFixture(prefix) {
+  const d = fs.mkdtempSync(nodePath.join(os.tmpdir(), prefix));
+  LEFTOVER_FIXTURES.push(d);
+  return d;
+}
+process.on('exit', removeLeftoverFixtures);
+for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => { removeLeftoverFixtures(); process.kill(process.pid, sig); });
 
 /* #4279: a LEFTOVER job holding the name is booted out; anything else still refuses.
    The runner is stateful: `print` describes the job until `bootout` runs, then
    describes nothing, which is what launchctl does. */
 
-function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null } = {}) {
+function leftoverRunner(printedPath, { bootoutWorks = true, verifyThrows = null, verifyReturns = null } = {}) {
   const calls = [];
   let loaded = true;
   create.setRunner((file, args) => {
     calls.push([file, args]);
     if (args && args[0] === 'print' && verifyThrows && calls.some(([, a]) => a && a[0] === 'bootout')) throw verifyThrows;
+    if (args && args[0] === 'print' && verifyReturns && calls.some(([, a]) => a && a[0] === 'bootout')) return verifyReturns;
     if (args && args[0] === 'print') {
       /* Real `launchctl print` THROWS for a service that is not there (run() is
          execFileSync), so once booted out this throws, as the real one does. */
@@ -810,7 +817,7 @@ const bootedOut = (calls) => calls.some(([, a]) => a && a[0] === 'bootout');
 
 test('#4279: a leftover job loaded from a TEMP plist is booted out and the agent is created', WIN_LAUNCHD, () => {
   // The measured case: a 09-24 test left com.kosmos.agent.josh loaded from T/rx-launch-*.
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-temp.plist');
   fs.writeFileSync(leaked, '<plist/>');
   const calls = leftoverRunner(leaked);
@@ -883,8 +890,18 @@ test('#4279: a job whose plist EXISTS outside a temp folder is still refused, ne
   assert.ok(!bootedOut(calls), 'it unloaded a job it cannot prove is dead');
 });
 
+test('#4279: a verify print that ANSWERS ok:false (not a not-found throw) is not proof the job left', WIN_LAUNCHD, () => {
+  const dir = tempFixture('rx-launch-');
+  const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-okfalse.plist');
+  fs.writeFileSync(leaked, '<plist/>');
+  leftoverRunner(leaked, { verifyReturns: { ok: false, stdout: '', liveExecutionRefused: true } });
+  const r = create.createAgent({ ...BINS, name: 'leftover-okfalse', role: 'pm' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'an unconfirmed removal created the agent');
+  assert.match(r.because, /removing it did not work/);
+});
+
 test('#4279: a bootout that does not take is still a refusal, not a creation', WIN_LAUNCHD, () => {
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-stuck.plist');
   fs.writeFileSync(leaked, '<plist/>');
   const calls = leftoverRunner(leaked, { bootoutWorks: false });
@@ -944,7 +961,7 @@ test('#4279: a RELATIVE printed path is refused with the generic message and nev
 });
 
 test('#4279: a verify that throws for any OTHER reason is not proof the job left', WIN_LAUNCHD, () => {
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rx-launch-'));
+  const dir = tempFixture('rx-launch-');
   const leaked = nodePath.join(dir, 'com.kosmos.agent.leftover-timeout.plist');
   fs.writeFileSync(leaked, '<plist/>');
   const err = new Error('spawnSync /bin/launchctl ETIMEDOUT'); err.code = 'ETIMEDOUT';

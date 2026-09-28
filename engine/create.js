@@ -4402,8 +4402,11 @@ function createAgentInner(opts) {
          not): a throw carrying it means the bootout worked; any other throw (a timeout,
          a failed exec) is "could not confirm", which refuses. */
       try {
-        const again = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
-        gone = !(again && again.ok !== false && String(again.stdout || '').trim());
+        run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+        /* A print that ANSWERED means the job is still there or could not be checked (an ok:false
+           from a refused live execution, say): neither is "gone". Only launchd's own not-found throw,
+           below, confirms it left (#4279 review 12). */
+        gone = false;
       } catch (e) {
         gone = /Could not find service/.test(`${(e && e.stderr) || ''} ${(e && e.message) || ''}`);
       }

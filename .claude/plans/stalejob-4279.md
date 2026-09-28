@@ -135,6 +135,14 @@ crash-looping today is still somebody's agent; the proof that a job is a leftove
 - The $HOME fixtures also clean up on SIGINT/SIGTERM. A SIGKILL runs no hook; that residual is stated in the
   test file.
 
+## Review 12
+
+- The post-bootout verify read a print that ANSWERED `ok:false` (a refused live execution, say) as gone,
+  the failure-as-success shape. Dormant today (the live-execution gate is set once at start and the first
+  print already needed ok), but unpinned. Now any answered print is "not confirmed"; only launchd's
+  not-found throw confirms. Pinned by an ok:false verify test.
+- The two temp plist fixtures are now registered for the same cleanup as the $HOME ones.
+
 ## Weakest premise
 
 That a real agent's plist never lives in a temp folder. Kosmos writes real plists to
