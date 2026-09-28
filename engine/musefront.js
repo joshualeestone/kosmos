@@ -13,15 +13,17 @@
  * Cooked mode would not do: macOS cuts a cooked line at 1024 bytes, and a Kosmos message can be longer.
  *
  * Turns run one at a time, in the order the messages came. Muse refuses a second turn on a session
- * that is still busy, so a message typed during a turn waits for it.
+ * that is still busy, so a message typed during a turn waits for it. The board's Stop (one Escape)
+ * ends the running turn and drops the waiting ones.
  *
- * The board hears working when a turn starts and idle when it ends, through bin/agy-report-bridge.js
- * (its PreInvocation and Stop events map to exactly those two states, and it already carries the
- * board token, the world header, the per-pane throttle and the never-break-the-agent contract).
+ * The board hears working and idle through bin/agy-report-bridge.js (its PreInvocation and Stop
+ * events map to those two states, and it carries the board token, the world header, the per-pane
+ * throttle and the never-break-the-agent contract).
  */
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { StringDecoder } = require('node:string_decoder');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROMPT = '> ';
@@ -50,24 +52,30 @@ function loadSession(workspace, o = {}) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, id + '\n', { mode: 0o600 });
+    fs.chmodSync(file, 0o600);   // a file that was already there keeps its old mode otherwise
   } catch {
     note = 'Kosmos could not save this agent\'s Muse session, so a restart will start a new one.';
   }
   return { id, note };
 }
 
+/** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
+const WORKING_EVERY_MS = 60 * 1000;
+
 /**
  * The front's logic, with its edges passed in so a test can drive it:
  *   runTurn(input) -> Promise of muserun's result; report(state) -> fire and forget;
  *   write(text) -> the pane.
- * Returns { feed(bytes), drained() }. feed takes raw input; drained resolves once no turn is queued
- * or running (tests only).
+ * Returns { feed(bytes), stop(), drained() }. feed takes raw input; stop ends the running turn and drops
+ * the waiting ones; drained resolves once no turn is queued or running (tests only).
  */
-function createFront({ workspace, sessionId, runTurn, report, write }) {
+function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS }) {
   let line = '';
   const queue = [];
   let running = false;
+  let stopTurn = null;   // ends the turn that is running now, when runTurn handed one over
   let waiters = [];
+  const decoder = new StringDecoder('utf8');   // a character split across two reads stays one character
 
   const settle = () => { if (!running && !queue.length) { const w = waiters; waiters = []; w.forEach((f) => f()); } };
 
@@ -78,9 +86,12 @@ function createFront({ workspace, sessionId, runTurn, report, write }) {
       while (queue.length) {
         const prompt = queue.shift();
         report('working');
+        const beat = setInterval(() => report('working'), workingEveryMs);
+        if (beat.unref) beat.unref();
         let r;
-        try { r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never' }); }
+        try { r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } }); }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
+        finally { clearInterval(beat); stopTurn = null; }
         const text = r && typeof r.text === 'string' ? r.text.trim() : '';
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + ((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
@@ -104,36 +115,55 @@ function createFront({ workspace, sessionId, runTurn, report, write }) {
     pump();
   }
 
-  // An escape sequence (an arrow key, a paste bracket): 0 = none, 1 = after ESC, 2 = inside ESC [ ...
-  let esc = 0;
+  /** The board's Stop (one Escape): the line being typed, the waiting messages and the running turn all end. */
+  function stop() {
+    const dropped = queue.length;
+    queue.length = 0;
+    line = '';
+    if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
+    if (stopTurn) { const f = stopTurn; stopTurn = null; try { f(); } catch { /* the turn is ending anyway */ } }
+    else if (!running) write('\n' + PROMPT);
+  }
 
   function feed(chunk) {
-    const s = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    for (const ch of s) {
+    const s = Buffer.isBuffer(chunk) ? decoder.write(chunk) : String(chunk);
+    const chars = Array.from(s);
+    let echo = '';
+    const flush = () => { if (echo) { write(echo); echo = ''; } };
+    // An escape sequence (an arrow key) arrives whole in one read, so its state never carries into the
+    // next read: an Escape on its own, at the end of a read, is the board's Stop.
+    let esc = 0;   // 0 = none, 1 = after ESC, 2 = inside ESC [ ...
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
       if (esc === 1) { esc = (ch === '[' || ch === 'O') ? 2 : 0; continue; }
       if (esc === 2) { if (ch >= '@' && ch <= '~') esc = 0; continue; }   // the final byte ends it
-      if (ch === '\u001b') { esc = 1; continue; }   // never part of a message
-      if (ch === '\r' || ch === '\n') { submit(); continue; }
+      if (ch === '\u001b') {
+        if (i === chars.length - 1) { flush(); stop(); } else esc = 1;
+        continue;
+      }
+      if (ch === '\r' || ch === '\n') { flush(); submit(); continue; }
       if (ch === '\u0003' || ch === '\u0015') {   // Ctrl+C, Ctrl+U: drop the line being typed
+        flush();
         if (line) write('\n' + PROMPT);
         line = '';
         continue;
       }
       if (ch === '\u007f' || ch === '\b') {   // Backspace
-        if (line) { line = Array.from(line).slice(0, -1).join(''); write('\b \b'); }
+        if (line) { line = Array.from(line).slice(0, -1).join(''); flush(); write('\b \b'); }
         continue;
       }
       if (ch < ' ') continue;         // other control bytes are never part of a message
       line += ch;
-      write(ch);
+      echo += ch;
     }
+    flush();
   }
 
   function drained() {
     return new Promise((resolve) => { waiters.push(resolve); settle(); });
   }
 
-  return { feed, drained };
+  return { feed, stop, drained };
 }
 
 /** Tell the board working or idle, through the agy bridge beside the engine. Never throws or waits. */
@@ -170,10 +200,18 @@ function main(argv = process.argv) {
   const { id, note } = loadSession(workspace);
   write(HELLO + '\n');
   if (note) write(note + '\n');
-  const front = createFront({ workspace, sessionId: id, runTurn: require('./muserun').runTurn, report: makeReporter(), write });
+  const report = makeReporter();
+  const front = createFront({ workspace, sessionId: id, runTurn: require('./muserun').runTurn, report, write });
+  /* The pane closing (a Stop agent, a restart) must not leave a turn running behind it: Muse runs in
+     its own process group, which the pane's hangup never reaches, and a turn left running would hold
+     this agent's session and refuse the next front's first turn. */
+  const leave = () => { front.stop(); process.exit(0); };
+  process.on('SIGHUP', leave);
+  process.on('SIGTERM', leave);
   if (process.stdin.isTTY && process.stdin.setRawMode) process.stdin.setRawMode(true);
   process.stdin.on('data', (b) => front.feed(b));
-  process.stdin.on('end', () => { front.drained().then(() => process.exit(0)); });
+  process.stdin.on('end', leave);
+  report('idle');   // the board hears from a new agent before its first message
   write(PROMPT);
 }
 

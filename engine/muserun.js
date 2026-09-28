@@ -38,6 +38,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const COULD_NOT_RUN = 'Kosmos could not run Muse Code just now';
 const TIMED_OUT = 'Muse Code did not finish the turn in time';
 const NOT_WIRED_UP = 'Muse Code is not wired up on this computer yet';
+const STOPPED = 'Stopped before Muse Code finished';
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -149,6 +150,12 @@ function runTurn(input) {
     let stop = null;
     const cap = setTimeout(() => { if (stop) { try { stop(); } catch { /* best effort */ } } fail(TIMED_OUT); }, hardCapMs);
     if (cap.unref) cap.unref();
+    /* #3939 3c-3a: the caller (engine/musefront.js) can end the turn: the Stop button, or its pane closing.
+       It gets a function that stops the Muse group and answers STOPPED. */
+    if (input && typeof input.onStop === 'function') {
+      try { input.onStop(() => { if (settled) return; if (stop) { try { stop(); } catch { /* best effort */ } } fail(STOPPED); }); }
+      catch { /* a caller that throws here does not get to stop the turn */ }
+    }
     try {
       // Round 3: the AGENT_WORKFORCE_MUSE_BIN override is honoured on any platform, and the stop above is POSIX.
       if (platform !== 'darwin') { fail(NOT_WIRED_UP); return; }
@@ -201,4 +208,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, setForTests, resetForTests };

@@ -7403,7 +7403,8 @@ function snapshot() {
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
     // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
-    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session)
+    // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only.
+    const { model } = (tied && !isAgyPane && !isMusePane) ? readModel(pane.name, pane.session)
       : { model: (tied && agySess && agySess.found && agySess.model) || null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
@@ -7424,6 +7425,8 @@ function snapshot() {
         // #4039: an agy pane's context lives in its agy conversation db (agysession). The Claude
         // reader below must still never read an agy agent's folder (#3568).
         : isAgyPane ? readAgyContext(pane.name, agySess)
+        // #3939: a Muse agent's context is Muse's own, which Kosmos does not read yet. Never the Claude reader.
+        : isMusePane ? { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, because: 'Kosmos does not read how full Muse\u2019s memory is yet' }
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so

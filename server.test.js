@@ -13013,6 +13013,13 @@ test('#3568: an Antigravity agent reads as what the person picked, with the prog
   assert.match(sentenceForWhoami(null, null, 'codex'), /^This is a Codex agent, and /);
 });
 
+test('#3939: a Meta Muse agent reads as Meta Muse, with no account by design', () => {
+  const { sentenceForWhoami } = require('./server.js');
+  const said = sentenceForWhoami(null, null, 'muse');
+  assert.match(said, /^This is a Meta Muse agent, and it uses the Muse sign-in on this computer/, said);
+  assert.doesNotMatch(said, /cannot tell which account|a muse agent/);
+});
+
 test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
      `because` sentence and nothing else (it seds the field out of the body), and

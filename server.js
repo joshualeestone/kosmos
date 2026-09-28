@@ -1587,7 +1587,7 @@ function runnerDisplayName(runner) {
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : String(runner); // #3568
+  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -1670,6 +1670,8 @@ function sentenceForWhoami(account, model, runner) {
     : (named ? named + (runner === 'antigravity'
       // #3568 (review round 9): no Kosmos account by design, so not a fault to report.
       ? 'it signs in with your Google account inside Antigravity'
+      // #3939: no Kosmos account either; Muse has one sign-in per person on this Mac.
+      : runner === 'muse' ? 'it uses the Muse sign-in on this computer'
       : 'we cannot tell which account it runs on') : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';

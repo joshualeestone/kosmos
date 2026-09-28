@@ -43,7 +43,9 @@ test('#3939: a muse agent\'s pane runs node on engine/musefront.js in its folder
     'the pane does not run the Muse front on this agent\'s folder: ' + line);
   assert.ok(line.includes('-e KOSMOS_MUSE_BRIDGE=' + nodePath.join(__dirname, 'bin', 'agy-report-bridge.js')),
     'the front is not told where the report bridge is: ' + line);
-  assert.ok(!line.includes('/usr/bin/true'), 'the pane runs the runner binary itself, not the front: ' + line);
+  assert.ok(line.endsWith('/musefront.js ' + SANDBOX), 'the pane runs something other than the front: ' + line);
+  assert.ok(line.includes('-e AGENT_WORKFORCE_MUSE_BIN=/usr/bin/true '),
+    'the front\'s turns are not told which Muse binary create checked: ' + line);
 });
 
 test('#3939: with no engine to run the front from, a muse agent is refused in a sentence and no pane starts', () => {
@@ -57,8 +59,15 @@ test('#3939: with no engine to run the front from, a muse agent is refused in a 
   assert.notEqual(out.r.status, 0);
 });
 
+test('#3939: a muse pane gets none of the Claude Code settings', () => {
+  const out = launch('muse');
+  assert.ok(/new-session/.test(out.rec), 'the muse arm did not launch: ' + out.r.stderr);
+  assert.ok(!/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN/.test(out.rec), 'a muse pane got a Claude Code setting: ' + out.rec);
+});
+
 test('#3939 CONTROL: a claude agent\'s pane does not run the Muse front', () => {
   const out = launch('claude');
   assert.ok(/new-session/.test(out.rec), 'the claude arm did not launch, so this control shows nothing: ' + out.r.stderr);
-  assert.ok(!/musefront\.js|KOSMOS_MUSE_BRIDGE/.test(out.rec), 'a claude pane got the Muse front: ' + out.rec);
+  assert.ok(/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN/.test(out.rec), 'the claude pane lacks its setting, so the muse row above shows nothing: ' + out.rec);
+  assert.ok(!/musefront\.js|KOSMOS_MUSE_BRIDGE|AGENT_WORKFORCE_MUSE_BIN/.test(out.rec), 'a claude pane got the Muse front: ' + out.rec);
 });

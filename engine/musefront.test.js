@@ -9,19 +9,27 @@ const { mkTemp } = require('../test-support/tmpdir.js');
 const front = require('./musefront');
 
 /* A front with its edges recorded. runTurn answers from `answers` (a function or a list), one per call. */
-function harness(answers) {
+function harness(answers, opts = {}) {
   const calls = []; const reports = []; let out = '';
   let n = 0;
   const pending = [];
+  const stops = [];   // how many times the front ended each held turn
   const runTurn = (input) => {
     calls.push(input);
     const i = n; n += 1;   // counted before a throwing answer, so the next call gets the next one
     const a = typeof answers === 'function' ? answers(input, i) : answers[i];
-    if (a === 'hold') return new Promise((resolve) => pending.push(resolve));
+    if (a === 'hold') {
+      return new Promise((resolve) => {
+        pending.push(resolve);
+        stops[i] = 0;
+        // muserun's contract: the stop ends the turn with its STOPPED answer.
+        input.onStop(() => { stops[i] += 1; resolve({ ok: false, text: '', because: 'Stopped before Muse Code finished' }); });
+      });
+    }
     return Promise.resolve(a);
   };
-  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; } });
-  return { f, calls, reports, out: () => out, pending };
+  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, ...opts });
+  return { f, calls, reports, out: () => out, pending, stops };
 }
 const OK = (text) => ({ ok: true, text, because: null });
 
@@ -32,7 +40,9 @@ test('one Enter is one message: chunked bytes before it are one turn, on this ag
   h.f.feed('.txt\r');
   await h.f.drained();
   assert.equal(h.calls.length, 1);
-  assert.deepEqual(h.calls[0], { workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', prompt: 'Append a line to hello.txt', approvalMode: 'never' });
+  const { onStop, ...sent } = h.calls[0];
+  assert.deepEqual(sent, { workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', prompt: 'Append a line to hello.txt', approvalMode: 'never' });
+  assert.equal(typeof onStop, 'function', 'the front cannot stop the turn');
   assert.match(h.out(), /DONE\n> $/);
   assert.deepEqual(h.reports, ['working', 'idle']);
 });
@@ -95,6 +105,80 @@ test('a failed turn says why in the pane and still ends idle; a throwing runTurn
   assert.deepEqual(h.reports, ['working', 'idle', 'working', 'idle', 'working', 'idle']);
 });
 
+test('the board\'s Stop (one Escape, on its own) never eats the next message', async () => {
+  // chat.interrupt sends exactly one Escape; the next message comes in a later read.
+  for (const next of ['Hello there', 'OK do it', '[x] done']) {
+    const h = harness([OK('a')]);
+    h.f.feed('\u001b');
+    h.f.feed(next + '\r');
+    await h.f.drained();
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.calls[0].prompt, next, 'the Escape swallowed the start of the next message');
+  }
+  // CONTROL: an Escape sequence inside one read (an arrow key) is still dropped whole.
+  const c = harness([OK('a')]);
+  c.f.feed('\u001b[Ahi\r');
+  await c.f.drained();
+  assert.equal(c.calls[0].prompt, 'hi');
+});
+
+test('the board\'s Stop ends the running turn, drops the waiting ones, and the front takes the next message', async () => {
+  const h = harness(['hold', OK('never'), OK('after')]);
+  h.f.feed('long job\r');
+  h.f.feed('queued one\r');
+  h.f.feed('half typed');
+  h.f.feed('\u001b');
+  await h.f.drained();
+  assert.equal(h.stops[0], 1, 'the running turn was not stopped');
+  assert.deepEqual(h.calls.map((c) => c.prompt), ['long job'], 'a waiting message ran after Stop');
+  assert.match(h.out(), /1 waiting message was dropped/);
+  assert.match(h.out(), /\(Stopped before Muse Code finished\)\n> $/);
+  assert.equal(h.reports[h.reports.length - 1], 'idle');
+  h.f.feed('after\r');
+  await h.f.drained();
+  assert.equal(h.calls[1].prompt, 'after', 'the half-typed line survived Stop');
+  // CONTROL: without the Escape the queued message does run.
+  const c = harness(['hold', OK('ran')]);
+  c.f.feed('long job\r');
+  c.f.feed('queued one\r');
+  c.pending[0](OK('done'));
+  await c.f.drained();
+  assert.deepEqual(c.calls.map((x) => x.prompt), ['long job', 'queued one']);
+});
+
+test('Stop with nothing running only gives the prompt back', async () => {
+  const h = harness([]);
+  h.f.feed('\u001b');
+  await h.f.drained();
+  assert.equal(h.calls.length, 0);
+  assert.match(h.out(), /> $/);
+});
+
+test('a long turn keeps saying working, and stops once the turn ends', async () => {
+  const h = harness(['hold'], { workingEveryMs: 20 });
+  h.f.feed('long\r');
+  await new Promise((r) => setTimeout(r, 90));
+  const during = h.reports.filter((x) => x === 'working').length;
+  assert.ok(during >= 3, 'only ' + during + ' working reports in a long turn');
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  const atEnd = h.reports.length;
+  await new Promise((r) => setTimeout(r, 70));
+  assert.equal(h.reports.length, atEnd, 'working kept being reported after the turn ended');
+  assert.equal(h.reports[h.reports.length - 1], 'idle');
+});
+
+test('a character split across two reads arrives whole', async () => {
+  const h = harness([OK('a')]);
+  const bytes = Buffer.from('caf\u00e9 \u{1F600}\r', 'utf8');
+  h.f.feed(bytes.subarray(0, 4));   // mid-\u00e9
+  h.f.feed(bytes.subarray(4, 8));   // mid-emoji
+  h.f.feed(bytes.subarray(8));
+  await h.f.drained();
+  assert.equal(h.calls[0].prompt, 'caf\u00e9 \u{1F600}');
+  assert.doesNotMatch(h.calls[0].prompt, /\uFFFD/);
+});
+
 test('the session id is made once, kept in the agent folder (mode 600), and reused', () => {
   const dir = mkTemp('musefront-');
   const a = front.loadSession(dir);
@@ -105,8 +189,10 @@ test('the session id is made once, kept in the agent folder (mode 600), and reus
   const b = front.loadSession(dir);
   assert.equal(b.id, a.id, 'a restart must continue the same Muse session');
   // An unreadable id is replaced, and the pane is told.
-  fs.writeFileSync(file, 'not-a-uuid\n');
+  fs.writeFileSync(file, 'not-a-uuid\n', { mode: 0o644 });
+  fs.chmodSync(file, 0o644);
   const c = front.loadSession(dir, { randomUUID: () => '99999999-8888-4777-8666-555555555555' });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'a replaced session file kept its old mode');
   assert.equal(c.id, '99999999-8888-4777-8666-555555555555');
   assert.match(c.note, /could not be read/);
   assert.equal(fs.readFileSync(file, 'utf8').trim(), c.id);

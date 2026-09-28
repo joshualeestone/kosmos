@@ -978,6 +978,16 @@ test('#3939: a Meta Muse pane (Kosmos\'s front under node) keeps its runner, is 
   assert.doesNotMatch(classify(plain, '> ').because || '', /Muse/);
 });
 
+test('#3939: the pane sweep never reads a Claude transcript for a Muse pane (SOURCE pin, as #4039 pins agy)', () => {
+  /* The sweep needs a live pane to drive, which no fixture here provides, so the routing is pinned in source. */
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'status.js'), 'utf8');
+  assert.match(src, /const isMusePane = pane\.runner === 'muse';/);
+  assert.match(src, /\(tied && !isAgyPane && !isMusePane\) \? readModel\(pane\.name, pane\.session\)/, 'a Muse pane reaches the Claude model reader');
+  assert.match(src, /: isMusePane \? \{ tokens: null, percent: null, confidence: CONFIDENCE\.NONE, notYet: false, because: 'Kosmos does not read how full Muse/,
+    'a Muse pane reaches the Claude context reader');
+  assert.match(src, /!isAgyPane && !isMusePane\) \{/, 'a Muse pane reaches the Claude account observation');
+});
+
 test('#3953: a crashed Grok agent stays restartable but is NOT a running session, and a stray grok is not ours', () => {
   const [crashed] = parsePanes('elon\t0.0\tzsh\t0\telon\tgrok\t');
   assert.equal(crashed.runner, 'grok');
