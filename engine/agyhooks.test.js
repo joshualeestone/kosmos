@@ -312,7 +312,7 @@ test('#4043: a folder inside a git project is left alone (its hooks.json would b
   /* A worktree or submodule has a .git FILE, not a folder. */
   const wt = workdir();
   fs.writeFileSync(path.join(wt, '.git'), 'gitdir: /elsewhere\n');
-  assert.equal(hooks.gitRootOf(wt), fs.realpathSync(wt));
+  assert.equal(hooks.gitRootOf(wt), fs.realpathSync.native(wt));
   assert.equal(hooks.ensureHooks(wt, '/opt/node', '/b.js').ok, false);
   const plain = workdir();
   assert.equal(hooks.ensureHooks(plain, '/opt/node', '/b.js').ok, true, 'control: a plain Kosmos folder still gets the hook');
@@ -384,12 +384,12 @@ test('#4043: a repository ABOVE the workers folder (a person\'s ~/.git) does not
   fs.mkdirSync(path.join(home, '.git'), { recursive: true });
   fs.mkdirSync(agent, { recursive: true });
   assert.equal(hooks.gitRootOf(agent, root), null, 'a home-level repo counted against a Kosmos agent folder');
-  assert.equal(hooks.gitRootOf(agent), fs.realpathSync(home), 'control: without the ceiling the walk does find it');
+  assert.equal(hooks.gitRootOf(agent), fs.realpathSync.native(home), 'control: without the ceiling the walk does find it');
   fs.mkdirSync(path.join(agent, '.git'));
-  assert.equal(hooks.gitRootOf(agent, root), fs.realpathSync(agent), 'a repo INSIDE the workers folder still counts');
+  assert.equal(hooks.gitRootOf(agent, root), fs.realpathSync.native(agent), 'a repo INSIDE the workers folder still counts');
   const outside = path.join(home, 'projects', 'app');
   fs.mkdirSync(outside, { recursive: true });
-  assert.equal(hooks.gitRootOf(outside, root), fs.realpathSync(home), 'a folder outside the workers root gets the full walk');
+  assert.equal(hooks.gitRootOf(outside, root), fs.realpathSync.native(home), 'a folder outside the workers root gets the full walk');
   const prev = process.env.AGENT_WORKFORCE_WORKERS;
   process.env.AGENT_WORKFORCE_WORKERS = root;
   try {

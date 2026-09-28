@@ -106,7 +106,7 @@ function seedConfig(fileAbs, projects) {
 function workerFolder(name) {
   const d = path.join(DISPOSABLE_HOME, 'workers', name);
   fs.mkdirSync(d, { recursive: true });
-  return fs.realpathSync(d);
+  return fs.realpathSync.native(d);
 }
 
 // Read the trust state a specific .claude.json records for a worker folder.

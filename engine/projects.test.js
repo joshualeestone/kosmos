@@ -352,7 +352,7 @@ test('a symlinked folder reports the path it really resolves to', () => {
   // ⚠️ NOT "the path shown" -- no screen shows this value. `real` is the
   // identity the duplicate-folder check refuses on, so what it must be is the
   // resolved path, and the assertion below says the thing it actually pins.
-  assert.equal(state.real, fs.realpathSync(real),
+  assert.equal(state.real, fs.realpathSync.native(real),
     'two projects could be made out of one folder reached by two names');
 });
 
@@ -2264,7 +2264,7 @@ test('openFile: a bare filename in the folder opens', () => {
   assert.equal(out.ok, true);
   assert.equal(ran.bin, '/usr/bin/open');
   assert.equal(ran.args.length, 1, 'reveal-style -R leaked into the open path');
-  assert.equal(ran.args[0], fs.realpathSync(path.join(dir, 'brief.md')));
+  assert.equal(ran.args[0], fs.realpathSync.native(path.join(dir, 'brief.md')));
   projects.setRevealRunner(null);
 });
 
@@ -2446,7 +2446,7 @@ test('openFile: a file in a subfolder the list shows opens by its relative path 
   projects.setRevealRunner((bin, args) => { ran = { bin, args }; return { ok: true }; });
   const out = projects.openFile(dir, 'reports/q3.pdf');
   assert.equal(out.ok, true, out.because);
-  assert.equal(ran.args[0], fs.realpathSync(path.join(dir, 'reports', 'q3.pdf')));
+  assert.equal(ran.args[0], fs.realpathSync.native(path.join(dir, 'reports', 'q3.pdf')));
   projects.setRevealRunner(null);
 });
 

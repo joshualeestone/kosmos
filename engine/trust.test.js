@@ -9,7 +9,7 @@ const nodePath = require('node:path');
 // ⚠️ Sandbox EVERY root this touches, and there are two: the config file it
 // writes and the folder it keys on. A test that sandboxed only the config
 // would still realpath a directory on the operator's real disk.
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-test-')));
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-test-')));
 const CONFIG = nodePath.join(SANDBOX, 'claude.json');
 /* #2281: the key trust.js writes is separator-NORMALISED, because Claude Code
    spells its project keys with forward slashes and does NOT read a backslashed

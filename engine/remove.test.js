@@ -2486,8 +2486,14 @@ test('a creation that did not record drops a stale record for its name (#169)', 
      both arms). A fixture that predicts `C:\...\name` seeds an answer under a key
      nothing looks up, so creation finds no prior answer, writes its own, and the
      ghost record correctly survives -- the test fails describing a defect that is
-     in the fixture. Inert on POSIX, where sep is already '/'. */
-  const wdKey = nodePath.join(fs.realpathSync(process.env.AGENT_WORKFORCE_WORKERS), name)
+     in the fixture. Inert on POSIX, where sep is already '/'.
+     #4269: and resolved with `realpathSync.native`, the call `trustFolder` makes.
+     On Windows the JS `realpathSync` keeps an 8.3 short name as given
+     (C:/Users/RUNNER~1/...) while the native call expands it (runneradmin), so
+     the JS spelling seeds the answer under a key creation never looks up: the
+     same fixture defect as the separator, one step further along. The same
+     answer as the JS call on macOS for this temp root. */
+  const wdKey = nodePath.join(fs.realpathSync.native(process.env.AGENT_WORKFORCE_WORKERS), name)
     .split(nodePath.sep).join('/');
   /* The person's own answer, in place BEFORE the creation, and the ghost
      of an earlier incarnation's record. */

@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-foldertrusted-2281-')));
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-foldertrusted-2281-')));
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, '.claude.json');
 
 const trust = require('./trust');
@@ -25,7 +25,7 @@ function cfgDir() { return fs.mkdtempSync(path.join(SANDBOX, 'cfg-')); }
 function workdir(name) {
   const d = path.join(SANDBOX, 'work', name);
   fs.mkdirSync(d, { recursive: true });
-  return fs.realpathSync(d);
+  return fs.realpathSync.native(d);
 }
 
 test('#2281 a folder trustFolder wrote reads back as TRUE, via the same key', () => {

@@ -21,7 +21,7 @@ const path = require('node:path');
 
 // Sandbox the data root before requiring trust.js, so the trust-writes record
 // never touches the operator's real store (same discipline as trust.test.js).
-const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-2129-')));
+const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-2129-')));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -33,7 +33,7 @@ let n = 0;
 const folder = () => {
   const d = path.join(SANDBOX, `w${++n}`);
   fs.mkdirSync(d, { recursive: true });
-  return fs.realpathSync(d);
+  return fs.realpathSync.native(d);
 };
 // A config dir path that does NOT exist yet (a fresh macOS user).
 const freshConfigDir = () => path.join(SANDBOX, `cfg${++n}-absent`);
