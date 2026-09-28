@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: retention-1605
-diff_hash: bf61ab4d4bb855e25485a77fb40144dc08b670ae3f20127320d5a576ae888cf3
+diff_hash: 462740abdac4a9a4bd3da9c1cdcc5862c1e912aada01a9e34d4c69eadfc2c877
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T15:19:07Z
-iterations: 4
+timestamp: 2026-09-28T16:17:24Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
-**Converged:** Yes (iteration 4 raised no BLOCKER or WARNING)
-**Total findings:** 20 (2 BLOCKERs, 7 WARNINGs, 0 CONVENTIONs, 11 NITs across rounds; counted from the reviewers' reports)
-**Fixed:** 2 BLOCKERs, 7 WARNINGs, 7 NITs | **Deferred:** 4 NITs (reasons in the plan) | **Asked (awaiting user):** 0
+**Iterations:** 6
+**Converged:** Yes (iterations 4 and 6 raised no BLOCKER or WARNING; 5 was a CI-driven reopen)
+**Total findings:** 26 (2 BLOCKERs, 8 WARNINGs, 0 CONVENTIONs, 16 NITs across rounds; counted from the reviewers' reports)
+**Fixed:** 2 BLOCKERs, 8 WARNINGs, 9 NITs | **Deferred:** 7 NITs (reasons in the plan and below) | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -51,5 +51,18 @@ converged: true
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs. No issues found at BLOCKER or WARNING; reviewer mutated both round-3 guards and each test failed.
 **Self-generated:** 0
 
+#### Iteration 5 (reopened by CI)
+**Reviewer model:** opus
+PR #4360's macOS runner failed Gate 10: "the local https server did not start", 5s after launch. The same arm passes locally with both Homebrew and system openssl/python, so the cause is not reproduced here. The wait became about 30s, ending early if the server dies, and a failure now names the server's stderr.
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
+- [WARNING] the failure message could not tell a signal kill from a slow start (reproduced). Fixed: it now reports "still running" or "exited rc=N".
+- [NIT] openssl's stderr was discarded: fixed, kept and shown. [NIT] the comment overstated the bound: fixed. [NIT] `cut -c` counts bytes on macOS: kept, cosmetic.
+**Self-generated:** 1 (the diagnostics were this loop's own iteration-5 change)
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs (a double `wait` on one pid, harmless; bash's own "Killed: 9" job line alongside the FAIL line). No issues found at BLOCKER or WARNING; both failure modes reproduced as reported correctly, with no hang or leak.
+**Self-generated:** 0
+
 ### Final validation (6j)
-Full validation helper on HEAD 950ecd4ba: PASSED, hash bf61ab4d4bb8, exit 0; tools/test-dist-retention.sh 146 passed, 0 failed inside it. Every fix was also mutation-checked (14 mutants; the one standalone survivor, the file_id shape check, is killed in combination with the pre-fix ordering).
+Full validation helper on HEAD dc397dd06: PASSED, hash 462740abdac4, exit 0; tools/test-dist-retention.sh 146 passed, 0 failed inside it. (An earlier pass on 950ecd4ba, hash bf61ab4d4bb8, preceded the CI reopen.) CI on dc397dd06 then ran Gate 10 green on the macOS runner (both redirect arms PASS, test-dist-retention 146/146, job 109012212603). Every fix was also mutation-checked (14 mutants; the one standalone survivor, the file_id shape check, is killed in combination with the pre-fix ordering).
