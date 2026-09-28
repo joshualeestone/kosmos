@@ -90,45 +90,46 @@ function boot(sb) {
 
 const MARKER = connections.START;
 
-test('#1649: an agent that existed before the edit has the block after a plain board start', async () => {
-  const sb = sandbox([{ name: 'pp-agent-discord', file: '# I am an agent\n\nSome prose.\n' }]);
-  const f = path.join(sb, 'workers', 'pp-agent', 'CLAUDE.md');
-
-  assert.equal(fs.readFileSync(f, 'utf8').includes(MARKER), false,
-    'precondition: the agent starts WITHOUT the block, or this test proves nothing');
-
-  await boot(sb);
-
-  assert.equal(fs.readFileSync(f, 'utf8').includes(MARKER), true,
-    'the board start must put the managed block into an existing agent, with nobody saving a form');
-  fs.rmSync(sb, { recursive: true, force: true });
-});
-
-test('#1649 CONTROL: an agent whose file we never created is not invented', async () => {
-  /* The negative arm for the write: booting must not CREATE an instructions file
-     for an agent that has none. `tellAgent` refuses that explicitly, and a fix
-     that started writing files for agents would be a much worse bug than the one
-     being fixed. */
-  const sb = sandbox([{ name: 'pp-nofile-discord', file: null }]);
-  await boot(sb);
-  assert.equal(fs.existsSync(path.join(sb, 'workers', 'pp-nofile', 'CLAUDE.md')), false,
-    'the board must not create an instructions file for an agent that has none');
-  fs.rmSync(sb, { recursive: true, force: true });
-});
-
-test('#1649: a board whose agents cannot all be written still starts and says so', async () => {
-  /* Startup is a far worse place than a form save to discover an unwritable
-     agent, because nobody is watching it. The requirement is that the board
-     STARTS anyway: a board that refuses to boot because it could not rewrite
-     somebody's instructions is strictly worse than one running with the old
-     text. */
+test('#1649: one board start refreshes writable agents, skips a missing file, and survives the refusal', async (t) => {
+  /* These are three observations of ONE startup, not three startup scenarios. The old
+     file booted the full board once per observation. On a quiet box that was about
+     0.5 s each; under full-suite contention a cold boot crossed the banner bound and
+     then paid the stop grace, producing the measured 13-15 s failures. A mixed roster
+     exercises every branch in one real boot without weakening any assertion. */
   const sb = sandbox([
+    { name: 'pp-agent-discord', file: '# I am an agent\n\nSome prose.\n' },
     { name: 'pp-ok-discord', file: '# ok\n' },
     { name: 'pp-nofile-discord', file: null },
   ]);
-  const { out } = await boot(sb);
-  assert.match(out, /Kosmos on http/, 'the board must start even when an agent could not be told');
-  assert.equal(fs.readFileSync(path.join(sb, 'workers', 'pp-ok', 'CLAUDE.md'), 'utf8').includes(MARKER), true,
-    'and the agents it COULD tell are still told');
-  fs.rmSync(sb, { recursive: true, force: true });
+  const existing = path.join(sb, 'workers', 'pp-agent', 'CLAUDE.md');
+  const writable = path.join(sb, 'workers', 'pp-ok', 'CLAUDE.md');
+  const missing = path.join(sb, 'workers', 'pp-nofile', 'CLAUDE.md');
+
+  assert.equal(fs.readFileSync(existing, 'utf8').includes(MARKER), false,
+    'precondition: the existing agent starts WITHOUT the block, or this test proves nothing');
+  let result;
+  try {
+    result = await boot(sb);
+
+    await t.test('an agent that existed before the edit gets the block', () => {
+      assert.equal(fs.readFileSync(existing, 'utf8').includes(MARKER), true,
+        'the board start must put the managed block into an existing agent, with nobody saving a form');
+    });
+
+    await t.test('CONTROL: an agent whose file we never created is not invented', () => {
+      /* The negative arm for the write: booting must not CREATE an instructions file
+         for an agent that has none. `tellAgent` refuses that explicitly. */
+      assert.equal(fs.existsSync(missing), false,
+        'the board must not create an instructions file for an agent that has none');
+    });
+
+    await t.test('a refusal is nonfatal and does not stop writable siblings', () => {
+      /* A board that refuses to boot because one agent cannot be rewritten is worse than stale text. */
+      assert.match(result.out, /Kosmos on http/, 'the board must start even when an agent could not be told');
+      assert.equal(fs.readFileSync(writable, 'utf8').includes(MARKER), true,
+        'the agents it COULD tell are still told');
+    });
+  } finally {
+    fs.rmSync(sb, { recursive: true, force: true });
+  }
 });
