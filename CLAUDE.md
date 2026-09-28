@@ -26,7 +26,8 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is
-  a Windows failure a Mac run cannot show. A known red is listed in its `KNOWN_RED` with its card.
+  news a Mac run cannot give: a Windows defect, or (more often so far) a test that assumes macOS.
+  A known red is listed in its `KNOWN_RED` with its card.
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
   shells out to `yarn` (`yarn -s test:shell`, line 210), and its own coverage-mismatch message
   names `yarn test` the canonical helper, so yarn must be present regardless. There is no

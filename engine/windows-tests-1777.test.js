@@ -52,7 +52,6 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
   // signals (a hardcoded POSIX path, path.sep) are not caught; the plan names that limit.
   const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined/;
   const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
-    && f !== 'engine/windows-tests-1777.test.js'
     && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
   assert.deepEqual(loose, [], 'these branch on a win32 host and nothing runs them on Windows: add each to ALSO, or to HOST_BRANCH_EXCLUDED with why');
   for (const [f, why] of Object.entries(w.HOST_BRANCH_EXCLUDED)) {
@@ -115,8 +114,8 @@ test('verdict: a listed test that passes now is stale, even while its sibling st
 });
 
 test('verdict: a listed file that passes, or was not run, is stale', () => {
-  assert.equal(w.judge([{ file: 'engine/a.test.js', ok: true }], KNOWN).stale.length, 1);
-  assert.match(w.judge([{ file: 'engine/b.test.js', ok: true }], KNOWN).stale[0].why, /not run/);
+  assert.equal(w.judge([{ file: 'engine/a.test.js', ok: true, tests: 2, skipped: 0 }], KNOWN).stale.length, 1);
+  assert.match(w.judge([{ file: 'engine/b.test.js', ok: true, tests: 1, skipped: 0 }], KNOWN).stale[0].why, /not run/);
 });
 
 test('verdict: a file whose every test skipped is a new red unless ALL_SKIP_OK names it', () => {
@@ -126,6 +125,12 @@ test('verdict: a file whose every test skipped is a new red unless ALL_SKIP_OK n
   assert.deepEqual(w.judge([{ ...allSkipped, skipped: 2 }], {}, {}).failed, [], 'a partial skip is counted, not judged');
   const runsNow = w.judge([{ ...allSkipped, skipped: 1 }], {}, { 'engine/e.test.js': 'needs a login' });
   assert.equal(runsNow.stale.length, 1, 'an ALL_SKIP_OK file whose tests run now is stale');
+});
+
+test('verdict: a pass whose test count could not be read is a new red, not a silent pass', () => {
+  const v = w.judge([{ file: 'engine/z.test.js', ok: true, tests: null, skipped: 0 }], {}, {}, {});
+  assert.match(v.failed[0].why, /test count could not be read/);
+  assert.deepEqual(w.judge([{ file: 'engine/z.test.js', ok: true, tests: 4, skipped: 0 }], {}, {}, {}).failed, []);
 });
 
 test('verdict: a listed file that could not be run is a new red naming the error', () => {

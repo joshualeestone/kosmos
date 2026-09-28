@@ -7,8 +7,8 @@
  * real thing, so a green suite here says nothing about Windows (#1777's "false green"). The
  * `windows` job in .github/workflows/windows.yml runs this script on a real Windows runner.
  *
- * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo root, the
- * root's tools.win-* / tools.windows-* files, plus the few engine files named in ALSO. One file at a time, stdin closed (a child that reads
+ * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo root; the
+ * root's tools.win-* / tools.windows-* files; and the files named in ALSO (engine) and ALSO_ROOT. One file at a time, stdin closed (a child that reads
  * stdin would otherwise wait for ever), with a per-test timeout so a hang is named as the test
  * that hangs, and an overall budget so the job ends with a verdict rather than being killed.
  * Left out on purpose: the files in HOST_BRANCH_EXCLUDED, each with its reason; github.test.js,
@@ -82,9 +82,6 @@ const KNOWN_RED = {
     '\u{1F6D1} round 3 finding 6 probe: the installed copy hands off to a newer copy the pointer names and re-points nothing; otherwise it runs and re-points, never handing off to itself or to nothing',
     '\u{1F6D1} uninstall probe: a clean removal takes the shortcut, the Apps entry and the kept-here memory; anything left keeps all three',
   ] },
-  'engine/win32handoff.test.js': { card: '#4258', tests: [
-    '\u{1F6D1} win32-installer-native round 5 findings 1 and 3: the bind host is resolved, and only this machine\'s own addresses are looked on, with their zone',
-  ] },
 };
 
 // Tests whose result on the runner depends on the runner's own network or timing: they may pass
@@ -139,6 +136,8 @@ function judge(results, knownRed = KNOWN_RED, allSkipOk = ALL_SKIP_OK, flaky = F
     const r = onlyFlaky ? { ...raw, ok: true, failing: [] } : { ...raw, failing: kept };
     const entry = knownRed[r.file];
     if (r.notRun) { failed.push({ file: r.file, why: 'not run: the start budget ran out' }); continue; }
+    // A pass whose test count cannot be read would disarm the all-skipped rule for it, silently.
+    if (raw.ok && (r.tests === null || r.tests === undefined)) { failed.push({ file: r.file, why: 'passed, but its test count could not be read (reporter output changed?)' }); continue; }
     if (r.ok && r.tests > 0 && r.skipped === r.tests && !allSkipOk[r.file]) {
       failed.push({ file: r.file, why: `every one of its ${r.tests} tests skipped on Windows; list it in ALL_SKIP_OK with why, or let its arms run` });
       continue;
@@ -217,7 +216,7 @@ function main() {
     const ms = Date.now() - started;
     const why = run.error ? ` (${run.error.code || run.error.message})`
       : run.signal ? ` (killed by ${run.signal})` : ok ? '' : ` (exit ${run.status})`;
-    const tests = count(output, 'tests'); const skipped = count(output, 'skipped');
+    const tests = count(output.replace(/\r/g, ''), 'tests'); const skipped = count(output.replace(/\r/g, ''), 'skipped');
     const counts = tests === null ? '' : ` [${tests} tests, ${skipped || 0} skipped]`;
     const slow = ms > PER_FILE_TIMEOUT_MS / 2 ? ' SLOW: over half the file cap' : '';
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
