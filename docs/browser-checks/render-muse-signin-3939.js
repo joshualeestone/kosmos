@@ -379,6 +379,8 @@ const chk = (ok, label, extra) => {
   // Round 1: the line must be SEEN, not only present (it was written into a hidden element).
   const gone = await q(() => { const p = document.getElementById('acct-add-pick-say'); return { say: p && p.textContent, seen: !!p && p.checkVisibility(), role: p && p.getAttribute('role'), step: !document.getElementById('acct-muse-flow').hidden }; });
   chk(/not available on this computer/.test(gone.say) && gone.seen && gone.role === 'status' && !gone.step, 'Sign in again with Muse no longer offered says so where it is seen and announced, and opens no step', JSON.stringify(gone));
+  // Round 11: focus is on the picker's visible button, not the hidden native select.
+  chk(await q(() => !!document.activeElement && document.activeElement.classList.contains('pcombo-trigger')), 'and focus is on the picker\'s visible button', await q(() => document.activeElement && (document.activeElement.id || document.activeElement.className)));
   // A live answer afterwards ends that stale line (round 1, N3).
   await q(async () => { window.__museOn = true; await museAsk(); });
   chk(await q(() => document.getElementById('acct-add-pick-say').textContent === ''), 'a later live answer takes the stale "not available" line away');
@@ -494,6 +496,14 @@ const chk = (ok, label, extra) => {
   const pickedMeta = await q(() => ({ pick: document.getElementById('acct-provider-pick').value, muse: !document.getElementById('acct-muse-flow').hidden, claudeShown: !document.getElementById('acct-claude-flow').hidden, say: document.getElementById('acct-add-pick-say').textContent, focus: document.activeElement && document.activeElement.id }));
   chk(pickedMeta.pick === 'claude' && !pickedMeta.muse && pickedMeta.claudeShown && /Claude sign-in first/.test(pickedMeta.say), 'Meta picked while a Claude sign-in runs stays on Claude and says so', JSON.stringify(pickedMeta));
   chk(pickedMeta.focus === 'acct-cancel', 'and focus lands on that sign-in\'s Stop, not left on the picker\'s button', JSON.stringify(pickedMeta.focus));
+  // Round 11: a second pick is announced again (the line is emptied, then rewritten in a later task).
+  const changes = await q(async () => {
+    const p = document.getElementById('acct-add-pick-say'); const seen = [];
+    const mo = new MutationObserver(() => seen.push(p.textContent)); mo.observe(p, { childList: true, characterData: true, subtree: true });
+    const s = document.getElementById('acct-provider-pick'); s.value = 'meta'; s.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 50)); mo.disconnect(); return seen;
+  });
+  chk(changes.includes('') && /Claude sign-in first/.test(changes[changes.length - 1]), 'picking Meta again is announced again (emptied, then said)', JSON.stringify(changes));
   await q(() => acctFlowPaint({ phase: 'signin-browser-open' })); await settle();
   chk(await q((n) => window.__posts.length === n, museCallsBefore), 'and no Muse sign-in is started or stopped around it, even as the Claude sign-in moves on');
   await q(() => { ACCT_FLOW_LAST = null; closeAcctAdd(); }); await settle();

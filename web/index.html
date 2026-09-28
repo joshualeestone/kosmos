@@ -11797,7 +11797,8 @@ window.kosmosMeasureScrollbarWidth();
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
       <!-- #3939 slice 3c-2 (review round 1): what Sign in again on the Meta Muse row says when it cannot open
-           Meta's step. Beside the picker, so it is on screen whichever step shows; announced (role=status). -->
+           Meta's step, and (round 9) what picking Meta says while a Claude sign-in runs. Beside the picker, so it is
+           on screen whichever step shows; announced (role=status). -->
       <p class="acct-help acct-add-pick-say" id="acct-add-pick-say" role="status" aria-live="polite"></p>
       <!-- #2234 (Josh 2026-09-05, his words for the button): help for choosing a provider. It links to
            a STABLE help URL on installkosmos.com, never to the help itself: the site redirects it to the
@@ -24172,10 +24173,11 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   if (which === 'meta' && frConnActive((ACCT_FLOW_LAST || '').split('|')[0])) {
     acctPick('claude', { focus: false });
     acctClaudeShowSub();
-    acctAddPickSay(MUSE_BUSY);
     /* Round 10: the logo picker closes after this handler and puts focus back on its own button; place focus
-       on the sign-in's Stop (or code field) after that, as Sign in again does. */
-    setTimeout(acctFocusRunningSignin, 0);
+       on the sign-in's Stop (or code field) after that, as Sign in again does. Round 11: the line is emptied
+       now and written in that later task, so a second pick is a real change and is announced again. */
+    acctAddPickSay('');
+    setTimeout(() => { acctAddPickSay(MUSE_BUSY); acctFocusRunningSignin(); }, 0);
     return;
   }
   if (which === 'meta' && museOffered()) { acctPick('meta'); return; }
@@ -26284,6 +26286,9 @@ async function acctMuseSignInAgain(ev) {
   if (visit !== ACCT_ADD_VISIT || !modal || modal.hidden || (sel && sel.value !== '')) return;
   if (on === true || museOffered()) { acctPick('meta'); return; }
   acctAddPickSay(MUSE_NOT_HERE);
+  // Round 11: focus the picker's visible button (openAcctAdd leaves it on the hidden native select).
+  const trig = document.querySelector('#acct-provider-field .pcombo-trigger');
+  if (trig) trig.focus();
 }
 document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
   ACCT_GEMINI_PRESS += 1;

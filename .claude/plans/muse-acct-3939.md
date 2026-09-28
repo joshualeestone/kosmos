@@ -170,3 +170,16 @@ re-checks hold, repeated same-phase polls leave the line, a failed phase and Sto
   (acctFocusRunningSignin: code field, else Stop, else the picker); the picker path defers
   it past the widget's own refocus. The arm now clicks through the real widget and asserts
   Stop; both "never focused" and "focused too early" mutations fail it.
+
+## Review round 11 (opus): 0 blockers, 0 warnings, 4 nits -- the first clean round
+Reviewer drove the real keyboard (ArrowDown, Enter in the logo picker), the real mouse, and
+the real 1 s poll: focus lands on Stop (or the code field), nothing of Muse's is started or
+stopped over later polls.
+- N1 FIXED: picking Meta a second time during one Claude sign-in was not re-announced
+  (the line was emptied and rewritten in the same task: no net change). It is now emptied,
+  then written in the later task with the focus. Arm (MutationObserver sees "" then the line).
+- N2 FIXED: the "not available" branch left focus on the hidden native select (aria-hidden,
+  1 px). It now focuses the picker's visible button. Arm.
+- N3 CARDED (older code, not in this diff): after Stop on a running Claude sign-in, the
+  flow-ended repaint hides Stop's panel and focus drops to the page. Filed #4271.
+- N4 FIXED: the markup comment names both writers of the line.
