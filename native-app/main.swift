@@ -2044,7 +2044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     ///
     /// 🛑 THIS FUNCTION EXISTS BECAUSE THE GATE WITHOUT IT COULD NOT FAIL. An
     /// earlier version assigned the key equivalents to hardcoded locals and had
-    /// the selftest assert `returnIndex != destructiveIndex` -- a property of
+    /// the selftest compare the spec's two indices -- a property of
     /// the tuple literal, not of the alert anyone sees. Measured by mutation:
     /// swapping the two hardcoded assignments makes a reflexive Return QUIT THE
     /// APP, and the gate printed "Return lands on Not Now" and passed. So did
@@ -2694,12 +2694,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         /* A completion WebKit never calls (a crashed page process) would otherwise stop the wait for
            good; this re-asks instead. `decided` makes whichever comes first the only one acted on. */
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPageReplyLimit) { decide(.noReply) }
-        web.evaluateJavaScript(ask) { result, error in
+        web.evaluateJavaScript(ask) { [weak self] result, error in
             let page: PageSays
             if let error {
                 page = .noReply
                 // Once per window, not per poll: a page that keeps failing would bury the diagnostic file.
-                if !self.loggedRelaunchPageError {
+                if let self, !self.loggedRelaunchPageError {
                     self.loggedRelaunchPageError = true
                     logLine("relaunch: the page did not answer whether a restart is safe: \(error.localizedDescription); asking again")
                 }

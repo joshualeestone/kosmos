@@ -115,3 +115,5 @@ Mechanism built and unit-tested (the pure decision, the plist read, the page con
 update, one relaunch, no second prompt) is NOT yet observed: that needs a real update from a build that
 contains this change. Every relaunch writes a timestamped `relaunch:` line to the app log, so the count per
 update can be read from there.
+- Deliberate asymmetry: a failed silent restart is retried quietly (nobody saw it); a failed restart the
+  person pressed is told at once and keeps the #1182 marker, as before this card (review iteration 13).
