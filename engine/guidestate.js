@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const STATES = Object.freeze(['seeded', 'not-armed', 'off', 'no-model', 'refused', 'names-taken', 'disabled']);
+const STATES = Object.freeze(['seeded', 'not-armed', 'off', 'no-model', 'no-usable-model', 'refused', 'names-taken', 'disabled']);
 
 function file() { return path.join(store.ROOT, 'setup-guide-state.json'); }
 
@@ -89,4 +89,11 @@ function makeRecorder({ ping, delayMs, setTimer = setTimeout, recordFn = record 
   };
 }
 
-module.exports = { STATES, read, current, record, file, makeRecorder };
+module.exports = {
+  STATES,
+  read,
+  current,
+  record,
+  file,
+  makeRecorder,
+};

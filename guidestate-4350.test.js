@@ -76,6 +76,10 @@ test('#4350 ensureGuide names the gate that stopped it, for each gate', async ()
   r = await setupAssistant.ensureGuide({ createAgent: refused('we could not find Claude Code on this computer'), deps: CLAUDE, via: 'first-run' });
   assert.equal(r.state, 'refused', r.reason);
   setupAssistant.resetEnsureGuideForTests();
+  // A model is listed but none can run (a dead sign-in): its own gate, not a refusal.
+  r = await setupAssistant.ensureGuide({ createAgent: createdOk([]), deps: { ...CLAUDE, connectable: async () => ({ ok: false }) }, via: 'first-run' });
+  assert.equal(r.state, 'no-usable-model', r.reason);
+  setupAssistant.resetEnsureGuideForTests();
   r = await setupAssistant.ensureGuide({ createAgent: refused('there is already an agent called that'), deps: CLAUDE, via: 'first-run' });
   assert.equal(r.state, 'names-taken', r.reason);
   setupAssistant.resetEnsureGuideForTests();

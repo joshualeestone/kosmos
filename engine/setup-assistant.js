@@ -664,8 +664,10 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         if (/already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
         /* Refused on this model (its runner missing, say): try the next one. */
       }
+      // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
+      // not a refusal: nothing was asked to create.
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet',
-        namesTaken ? 'names-taken' : 'refused');
+        namesTaken ? 'names-taken' : last ? 'refused' : 'no-usable-model');
     } catch (err) {
       // An internal failure reads 'refused' on /admin like a model refusal; the reason (kept
       // locally) tells them apart.
@@ -727,7 +729,6 @@ function mergeSetting(stored, patch) {
 module.exports = {
   SETUP_ROLE_KEY,
   GUIDE_CREATED_BY,
-  GUIDE_PURPOSE_PREFIX,
   GUIDE_PURPOSE_PREFIXES,
   armPath,
   armSetupAssistant,

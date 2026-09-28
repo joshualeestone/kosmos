@@ -823,7 +823,8 @@ const guidestate = require('./engine/guidestate');
    ping (an agent made inside the window) can still race it, as a count change always could. */
 const GUIDE_PING_DELAY_MS = 30 * 1000;
 /* An install seeded BEFORE the state existed never reaches ensureGuide again (the sweep returns
-   early once seeded), so the sweep records this for it. */
+   early once seeded), so the sweep records this for it. `seeded: false` is ensureGuide's own shape
+   for "nothing created on this call"; the state says the guide exists. */
 const GUIDE_SEEDED = Object.freeze({ seeded: false, state: 'seeded', reason: 'already seeded' });
 const recordGuideOutcome = guidestate.makeRecorder({ ping: () => createdbeacon.pingInstall(), delayMs: GUIDE_PING_DELAY_MS });
 const heartbeat = require('./engine/heartbeat');

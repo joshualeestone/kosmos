@@ -22,12 +22,14 @@
  *                    AGENT count moves to the true number (not +1 -- see below).
  *
  * BOTH pings also carry ONE word about this install's setup guide (#4350; they share
- * payload()): created, not armed, turned off by the person, no model connected,
- * refused, names taken, or disabled (guidestate.STATES; 'disabled' is recorded only under
- * AGENT_WORKFORCE_DRY_RUN=1 without AGENT_WORKFORCE_SETUP_GUIDE=on: a real build with the
- * guide switched off records nothing new and sends its last recorded state, or 'unknown'). A 'seeded' or 'names-taken' also says the install has agents. It says
- * something about the person's setup and choices; Splinter ruled it inside Josh's
- * 09-14 telemetry ruling (#4350).
+ * payload()): created, not armed, turned off by the person, no model connected, a model
+ * connected but none could run, refused, names taken, or disabled (guidestate.STATES).
+ * 'disabled' is recorded only under AGENT_WORKFORCE_DRY_RUN=1 without
+ * AGENT_WORKFORCE_SETUP_GUIDE=on; a build with FIRSTRUN_AUTOCREATE_ENABLED false records
+ * nothing new and sends its last recorded state, or 'unknown'. A 'seeded' or
+ * 'names-taken' also says the install has agents, even with the create box unticked.
+ * Splinter ruled it inside Josh's 09-14 telemetry ruling (#4350); the site's privacy page
+ * says so (chaoskosmos-site guidestate-4350).
  *
  * The split is deliberate: the install ping cannot be opted out (it is a
  * headcount of installs plus the guide state above, no agent count), and the agent count
