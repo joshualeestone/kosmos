@@ -25,7 +25,7 @@ when a listed file passes again or is no longer run.
 - The reds:
   - projects.win32-reveal and trust.win32-key-2281 compare a path with its 8.3 short name
     (RUNNER~1). The reveal's safety behaviour holds; check #2281's key spelling. Filed as #4257
-    (April has it; the job's two #4257 entries go with whichever PR lands second).
+    and fixed by #4265 (test assumptions), so no longer listed.
   - win32handoff's zone-by-interface-name arm: Windows zones are numeric. Filed as #4258.
 
 ## Build
@@ -92,6 +92,10 @@ when a listed file passes again or is no longer run.
   address (10.1.0.10) and got "refused" instead of a timeout. It is listed in FLAKY under #4258;
   a flaky failure is not judged, and a kill is never excused.
 
+- Rebased onto origin/main after #4265 (#4257) and #4268 (#4267) landed. Both fixed their tests,
+  so the four entries under those cards were dropped from KNOWN_RED. Still listed: #4258
+  (win32handoff zone arm), #4266 (8 native-installer probes) and #4269 (remove's #169 arm).
+
 ## Decided
 - CI on a GitHub Windows runner, free on this public repo, over the options below.
 - Rejected: the whole suite on Windows (always red on POSIX-mode tests, and so walked past);
@@ -108,6 +112,9 @@ when a listed file passes again or is no longer run.
 - Failing tests are matched by title, so two tests with one title in a listed file cannot be told
   apart; a new failure in the unlisted twin would be hidden.
 - A FLAKY test is not run in any sense that counts; the list must stay short.
+- The host-branch guard sees two ways a test says "this host is Windows": a process.platform
+  comparison with 'win32', and O_NOFOLLOW compared with undefined. A test that infers Windows
+  another way (a hardcoded POSIX path, path.sep) is not flagged, and may quietly never run here.
 - A file that skips SOME tests on Windows is counted, not judged. A new `skip` on win32 inside
   a file that still runs other tests goes unnoticed.
 - On a per-file timeout, only the `node --test` process is killed; its child can outlive it on

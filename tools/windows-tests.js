@@ -11,8 +11,8 @@
  * root's tools.win-* / tools.windows-* files, plus the few engine files named in ALSO. One file at a time, stdin closed (a child that reads
  * stdin would otherwise wait for ever), with a per-test timeout so a hang is named as the test
  * that hangs, and an overall budget so the job ends with a verdict rather than being killed.
- * Left out on purpose: securewrite, sendertoken and github tests (POSIX file modes and a fake
- * `gh` script; they describe macOS behaviour, measured red on Windows in #1777), and
+ * Left out on purpose: the files in HOST_BRANCH_EXCLUDED, each with its reason; github.test.js,
+ * which the rule never selects (a fake `gh` script, measured red on Windows in #1777); and
  * tools.build-windows / tools.publish-windows (Mac-side release tooling that builds the Windows
  * bundle; it never runs on Windows).
  *
@@ -72,13 +72,6 @@ const KNOWN_RED = {
   'engine/remove.test.js': { card: '#4269', tests: [
     'a creation that did not record drops a stale record for its name (#169)',
   ] },
-  'engine/projects.win32-reveal.test.js': { card: '#4257', tests: [
-    'openFile on Windows hands a document to File Explorer as one quoted path, after its own gates',
-    'SAFETY 1 through the project route: an agent-written .bat is SHOWN, never run, and the answer says why',
-  ] },
-  'engine/trust.win32-key-2281.test.js': { card: '#4257', tests: [
-    '#2281 the written key carries NO backslash, whatever the host spells',
-  ] },
   'tools.win-installer-native.test.js': { card: '#4266', tests: [
     'W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed',
     '\u{1F6D1} finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING',
@@ -88,13 +81,6 @@ const KNOWN_RED = {
     '\u{1F6D1} #3286 probe: from a cleaned-up place with nothing installed, Kosmos installs itself WITHOUT asking and starts the installed copy; a refusal is a plain note',
     '\u{1F6D1} round 3 finding 6 probe: the installed copy hands off to a newer copy the pointer names and re-points nothing; otherwise it runs and re-points, never handing off to itself or to nothing',
     '\u{1F6D1} uninstall probe: a clean removal takes the shortcut, the Apps entry and the kept-here memory; anything left keeps all three',
-  ] },
-  'tools.win-open-board-2007.test.js': { card: '#4267', tests: [
-    'openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)',
-    'main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url',
-  ] },
-  'tools.windows-kosmos-shims-570.test.js': { card: '#4267', tests: [
-    'PowerShell: a bare `kosmos` is kosmos.ps1, and a multi-line, quoted, &-laden answer arrives exactly',
   ] },
   'engine/win32handoff.test.js': { card: '#4258', tests: [
     '\u{1F6D1} win32-installer-native round 5 findings 1 and 3: the bind host is resolved, and only this machine\'s own addresses are looked on, with their zone',

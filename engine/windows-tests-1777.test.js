@@ -47,7 +47,10 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     ...fs.readdirSync(__dirname).filter((n) => n.endsWith('.test.js')).map((n) => 'engine/' + n),
     ...fs.readdirSync(ROOT).filter((n) => n.endsWith('.test.js')),
   ];
-  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform/;
+  // Two ways a test says "this host is Windows": comparing process.platform with 'win32', or
+  // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761). Other indirect
+  // signals (a hardcoded POSIX path, path.sep) are not caught; the plan names that limit.
+  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined/;
   const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
     && f !== 'engine/windows-tests-1777.test.js'
     && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
