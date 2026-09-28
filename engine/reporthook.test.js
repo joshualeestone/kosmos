@@ -61,16 +61,22 @@ test('idempotent: a second call changes nothing and doubles nothing', () => {
   for (const ev of reporthook.HOOK_EVENTS) assert.equal(oursIn(data, ev), 1, ev + ' is doubled');
 });
 
-test('a partial wiring is completed, not restarted: hand-installed events keep their one entry', () => {
+test('a partial wiring is completed, not restarted: a correct hand-installed event stays byte-for-byte', () => {
   const p = fresh();
+  const handInstalled = reporthook.entryFor(SCRIPT);
+  // A person's matcher/timeout edits survive when the command already points
+  // at this copy. A marker-bearing command at another path is deliberately
+  // repointed by #1467 and belongs in that regression arm below.
+  handInstalled.matcher = 'manual matcher';
+  handInstalled.hooks[0].timeout = 41;
   fs.writeFileSync(p, JSON.stringify({
-    hooks: { SessionStart: [reporthook.entryFor('/some/older/path/kosmos-report-hook.sh')] },
+    hooks: { SessionStart: [handInstalled] },
   }));
   const got = reporthook.ensureWired(p, SCRIPT);
   assert.equal(got.changed, true);
   const data = readJson(p);
   assert.equal(oursIn(data, 'SessionStart'), 1, 'the hand-installed entry was doubled');
-  assert.match(data.hooks.SessionStart[0].hooks[0].command, /older/, 'the hand-installed entry was replaced');
+  assert.deepEqual(data.hooks.SessionStart[0], handInstalled, 'the correct hand-installed entry was replaced');
   assert.equal(oursIn(data, 'SessionEnd'), 1, 'the missing events were not completed');
 });
 
