@@ -219,12 +219,23 @@ test('#4253: test-install.sh\'s first installer run is the first one in the file
   assert.equal(found, first, `the boot pattern finds line ${found + 1}, but the first installer run is line ${first + 1}`);
 });
 
-/* ---- the per-call boot analyzer (#4253 reviews 3 and 4) ----
+/* ---- the per-call boot analyzer (#4253 reviews 3 to 6) ----
    Judges each spawn of a board ON ITS OWN, not the file it sits in: a file with
    one safe spawn and one hand-built env is not safe, and a comment naming the URL
-   is not a fix. Textual, not a JS parser: it balances brackets and ignores
-   comments, which is how these files are written. */
+   is not a fix.
+   🛑 IT IS A LINT FOR THE SHAPES THIS TREE USES, NOT A PROOF. It reads text: it
+   balances brackets and skips comments, and it knows node spawns (process.execPath
+   or 'node'), fork(module), exec strings and `sh -c` strings that name server.js,
+   options passed literally, by name or by a helper, and an env that spreads
+   process.env unless it then drops or blanks NODE_TEST_CONTEXT. A shape it does
+   not model is invisible to it, which is the one direction a partial reader fails
+   in. What actually keeps a test board quiet is NODE_TEST_CONTEXT reaching it (or
+   the harness's export); this catches the ways that has been lost here so far. */
 const SAFE_ENV = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Object\.assign\(\{\}, *process\.env|AGENT_WORKFORCE_CREATED_URL|^\s*process\.env\s*$/;
+/* Taking NODE_TEST_CONTEXT back out undoes a spread of process.env: the board then
+   believes it is not under test and pings for real (unless the URL is named). */
+const DROPS_TEST_CONTEXT = /NODE_TEST_CONTEXT\s*:\s*(undefined|null|''|""|``|false|0)\b|NODE_TEST_CONTEXT\s*:\s*(''|""|``)|delete\s+[\w$.]+\.NODE_TEST_CONTEXT|\.NODE_TEST_CONTEXT\s*=\s*(undefined|null|''|""|``)/;
+const safeText = (t) => SAFE_ENV.test(t) && (/AGENT_WORKFORCE_CREATED_URL/.test(t) || !DROPS_TEST_CONTEXT.test(t));
 
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
@@ -354,12 +365,14 @@ const MAX_DEPTH = 6;
 function envIsSafe(src, expr, callAt, depth = 0) {
   if (expr === null) return true;
   if (expr === UNKNOWN) return false;
-  if (SAFE_ENV.test(expr)) return true;
+  if (DROPS_TEST_CONTEXT.test(expr) && !/AGENT_WORKFORCE_CREATED_URL/.test(expr)) return false;
+  if (safeText(expr)) return true;
   if (depth > MAX_DEPTH) return false;
   for (const name of flows(expr)) {
     const r = region(src, name, callAt);
     if (!r) continue;
-    if (SAFE_ENV.test(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1)) return true;
+    if (DROPS_TEST_CONTEXT.test(r.later) && !/AGENT_WORKFORCE_CREATED_URL/.test(r.stmt + r.later)) return false;
+    if (safeText(r.later) || envIsSafe(src, r.stmt, callAt, depth + 1)) return true;
   }
   return false;
 }
@@ -370,23 +383,40 @@ function envIsSafe(src, expr, callAt, depth = 0) {
 function boots(raw) {
   const src = stripComments(raw);
   const out = [];
-  const re = /\b(spawn|spawnSync|fork|execFile|execFileSync)\(\s*(process\.execPath|['"]node['"])\s*,\s*/g;
+  const push = (at, opts) => out.push({ line: src.slice(0, at).split('\n').length, safe: envIsSafe(src, envOfOptions(src, opts, at), at) });
+  const namesServer = (text) => /server\.js/.test(text)
+    || (text.match(/\b[A-Za-z_$][\w$]*\b/g) || []).some((n) => /server\.js/.test(definition(src, n) || ''));
   let m;
-  while ((m = re.exec(src))) {
+  // node as the program: spawn/execFile(process.execPath | 'node', [args], opts)
+  const node = /\b(spawn|spawnSync|execFile|execFileSync)\(\s*(process\.execPath|['"]node['"])\s*,\s*/g;
+  while ((m = node.exec(src))) {
     const call = balanced(src, src.indexOf('(', m.index));
-    const argsAt = m.index + m[0].length;
-    const args = src[argsAt] === '[' ? balanced(src, argsAt) : '';
+    const a = argsOf(call);
+    const args = a[1] && a[1].startsWith('[') ? a[1] : '';
     const names = args.match(/\b[A-Za-z_$][\w$]*\b/g) || [];
-    const direct = /server\.js/.test(args) || names.some((n) => /server\.js/.test(definition(src, n) || ''));
+    const direct = namesServer(args);
     const code = args + '\n' + names.map((n) => definition(src, n) || '').join('\n');
     const inner = (code.match(/\b[A-Z_][A-Z0-9_]*\b/g) || []).map((n) => definition(src, n) || '').join('\n');
     const viaE = /^\[\s*['"]-e['"]/.test(args) && /\brequire\(/.test(code)
       && (/['"`/]server(\.js)?['"`]/.test(code) || /server\.js/.test(inner));
-    if (!direct && !viaE) continue;
-    /* The options are the argument after the args array (fork(module, args, opts)
-       has the same shape). */
-    const opts = argsOf(call)[2];
-    out.push({ line: src.slice(0, m.index).split('\n').length, safe: envIsSafe(src, envOfOptions(src, opts, m.index), m.index) });
+    if (direct || viaE) push(m.index, a[2]);
+  }
+  // fork(modulePath, [args], opts): the module is the FIRST argument
+  const fork = /\bfork\(/g;
+  while ((m = fork.exec(src))) {
+    const a = argsOf(balanced(src, m.index + 4));
+    if (a[0] && namesServer(a[0])) push(m.index, a[1] && a[1].startsWith('[') ? a[2] : a[1]);
+  }
+  // a shell: exec/execSync(command, opts), or spawn/execFile('sh'|'bash', ['-c', command], opts)
+  const shell = /\b(exec|execSync)\(/g;
+  while ((m = shell.exec(src))) {
+    const a = argsOf(balanced(src, src.indexOf('(', m.index)));
+    if (a[0] && namesServer(a[0]) && /\bnode\b|execPath/.test(a[0] + (definition(src, (a[0].match(/^[A-Za-z_$][\w$]*/) || [''])[0]) || ''))) push(m.index, a[1]);
+  }
+  const sh = /\b(spawn|spawnSync|execFile|execFileSync)\(\s*['"](\/bin\/)?(ba)?sh['"]\s*,\s*/g;
+  while ((m = sh.exec(src))) {
+    const a = argsOf(balanced(src, src.indexOf('(', m.index)));
+    if (a[1] && /['"]-c['"]/.test(a[1]) && namesServer(a[1]) && /\bnode\b|execPath/.test(a[1])) push(m.index, a[2]);
   }
   return out;
 }
@@ -413,6 +443,18 @@ test('#4253: the boot analyzer judges each spawn, not the file', () => {
   assert.deepEqual(boots(namedOk).map((b) => b.safe), [true], 'a named options object that spreads process.env is safe');
   const namedInherit = "const opts = { stdio: 'pipe' };\nspawn(process.execPath, ['server.js'], opts);";
   assert.deepEqual(boots(namedInherit).map((b) => b.safe), [true], 'named options without env inherit');
+  const undone = "spawn(process.execPath, ['server.js'], { env: { ...process.env, NODE_TEST_CONTEXT: undefined } });";
+  assert.deepEqual(boots(undone).map((b) => b.safe), [false], 'a spread then NODE_TEST_CONTEXT: undefined is not safe');
+  const deleted = "const env = { ...process.env, PORT: '0' };\ndelete env.NODE_TEST_CONTEXT;\nspawn(process.execPath, ['server.js'], { env });";
+  assert.deepEqual(boots(deleted).map((b) => b.safe), [false], 'deleting NODE_TEST_CONTEXT after a spread is not safe');
+  const deletedButNamed = "const env = { ...process.env, AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created' };\ndelete env.NODE_TEST_CONTEXT;\nspawn(process.execPath, ['server.js'], { env });";
+  assert.deepEqual(boots(deletedButNamed).map((b) => b.safe), [true], 'dropping NODE_TEST_CONTEXT is fine when the URL is named (the CONTROL does this)');
+  const forked = "fork(path.join(REPO, 'server.js'), [], { env: { HOME: h } });";
+  assert.deepEqual(boots(forked).map((b) => b.safe), [false], 'fork(module) with server.js as the module is a boot');
+  const execd = "exec(`${process.execPath} ${path.join(REPO, 'server.js')}`, { env: { HOME: h } });";
+  assert.deepEqual(boots(execd).map((b) => b.safe), [false], 'an exec string that runs server.js is a boot');
+  const shelled = "spawn('sh', ['-c', `${process.execPath} ${path.join(REPO, 'server.js')}`], { env: { HOME: h } });";
+  assert.deepEqual(boots(shelled).map((b) => b.safe), [false], 'sh -c running server.js is a boot');
   const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
   assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
   const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";

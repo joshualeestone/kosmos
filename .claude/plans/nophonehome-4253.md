@@ -83,7 +83,7 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
   A property value (`HOME: sb`) is not followed. Comments are stripped. Its self-test pins seven shapes.
 - It covers docs/browser-checks/*.js (they boot boards under browser-checks.sh's export), `'node'` as the
   program, a server.js path held in a name, and a `node -e` child requiring a named server path.
-  Measured: 47 files boot a board (26 tests, 21 checks), all safe; the floor is 40.
+  Measured: 46 files boot a board (the guard's own file is excluded), all safe; the floor is 40.
 - Mutations on real files, each red: the guide-on-connect fix removed; a second hand-built spawn added to
   a file that already has a safe one; a comment naming the URL above an unsafe spawn.
 - My own errors in this round: I set the floor twice from a guess (20, then 40 before measuring 33, then
@@ -101,6 +101,21 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
 - test-support/*.js is scanned too (a future shared boot helper would sit there).
 - Mutations on real files, each red: `opts.env =` after the literal, a named options object, and the
   three from review 4.
+
+## Review 6
+
+- BLOCKER, fixed: a spread of process.env followed by `NODE_TEST_CONTEXT: undefined` (or '', or a later
+  `delete env.NODE_TEST_CONTEXT`) passed; the child then pings for real. Dropping it is now unsafe unless
+  the URL is named (which is what the CONTROL does).
+- BLOCKER, fixed: fork(module), exec strings and `sh -c` strings running server.js were not read at all
+  (fork's module is its FIRST argument). All three are recognized now.
+- 🛑 THE CLAIM IS NARROWED, not just the code widened. Each review has found a spawn shape the reader did
+  not model, and a partial reader fails OPEN on every shape it does not know. The analyzer's header now
+  says it is a lint for the shapes this tree uses, lists what it models, and names what actually keeps a
+  test board quiet (NODE_TEST_CONTEXT reaching it, or the harness export). A further finding that is
+  only a new, unused spawn shape deduplicates against THIS entry; one that is a real boot in the tree, or
+  a modelled shape judged wrong, does not.
+- The plan's count was 47; the guard measures 46 because it excludes its own file. Corrected.
 
 ## Weakest premise
 
