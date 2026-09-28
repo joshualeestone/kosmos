@@ -264,6 +264,13 @@ from a night in this codebase, kosmos#2616.)
    variable segment a sibling route fills, a new literal a free-segment route matches, an
    equality guard with no handler).
 
+8. **Every shell `mktemp` names a path template.** macOS `mktemp` ignores TMPDIR, so a bare
+   `mktemp`/`mktemp -d` (or any `-t`) lands in the real per-user temp root, outside
+   `tools/run-tests.sh`'s per-run root, and stays there. Write
+   `mktemp -d "${TMPDIR:-/tmp}/<script>.XXXXXXXXXX"`. Enforced by
+   `tools/test-mktemp-template-4298.sh` (first in `test:shell`) over every shell script git tracks
+   under `tools/`, `install/` and `bin/`; kosmos#4298. Shell embedded in `.js` files is not covered.
+
 ### This list is intentionally incomplete
 
 The first five come from the account and removal lanes one agent happened to be in. They almost
