@@ -44,6 +44,18 @@ test.after(() => {
 
 const T = { timeout: 30000 };
 const LONG = { timeout: 600000 };
+/* #4301: a test that waits through the product's REAL held budgets (a held journal write retries for
+   about 7 s at OWNER_READ_BUDGET, a stuck recovery asks for its whole budget, a shim is spawned) has a
+   floor that no machine can go under, and T left too little room above it. Measured on windows-latest
+   (probe runs 36379665882 and 36380610883, quiet and with up to two more whole-file runs alongside):
+   W4 up to 28.0 s against T's 30 s on a QUIET runner, and it failed once (run 36377105912) when that
+   runner ran the file about 40% slower. PROBE6-E reached 36.0 s and passed only because its body
+   blocks in sleepSync: a test's timeout is a timer, so it can fire only when the test yields, and an
+   async test (W4 awaits real shims) is the one that gets cut off.
+   The rule: a T test that measured over half its budget on the runner moves here. 120 s is the file's
+   own budget for its held-handle tests (WINDOWS_ONLY), more than three times the worst measurement,
+   and still a hang-guard, unlike LONG. */
+const HELD = { timeout: 120000 };
 /* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
    boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
    Kosmos\\board paths and a win32 board. These skip off-win32 so the macOS CI lane does not red on a
@@ -51,6 +63,7 @@ const LONG = { timeout: 600000 };
 const WIN32_ONLY = process.platform === 'win32' ? false : 'win32-only: spawns the real logon shim/board';
 const WIN32_ONLY_T = { ...T, skip: WIN32_ONLY };
 const WIN32_ONLY_LONG = { ...LONG, skip: WIN32_ONLY };
+const WIN32_ONLY_HELD = { ...HELD, skip: WIN32_ONLY };
 const ON_WINDOWS = process.platform === 'win32';
 const OLD = '0.6.60';
 const NEW = '0.6.61';
@@ -1148,7 +1161,7 @@ test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previou
   assertRolledBack(c, before, null, null, 'put back');
 });
 
-test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', WIN32_ONLY_T, async () => {
+test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', WIN32_ONLY_HELD, async () => {
   const c = freshInstall();
   stage(c);
   await stuckOnApp(c);
@@ -2453,7 +2466,7 @@ test('ROUND 6 F2 (PROBE6-B): a journal write held after H7 is tried again within
   assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'nothing', 'a later boot has nothing to do');
 });
 
-test('ROUND 6 F2: a journal write held past the patience: the helper still reports updated and leaves starting, the documented residual a later boot rolls back', T, async () => {
+test('ROUND 6 F2: a journal write held past the patience: the helper still reports updated and leaves starting, the documented residual a later boot rolls back', HELD, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -2630,7 +2643,7 @@ test('ROUND 6 F6 (PROBE6-F): begin()\'s settlement and its abandoned staged jour
   }
 });
 
-test('ROUND 7 A (PROBE6-E): an entry that answers EACCES for good at boot is asked about for the whole budget on every pass, then the recovery is stuck in words with the whole old app named; the next boot and the resume helper converge', T, async () => {
+test('ROUND 7 A (PROBE6-E): an entry that answers EACCES for good at boot is asked about for the whole budget on every pass, then the recovery is stuck in words with the whole old app named; the next boot and the resume helper converge', HELD, async () => {
   for (const next of ['boot', 'resume']) {
     const c = freshInstall();
     const before = installState(c);
@@ -2899,7 +2912,7 @@ test('ROUND 8 decision 3 (W3): a stuck boot recovery whose status write is held 
   }
 });
 
-test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journal write again within its budget; held past it, the helper ends held, starts the board it ended once, and the next boot converges', WIN32_ONLY_T, async () => {
+test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journal write again within its budget; held past it, the helper ends held, starts the board it ended once, and the next boot converges', WIN32_ONLY_HELD, async () => {
   {
     /* Held for a rename window and a half: one try fails whole, the next succeeds, and the rollback goes on. */
     const c = freshInstall();
