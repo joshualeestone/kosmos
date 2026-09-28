@@ -147,7 +147,7 @@ test('#4347: the name the Mac window asks the page for is the name the page defi
   assert.ok(names.length >= 2 && names.every((n) => n === names[0]), 'the question calls more than one name: ' + names);
   assert.match(WEB, new RegExp('^if \\(typeof window !== \'undefined\'\\) window\\.' + names[0] + ' = ', 'm'),
     'the page no longer defines window.' + names[0] + ': every update would fall back to the dialog');
-  for (const word of ['loading', 'unknown']) {
+  for (const word of ['loading', 'unknown', 'hold']) {
     assert.ok(asked[1].includes("'" + word + "'"), 'the question no longer answers ' + word);
     assert.ok(SRC.includes('(result as? String) == "' + word + '"'), 'the window no longer maps the answer ' + word);
   }

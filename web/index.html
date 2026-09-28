@@ -19498,8 +19498,24 @@ function updateSafeReload(servedVersion) {
     return true;
   } catch { return false; }
 }
-/* #4347: asked by the Mac window (native-app/main.swift) before it restarts itself after an update. */
-if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => { try { return updateNothingToLose(); } catch { return 'unknown'; } };
+/* #4347: asked by the Mac window (native-app/main.swift) before it restarts itself after an update.
+   'hold': nothing would be lost, but not now (What's New is deciding or open, or the person did something
+   in the last 30 s); the window waits and never asks the person about it. */
+const RESTART_QUIET_MS = 30 * 1000;
+if (typeof window !== 'undefined') window.kosmosLastActivity = 0;
+if (typeof document !== 'undefined' && document.addEventListener) {
+  for (const t of ['pointerdown', 'keydown', 'wheel']) {
+    document.addEventListener(t, () => { window.kosmosLastActivity = Date.now(); }, { capture: true, passive: true });
+  }
+}
+function restartHold() {
+  if (window.kosmosWhatsNewPending === true) return true;
+  if (document.getElementById('whatsnew')) return true;   // removed on close, so present means open
+  return Date.now() - (window.kosmosLastActivity || 0) < RESTART_QUIET_MS;
+}
+if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
+  try { return restartHold() ? 'hold' : updateNothingToLose(); } catch { return 'unknown'; }
+};
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -34408,6 +34424,9 @@ function wnNewer(a, b) {
   return false;
 }
 async function whatsNewCheck() {
+  /* #4347: while this is deciding (it can wait an hour for the boot cover), the Mac window must not restart,
+     or the old page records the version as seen and the new window never shows What's New. */
+  if (typeof window !== 'undefined') window.kosmosWhatsNewPending = true;
   try {
     const res = await fetch('/api/whats-new', { cache: 'no-store' });
     if (!res.ok) return;
@@ -34451,7 +34470,9 @@ async function whatsNewCheck() {
     if (typeof SERVED_VERSION !== 'undefined' && SERVED_VERSION && SERVED_VERSION !== got.current) return;
     record();
     wnOpen(got.current, got.highlights);
-  } catch { /* news can wait */ }
+  } catch { /* news can wait */ } finally {
+    if (typeof window !== 'undefined') window.kosmosWhatsNewPending = false;
+  }
 }
 whatsNewCheck();
 communityNoticeCheck();   // #4288 part B: each of the two windows waits while the other is up

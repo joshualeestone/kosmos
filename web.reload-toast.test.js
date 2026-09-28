@@ -334,12 +334,15 @@ function safeToRestart({ sending = {}, drafts = {}, typed = [], attached = null,
   const typedSet = new Set(typed.map((v) => ({ value: v, isConnected: true })));
   const win = {};
   const src = page.liftAll(SCRIPT, ['updateNothingToLose']);
-  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{ try \{ return updateNothingToLose\(\); \} catch \{ return 'unknown'; \} \};$/m);
-  assert.ok(line, 'the page no longer publishes kosmosSafeToRestart for the Mac window');
+  const pub = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{\n[\s\S]*?\n\};$/m);
+  assert.ok(pub, 'the page no longer publishes kosmosSafeToRestart for the Mac window');
+  // Nothing on hold (no What's New, no recent activity): the answer is updateNothingToLose's.
+  win.kosmosLastActivity = 0;
+  win.kosmosWhatsNewPending = false;
   new Function('window', 'document', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
     'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING',
-    src + '\n' + line[0])(
-    win, { hidden: false }, !!sending.talk, false, null, false,
+    src + '\nconst RESTART_QUIET_MS = 30000;\n' + page.liftAll(SCRIPT, ['restartHold']) + '\n' + pub[0])(
+    win, { hidden: false, getElementById: () => null }, !!sending.talk, false, null, false,
     drafts.talk || {}, {}, {}, drafts.room || {}, () => modal, typedSet, attached || { room: {}, agent: {} });
   return win.kosmosSafeToRestart();
 }
@@ -355,12 +358,24 @@ test('#4347: the page tells the Mac window when a restart would lose nothing, ev
 });
 
 test('#4347: a check that throws tells the Mac window it cannot tell, never "would lose" (which would hold the update forever)', () => {
-  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = .*$/m);
+  const line = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosSafeToRestart = \(\) => \{\n[\s\S]*?\n\};$/m);
   assert.ok(line, 'kosmosSafeToRestart is gone');
   const win = {};
-  new Function('window', 'updateNothingToLose', line[0])(win, () => { throw new Error('boom'); });
+  new Function('window', 'updateNothingToLose', 'restartHold', line[0])(win, () => { throw new Error('boom'); }, () => false);
   assert.equal(win.kosmosSafeToRestart(), 'unknown');
   const ok = {};
-  new Function('window', 'updateNothingToLose', line[0])(ok, () => true);
+  new Function('window', 'updateNothingToLose', 'restartHold', line[0])(ok, () => true, () => false);
   assert.equal(ok.kosmosSafeToRestart(), true, 'CONTROL: a working check still answers');
+});
+
+test('#4347: What\'s New deciding or open, or the person active in the last 30 s, holds the restart ("hold", never a question)', () => {
+  const src = 'const RESTART_QUIET_MS = 30000;\n' + page.liftAll(SCRIPT, ['restartHold']);
+  const hold = (win, open) => new Function('window', 'document', src + '\nreturn restartHold();')(
+    win, { getElementById: (id) => (id === 'whatsnew' && open ? {} : null) });
+  assert.equal(hold({ kosmosWhatsNewPending: true, kosmosLastActivity: 0 }, false), true, 'restarted while What\'s New was deciding: the new window would never show it');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: 0 }, true), true, 'restarted with What\'s New open');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 5000 }, false), true, 'restarted 5 s after the person clicked');
+  assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 60000 }, false), false, 'CONTROL: a quiet page is not held');
+  assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true;/, 'whatsNewCheck no longer marks itself pending');
+  assert.match(SCRIPT, /\} finally \{\n\s*if \(typeof window !== 'undefined'\) window\.kosmosWhatsNewPending = false;/, 'whatsNewCheck no longer clears its pending mark');
 });

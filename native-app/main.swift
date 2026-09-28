@@ -2557,13 +2557,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case cannotTell
         /// No answer at all (the page is mid-load or its process is gone): ask again shortly.
         case noReply
+        /// Nothing would be lost, but not now: What's New is deciding or open, or the person just did
+        /// something. Wait, and never ask the person about it.
+        case hold
     }
     /// What the window asks the page. A page still loading has not defined the function yet, so it
     /// answers "loading" (ask again), not "unknown" (ask the person). The name is pinned against the page's
     /// own assignment by native-app.stale-silences.test.js.
     static let relaunchPageQuestion = "(function(){ if (document.readyState !== 'complete') return 'loading';"
         + " if (typeof window.kosmosSafeToRestart !== 'function') return 'unknown';"
-        + " var v = window.kosmosSafeToRestart(); return v === true ? true : v === false ? false : 'unknown'; })()"
+        + " var v = window.kosmosSafeToRestart(); return v === true ? true : v === false ? false : v === 'hold' ? 'hold' : 'unknown'; })()"
     static let relaunchWaitLimit: TimeInterval = 180
     /// How often to look for the new app on disk, then to re-ask the page once it is there.
     static let relaunchPollForApp: TimeInterval = 3
@@ -2584,6 +2587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         switch page {
         case .safe: return .relaunchNow
+        case .hold: return .wait
         // The person is asked at most once: after a Not Now, only the silent restart remains.
         case .cannotTell: return askedBefore ? .wait : .askPerson
         case .wouldLose, .noReply: return (!askedBefore && freshFor >= relaunchAskAfter) ? .askPerson : .wait
@@ -2647,7 +2651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 self.relaunch(mine: mine, theirs: theirs, target: target!, waited: waited, asked: false)
             case .askPerson:
                 let restarted = self.askToRestart(mine: mine, theirs: theirs, target: target!, waited: waited,
-                                                  wordsWaiting: page == .wouldLose)
+                                                  wordsWaiting: page != .cannotTell)
                 if !restarted {
                     // Not Now: no more questions; the silent restart still happens once the page says safe.
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchPollForPage) { [weak self] in
@@ -2675,6 +2679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             else if let b = result as? Bool { page = b ? .safe : .wouldLose }
             else if (result as? String) == "unknown" { page = .cannotTell }
             else if (result as? String) == "loading" { page = .noReply }
+            else if (result as? String) == "hold" { page = .hold }
             else { page = .noReply }
             decide(page)
         }
@@ -3928,6 +3933,8 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     stepCheck(step(true, 900, AppDelegate.relaunchAskAfter, .noReply), .askPerson,
               "a page that never answers is asked about after the same time")
     stepCheck(step(true, 5, 0, .cannotTell), .askPerson, "the page cannot tell: ask, with Restart as the default")
+    stepCheck(step(true, 9999, 9999, .hold), .wait,
+              "What's New deciding or open, or the person just active: wait for as long as it takes, never ask")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 900, freshFor: 15, page: .cannotTell, askedBefore: true), .wait,
               "after Not Now, a page that cannot tell is not asked again")
     stepCheck(AppDelegate.relaunchStep(freshFound: true, waited: 9999, freshFor: 9999, page: .wouldLose, askedBefore: true), .wait,

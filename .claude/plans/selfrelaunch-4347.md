@@ -40,7 +40,7 @@ updateSafeReload keeps its own hidden-window and once-per-version guards and cal
 ## Tests
 - web.reload-toast.test.js: lift updateNothingToLose alongside updateSafeReload; a new test for
   kosmosSafeToRestart (true on a clean page; false with a draft, a typed box, a send in flight).
-- main.swift stale selftest: pure `pickFreshOnDisk` (candidates with on-disk versions) and the decision
+- main.swift stale selftest: pure `pickFresh` over on-disk versions (`onDiskVersion`) and the decision
   `relaunchStep(freshFound:waited:freshFor:page:toldGaveUp:askedBefore:seenFresh:)` -> wait / relaunchNow / askPerson / giveUp.
 
 ## Rejected
@@ -83,3 +83,12 @@ condition (one update, no second prompt) is first observable on the update after
   or a send in flight also hold the restart.
 - Giving up needs the new app never to have been seen: one seen and briefly unreadable mid-swap is waited for
   (review iteration 7).
+
+## Review iteration 8 (changes)
+- The page has a fifth answer, "hold": nothing would be lost, but not now. It covers What's New deciding
+  (whatsNewCheck records the version as seen when it opens, so a restart mid-decision would lose it) or
+  open, and anything the person did in the last 30 s (so the window does not vanish under a click).
+  The window waits through a hold for as long as it lasts and never asks about it.
+- A page that never answers is treated like one holding words in the ask (no Return, the loss sentence).
+- Accepted: in stay-running mode with the window hidden, a silent restart shows the window again, as the old
+  dialog did.
