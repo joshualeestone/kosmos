@@ -35,7 +35,8 @@ const HANDS_OFF_LINES = [
   '  walk them through it instead.',
 ];
 /* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
-   for a one-member team (POST /api/team, #1279) with its launch token; only this role names the verb. */
+   for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
+   Manager (PM_MAKES_AGENTS below, #1279) are the roles that name the verb. */
 const SETUP_MAKES_AGENTS = true;
 const MAKE_AGENTS_LINES = [
   '- You can make agents for them. When they ask for one, say in one line what',
@@ -45,6 +46,19 @@ const MAKE_AGENTS_LINES = [
   '  lists the roles). Then tell them it is on their board, with the link Kosmos',
   '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
   '  through New agent.',
+];
+/* #1279: a Project Manager builds the team the work needs ("PM, build me a team"). Same verb and the
+   same one-line confirmation as the guide; the server records the PM as the creator and caps how many
+   agents one creator makes. A PM made before this change keeps the brief it was born with. */
+const PM_MAKES_AGENTS = true;
+const PM_MAKE_AGENTS_LINES = [
+  '- When the work needs someone the team does not have yet, you can make that',
+  '  agent. Say in one line what you will make and why, and ask the operator to',
+  '  confirm, for example: I will make a Researcher called "Scout" to dig into',
+  '  pricing. Go? Only after they say yes, run',
+  '  `kosmos agent create "<name>" <role> "<why the work needs it>"`',
+  '  (`kosmos agent roles` lists the roles). Then brief it like any agent on the',
+  '  team. If Kosmos refuses, tell the operator its reason in plain words.',
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */
@@ -239,6 +253,7 @@ const ROLES = [
       '- When a job needs expertise you do not have, brief the agent who',
       '  has it rather than attempting it badly. Tell the operator who you',
       '  briefed and why.',
+      ...(PM_MAKES_AGENTS ? PM_MAKE_AGENTS_LINES : []),
       '- Keep a short written record of what was agreed. It survives you.',
       '',
       '## Once a day: help make Kosmos better',
@@ -1478,4 +1493,4 @@ function instructionsFor(key, name) {
 }
 
 module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
-  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, PM_MAKES_AGENTS, PM_MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };
