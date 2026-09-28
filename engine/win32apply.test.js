@@ -48,13 +48,14 @@ const LONG = { timeout: 600000 };
    sim.deps(), whose sleep and sleepSync only move a fake clock, so the real time goes to what the sim
    does not replace: the held renames win32swap.renameWithRetry really waits through, and the real
    shims a test spawns. A node:test timeout is a timer, so it can fire only while the test is waiting
-   on real async work; here that means awaiting a real process (bootShimAsync). A test that never
-   does is not cut off by its limit, however long it runs.
-   The rule: a test that awaits a real process, and whose worst time on windows-latest times 4.5 (the
-   largest one-off slowdown seen there) passes 30 s, is HELD. That is W4 and W5; the measurements are
-   in .claude/plans/w4-4301.md. 120 s is the file's own budget for its held-handle tests
-   (WINDOWS_ONLY) and is still a hang-guard, unlike LONG. */
-const HELD = { timeout: 120000 };
+   on real async work. Here that is awaiting a real process (bootShimAsync), or exclusiveHoldSkipReason's
+   real 50 ms polling in the BUG 1 tests, which are already on WINDOWS_ONLY (120 s). A test that never
+   yields to real async work is not cut off by its limit, however long it runs.
+   One slowdown factor for the rule and the budget: 4.5, the largest one-off slowdown seen on
+   windows-latest. A test that awaits a real process and whose worst time there times 4.5 passes 30 s
+   is HELD: W4 and W5 (measurements in .claude/plans/w4-4301.md). HELD covers W4's worst time (28.0 s)
+   times 4.5 = 126 s, rounded up to 150 s: a faster hang-guard than LONG. */
+const HELD = { timeout: 150000 };
 /* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
    boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
    Kosmos\\board paths and a win32 board. These skip off-win32 so the macOS CI lane does not red on a

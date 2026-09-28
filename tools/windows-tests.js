@@ -190,7 +190,9 @@ const DETAIL_LINES_PER_TEST = 15;
 const DETAIL_TESTS = 10;
 // A file that crashed before node printed its failing-tests section: this much of its output's tail.
 const CRASH_TAIL_LINES = 60;
-const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\(native\)|\(node:[^)]*\))$/;
+// A stack frame: "at" then a location in parentheses or at the end, including the unlocated
+// (<anonymous>), (native) and (index N) shapes node prints for built-ins and Promise.all.
+const STACK_FRAME = /^\s+at .*(\(.*:\d+:\d+\)|:\d+:\d+|\((?:native|<anonymous>|index \d+)\)|\(node:[^)]*\))$/;
 function failureDetail(output, expected = []) {
   const lines = String(output).replace(/\r/g, '').split('\n');
   const at = lines.findIndex((l) => /^\s*✖ failing tests:\s*$/.test(l));
