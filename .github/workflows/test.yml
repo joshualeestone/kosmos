@@ -116,7 +116,7 @@ jobs:
     # #4317 (2026-09-28): before sharding, the one job ran 20-23.5 min on main (the five green runs
     # before 02:40 CDT, and 23 to 29 min later that day), so 30 left ~6 min
     # and #4307 was CANCELLED at the limit; the limit went to 45 (#4322).
-    # #4317, sharded: each job now runs 8 to 12 min; 45 keeps it well under 60% and still catches a
+    # #4317, sharded: each job ran about 5 to 12 min in the measured runs (see the plan); 45 keeps it well under 60% and still catches a
     # hang. SUITE_TIMEOUT_MIN is the same number, for the 70% warning at the end of the job;
     # tools.shell-shard-4317.test.js pins the two equal.
     timeout-minutes: 45
