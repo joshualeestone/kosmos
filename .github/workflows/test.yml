@@ -93,7 +93,10 @@ jobs:
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
     # cross it and be CANCELLED (read as `fail`). 30 gives a single run real headroom
     # while still catching a genuine hang at ~2x the runtime.
-    timeout-minutes: 30
+    # #4317 (2026-09-28): the job now runs 20-23.5 min on main (the last five green runs), so 30
+    # left ~6 min for everyone and #4307 was CANCELLED at the limit. 45 is ~2x the runtime again.
+    # Sharding the job (with a warning at 70% of this) is the follow-up on #4317.
+    timeout-minutes: 45
     steps:
       # #1794: fetch-depth 0 (full history). checkout@v4 shallow-clones by
       # default; #1025's "a range is reduced to its base" resolves a git range,
