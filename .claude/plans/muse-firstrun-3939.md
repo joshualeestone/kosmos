@@ -7,7 +7,7 @@ Branch muse-firstrun-3939, off origin/main 26345dc11 (3c-3b, #4380). Angel, 2026
 With AGENT_WORKFORCE_MUSE=1 on a Mac, the first-run provider list's Meta row (today a static
 "Llama / Meta, Coming soon", web/index.html ~13385) is live: a Connect button that takes the person
 through Meta's sign-in, and once Muse is installed and signed in it shows the gold "connected" box like
-Gemini and Grok. Everywhere the flag is off the row is byte-for-byte today's.
+Gemini and Grok. Everywhere the flag is off the row looks and reads exactly as today (it gains ids and a hidden Connect).
 
 ## Shape to decide (read before building)
 - Where the sign-in runs. Two options:
@@ -69,7 +69,7 @@ others sharing tokens; run the gate early.
 - The watch poll uses setInterval: render-muse-signin-3939's harness captures only intervals whose
   source mentions /api/muse/signin, which a factory keeps true (same function body).
 - Row live state: the Meta row goes live only when MUSE_CREATE.on (the same read as the create form).
-  Flag off: markup byte-identical to today (node test pins the exact row string).
+  Flag off: looks as today; web.firstrun-model and web.gemini-grok-ui-3566 pin the row's class and pill.
 
 ## Weakest premise (now)
 That the first-run row can host the code boxes and Meta's link without breaking first-run's layout at
@@ -91,3 +91,17 @@ handling. It is the first thing to measure.
   first run draws light in both themes, like its other rows).
 - Decided: Connect stays pressable while a sign-in runs (pressing it again only re-opens the open panel).
 - Not in this slice: switching Muse on from first run (the switch is the marker file, #4400).
+
+## Review round 1 (opus, 13:55)
+- Focus was lost after a first-run sign-in finished (Connect was disabled after it took focus): Connect's
+  state is now set before the panel collapses, so focus goes to the line under the row.
+- onDone cleared MUSE_CREATE, so one failed read after signing in put the row back to Coming soon: it no
+  longer clears; after a sign-in it waits out a read already in flight and asks again.
+- Leaving the model step did not stop the Meta sign-in: frGo now collapses it as it does Gemini's and Grok's.
+- "Muse Code is not on this computer" never re-checked: Connect asks again before deciding, and the line
+  goes once a read says installed.
+- Connect now closes the panel on a second press (its aria-expanded promised a toggle).
+- The browser check drives a first-run sign-in to done (and a failed read after it); each fix above has an
+  arm that reds when the fix is removed. README row and the check's header name the 3c-4 arms.
+- The plan no longer says the flag-off row is byte-for-byte today's: it gained ids and a hidden Connect;
+  the two existing tests pin its class and its Coming soon pill.

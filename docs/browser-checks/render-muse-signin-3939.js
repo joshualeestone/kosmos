@@ -11,6 +11,11 @@
  *   - a poll naming ANOTHER sign-in's id ends this one in words and drives nothing;
  *   - a failure is said in words and the button re-arms; done says so;
  *   - Stop and closing the dialog both stop the engine's sign-in by id.
+ * Later slices add their arms below: 3c-2 (the Settings row), 3c-3b (the Create form, an agent on Muse), and
+ * 3c-4, the first-run Meta row: switched off it is today's Coming soon; switched on, Connect opens the same
+ * sign-in under the row (a second press closes it), Muse Code missing is said and re-asked on the next press,
+ * closing first run or leaving its model step stops the sign-in by id, and a sign-in driven to done reads
+ * Connected with focus kept (also when the read after it fails).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-muse-signin-3939.js
  */
@@ -716,18 +721,57 @@ const chk = (ok, label, extra) => {
   await q(() => { MUSE_CREATE = null; window.__museOn = true; }); await q(() => frPaintMeta()); await settle();
   fm = await frMeta();
   chk(fm.on && !fm.off && !fm.soon && fm.btn && fm.btnText === 'Connect' && !fm.btnOff && !fm.flow, 'first run, switched on and signed out: Connect, no pill, panel shut', JSON.stringify(fm));
-  const opened = await q(() => { document.getElementById('fr-meta-connect').click(); return { flow: !document.getElementById('fr-muse-flow').hidden, focus: document.activeElement && document.activeElement.id, exp: document.getElementById('fr-meta-connect').getAttribute('aria-expanded') }; });
+  const frOpenState = () => q(() => ({ flow: !document.getElementById('fr-muse-flow').hidden, focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), exp: document.getElementById('fr-meta-connect').getAttribute('aria-expanded') }));
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  const opened = await frOpenState();
   chk(opened.flow && opened.focus === 'fr-muse-go' && opened.exp === 'true', 'Connect opens Meta\'s sign-in under the row, focus on Sign in with Meta', JSON.stringify(opened));
   const frPostsBefore = await q(() => window.__posts.length);
   await q(() => document.getElementById('fr-muse-go').click()); await settle();
   chk(await q((n) => window.__posts.length === n + 1 && window.__posts[window.__posts.length - 1].path === '/', frPostsBefore), 'Sign in with Meta on first run starts one sign-in');
   await q(() => frClose()); await settle();
   chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001' && window.__polls.size === 0; }), 'closing first run stops that sign-in by its id and stops polling');
+  // A second press on Connect closes the panel, as its aria-expanded says.
+  await q(() => { MUSE_CREATE = null; frOpen(); frGo(5); }); await settle(); await settle();
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  const toggled = await frOpenState();
+  chk(!toggled.flow && toggled.exp === 'false' && toggled.focus === 'fr-meta-connect', 'a second press on Connect closes the panel and keeps focus on Connect', JSON.stringify(toggled));
+  // Leaving the model step mid sign-in stops it by id, as Gemini's and Grok's do.
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  await q(() => frGo(6)); await settle();
+  chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001' && window.__polls.size === 0; }), 'leaving the model step mid sign-in stops it by id');
+  // Driven to done on first run: the row reads Connected and focus is not lost to the page.
+  await q(() => { frGo(5); }); await settle(); await settle();
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  await q(() => { document.getElementById('fr-muse-cancel').focus(); window.__museSignedIn = true; window.__status = { id: 'mine000000000001', state: 'done' }; });
+  await tick(); await settle(); await settle();
+  let doneSt = await frMeta();
+  let doneFocus = await q(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+  chk(doneSt.btnOff && /Connected/.test(doneSt.btnText) && doneSt.box === 'fr-connbox' && !doneSt.flow, 'a first-run sign-in that finishes reads Connected with the gold box', JSON.stringify(doneSt));
+  chk(doneFocus === 'fr-muse-msg', 'and focus moves to the line under the row, not the page', String(doneFocus));
+  // The read after done fails: the row stays Meta's (never back to Coming soon) and focus is kept.
+  await q(() => { frClose(); MUSE_CREATE = null; window.__museSignedIn = false; window.__status = { state: 'idle' }; frOpen(); frGo(5); }); await settle(); await settle();
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  await q(() => document.getElementById('fr-muse-go').click()); await settle();
+  await q(() => { document.getElementById('fr-muse-cancel').focus(); window.__museRead = 'throw'; window.__status = { id: 'mine000000000001', state: 'done' }; });
+  await tick(); await settle(); await settle();
+  doneSt = await frMeta();
+  doneFocus = await q(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+  chk(doneSt.on && !doneSt.soon && doneSt.btn && doneFocus !== 'BODY', 'a failed read right after a first-run sign-in keeps the Meta row, and focus', JSON.stringify(doneSt) + ' focus ' + doneFocus);
+  await q(() => { window.__museRead = null; frClose(); window.__status = { state: 'idle' }; });
   // Not installed: Connect says so and opens nothing.
   await q(() => { MUSE_CREATE = null; window.__museInstalled = false; frOpen(); frGo(5); }); await settle(); await settle();
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   fm = await frMeta();
   chk(!fm.flow && /^Muse Code is not on this computer yet\./.test(fm.msg), 'first run, Muse Code missing: Connect says so and opens no sign-in', JSON.stringify(fm));
+  // Installed while the step is open: the next press asks again, opens the sign-in and drops the missing line.
+  await q(() => { window.__museInstalled = true; });
+  await q(() => document.getElementById('fr-meta-connect').click()); await settle();
+  fm = await frMeta();
+  chk(fm.flow && fm.msg === '', 'installed after being told it is missing: Connect opens the sign-in and the line is gone', JSON.stringify(fm));
+  await q(() => { frClose(); MUSE_CREATE = null; frOpen(); frGo(5); }); await settle(); await settle();
   // Signed in: Connected, with the gold box.
   await q(() => { MUSE_CREATE = null; window.__museInstalled = true; window.__museSignedIn = true; }); await q(() => frPaintMeta()); await settle();
   fm = await frMeta();

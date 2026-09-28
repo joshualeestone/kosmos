@@ -26793,14 +26793,14 @@ museSigninWire(ACCT_MUSE, 'acct-muse-');
    on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
    sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
    it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
-const FR_MUSE = museSigninFlow('fr-muse-', { onDone: () => { MUSE_CREATE = null; return frPaintMeta(); } });
+const FR_MUSE = museSigninFlow('fr-muse-', { onDone: () => frPaintMeta({ fresh: true }) });
 museSigninWire(FR_MUSE, 'fr-muse-');
 /* Put the panel away and stop its sign-in. Focus inside it goes to Connect, or to the line under the row when
    Connect is down (a disabled button cannot hold focus). */
 function frMuseCollapse() {
   const flow = document.getElementById('fr-muse-flow');
   const btn = document.getElementById('fr-meta-connect');
-  FR_MUSE.leave();
+  try { FR_MUSE.leave(); } catch { /* frGo can run before FR_MUSE is defined: nothing is running yet */ }
   if (!flow) return;
   if (!flow.hidden && flow.contains(document.activeElement)) {
     const msg = document.getElementById('fr-muse-msg');
@@ -26810,10 +26810,13 @@ function frMuseCollapse() {
   flow.hidden = true;
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
-async function frPaintMeta() {
+async function frPaintMeta(opts) {
   const row = document.getElementById('fr-meta-row');
   const btn = document.getElementById('fr-meta-connect');
   if (!row || !btn) return;
+  /* fresh: after a sign-in, a read that started before it would answer "signed out", so wait it out and ask
+     again. A failed read keeps the last answer (MUSE_CREATE is never cleared here). */
+  if (opts && opts.fresh && MUSE_CREATE_ASKING) { try { await MUSE_CREATE_ASKING; } catch { /* the next read decides */ } }
   try { await museCreateAsk(); } catch { /* a failed read keeps the last answer */ }
   const m = MUSE_CREATE;
   const live = !!(m && m.on);
@@ -26829,31 +26832,33 @@ async function frPaintMeta() {
     return;
   }
   const ready = m.ready === true;
-  if (ready) frMuseCollapse();
   btn.hidden = false;
   btn.innerHTML = ready ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
   btn.disabled = ready;
   btn.classList.toggle('is-connected', ready);
   btn.setAttribute('aria-disabled', String(ready));
   btn.setAttribute('aria-label', ready ? 'Meta Muse is connected' : 'Connect Meta Muse');
+  if (ready) frMuseCollapse();   // after Connect is down, so focus inside the panel goes to the line below
   if (!msg) return;
   if (ready) {
     msg.className = 'fr-connbox';
     msg.innerHTML = frCheckRow({ state: 'ok', title: 'Meta Muse is connected', detail: 'This computer is signed in to Muse Code with your Meta account.' });
-  } else if (msg.classList.contains('fr-connbox')) {
-    msg.className = 'dhint'; msg.textContent = '';
+  } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
+    msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
   }
 }
-document.getElementById('fr-meta-connect').addEventListener('click', () => {
+document.getElementById('fr-meta-connect').addEventListener('click', async () => {
   const btn = document.getElementById('fr-meta-connect');
   const flow = document.getElementById('fr-muse-flow');
   const msg = document.getElementById('fr-muse-msg');
-  if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready) return;
+  if (!flow.hidden) { frMuseCollapse(); btn.focus(); return; }   // a second press closes it, as aria-expanded says
+  // Asked again first: someone who installed Muse Code after the last read is not told it is missing.
+  await frPaintMeta();
+  if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
   if (!MUSE_CREATE.installed) {
-    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; }
+    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
     return;
   }
-  if (msg && !msg.classList.contains('fr-connbox')) msg.textContent = '';
   flow.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   document.getElementById('fr-muse-go').focus();
@@ -58903,6 +58908,8 @@ function frGo(step) {
      break it. */
   { const kb = document.getElementById('fr-gemini-confirm'); const to = document.getElementById('fr-pane-' + step);
     if (kb && !(to && to.contains(kb))) frKeyedHideAll(); }   // #3731: Gemini's and Grok's panels
+  { const mf = document.getElementById('fr-muse-flow'); const to = document.getElementById('fr-pane-' + step);
+    if (mf && !(to && to.contains(mf)) && typeof frMuseCollapse === 'function') frMuseCollapse(); }   // #3939 3c-4: and Meta's
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
