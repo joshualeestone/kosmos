@@ -81,7 +81,8 @@ function doors() {
     // #2802: openAcctAdd now also assigns ACCT_ADD_RETURN_FOCUS (the control that
     // opened the modal). Declare it here like ACCT_REAUTH_DIR so the lifted function
     // does not rely on sloppy-mode implicit-global creation (would throw under strict).
-    'let ACCT_REAUTH_DIR = null;\nlet ACCT_ADD_RETURN_FOCUS = null;\n' + src);
+    // #3939 slice 3c-2: openAcctAdd also counts the visit and clears the line beside the picker.
+    'let ACCT_REAUTH_DIR = null;\nlet ACCT_ADD_RETURN_FOCUS = null;\nlet ACCT_ADD_VISIT = 0;\nlet ACCT_MUSE_ASKING = null;\nconst acctAddPickSay = () => {};\n' + src);
   const api = fn(dom.document, (w, o) => picked.push([w, o]), () => false, null,
     'Add a provider', 'Pick which AI provider you want to connect.', picked, () => {}, () => {}, () => {});
   return { dom, api, picked };

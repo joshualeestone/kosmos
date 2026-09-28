@@ -354,3 +354,35 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
     assert.equal((await req('/api/muse/signin/nowhere', { method: 'POST' })).status, 404);
   } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; if (xdg !== undefined) process.env.XDG_CONFIG_HOME = xdg; }
 });
+
+test('#3939 3c-2: /api/accounts lists Meta Muse only when it is on, installed and signed in, and drops it after a refusal', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
+  const musestatus = require('./engine/musestatus');
+  const dir = path.join(SANDBOX, 'museacct'); fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'muse');
+  const rows = async () => (json(await req('/api/accounts')).accounts || []).filter((a) => a.authMode === 'muse');
+  const clean = () => { fs.rmSync(musestatus.signedInMarker(), { force: true }); fs.rmSync(musestatus.eventsFolder(), { recursive: true, force: true }); };
+  const xdg = process.env.XDG_CONFIG_HOME; delete process.env.XDG_CONFIG_HOME;   // Muse's own file from the sandbox home only
+  process.env.AGENT_WORKFORCE_MUSE_BIN = bin;
+  delete process.env.AGENT_WORKFORCE_MUSE;
+  try {
+    clean();
+    const t = Date.now() - 60000;
+    musestatus.markKosmosSignedIn(t);
+    fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    assert.deepEqual(await rows(), [], 'a Meta Muse row was listed with the flag off');
+    process.env.AGENT_WORKFORCE_MUSE = '1';
+    const r = await rows();
+    assert.equal(r.length, 1, 'a signed-in Meta Muse has no account row');
+    assert.equal(r[0].provider, 'meta');
+    assert.equal(r[0].providerName, 'Meta');
+    assert.equal(r[0].dir, null, 'the row must not point at a folder');
+    assert.equal(r[0].connection.badge, 'signed_in_unverified', 'Kosmos\'s record was shown as a live green Signed in');
+    musestatus.markSignedOut(t + 1000);
+    assert.deepEqual(await rows(), [], 'a refused turn after the sign-in left the row listed');
+    musestatus.markKosmosSignedIn(t + 2000);
+    assert.equal((await rows()).length, 1, 'CONTROL: a sign-in after the refusal lists it again');
+    fs.rmSync(bin, { force: true });
+    assert.deepEqual(await rows(), [], 'a row was listed for a Muse Code that is not installed');
+    assert.equal((await req('/api/accounts')).status, 200, 'the rest of the list still answered');
+  } finally { clean(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; if (xdg !== undefined) process.env.XDG_CONFIG_HOME = xdg; fs.rmSync(dir, { recursive: true, force: true }); }
+});

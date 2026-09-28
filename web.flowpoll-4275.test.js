@@ -55,6 +55,8 @@ function harness({ start, connect }) {
   const clearInterval = (id) => { timers.delete(id); };
   const src = [
     'let ACCT_FLOW_TIMER = null; let ACCT_FLOW_LAST = null; const ACCT_REAUTH_DIR = null;',
+    // #3939 slice 3c-2: acctFlowPaint's flow-ended point also clears the Meta Muse "under way" line.
+    "const MUSE_BUSY = 'busy'; const acctAddPickSay = () => {};",
     lift(SCRIPT, 'frConnActive'), lift(SCRIPT, 'acctFlowStop'), lift(SCRIPT, 'acctFocusAfterFlow'),
     lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctFlowWatch'), lift(SCRIPT, 'acctAddStart'),
     'return { acctAddStart, acctFlowWatch, acctFlowPaint };',
