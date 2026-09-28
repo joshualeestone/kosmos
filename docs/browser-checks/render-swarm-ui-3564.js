@@ -818,6 +818,19 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.evaluate(() => { showTab('agents'); });
     await page.waitForTimeout(200);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew2"]').click());
+    /* #4433 (review round 4): crew's stop is still in flight, and crew2's own controls must still work (a hung request for
+       one swarm once froze every swarm's cards). crew2's answer carries no settings, so its page keeps its own row. */
+    const crew2Sent = [];
+    await page.route('**/api/agent/crew2/swarm**', async (route) => {
+      crew2Sent.push({ method: route.request().method(), body: JSON.parse(route.request().postData() || '{}') });
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+    });
+    await openSwarm();
+    const crewBusy = await page.evaluate(() => SWARM_BUSY === 'crew');
+    await page.click('#d-swarm-states .swcard[data-st="paused"]');
+    for (let i = 0; i < 15 && !crew2Sent.length; i++) await page.waitForTimeout(100);
+    chk(crewBusy && crew2Sent.length === 1 && crew2Sent[0].method === 'PUT' && crew2Sent[0].body.active === false,
+      'S16 with crew\'s stop still in flight, a pick on crew2 goes through: one swarm\'s request never freezes another\'s controls', JSON.stringify({ crewBusy, crew2Sent }));
     await page.waitForTimeout(3000);   // past the slow answer
     const s16 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, on: cardChecked('active'),
       max: document.getElementById('d-swarm-max').value, msg: document.getElementById('d-swarm-msg').textContent, today: document.getElementById('d-swarm-today').textContent }));

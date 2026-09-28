@@ -69,3 +69,7 @@ That removing Stop now from the phone chat header costs nothing important. A per
 - **NIT** The stop question survived the field going. Fixed: it closes when the field goes, and on any section that is not the view.
 - **NIT** Stale comments. Rewritten.
 - **NIT** Dead `.swstop:disabled` CSS was removed. Re-picking a used-up Stopped now says "It is already stopped, with nothing left running."
+
+## Review round 4 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- WARNING Nothing tested round 3's per-swarm busy fix. Added to S16: with crew's stop in flight, a pick on crew2's view sends crew2's PUT. The mutant restoring the global `if (SWARM_BUSY) return` goes red (crew2 sent nothing).
+- NIT The "already stopped" line has no null guard on #d-swarm-msg. KEPT: unreachable without the view (swarmPick returns first without SWARM_ROW), and it matches swarmSend's convention.
