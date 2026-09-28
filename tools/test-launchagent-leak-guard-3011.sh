@@ -114,6 +114,46 @@ else
   fail "false positive: an unrelated file (com.apple.* / com.kosmos.board) tripped the agent-leak guard"
 fi
 
+# #4392: a post-promote live check's agent (the reserved zz-livecheck- prefix) created during the run is NOT a
+# leak; a zz-test-* agent, the prefix those checks used to use, still is (the skip is exactly the reserved prefix).
+launchagent_snapshot "$D" > "$BEFORE"
+printf 'live check\n' > "$D/com.kosmos.agent.zz-livecheck-4039-grok-1302.plist"
+if launchagent_leak_check "$D" "$BEFORE" 2>/dev/null; then
+  pass "#4392: a zz-livecheck- agent made during the run (a live check on the real board) does NOT trip the guard"
+else
+  fail "#4392: a live check's zz-livecheck- agent tripped the guard, so every concurrent suite reds on it"
+fi
+launchagent_snapshot "$D" > "$BEFORE"
+printf 'leaked\n' > "$D/com.kosmos.agent.zz-test-4039-grok-1302.plist"
+printf 'leaked\n' > "$D/com.kosmos.agent.zz-livecheckX.plist"
+out="$(launchagent_leak_check "$D" "$BEFORE" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'zz-test-4039' && printf '%s' "$out" | grep -q 'zz-livecheckX'; then
+  pass "#4392 control: a zz-test-* agent and a near-miss name (zz-livecheckX) still trip the guard"
+else
+  fail "#4392: the skip is wider than the reserved prefix (rc=$rc, out=[$out])"
+fi
+# #4392: no TEST may use the reserved prefix, or a real test leak under it would go unseen. Every tracked file is
+# searched except the two that define and pin the skip.
+# It catches LITERAL use only: a name built at runtime ('zz-live' + 'check') evades it. That is accepted because the
+# count guards against accidental reuse, and #3605 (launch-guard.js) already refuses any test's write to the real
+# LaunchAgents under node --test, whatever the name.
+# git grep: 0 = found, 1 = found nothing, anything else = it could not search (which must not read as clean).
+REPO_ROOT="$(cd -- "$HERE/.." && pwd -P)"
+ctl="$(git -C "$REPO_ROOT" grep -l 'launchagent_snapshot' -- 'tools/run-tests.sh' 2>/dev/null)"; ctl_rc=$?
+if [ "$ctl_rc" -eq 0 ] && [ -n "$ctl" ]; then
+  pass "#4392 control: the search finds a string that is there (run-tests.sh calls launchagent_snapshot)"
+else
+  fail "#4392 control: the search could not find a string that is there (rc=$ctl_rc), so its zero below would mean nothing"
+fi
+used="$(git -C "$REPO_ROOT" grep -l 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
+if [ "$used_rc" -gt 1 ]; then
+  fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"
+elif [ -z "$used" ]; then
+  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix"
+else
+  fail "#4392: the reserved live-check prefix appears in $used (a test must never name an agent with it)"
+fi
+
 # FAIL-SOFT: an empty/absent dir or missing baseline returns clean rather than reddening
 # the suite on its own bookkeeping. Both arms of the guard clause are exercised.
 if launchagent_leak_check "$D/does-not-exist" "$BEFORE" 2>/dev/null; then
