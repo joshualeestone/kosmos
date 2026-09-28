@@ -116,3 +116,4 @@ him the way back (the previous version), which is the part that matters.
   counts every non-GET request to /instructions; the check's request listeners are removed after use; the
   check closes first run for sure before its first click (an existing flake: Escape raced the overlay).
 - The 6g validation after round 4 was stopped before it finished: this round's blocker needed code changes.
+- Measured after the fix: web.made-before.test.js pins openDetail's model-message clear within its first 4000 characters; round 5's three reset lines pushed it to 3971. Compacted to one line (3812) rather than widening that test's window. render-fields.js needs the full runner's board on :4399 and was not run alone.

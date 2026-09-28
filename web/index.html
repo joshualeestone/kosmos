@@ -32841,10 +32841,7 @@ function openDetail(sessionName, section, fromProject) {
   // agent…" (an aria-live region) on the new agent's panel until the superseded reload
   // settled. openDetail runs only on a real agent open, never on the poll, so this
   // cannot hide the loader during the update's own reload.
-  document.getElementById('d-instr-updating').hidden = true;
-  // #4406: and a previous agent's loading line or Try again never shows on this one (its own load re-shows them).
-  document.getElementById('d-instr-loading').hidden = true;
-  document.getElementById('d-instr-retry-row').hidden = true;
+  for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
   document.getElementById('d-instr').placeholder = '';
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
