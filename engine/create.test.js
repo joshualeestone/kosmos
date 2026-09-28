@@ -3002,6 +3002,22 @@ test('a different choice comes back different, and every model in the list round
   }
 });
 
+/* #4439: the card's own acceptance line, asserted for the one new model by name rather than
+   left to the loop above: an agent created on Sonnet 5.5 is launched with claude-sonnet-5-5,
+   and its card calls it "Claude Sonnet 5.5". The control is the Sonnet 5 agent beside it. */
+test('#4439: an agent created on Sonnet 5.5 launches with claude-sonnet-5-5 and is named Claude Sonnet 5.5', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const status = require('./status');
+  const r = create.createAgent({ ...BINS, name: 'sonnetfivefive', role: 'pm', model: 'sonnet55' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(create.plannedModelArg('sonnetfivefive'), 'claude-sonnet-5-5');
+  assert.equal(status.modelDisplayName(create.plannedModelArg('sonnetfivefive')), 'Claude Sonnet 5.5');
+  const c = create.createAgent({ ...BINS, name: 'sonnetfive', role: 'pm', model: 'sonnet' });
+  assert.equal(c.outcome, create.OUTCOME.CREATED, c.because);
+  assert.equal(create.plannedModelArg('sonnetfive'), 'claude-sonnet-5', 'CONTROL: Sonnet 5 is still Sonnet 5');
+});
+
 /**
  * ⚠️ NULL MEANS WE DO NOT KNOW, AND THE THREE WAYS OF NOT KNOWING ALL HAVE TO
  * REACH IT. A reader that returned the default model for a job that carries no
@@ -5414,7 +5430,8 @@ test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty"
   const create = require('./create');
   // #1356: six anthropic models after Opus 4.8 and Fable 5.1 were added.
   // #3459: seven, after Opus 5.5 was added.
-  assert.equal(create.modelsFor('anthropic').length, 7);
+  // #4439: eight, after Sonnet 5.5 was added.
+  assert.equal(create.modelsFor('anthropic').length, 8);
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
@@ -5448,6 +5465,20 @@ test('#1356: the picker offers Claude Opus 4.8 and Claude Fable 5.1, and the boa
   }
 });
 
+test('#4439: the picker offers Claude Sonnet 5.5 by its verified id, and the default stays Sonnet 5', () => {
+  const create = require('./create');
+  const status = require('./status');
+  const row = create.MODELS.find((m) => m.arg === 'claude-sonnet-5-5');
+  assert.ok(row, 'claude-sonnet-5-5 is not offered by the picker');
+  assert.equal(row.provider, 'anthropic');
+  assert.equal(row.label, 'Claude Sonnet 5.5');
+  assert.ok(!row.default, 'Sonnet 5.5 must not be the default: the card asked to add it, not to change the default');
+  assert.ok(row.why && row.why.length > 10, 'Sonnet 5.5 needs a why line a person can choose by');
+  assert.equal(status.modelDisplayName('claude-sonnet-5-5'), 'Claude Sonnet 5.5', 'the board names it as the picker does');
+  const def = create.MODELS.filter((m) => m.default);
+  assert.deepEqual(def.map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
+});
+
 test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
   const create = require('./create');
   // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
@@ -5464,6 +5495,7 @@ test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact o
     'claude-opus-5-5',    // Opus 5.5 (#3459: newest Opus, leads the Opus tier)
     'claude-opus-5',      // Opus 5
     'claude-opus-4-8',    // Opus 4.8
+    'claude-sonnet-5-5',  // Sonnet 5.5 (#4439: newest Sonnet, leads the Sonnet tier)
     'claude-sonnet-5',    // Sonnet (still the default, mid-list by power)
     'claude-haiku-4-5-20251001', // Haiku (least, last)
   ], 'the Claude model menu is not in Josh\'s most-powerful-first order (#2140 item 10)');
