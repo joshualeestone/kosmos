@@ -240,20 +240,39 @@ const SAFE_ENV = /\.\.\.process\.env\b|Object\.(keys|entries)\(process\.env\)|Ob
 const DROPS_TEST_CONTEXT = /NODE_TEST_CONTEXT\s*:\s*(undefined|null|''|""|``|false|0)\b|NODE_TEST_CONTEXT\s*:\s*(''|""|``)|delete\s+[\w$.]+\.NODE_TEST_CONTEXT|\.NODE_TEST_CONTEXT\s*=\s*(undefined|null|''|""|``)/;
 const safeText = (t) => NAMED_LOOPBACK_URL.test(t) || (SAFE_ENV.test(t) && !DROPS_TEST_CONTEXT.test(t));
 
-/* Blanks block comments and every `//` comment, whole-line or trailing, that is
-   outside a string; a `//` inside a string (a URL) is kept. */
+/* Blanks every comment, block or line, whole-line or trailing, that is outside a
+   string, in ONE pass over the whole source, so a string (a template literal
+   especially) that runs across lines keeps its `//` and its `/*`. Newlines are
+   kept, so line numbers still hold. A `${...}` inside a template is read as part
+   of the template, which is how these files use it. */
 function stripComments(src) {
-  const noBlocks = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-  return noBlocks.split('\n').map((l) => {
-    let q = null;
-    for (let i = 0; i < l.length; i += 1) {
-      const c = l[i];
-      if (q) { if (c === '\\') { i += 1; continue; } if (c === q) q = null; continue; }
-      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
-      if (c === '/' && l[i + 1] === '/') return l.slice(0, i);
+  let out = '';
+  let q = null; // the quote we are inside, or null
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (q) {
+      out += c;
+      if (c === '\\') { out += src[i + 1] || ''; i += 1; continue; }
+      if (c === q) q = null;
+      else if (c === '\n' && q !== '`') q = null; // a '...' or "..." never spans lines
+      continue;
     }
-    return l;
-  }).join('\n');
+    if (c === '"' || c === "'" || c === '`') { q = c; out += c; continue; }
+    if (c === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i += 1;
+      if (i < src.length) out += '\n';
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const body = src.slice(i, end < 0 ? src.length : end + 2);
+      out += body.replace(/[^\n]/g, ' ');
+      i += body.length - 1;
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 /* The text from `open` (an opening bracket) to its match. */
@@ -477,6 +496,12 @@ test('#4253: the boot analyzer judges each spawn, not the file', () => {
   assert.deepEqual(boots(loop).map((b) => b.safe), [true], 'a loopback URL is a fix');
   const inString = "spawn(process.execPath, ['server.js'], { env: { ...process.env, X: 'http://a//b' } });";
   assert.deepEqual(boots(inString).map((b) => b.safe), [true], 'a // inside a string is not a comment');
+  const multi = "const cmd = `echo http://127.0.0.1:9/x &&\n  node server.js`;\nexec(`${process.execPath} ${path.join(REPO, 'server.js')}`, { env: { HOME: h } });";
+  assert.equal(stripComments(multi).includes('http://127.0.0.1:9/x'), true, 'a // inside a multi-line template is not a comment');
+  const hidden = "exec(`${process.execPath} \\\n  --from=http://h/ ${path.join(REPO, 'server.js')}`, { env: { HOME: h } });";
+  assert.deepEqual(boots(hidden).map((b) => b.safe), [false], 'server.js after a // on a continuation line of a multi-line command is still seen');
+  const blockInString = "spawn(process.execPath, ['server.js'], { env: { ...process.env, GLOB: 'a/*b' } });\nconst x = 1; // */";
+  assert.deepEqual(boots(blockInString).map((b) => b.safe), [true], 'a /* inside a string does not open a comment');
   const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
   assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
   const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";

@@ -121,10 +121,20 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
 
 - BLOCKER, fixed: the comment stripper blanked only whole-line comments, so a trailing
   `// AGENT_WORKFORCE_CREATED_URL ...` inside a multi-line env literal read as the URL. It now blanks
-  every `//` comment outside a string (a `//` in a URL string is kept). Self-tested both ways.
+  trailing `//` comments outside a string on the same line. (Review 8 showed that was still per line:
+  see below.)
 - Naming the URL counted whatever its value was, even the real endpoint. It counts now only as a
   loopback value, the rule the harness checks already apply. Self-tested both ways.
 - The file header said "Two halves" over three parts.
+
+## Review 8
+
+- BLOCKER, fixed: the stripper still reset its string state at every line, so a `//` inside a
+  multi-line template literal (a URL on a continuation line) cut the rest of that line, which could hide
+  a server.js require or a dropped NODE_TEST_CONTEXT. It is one pass over the whole source now,
+  carrying the open quote across lines for templates, keeping newlines, and not opening a block comment
+  inside a string. Three self-tests pin it. Review 7's ledger line claimed more than the code did; it is
+  corrected above.
 
 ## Weakest premise
 
