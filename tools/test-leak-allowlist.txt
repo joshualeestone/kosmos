@@ -174,9 +174,6 @@ aw-wimport-data
 aw-wimport-launch
 aw-wimport-projects
 aw-wimport-workers
-# aw-xsite: server.xsite-1636.test.js runs the host's real vercel, whose detached update-check worker
-# writes into the sandbox HOME after the test exits (kosmos#4309). Remove when #4309 lands.
-aw-xsite
 aw-you-data
 aw-you-home
 aw-you-projects

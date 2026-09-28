@@ -57,9 +57,8 @@ The first full run on the rebased head failed that guard with three families, as
   update-check worker that writes $HOME/Library/... into the sandbox after the test exits. I first
   called doorflight a timer race and "fixed" it with tmpscope: wrong, measured too early (the write
   lands seconds after exit), and it only renamed the leftover to kts-*. A blind review caught it.
-  Fix (Raiden's, #4309): point AGENT_WORKFORCE_GH_BIN/VERCEL_BIN at non-programs, so no real CLI
-  starts. doorflight gets it here (0 left, 10 s after exit, twice); xsite and server.connect get it in
-  Raiden's #4309 PR, and aw-xsite is allowlisted naming #4309 until then.
+  Raiden's #4309 (PR #4320, merged as ffa620f6) fixes all three such tests on main, so after the
+  rebase this branch touches neither server.doorflight-1618.test.js nor the allowlist.
 
 ## Final measurement, on the rebased head (64b248d)
 A full `yarn test` (run-tests.sh, with #4306's run-root guard): PASSED, guard green. Across its window the
