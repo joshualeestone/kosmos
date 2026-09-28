@@ -122,7 +122,7 @@ test('pjsHooksOpen: a read that lacks the webhook whose link is showing keeps th
   const fetch = async () => ({ ok: true, json: async () => ({ webhooks: answer }) });
   // eslint-disable-next-line no-new-func
   const pg = new Function('document', 'CSS', 'fetch',
-    fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksUrl') + fnSource('pjsHooksWhen')
+    fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksWhen')
     + fnSource('pjsHooksPaint') + fnSource('pjsHooksOpen')
     + 'const PJS_HOOKS = { projectId: "p", list: [], reveal: null, confirm: null, gen: 0 };'
     + 'return { pjsHooksOpen, PJS_HOOKS };')(document, CSS, fetch);

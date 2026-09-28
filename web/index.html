@@ -50964,7 +50964,8 @@ function pjsHooksAfter(projectId) {
   if (PJS_HOOKS.projectId === projectId) pjsHooksOpen({ id: projectId });
 }
 const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
-function pjsHooksUrl(id) { return '/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks' + (id ? '/' + id : ''); }
+/* Every webhooks call writes its URL out in full at the call, not through a helper: web.api-routes-3957
+   can only check a route the page names literally. */
 async function pjsHooksOpen(p) {
   if (PJS_HOOKS.projectId !== p.id) {
     /* Another project: nothing of the last one may show, even while this read is in flight or if
@@ -50977,7 +50978,7 @@ async function pjsHooksOpen(p) {
   const mine = ++PJS_HOOKS.gen;
   const msg = document.getElementById('pjs-hooks-msg');
   try {
-    const r = await fetch(pjsHooksUrl(), { cache: 'no-store' });
+    const r = await fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks', { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
     if (mine !== PJS_HOOKS.gen) return;
     if (!r.ok || !Array.isArray(body.webhooks)) {
@@ -51043,8 +51044,11 @@ function pjsHooksPaint() {
   if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
   if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
 }
-async function pjsHooksSend(url, method, body) {
-  const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+function pjsHooksInit(method, body) {
+  return { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) };
+}
+async function pjsHooksSend(sent) {
+  const r = await sent;
   const out = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(out.error || 'that did not work');
   return out;
@@ -51056,7 +51060,7 @@ async function pjsHookAdd() {
   PJS_HOOKS.gen += 1;
   const forProject = PJS_HOOKS.projectId;
   try {
-    const out = await pjsHooksSend(pjsHooksUrl(), 'POST', {});
+    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks', pjsHooksInit('POST', {})));
     /* Settings moved to another project while this was being made: it belongs to the first one,
        so it is not shown here. Its link can no longer be shown; the person deletes it there. */
     if (PJS_HOOKS.projectId !== forProject) return;
@@ -51077,7 +51081,7 @@ async function pjsHookRename(id, name) {
   if (!h || name.trim() === h.name) return;
   PJS_HOOKS.gen += 1;
   try {
-    const out = await pjsHooksSend(pjsHooksUrl(id) + '/name', 'POST', { name });
+    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks/' + id + '/name', pjsHooksInit('POST', { name })));
     h.name = out.webhook.name;
     msg.textContent = 'Renamed. Its link has not changed.';
     /* In place, not a repaint: a repaint would drop focus if the person has tabbed on, and throw
@@ -51101,7 +51105,7 @@ async function pjsHookDelete(id) {
   const h = PJS_HOOKS.list.find((x) => x.id === id);
   PJS_HOOKS.gen += 1;
   try {
-    await pjsHooksSend(pjsHooksUrl(id), 'DELETE');
+    await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks/' + id, pjsHooksInit('DELETE')));
     PJS_HOOKS.list = PJS_HOOKS.list.filter((x) => x.id !== id);
     if (PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === id) PJS_HOOKS.reveal = null;
     PJS_HOOKS.confirm = null;
