@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tunnelgate-4270
-diff_hash: 04de2f06c1956037cde079e5660740df93a6da3df91ba506e7ae2301d4966875
+diff_hash: 66adefb5154789b8ab10353f83332e6232d29efe49681ee3318cd04e520965f5
 validation: passed
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-09-28T05:56:45Z
@@ -61,6 +61,14 @@ A build that breaks renewal passed on the retry, because the first control's ren
 retry. It is now held until the verdict, and a row reproduces the false PASS under the mutant. Also: the stale
 check is keyed on identity; a non-regular connector is FAIL; setup failure is CANNOT TELL; RUST_LOG pinned;
 the exact tarball asserted. Rollout: the identity was enrolled on Mortals before merge.
+
+#### After convergence: CI's time budget (not a review finding)
+CI cancelled the test job at test.yml's 30-minute limit: main alone runs 20-23.5 min, and this branch added
+~6 min. An exited connector is now classified by its last ended session (as at the deadline), so the failing
+stubs exit instead of waiting out the deadline, and the gate polls every 0.25 s. The gate test runs in 89 s
+(was ~206 s), 53/53. A new row keeps the deadline path covered, and a mutant reds the ticket and dial-auth
+rows. Validation passed again on this head (gate 53/0, staging ALL PASS). The job limit itself is raised to
+45 min in #4317 (Splinter's decision).
 
 #### Iteration 8 - sonnet - 1 NIT, fixed
 The `--timeout` wording (the visit has its own 20 s). No BLOCKER or MAJOR, and the NOT COVERED list was judged
