@@ -90,6 +90,18 @@ suppressing when `AGENT_WORKFORCE_DATA` is set (`install/setup.sh:1320` sets it 
   47), and my first per-call version followed every name on every line, which let `boot(sb)` vouch for an
   unrelated spawn. Both were caught by running the mutation, not by reading.
 
+## Review 5
+
+- BLOCKER, fixed: options passed as a NAME (`const opts = { env: ... }`, `opts.env = ...` later, a
+  helper that builds them) had no `env:` inside the call, so the analyzer read "no env, inherits" and
+  passed a hand-built env. It now reads the call's third argument itself: absent inherits, a literal is
+  read, a name is resolved through its declaration and any later `name.env =`, a helper through what it
+  returns, and anything it cannot read is judged unsafe. Five shapes are in the self-test.
+- The follow depth is a named MAX_DEPTH of 6 with a comment (past it: unsafe, loud).
+- test-support/*.js is scanned too (a future shared boot helper would sit there).
+- Mutations on real files, each red: `opts.env =` after the literal, a named options object, and the
+  three from review 4.
+
 ## Weakest premise
 
 A harness started outside these three entry points (a check run by hand with node, a /verify-live

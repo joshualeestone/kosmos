@@ -256,6 +256,50 @@ function definition(src, name) {
   return src.slice(at, semi < 0 ? undefined : semi);
 }
 
+/* A call's arguments, split at its own top level. `call` starts at its `(`. */
+function argsOf(call) {
+  const inner = call.slice(1, -1);
+  const out = [];
+  let depth = 0; let from = 0; let q = null;
+  for (let i = 0; i < inner.length; i += 1) {
+    const c = inner[i];
+    if (q) { if (c === q && inner[i - 1] !== '\\') q = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+    if ('([{'.includes(c)) depth += 1;
+    else if (')]}'.includes(c)) depth -= 1;
+    else if (c === ',' && depth === 0) { out.push(inner.slice(from, i).trim()); from = i + 1; }
+  }
+  const last = inner.slice(from).trim();
+  if (last) out.push(last);
+  return out;
+}
+
+/* The env a spawn's OPTIONS argument gives the child. Returns null when the child
+   inherits (no options, or options without env), an expression string otherwise,
+   and UNKNOWN when the options cannot be read, which is judged unsafe. */
+const UNKNOWN = '\u0000unknown';
+function envOfOptions(src, opts, callAt, depth = 0) {
+  if (opts === undefined) return null;
+  if (opts.startsWith('{')) return envOf(opts);
+  const whole = /^([A-Za-z_$][\w$]*)\s*(\(|$)/.exec(opts);
+  if (!whole || depth > MAX_DEPTH) return UNKNOWN;
+  const name = whole[1];
+  if (whole[2] === '(') {
+    // a helper that builds the options: judge what its body returns
+    const body = definition(src, name);
+    if (!body) return UNKNOWN;
+    const ret = /\breturn\s+([^;\n]+)/.exec(body);
+    return ret ? envOfOptions(body, ret[1].trim(), body.length, depth + 1) : UNKNOWN;
+  }
+  const r = region(src, name, callAt);
+  if (!r) return UNKNOWN;
+  // `name.env = <expr>` after the declaration wins over the declaration's own env
+  const set = new RegExp(`(?<![.\\w$])${name}\\.env\\s*=\\s*([^;\\n]+)`).exec(r.later);
+  if (set) return set[1].trim();
+  if (r.stmt.trim().startsWith('{')) return envOf(r.stmt);
+  return envOfOptions(src, r.stmt.trim(), callAt, depth + 1);
+}
+
 /* The `env` option of a call, or null when there is none (the child inherits). */
 function envOf(call) {
   const short = /[{,]\s*env\s*[,}]/.exec(call);
@@ -303,10 +347,15 @@ function region(src, name, callAt) {
   return { stmt, later };
 }
 
+/* How many names deep a safe environment is followed. Past it the spawn is judged
+   unsafe (loud, never silent); raise it if a correct helper chain is ever deeper. */
+const MAX_DEPTH = 6;
+
 function envIsSafe(src, expr, callAt, depth = 0) {
   if (expr === null) return true;
+  if (expr === UNKNOWN) return false;
   if (SAFE_ENV.test(expr)) return true;
-  if (depth > 3) return false;
+  if (depth > MAX_DEPTH) return false;
   for (const name of flows(expr)) {
     const r = region(src, name, callAt);
     if (!r) continue;
@@ -334,7 +383,10 @@ function boots(raw) {
     const viaE = /^\[\s*['"]-e['"]/.test(args) && /\brequire\(/.test(code)
       && (/['"`/]server(\.js)?['"`]/.test(code) || /server\.js/.test(inner));
     if (!direct && !viaE) continue;
-    out.push({ line: src.slice(0, m.index).split('\n').length, safe: envIsSafe(src, envOf(call), m.index) });
+    /* The options are the argument after the args array (fork(module, args, opts)
+       has the same shape). */
+    const opts = argsOf(call)[2];
+    out.push({ line: src.slice(0, m.index).split('\n').length, safe: envIsSafe(src, envOfOptions(src, opts, m.index), m.index) });
   }
   return out;
 }
@@ -351,6 +403,16 @@ test('#4253: the boot analyzer judges each spawn, not the file', () => {
   assert.deepEqual(boots(viaName).map((b) => b.safe), [false], 'a server.js path held in a name is still a boot');
   const prop = "const env = { ...process.env };\nfunction other() {}\nspawn(process.execPath, ['server.js'], { env: { PATH: process.env.PATH, HOME: sb } });";
   assert.deepEqual(boots(prop).map((b) => b.safe), [false], 'process.env.PATH does not make an unrelated env variable the spawn\'s env');
+  const named1 = "const opts = { stdio: 'pipe' };\nopts.env = { HOME: sb };\nspawn(process.execPath, ['server.js'], opts);";
+  assert.deepEqual(boots(named1).map((b) => b.safe), [false], 'opts.env assigned after the literal is the env');
+  const named2 = "const opts = { env: { HOME: sb } };\nspawn(process.execPath, ['server.js'], opts);";
+  assert.deepEqual(boots(named2).map((b) => b.safe), [false], 'an options object declared elsewhere is read');
+  const named3 = "function mkOpts(e) { return { env: e }; }\nspawn(process.execPath, ['server.js'], mkOpts({ HOME: sb }));";
+  assert.deepEqual(boots(named3).map((b) => b.safe), [false], 'options built by a helper cannot be proven safe, so they are not');
+  const namedOk = "const opts = { env: { ...process.env, PORT: '0' } };\nspawn(process.execPath, ['server.js'], opts);";
+  assert.deepEqual(boots(namedOk).map((b) => b.safe), [true], 'a named options object that spreads process.env is safe');
+  const namedInherit = "const opts = { stdio: 'pipe' };\nspawn(process.execPath, ['server.js'], opts);";
+  assert.deepEqual(boots(namedInherit).map((b) => b.safe), [true], 'named options without env inherit');
   const filled = "const env = {};\nfor (const k of Object.keys(process.env)) env[k] = process.env[k];\nspawnSync(process.execPath, ['server.js'], { env: { ...env, PORT: '0' } });";
   assert.deepEqual(boots(filled).map((b) => b.safe), [true], 'an env filled from process.env after its declaration is safe');
   const helper = "function launchEnv() { const e = {}; for (const [k, v] of Object.entries(process.env)) e[k] = v; return e; }\nspawn(process.execPath, ['server.js'], { env: launchEnv() });";
@@ -367,7 +429,7 @@ test('#4253: every test and browser check that boots server.js keeps the board f
      env built by hand drops both, so such a spawn must name the URL itself. */
   /* This file is left out: its self-test above holds deliberately unsafe spawns as
      strings, and its one real boot (the CONTROL) names the URL. */
-  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js', 'docs/browser-checks/*.js'], { encoding: 'utf8' })
+  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js', 'docs/browser-checks/*.js', 'test-support/*.js'], { encoding: 'utf8' })
     .trim().split('\n').filter((f) => f && f !== 'tools.no-phone-home-4253.test.js');
   const all = [];
   for (const f of files) for (const b of boots(fs.readFileSync(path.join(REPO, f), 'utf8'))) all.push({ f, ...b });
