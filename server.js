@@ -10625,7 +10625,9 @@ const server = http.createServer((req, res) => {
           if (now && !now.ok && now.removed) {
             let back = null;
             try { back = removal.restore(now.removed); } catch { back = null; }
-            const ok = !!back && back.outcome !== removal.OUTCOME.REFUSED;
+            /* A refusal because another window restored it a moment ago is a success: check again. */
+            const ok = (!!back && back.outcome !== removal.OUTCOME.REFUSED) || setupGuideNow().ok;
+            if (ok) recordGuideOutcome(GUIDE_SEEDED);   // #4350: the guide is here again
             sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok } });
             return;
           }

@@ -894,8 +894,10 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(await page.waitForFunction(() => TIPS_STATE !== null && TIPS_TIMER !== null, null, { timeout: 8000 }).then(() => true, () => false), 'T7 precondition: the tips read has answered');
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T7 an unreadable tips store shows no tips rather than all of them');
-    const row = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
-    chk(row === true, 'T7 and the Settings Tips box is hidden rather than showing a state it did not read');
+    /* #4405: the Help box now always holds the Kosmos Guide switch, so the BOX may show; what must not show is a tips
+       state that was never read, i.e. the tips ROW. */
+    const row = await page.evaluate(() => document.getElementById('tips-row')?.hidden);
+    chk(row === true, 'T7 and the Settings Tips row is hidden rather than showing a state it did not read');
     // T29: the store is mended while the page still holds the failed read, and the person closes a tip. That save is the first real answer, so tips are on again and the
     // Settings box comes back (before, the failed read's stand-in "off" stuck for the session).
     // The read retry (T30) held off, so this arm is about the save: wait out any read in flight first,

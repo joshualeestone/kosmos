@@ -360,7 +360,7 @@ test('#3760 an existing install (first run finished, never armed) is armed once 
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('#3760 a fresh install still in first run is NOT armed by the update path (Giddy Up does that); #4405 an unreadable flag IS', async () => {
+test('#3760 a fresh install still in first run is NOT armed by the update path (Giddy Up does that), nor with no reader', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(false);
   try {
