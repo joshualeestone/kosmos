@@ -699,8 +699,12 @@ test('#4277: the report timer runs the refresh on its own, under a TTL below its
   // wait a whole interval to say how it came back (review 16).
   const early = remote.startReportTimer({ intervalMs: 60 * 60 * 1000, firstMs: 20 });
   try {
+    assert.equal(early.first.hasRef(), false, 'the early tick holds the process open');
     await until(() => seen.length >= 1, 'the first report soon after boot');
-  } finally { clearInterval(early); }
+    // The last report's time survives a restart (remote.json), so the early tick must not be
+    // TTL-gated, or it sends nothing most restarts (review 18).
+    assert.equal(seen[0].ttlMs, 0, 'the early tick is TTL-gated');
+  } finally { clearInterval(early); clearTimeout(early.first); }
   assert.ok(remote.REPORT_FIRST_MS < remote.REPORT_INTERVAL_MS, 'the first tick is not early');
   seen.length = 0;
   const t = remote.startReportTimer({ intervalMs: 20, firstMs: 60 * 60 * 1000 });
@@ -708,7 +712,7 @@ test('#4277: the report timer runs the refresh on its own, under a TTL below its
     assert.equal(t.hasRef(), false, 'the report timer holds the process open');
     await until(() => seen.length >= 3, 'the timer to keep firing after a throw and a rejection');
     assert.equal(seen[0].ttlMs, remote.REPORT_TTL_MS, 'the timer does not pass its TTL');
-  } finally { clearInterval(t); remote.refreshStandingIfStale = real; }
+  } finally { clearInterval(t); clearTimeout(t.first); remote.refreshStandingIfStale = real; }
 });
 
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {

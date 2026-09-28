@@ -98,6 +98,12 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['unexpected Ping frame from the relay', 'relay-dropped'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: busy', 'coordinator-unreachable'],
     ['Kosmos+ answered 409 for /v1/mac/relay-ticket: taken', 'coordinator-refused'],
+    // Rate-limited or timed out is "not now", not a refusal (review 18).
+    ['Kosmos+ answered 429 for /v1/mac/relay-ticket: slow down', 'coordinator-unreachable'],
+    ['Kosmos+ refused this Mac: slow down (HTTP 429 on /v1/mac/relay-ticket)', 'coordinator-unreachable'],
+    ['Kosmos+ answered 408 for /v1/mac/relay-ticket: timeout', 'coordinator-unreachable'],
+    // A wrong Mac clock, not a bad key (review 18).
+    ['the Kosmos+ ticket does not verify against the pinned key: ticket expired at unix 1790000000', 'ticket-expired'],
     // coordinator.rs, verbatim: an answer that is not the coordinator's (review 14).
     ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
     ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],

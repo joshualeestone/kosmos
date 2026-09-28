@@ -63,7 +63,8 @@ const CODES = [
   // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
   // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first
   // (review 9). These are the only coordinator patterns (review 11).
-  ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
+  // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage (review 18).
+  ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,
   // unreadable): a captive portal or a proxy in the way, on the ticket path itself (review 14).
@@ -77,6 +78,8 @@ const CODES = [
   // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
   ['binary-missing', /^the tunnel program could not be started/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
+  // The ticket had expired by this Mac's clock: usually a Mac clock that is wrong, not a bad key (review 18).
+  ['ticket-expired', /ticket expired/i],
   // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
   ['ticket-mismatch', /ticket does not verify|ticket names /i],
   ['cert-renewal', /^certificate renewal is due/i],

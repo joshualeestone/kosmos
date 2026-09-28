@@ -17014,7 +17014,7 @@ function start(port = PORT) {
       /* kosmos#4277: the remote report must not wait for a browser tab to poll /api/status (its
          only other caller): a board nobody is watching is the one whose status we most need.
          engine/remote.js startReportTimer() says how often, and is tested there. */
-      remote.startReportTimer();
+      try { remote.startReportTimer(); } catch { /* best-effort: never let it touch boot */ }
       /* #185: the nudge sweep. Its own timer, never the status GET (a
          read must stay a read); once a minute is far inside the
          ten-minute constant it serves. unref'd so it never holds the

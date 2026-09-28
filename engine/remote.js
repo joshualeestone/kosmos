@@ -248,18 +248,22 @@ async function fetchStanding() {
    skipped every other tick (review 10). Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
    board that an update just restarted says how it came back without waiting a whole interval
-   (review 16). Both timers are unref'd so neither holds the process open. */
+   (review 16). That tick asks with a TTL of 0: the last report's time is saved in remote.json and
+   survives the restart, so under the ordinary TTL it sent nothing four restarts in five (review
+   18). Both timers are unref'd so neither holds the process open; the early one rides on the
+   returned interval as `.first`, so a caller can clear it too. */
 const REPORT_INTERVAL_MS = 10 * 60 * 1000;
 const REPORT_TTL_MS = 9 * 60 * 1000;
 const REPORT_FIRST_MS = 60 * 1000;
 function startReportTimer({ intervalMs = REPORT_INTERVAL_MS, ttlMs = REPORT_TTL_MS, firstMs = REPORT_FIRST_MS } = {}) {
-  const tick = () => {
-    try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs })).catch(() => {}); } catch { /* best-effort */ }
+  const tick = (ttl) => {
+    try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: ttl })).catch(() => {}); } catch { /* best-effort */ }
   };
-  const first = setTimeout(tick, firstMs);
+  const first = setTimeout(() => tick(0), firstMs);
   if (typeof first.unref === 'function') first.unref();
-  const t = setInterval(tick, intervalMs);
+  const t = setInterval(() => tick(ttlMs), intervalMs);
   if (typeof t.unref === 'function') t.unref();
+  t.first = first;
   return t;
 }
 
