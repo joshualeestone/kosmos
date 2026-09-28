@@ -27,9 +27,10 @@ test('selection: win32 test files in engine/ and at the root, plus ALSO, and not
 
 test('selection on the real tree: named files are in, and the count has not shrunk', () => {
   const got = w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT));
-  // 94 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
-  // raises the count and needs nothing. A single file renamed out of the rule does not.
-  assert.ok(got.length >= 94, `only ${got.length} files selected`);
+  // 100 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
+  // raises the count and needs nothing. A single file renamed out of the rule does not; the
+  // host-branch test below catches the ones that matter.
+  assert.ok(got.length >= 100, `only ${got.length} files selected`);
   for (const f of [
     'engine/win32apply.test.js', 'engine/runners.win32-codex.test.js', 'engine/win32board.test.js',
     'engine/runners.win-runnable-2270.test.js', 'engine/windows-coupling-audit-1732.test.js',
@@ -37,6 +38,25 @@ test('selection on the real tree: named files are in, and the count has not shru
     'tools.windows-kosmos-cli-570.test.js', 'tools.win-installer-native.test.js',
   ]) assert.ok(got.includes(f), `${f} is not selected`);
   for (const n of w.ALSO) assert.ok(fs.existsSync(path.join(__dirname, n)), `ALSO names ${n}, which is not in engine/`);
+  for (const n of w.ALSO_ROOT) assert.ok(got.includes(n), `ALSO_ROOT names ${n}, which is not selected`);
+});
+
+test('every test file that branches on a win32 HOST is run on Windows or excluded with a reason', () => {
+  const selected = new Set(w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT)));
+  const all = [
+    ...fs.readdirSync(__dirname).filter((n) => n.endsWith('.test.js')).map((n) => 'engine/' + n),
+    ...fs.readdirSync(ROOT).filter((n) => n.endsWith('.test.js')),
+  ];
+  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform/;
+  const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
+    && f !== 'engine/windows-tests-1777.test.js'
+    && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+  assert.deepEqual(loose, [], 'these branch on a win32 host and nothing runs them on Windows: add each to ALSO, or to HOST_BRANCH_EXCLUDED with why');
+  for (const [f, why] of Object.entries(w.HOST_BRANCH_EXCLUDED)) {
+    assert.ok(fs.existsSync(path.join(ROOT, f)), `HOST_BRANCH_EXCLUDED names ${f}, which does not exist`);
+    assert.ok(!selected.has(f), `${f} is both selected and excluded`);
+    assert.ok(why.length > 10, `${f} needs a reason`);
+  }
 });
 
 test('failing test names are read from the spec reporter, without the file-level line', () => {
@@ -96,6 +116,37 @@ test('verdict: a listed file that passes, or was not run, is stale', () => {
   assert.match(w.judge([{ file: 'engine/b.test.js', ok: true }], KNOWN).stale[0].why, /not run/);
 });
 
+test('verdict: a file whose every test skipped is a new red unless ALL_SKIP_OK names it', () => {
+  const allSkipped = { file: 'engine/e.test.js', ok: true, tests: 3, skipped: 3 };
+  assert.match(w.judge([allSkipped], {}, {}).failed[0].why, /every one of its 3 tests skipped/);
+  assert.deepEqual(w.judge([allSkipped], {}, { 'engine/e.test.js': 'needs a login' }).failed, []);
+  assert.deepEqual(w.judge([{ ...allSkipped, skipped: 2 }], {}, {}).failed, [], 'a partial skip is counted, not judged');
+  const runsNow = w.judge([{ ...allSkipped, skipped: 1 }], {}, { 'engine/e.test.js': 'needs a login' });
+  assert.equal(runsNow.stale.length, 1, 'an ALL_SKIP_OK file whose tests run now is stale');
+});
+
+test('verdict: a listed file that could not be run is a new red naming the error', () => {
+  const v = w.judge([{ file: 'engine/a.test.js', ok: false, failing: ['t1', 't2'], error: 'ENOBUFS' }], KNOWN);
+  assert.match(v.failed[0].why, /ENOBUFS/);
+  assert.deepEqual(v.known, []);
+});
+
+test('a stale entry blocks main always, and a PR only when it touches that file or the script', () => {
+  const st = { file: 'engine/a.test.js' };
+  assert.equal(w.staleBlocks(st, null), true, 'main (no PR diff) is strict');
+  assert.equal(w.staleBlocks(st, ['server.js']), false, 'someone else\'s PR is not failed for it');
+  assert.equal(w.staleBlocks(st, ['engine/a.test.js']), true);
+  assert.equal(w.staleBlocks(st, ['tools/windows-tests.js']), true);
+});
+
+test('every ALL_SKIP_OK entry is a selected file with a reason', () => {
+  const selected = new Set(w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT)));
+  for (const [f, why] of Object.entries(w.ALL_SKIP_OK)) {
+    assert.ok(selected.has(f), `${f} is in ALL_SKIP_OK but not selected`);
+    assert.ok(why.length > 10, `${f} needs a reason`);
+  }
+});
+
 test('verdict: an unlisted failure, and a file the budget did not reach, are new reds', () => {
   const v = w.judge([
     { file: 'engine/c.test.js', ok: false, failing: ['x'] },
@@ -126,6 +177,8 @@ test('the workflow runs this script on Windows, on PRs and pushes to main, and c
   assert.match(wf, /^ {2}pull_request:/m);
   assert.match(wf, /branches: \["main"\]/);
   assert.doesNotMatch(wf, /continue-on-error/, 'a job that cannot fail is not a check');
+  assert.match(wf, /WINDOWS_TESTS_PR_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+  assert.match(wf, /fetch-depth: 0/, 'the PR diff needs the base commit');
   const minutes = Number(wf.match(/timeout-minutes: (\d+)/)[1]);
   assert.ok(minutes * 60000 > w.START_BUDGET_MS + w.PER_FILE_TIMEOUT_MS,
     'the job could be cancelled mid-file before the script prints its verdict');

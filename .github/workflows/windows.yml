@@ -46,7 +46,11 @@ jobs:
       - name: keep LF line endings for the checkout below, as shipped
         shell: bash
         run: git config --global core.autocrlf false
+      # Full history: on a PR the script diffs against the base (WINDOWS_TESTS_PR_BASE below) to
+      # decide whether a stale known-red entry is this PR's to fix.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # Node 26, as test.yml (#1794): the suite is written on node 26.
       - uses: actions/setup-node@v4
         with:
@@ -57,4 +61,7 @@ jobs:
           echo "node:  $(node --version 2>&1 || echo ABSENT)"
           echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
       - name: the Windows tests, on Windows (#1777)
+        env:
+          # Empty on a push to main, where every stale entry fails the run.
+          WINDOWS_TESTS_PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: node tools/windows-tests.js

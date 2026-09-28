@@ -16,11 +16,17 @@
  * tools.build-windows / tools.publish-windows (Mac-side release tooling that builds the Windows
  * bundle; it never runs on Windows).
  *
+ * SKIPS: a selected file whose EVERY test skips is a failure unless ALL_SKIP_OK names it, since
+ * this job is the only place its arms run. A file that skips SOME of its tests is counted in the
+ * log, not judged.
+ *
  * HOW IT JUDGES: a failing file is a failure unless KNOWN_RED lists it, with its card AND the
  * exact tests expected to fail. Any other failing test in a listed file, or a listed file that
  * was killed (a hang), is a failure. A listed test that now PASSES is also a failure, "take it
  * off the list", so the list cannot turn into a permanent excuse or hide what else goes red in
- * the same file. Measured on windows-latest before this was written: see #1777.
+ * the same file. A stale entry fails every run on main, and a PR's run only when the PR touches
+ * that file or this script (staleBlocks). Measured on windows-latest before this was written: see
+ * #1777.
  *
  * WHAT A GREEN HERE IS NOT: a GitHub Windows runner is a Windows Server image, run as an
  * admin, with no Kosmos user setup. It is evidence about Windows, not about a user's laptop.
@@ -30,8 +36,30 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 
-// Files without "win32" in their name that still speak about Windows behaviour.
-const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js'];
+// Files without "win32" in their name that still speak about Windows behaviour. The engine ones
+// are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
+// be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
+const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
+  'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js'];
+const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js'];
+
+// Test files that branch on a win32 host but are not run on Windows, each with why.
+const HOST_BRANCH_EXCLUDED = {
+  'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
+  'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
+  'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
+  'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
+  'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
+};
+
+// Selected files whose every test may skip on the runner, each with why. Any OTHER selected file
+// that runs and skips all of its tests is a red: this job is the only place those arms run.
+const ALL_SKIP_OK = {
+  'engine/win32agyreply.e2e.test.js': 'needs a signed-in Antigravity; the runner has none',
+  'engine/win32agysignin.e2e.test.js': 'needs Antigravity installed; the runner has none',
+  'engine/win32codexreply.e2e.test.js': 'needs a signed-in Codex; the runner has none',
+  'engine/win32codexsup.integration.test.js': 'needs a real Codex binary; the runner has none',
+};
 
 // A failing file listed here does not fail the job, as long as exactly the named tests fail
 // in it. Every entry names the card that owns it. Names are as node's spec reporter prints them;
@@ -80,7 +108,7 @@ function selectFiles(engineNames, rootNames = []) {
   const engine = engineNames.filter((n) => isTest(n) && (n.includes('win32') || ALSO.includes(n))).map((n) => 'engine/' + n);
   // At the root, the Windows-side tools' tests are named tools.win-* / tools.windows-* (the
   // `kosmos` command a Windows agent runs, the native installer and launcher, the shims).
-  const root = rootNames.filter((n) => isTest(n) && (n.includes('win32') || /^tools\.win(dows)?-/.test(n)));
+  const root = rootNames.filter((n) => isTest(n) && (n.includes('win32') || /^tools\.win(dows)?-/.test(n) || ALSO_ROOT.includes(n)));
   return [...engine, ...root].sort();
 }
 
@@ -97,14 +125,19 @@ function failingTests(output, file = '') {
   return [...names];
 }
 
-// results: [{ file, ok, failing: [names], killed, notRun }].
+// results: [{ file, ok, failing: [names], killed, notRun, error, tests, skipped }].
 // Returns { failed: [{ file, why }], stale: [...], known: [...] }.
-function judge(results, knownRed = KNOWN_RED) {
+function judge(results, knownRed = KNOWN_RED, allSkipOk = ALL_SKIP_OK) {
   const failed = []; const stale = []; const known = [];
   for (const r of results) {
     const entry = knownRed[r.file];
     if (r.notRun) { failed.push({ file: r.file, why: 'not run: the start budget ran out' }); continue; }
+    if (r.ok && r.tests > 0 && r.skipped === r.tests && !allSkipOk[r.file]) {
+      failed.push({ file: r.file, why: `every one of its ${r.tests} tests skipped on Windows; list it in ALL_SKIP_OK with why, or let its arms run` });
+      continue;
+    }
     if (r.ok) { if (entry) stale.push({ file: r.file, card: entry.card, why: 'it PASSES now' }); continue; }
+    if (entry && r.error) { failed.push({ file: r.file, why: `could not run (${r.error}), which ${entry.card} does not cover` }); continue; }
     if (!entry) { failed.push({ file: r.file, why: r.killed ? 'killed (a hang or the file cap)' : r.error ? `could not run (${r.error})` : 'failed' }); continue; }
     if (r.killed) { failed.push({ file: r.file, why: `killed (a hang or the file cap), which ${entry.card} does not cover` }); continue; }
     const unexpected = (r.failing || []).filter((n) => !entry.tests.includes(n));
@@ -122,7 +155,28 @@ function judge(results, knownRed = KNOWN_RED) {
   for (const [file, entry] of Object.entries(knownRed)) {
     if (!seen.has(file)) stale.push({ file, card: entry.card, why: 'not run' });
   }
+  for (const [file] of Object.entries(allSkipOk)) {
+    const r = results.find((x) => x.file === file);
+    if (r && r.ok && r.tests > 0 && r.skipped < r.tests) stale.push({ file, card: 'ALL_SKIP_OK', why: 'its tests run now' });
+  }
   return { failed, stale, known };
+}
+
+// A stale entry fails main's run always. On a PR it fails only when the PR touches that test
+// file or this script, so a fix landing on main does not turn every other open PR red; main's
+// own run then names the entry to drop. changed === null means "not a PR, or the diff could not
+// be read": strict.
+function staleBlocks(entry, changed) {
+  if (changed === null) return true;
+  return changed.includes(entry.file) || changed.includes('tools/windows-tests.js');
+}
+
+function changedFiles(root) {
+  const base = process.env.WINDOWS_TESTS_PR_BASE;
+  if (!base) return null;
+  const r = cp.spawnSync('git', ['diff', '--name-only', base, 'HEAD'], { cwd: root, encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
 function count(output, label) {
@@ -165,17 +219,25 @@ function main() {
       const lines = output.split('\n').filter((l) => /^\s*✖|Error/.test(l));
       for (const l of lines.slice(0, 40)) console.log('    ' + l.trim());
     }
-    results.push({ file, ok, failing, killed, error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
+    results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
+      error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
   }
   const { failed, stale, known } = judge(results);
   for (const k of known) console.log(`known red ${k.file} (${k.card})`);
   for (const f of failed) console.log(`NEW RED ${f.file}: ${f.why}. Fix it, or list it in KNOWN_RED in tools/windows-tests.js with its card`);
-  for (const s of stale) console.log(`STALE ${s.file} (${s.card}): ${s.why}; update KNOWN_RED`);
+  const changed = changedFiles(root);
+  let blocking = 0;
+  for (const st of stale) {
+    const blocks = staleBlocks(st, changed);
+    if (blocks) blocking += 1;
+    console.log(`STALE ${st.file} (${st.card}): ${st.why}; update ${st.card === 'ALL_SKIP_OK' ? 'ALL_SKIP_OK' : 'KNOWN_RED'}`
+      + (blocks ? '' : ' (not this PR\'s change, so not failing it; main\'s run will)'));
+  }
   const pass = results.filter((r) => r.ok).length;
-  console.log(`windows-tests: ${pass} passed, ${results.length - pass} failed (${known.length} known red), ${failed.length} new red, ${stale.length} stale`);
-  return failed.length || stale.length ? 1 : 0;
+  console.log(`windows-tests: ${pass} passed, ${results.length - pass} failed (${known.length} known red), ${failed.length} new red, ${stale.length} stale (${blocking} blocking)`);
+  return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { selectFiles, failingTests, judge, ALSO, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { selectFiles, failingTests, judge, staleBlocks, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();
