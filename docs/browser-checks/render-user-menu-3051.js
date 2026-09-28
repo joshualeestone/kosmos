@@ -158,7 +158,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // ── #3360: a Kosmos+ member sees the member line INSTEAD of the promo. Driven through the real
     //    producer, fedGateStamp() with /api/status's kosmos_plus, not by setting the attribute by
     //    hand, so the arm covers the wiring end to end. Then a lapse (kosmos_plus false) on the next
-    //    open, then the two fed attributes are restored and the Agents tab shown again. ──
+    //    open, then the fed attributes and the two invite-button titles are restored and the Agents tab shown again. ──
     const plusOpen = async () => {
       await page.click('#userpop-btn');
       await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
@@ -173,7 +173,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       await page.waitForFunction(() => document.getElementById('userpop-menu').hidden === true, null, { timeout: 5000 });
       return r;
     };
-    const before = await page.evaluate(() => ({ ui: document.documentElement.getAttribute('data-fed-ui'), mem: document.documentElement.hasAttribute('data-fed-member') }));
+    const before = await page.evaluate(() => ({ ui: document.documentElement.getAttribute('data-fed-ui'), mem: document.documentElement.hasAttribute('data-fed-member'),
+      titles: ['pj-add-ext-person', 'pj-add-ext-agent'].map((id) => { const el = document.getElementById(id); return el ? el.getAttribute('title') : null; }) }));
     await page.evaluate(() => fedGateStamp({ kosmos_plus: true }));
     const asMember = await plusOpen();
     ok(t + ' a Kosmos+ member (kosmos_plus true on /api/status) sees "Kosmos+ member" and not the promo',
@@ -195,6 +196,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const h = document.documentElement;
       if (b.ui === null) h.removeAttribute('data-fed-ui'); else h.setAttribute('data-fed-ui', b.ui);
       h.toggleAttribute('data-fed-member', b.mem);
+      // fedGateStamp() also retitles the two outside-invite buttons; put their titles back too.
+      ['pj-add-ext-person', 'pj-add-ext-agent'].forEach((id, i) => { const el = document.getElementById(id); if (!el) return; if (b.titles[i] === null) el.removeAttribute('title'); else el.setAttribute('title', b.titles[i]); });
       // The member-line click left Settings open; the deep-link loop below must start off it.
       if (typeof showTab === 'function') showTab('agents');
     }, before);

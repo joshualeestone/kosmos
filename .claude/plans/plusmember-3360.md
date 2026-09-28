@@ -9,7 +9,8 @@ that is an authenticated Kosmos+ member in good standing, and the promo again af
 - `data-fed-member` comes from the existing producer, `fedGateStamp()`, which toggles it from
   `/api/status`'s `kosmos_plus` (server: `fedKosmosPlusNow()`). No new signal, no second account call.
 - render-user-menu-3051.js drives `fedGateStamp()` through member, click-through (opens Settings >
-  Kosmos Plus and closes the menu) and lapse states, then restores the page.
+  Kosmos Plus and closes the menu) and lapse states, then puts back what it changed (the fed
+  attributes, the two invite-button titles, the Agents tab).
 - A control (plusMember back to `return false`) turns the check red.
 
 ## Decisions
