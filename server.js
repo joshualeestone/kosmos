@@ -17350,7 +17350,8 @@ function start(port = PORT) {
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it
-         carries no agent information, only that an install exists -- and
+         carries no agent count, only that an install exists plus its setup guide
+         state word (#4350, see createdbeacon.js) -- and
          fire-and-forget, once on board start. The server is idempotent (Math.max
          on count 0), so a re-fire on every launch never inflates anything; that
          is also how an install that predates this beacon gets counted, on its

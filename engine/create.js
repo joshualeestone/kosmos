@@ -3988,8 +3988,9 @@ function createAgent(opts) {
        agents make roster drift the default outcome unless creation records WHY an
        agent exists). NULL when absent -- a directly operator-created agent omits
        them, so it stays FUNCTIONALLY unchanged: the two keys are present as null
-       rather than gone, and the only birth-log consumer (register.js) reads only
-       outcome/name/at, so nothing keys on their absence. (Records already ON DISK
+       rather than gone. register.js reads only outcome/name/at; createdCount
+       (#4350) reads createdBy, role and purpose to leave out the auto-created
+       setup guide, and a null there simply means "not the guide". (Records already ON DISK
        from before this are untouched; a new plain create's line simply carries
        the two null keys.) Same sanitize-and-slice posture as role/model above;
        recorded, never a gate. */

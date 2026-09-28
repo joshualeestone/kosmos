@@ -124,3 +124,22 @@ test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re
   assert.match(src, /setupAssistantSeeded\(\)\)\s*\{\s*recordGuideOutcome\(GUIDE_SEEDED\)/,
     'an install seeded before the guide state existed must record seeded at the sweep\'s early return');
 });
+
+test('#4350 the birth the REAL seed path would record is recognised as the auto guide', () => {
+  // Capture the options seedSetupAssistant hands createAgent, and write them to the birth log
+  // the way recordBirth does (role, createdBy, purpose sliced to 300), so a change to the seed's
+  // purpose text or fields cannot quietly put the guide back in the public count.
+  const seen = [];
+  const r = setupAssistant.seedSetupAssistant({ createAgent: (o) => { seen.push(o); return { outcome: create.OUTCOME.CREATED, name: o.name }; }, hasConnectedAccount: () => true });
+  assert.equal(r.seeded, true, r.reason || '');
+  const o = seen[0];
+  fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
+  fs.writeFileSync(create.createdLogFile(), JSON.stringify({
+    outcome: create.OUTCOME.CREATED, name: o.name, role: String(o.role || '').slice(0, 120),
+    createdBy: o.createdBy ? String(o.createdBy).slice(0, 120) : null,
+    purpose: o.purpose ? String(o.purpose).slice(0, 300) : null,
+  }) + '\n');
+  try {
+    assert.equal(create.createdCount(), 0, 'the real seed path\'s birth was counted as a person-made agent');
+  } finally { fs.rmSync(create.createdLogFile(), { force: true }); unseed(); }
+});

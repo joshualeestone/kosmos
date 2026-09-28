@@ -51,9 +51,16 @@ function record(outcome) {
   // this STATE first appeared, not when it was last seen.
   if (before && before.state === state && before.reason === reason) return { changed: false };
   const at = before && before.state === state && before.at ? before.at : new Date().toISOString();
+  // Write-then-rename, so a read overlapping the write never sees a half file (which would read
+  // as "no record" and report a change that did not happen).
+  const tmp = `${file()}.${process.pid}.new`;
   try {
-    fs.writeFileSync(file(), JSON.stringify({ state, reason, at }) + '\n', 'utf8');
-  } catch { return { changed: false }; }
+    fs.writeFileSync(tmp, JSON.stringify({ state, reason, at }) + '\n', 'utf8');
+    fs.renameSync(tmp, file());
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* never written */ }
+    return { changed: false };
+  }
   return { changed: !before || before.state !== state };
 }
 
