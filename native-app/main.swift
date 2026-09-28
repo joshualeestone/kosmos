@@ -1821,6 +1821,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
     /// port). Said once, plainly; every later launch tries the stop again (stopBoardIfRunning).
+    private func showChoiceNotSaved(_ home: String) {
+        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again the next time it opens. Check that you can write to \(home).", title: "Kosmos could not save your choice")
+    }
+
     private func showBoardStillRunning() {
         logLine("#4356: kosmos stop failed; the board may still be running on this computer")
         showStartupFailureAlert(detail: "Kosmos could not stop the agents' board on this computer, so it may still be running. You can connect to your other computer anyway. Kosmos will try again the next time it opens; restarting this computer also stops it.", title: "Kosmos is still running here")
@@ -1856,18 +1860,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
         switch choice {
         case "run":
-            // If this cannot be saved the next launch simply asks again; first run carries on.
-            _ = writeComputerMode(.run, kosmosHome: home)
+            // First run carries on either way; a choice that could not be saved is asked again next time.
+            if !writeComputerMode(.run, kosmosHome: home) { showChoiceNotSaved(home) }
             computerMode = .run
             logLine("#4356: this computer runs agents")
         case "both":
             // Runs agents like run; first run ends at Kosmos Plus sign-in, which the page does itself.
-            _ = writeComputerMode(.both, kosmosHome: home)
+            if !writeComputerMode(.both, kosmosHome: home) { showChoiceNotSaved(home) }
             computerMode = .both
             logLine("#4356: this computer runs agents and connects to other computers")
         case "connect":
             guard writeComputerMode(.connect, kosmosHome: home) else {
-                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it is still set up to run agents here. Check that you can write to \(home), then open Kosmos again.", title: "Kosmos could not switch")
+                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can write to \(home).", title: "Kosmos could not switch")
                 loadBoard()
                 return
             }
@@ -1911,8 +1915,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
         guard !connectSwitchInFlight else {
-            NSSound.beep()
-            logLine("#4356: Run agents waits: the switch to connect is still stopping the board")
+            logLine("#4356: Run agents waits: a stop of ours is still running")
+            showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
             return
         }
         guard writeComputerMode(.run, kosmosHome: home) else {

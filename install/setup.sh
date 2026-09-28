@@ -4195,7 +4195,11 @@ if [ "$_kosmos_board_off" = "yes" ] && [ "$BOARD_OURS" = "yes" ]; then
   # #4356: set not to run one, but a board of ours is up anyway (a stop that failed, or one started
   # by hand). Said as it is; the app stops it when it opens (stopBoardIfRunning).
   printf '\n  Kosmos is installed. This computer is set not to run a board, but one is still running.\n'
-  printf '  Open the Kosmos app from your Applications folder and it will stop it.\n\n'
+  if [ "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" = connect ]; then
+    printf '  Open the Kosmos app from your Applications folder and it will stop it.\n\n'
+  else
+    printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
+  fi
 elif [ "$_kosmos_board_off" = "yes" ]; then
   # #4356: no board on purpose. Not the "something else is on the port" branch below, whose
   # advice would start a board on a computer that connects elsewhere.

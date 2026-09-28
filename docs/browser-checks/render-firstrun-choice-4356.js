@@ -117,6 +117,12 @@ const look = (page) => page.evaluate(() => {
     chk(s.focused === null, 'C1 no button shows focus on load, as in the approved mockup', String(s.focused));
     await page.keyboard.press('Tab');
     chk((await look(page)).focused === RUN, 'C1 and Tab reaches Run agents first');
+    await page.keyboard.press('Shift+Tab');
+    chk(await page.evaluate(() => !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('#fr-choice')),
+      'C1 Shift+Tab does not reach the board under the screen');
+    await page.waitForTimeout(4500);   // past the 3 s boot timer that starts the tips and the setup assistant
+    chk(await page.evaluate(() => !TIP_OPEN && !document.getElementById('cmnotice')), 'C1 no tip or notice opens under the screen');
+    chk(await page.evaluate(() => [...document.querySelectorAll('body > *:not(#fr-choice)')].every((n) => n.inert)), 'C1 the rest of the page is inert');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
 
     // C2: Run agents hands the app "run", hides the screen, first run carries on, and the address forgets ?mode=.

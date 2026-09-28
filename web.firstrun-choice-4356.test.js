@@ -111,6 +111,7 @@ function world({ search = '', bridge = true, throws = false, windows = false } =
   const btn = (mode) => ({ dataset: { mode }, disabled: false, onclick: null, focused: false, focus() { this.focused = true; } });
   const btns = [btn('run'), btn('connect'), btn('both')];
   const el = { hidden: true, querySelectorAll: () => btns };
+  const siblings = [{ id: 'grid', inert: false }, { id: 'firstrun', inert: false }];
   const cover = { hidden: false };
   const replaced = [];
   const ctx = {
@@ -119,14 +120,17 @@ function world({ search = '', bridge = true, throws = false, windows = false } =
     location: { search, href: 'http://127.0.0.1:16180/' + search + (search ? '&' : '?') + 'token=t' },
     URLSearchParams,
     Promise,
-    document: { getElementById: (id) => (id === 'fr-choice' ? el : id === 'boot-cover' ? cover : null) },
+    document: {
+      getElementById: (id) => (id === 'fr-choice' ? el : id === 'boot-cover' ? cover : null),
+      querySelectorAll: (sel) => (sel === 'body > *:not(#fr-choice)' ? siblings : []),
+    },
     window: windows
       ? { chrome: { webview: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } }
       : { webkit: bridge ? { messageHandlers: { kosmosMode: { postMessage(m) { if (throws) throw new Error('no app'); posted.push(m); } } } } : undefined },
   };
   vm.createContext(ctx);
-  vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoose')].join('\n'), ctx);
-  return { ctx, posted, btns, el, cover, replaced };
+  vm.runInContext([lift('revealBoot'), lift('frChoiceBridge'), lift('frChoiceWanted'), lift('frChoiceForget'), lift('frChoiceInert'), lift('frChoose')].join('\n'), ctx);
+  return { ctx, posted, btns, el, cover, replaced, siblings };
 }
 
 test('#4356: the screen shows only in the Mac app, and only when the app says no choice is stored', () => {
@@ -157,6 +161,7 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   const w = world({ search: '?mode=unset' });
   const choice = w.ctx.frChoose();
   assert.equal(w.el.hidden, false, 'the screen did not show');
+  assert.ok(w.siblings.every((n) => n.inert), 'the board under the screen is reachable by Tab and screen readers');
   assert.equal(w.cover.hidden, true, 'the boot cover stays over the screen');
   assert.equal(w.btns[0].focused, false, 'the approved screen shows no focus ring on load; Tab reaches the first button');
   w.btns[0].onclick();
@@ -164,6 +169,7 @@ test('#4356: Run agents tells the app "run", hides the screen and lets first run
   assert.deepEqual(w.posted, ['run']);
   assert.equal(w.el.hidden, true);
   assert.deepEqual(w.replaced, ['/?token=t'], 'a Reload would ask again, and the app no longer listens');
+  assert.ok(w.siblings.every((n) => !n.inert), 'the page stays inert after the screen went');
 });
 
 test('#4356: Run agents here and connect tells the app "both", hides the screen, and keeps ?mode=both for the end of first run', async () => {
@@ -184,6 +190,7 @@ test('#4356: Connect tells the app "connect" and leaves the screen up, buttons o
   assert.deepEqual(w.posted, ['connect']);
   assert.equal(w.el.hidden, false, 'the board would flash up under a Mac that is switching away from it');
   assert.ok(w.btns.every((b) => b.disabled), 'a second press could tell the app "run" mid-switch');
+  assert.ok(w.siblings.every((n) => n.inert), 'the board comes back to life under a Mac that is switching away');
 });
 
 test('#4356: if the app cannot be told, Connect does nothing rather than leave dead buttons', async () => {
@@ -215,6 +222,11 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
   assert.match(lift('frFinish'), /if \(ok \|\| FR_FORGOT\) \{ frEnd\(then\); return; \}/);
   assert.match(lift('frFinish'), /label: 'Carry on anyway', go: \(\) => frEnd\(then\)/);
   assert.doesNotMatch(lift('frFinish'), /frClose\(\); then\(\)/, 'a way out of first run skips the last step');
+});
+
+test('#4356: tips, the Community notice and What\'s New all count the first screen as covering the board', () => {
+  // The tour started under the screen, took focus and was recorded as seen unseen (review round 3).
+  for (const fn of ['tipModalOpen', 'cnHeld', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
 });
 
 test('#4356: the address keeper carries ?mode=, or first run never sees it', () => {

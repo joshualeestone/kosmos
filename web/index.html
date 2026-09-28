@@ -28198,7 +28198,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, dialog[open], #boot-cover:not([hidden])');
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, dialog[open], #boot-cover:not([hidden])');
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -34426,7 +34426,7 @@ function wnWire(back) {
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4288 part B: and the one-time Community notice, so the two windows never stack.
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back, #cmnotice');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -62411,7 +62411,8 @@ function tipMenuOpen() {
 }
 
 function tipModalOpen() {
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, dialog[open]');
+  // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, dialog[open]');
 }
 
 function tipVisibleAny(sel) {
@@ -63829,7 +63830,9 @@ function asbStart() {
    the Windows app's window (WebView2), which takes { kosmosMode: "run|connect|both" } the way it
    takes { kosmosBadge: n } (#4381, Homer's half). Absent in a browser, and on a board opened any
    other way, so the choice screen never shows there; and only an app that knows the choice puts
-   ?mode= on the address (frChoiceWanted), so an older Windows app never shows it either. */
+   ?mode= on the address (frChoiceWanted), so an older Windows app never shows it either. A WebView2
+   post cannot fail, so the page believes it was heard: the Windows app must handle { kosmosMode }
+   before it ever puts ?mode= on its address, or a choice is dropped (#4381). */
 function frChoiceBridge() {
   const h = window.webkit && window.webkit.messageHandlers;
   if (h && h.kosmosMode) return h.kosmosMode;
@@ -63860,6 +63863,10 @@ function frChoiceForget(mode) {
   } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
 }
 
+function frChoiceInert(on) {
+  document.querySelectorAll('body > *:not(#fr-choice)').forEach((n) => { n.inert = on; });
+}
+
 /* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
    connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
    stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
@@ -63882,10 +63889,14 @@ function frChoose() {
           return;
         }
         el.hidden = true;
+        frChoiceInert(false);
         resolve(mode);
       };
     });
     el.hidden = false;
+    // Everything else on the page goes inert while the screen is up, as first run's frOpen does: no
+    // Tab, click or screen reader reaches the board under it (and first run re-applies its own).
+    frChoiceInert(true);
     revealBoot();
   });
 }
