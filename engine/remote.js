@@ -282,16 +282,19 @@ function reportNotEnrolledIfDue(now) {
   // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
   try {
     if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
-    if (notEnrolledReportInFlight || now - notEnrolledReportAt < NOT_ENROLLED_REPORT_MS) return;
+    // Math.abs: a wall clock stepped backwards must not silence the report until it catches up.
+    if (notEnrolledReportInFlight || Math.abs(now - notEnrolledReportAt) < NOT_ENROLLED_REPORT_MS) return;
     const s = read();
     if (s.ok !== true || s.on !== true || !holdsKey()) return;
     const report = require('./remote-report').build();
     if (!report) return;
     notEnrolledReportAt = now;
     notEnrolledReportInFlight = true;
-    macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
+    // Through the export, so a test can observe the call without any binary being run.
+    module.exports.macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
       .then((r) => {
-        if (!r || !r.ok) process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
+        if (r && r.ok) { require('./remote-report').commitHeal(); return; }
+        process.stderr.write('kosmos#4277: the remote report did not go: ' + ((r && r.because) || 'unknown') + '\n');
       })
       .catch(() => {})
       .finally(() => { notEnrolledReportInFlight = false; });

@@ -146,6 +146,30 @@ test('#4277: ON, holding a key, NOT enrolled: one key-signed report of why, then
   }
 });
 
+test('#4277: under the test runner with NO test tunnel binary, the not-enrolled report is never attempted', async () => {
+  // Observed with a spy on remote.macRequest (the report goes through the export), so nothing
+  // is ever spawned, least of all a real tunnel against the production coordinator.
+  const real = remote.macRequest;
+  const seam = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  let called = 0;
+  remote.macRequest = async () => { called++; return { ok: true, data: {} }; };
+  try {
+    remote.resetForTests();
+    keyOnly(true);
+    delete process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+    await remote.refreshStandingIfStale({ now: Date.now() + 30 * 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(called, 0, 'the guard must stop the report before macRequest');
+    // CONTROL: the same state WITH the seam set does call it, so the zero above is the guard's doing.
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam;
+    remote.resetForTests();
+    keyOnly(true);
+    await remote.refreshStandingIfStale({ now: Date.now() + 60 * 60 * 1000, ttlMs: 0 });
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(called, 1, 'control: with the seam set the report was not attempted, so the zero proves nothing');
+  } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+});
+
 test('#4277: key-only signing opens the report route and nothing else', async () => {
   remote.resetForTests();
   keyOnly(true);

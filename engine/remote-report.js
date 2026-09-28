@@ -44,25 +44,55 @@ function tunnelState(state, on) {
   return on ? 'stopped' : 'off';
 }
 
-/* A sentence safe to send: this person's home directory written as `~` (anywhere in the
-   text, longest spelling first), control characters dropped, cut to the bound. */
-function scrub(text, home) {
+/* A sentence safe to send (review 2 of #4277 widened this from "the home directory"):
+   - every known sensitive string, in any letter case and Unicode spelling, first: the sign-in
+     email -> <email>; the home, the state dir and their real paths -> <path>; the login name,
+     as a whole word -> <user>;
+   - then ANY remaining absolute path (a `/`, `~`, `C:\` or `\\` start) -> <path>, up to where
+     the clause ends (" does not", " (", ": ", ";", a quote, an error code like ENOENT, or the
+     end), so a path with spaces in it (an external drive named after a person) goes whole;
+   - then ANY word with an `@` in it -> <email> (the coordinator accepts emails with no dot);
+   - control characters dropped, cut to the bound, never mid-character.
+   It over-redacts rather than under-redacts: a lost word costs a little diagnosis, a leaked
+   name costs a person. */
+function escapeRe(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function spellings(x) {
+  if (typeof x !== 'string' || x.length < 2) return [];
+  const out = new Set([x, x.normalize('NFC'), x.normalize('NFD')]);
+  const real = safeRealpath(x);
+  if (real) for (const r of [real, real.normalize('NFC'), real.normalize('NFD')]) out.add(r);
+  return Array.from(out);
+}
+function scrub(text, home, extra) {
   if (typeof text !== 'string') return null;
-  let s = text;
-  const homes = [home, home && fs.realpathSync.native ? safeRealpath(home) : null]
-    .filter((h) => typeof h === 'string' && h.length > 1)
+  extra = extra || {};
+  let s = text.normalize('NFC');
+  const swap = (literal, placeholder, wholeWord) => {
+    const lit = literal.normalize('NFC');
+    const re = wholeWord ? new RegExp('\\b' + escapeRe(lit) + '\\b', 'gi') : new RegExp(escapeRe(lit), 'gi');
+    s = s.replace(re, placeholder);
+  };
+  if (typeof extra.email === 'string' && extra.email.includes('@')) swap(extra.email, '<email>');
+  const paths = [...spellings(home), ...spellings(extra.stateDir)]
+    .filter((x) => x.length > 1)
     .sort((a, b) => b.length - a.length);
-  // Any letter case: macOS paths are case-insensitive, so /users/somebody names the same home.
-  for (const h of homes) s = s.replace(new RegExp(h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '~');
-  // An email anywhere in the sentence (status() names the sign-in email while waiting for the code).
-  s = s.replace(/[^\s<>()"',;:]+@[^\s<>()"',;:]+\.[^\s<>()"',;:]+/g, '<email>');
+  for (const p of paths) swap(p, '<path>');
+  if (typeof extra.user === 'string' && extra.user.length >= 3) swap(extra.user, '<user>', true);
+  s = s.replace(/(?:~|[A-Za-z]:\\|\\\\|\/)(?!path>)[^;"'()]*?(?=\s+does not\b|\s+\(|:\s|;|"|'|\s+E[A-Z]{2,}\b|$)/g, '<path>');
+  s = s.replace(/\S*@\S*/g, '<email>');
+  s = s.replace(/(?:<path>)+/g, '<path>');
   s = Array.from(s).filter((c) => c >= ' ' && c !== '\u007f').join('').trim();
   if (!s) return null;
   return Array.from(s).slice(0, ERROR_MAX_CHARS).join('');
 }
 function safeRealpath(p) { try { return fs.realpathSync.native(p); } catch { return null; } }
 
+/* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
+   baseline; commitHeal() adopts it once a report is sent, so a refused or failed send does
+   not swallow a relaunch. A relaunch whose tunnel is still starting is not yet a result:
+   it reads `none` and stays pending for the next report. */
 let lastRestarts = null;
+let proposedRestarts = null;
 
 /**
  * The report, or null when it cannot be built. `deps` replaces remote.js and the
@@ -73,6 +103,8 @@ function build(deps) {
     const remote = (deps && deps.remote) || require('./remote');
     const env = (deps && deps.env) || process.env;
     const home = (deps && deps.home) || os.homedir();
+    let user = deps && deps.user;
+    if (user === undefined) { try { user = os.userInfo().username; } catch { user = null; } }
     const settings = remote.read();
     const on = settings && settings.ok === true && settings.on === true;
     const st = remote.status() || {};
@@ -82,14 +114,18 @@ function build(deps) {
     const tunnel = tunnelState(st.state, on);
     const restarts = typeof remote.restartCount === 'function' ? remote.restartCount() : 0;
     let heal = 'none';
-    if (lastRestarts !== null && restarts > lastRestarts) heal = tunnel === 'running' ? 'relaunched' : 'relaunch-failed';
-    lastRestarts = restarts;
+    proposedRestarts = restarts;
+    if (lastRestarts !== null && restarts > lastRestarts) {
+      if (tunnel === 'running') heal = 'relaunched';
+      else if (tunnel === 'starting') proposedRestarts = lastRestarts;   // not a result yet
+      else heal = 'relaunch-failed';
+    }
     let app = null;
     try { app = (deps && deps.appVersion) || require('../package.json').version || null; } catch { app = null; }
     return {
       on,
       tunnel,
-      error: tunnel === 'running' ? null : scrub(st.because, home),
+      error: tunnel === 'running' ? null : scrub(st.because, home, { email: settings && settings.email, stateDir: dir, user }),
       stateDir: !dirThere ? 'missing' : (env.AGENT_WORKFORCE_TUNNEL_STATE ? 'custom' : 'default'),
       macId: exists('mac_id'),
       macKey: exists('mac_key'),
@@ -101,4 +137,7 @@ function build(deps) {
   }
 }
 
-module.exports = { build, tunnelState, scrub, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = null; } };
+/** Call after a report was SENT, so its heal baseline counts. */
+function commitHeal() { if (proposedRestarts !== null) lastRestarts = proposedRestarts; }
+
+module.exports = { build, commitHeal, tunnelState, scrub, ERROR_MAX_CHARS, resetForTests: () => { lastRestarts = null; proposedRestarts = null; } };

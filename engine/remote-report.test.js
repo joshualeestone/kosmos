@@ -59,7 +59,7 @@ test('the error is status()\'s sentence, with the home directory written as ~ an
   const dir = stateDir([]);
   const because = `${HOME}/Library/Application Support/AgentWorkforce/remote does not look like a Mac state dir (no mac_id); run setup first`;
   const r = report.build({ remote: fakeRemote({ dir, state: 'restarting', because }), env: {}, home: HOME });
-  assert.equal(r.error, '~/Library/Application Support/AgentWorkforce/remote does not look like a Mac state dir (no mac_id); run setup first');
+  assert.equal(r.error, '<path> does not look like a Mac state dir (no mac_id); run setup first');
   assert.ok(!r.error.includes('somebody'), 'the user name left the Mac');
 });
 
@@ -74,7 +74,7 @@ test('an email in the sentence is never sent: status() names the sign-in email w
 
 test('the home directory is matched in any letter case (macOS paths are case-insensitive)', () => {
   const home = '/Users/Somebody';
-  assert.equal(report.scrub('/users/somebody/Library/x and /USERS/SOMEBODY/y', home), '~/Library/x and ~/y');
+  assert.equal(report.scrub('/users/somebody/Library/x; and /USERS/SOMEBODY/y', home), '<path>; and <path>');
   assert.ok(!report.scrub('/users/somebody/x', home).toLowerCase().includes('somebody'), 'the user name left the Mac');
 });
 
@@ -95,15 +95,50 @@ test('stateDir: custom when AGENT_WORKFORCE_TUNNEL_STATE is set, missing when th
   assert.equal(report.build({ remote: fakeRemote({ dir: gone }), env: {}, home: HOME }).stateDir, 'missing');
 });
 
-test('heal: none on the first report, relaunched when the supervisor restarted it and it is up, relaunch-failed when it is not', () => {
+test('heal: counted only once a report is SENT; a tunnel still starting is not yet a result', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);
   const at = (restarts, state) => report.build({ remote: fakeRemote({ dir, restarts, state, because: state === 'up' ? null : 'x' }), env: {}, home: HOME }).heal;
   assert.equal(at(3, 'up'), 'none', 'the first report cannot know what happened before it');
-  assert.equal(at(3, 'up'), 'none', 'no restart since the last report');
+  report.commitHeal();
   assert.equal(at(4, 'up'), 'relaunched');
-  assert.equal(at(5, 'restarting'), 'relaunch-failed');
-  assert.equal(at(5, 'restarting'), 'none', 'the same count again is not a new relaunch');
+  // Not sent (no commitHeal): the relaunch is still news for the next report.
+  assert.equal(at(4, 'up'), 'relaunched', 'a relaunch was swallowed by a report that never went out');
+  report.commitHeal();
+  assert.equal(at(4, 'up'), 'none', 'the same count again is not a new relaunch');
+  report.commitHeal();
+  assert.equal(at(5, 'connecting'), 'none', 'a tunnel still starting was called a failure');
+  report.commitHeal();
+  assert.equal(at(5, 'up'), 'relaunched', 'the pending relaunch was lost while the tunnel was starting');
+  report.commitHeal();
+  assert.equal(at(6, 'restarting'), 'relaunch-failed');
+});
+
+test('adversarial sentences: no email, path, or login name survives', () => {
+  const home = '/Users/Somebody';
+  const cases = [
+    ['waiting for the code sent to josh@localhost', { email: 'josh@localhost' }, 'waiting for the code sent to <email>'],
+    ['waiting for the code sent to josh@gmailcom', {}, 'waiting for the code sent to <email>'],
+    ['sent to jo:sh@stuff.io now', {}, 'sent to <email> now'],
+    ['/Volumes/Josh Stone Drive/Kosmos/remote does not look like a Mac state dir (no mac_id)', {}, '<path> does not look like a Mac state dir (no mac_id)'],
+    ['reading mac_key from /Volumes/X Y/remote: No such file or directory', {}, 'reading mac_key from <path>: No such file or directory'],
+    ['spawn /Users/Somebody/.local/bin/kosmos-tunnel ENOENT', {}, 'spawn <path> ENOENT'],
+    ['C:\\Users\\Josh\\AppData\\x does not look like one', {}, '<path> does not look like one'],
+    ['the tunnel for somebody stopped', { user: 'somebody' }, 'the tunnel for <user> stopped'],
+    ['restarting after a crash (exit 3)', {}, 'restarting after a crash (exit 3)'],
+  ];
+  for (const [text, extra, want] of cases) assert.equal(report.scrub(text, home, extra), want, text);
+  // A decomposed (NFD) spelling of the home, as some file systems return it.
+  assert.equal(report.scrub('/Users/Jose\u0301/x does not work', '/Users/Jos\u00e9'), '<path> does not work');
+});
+
+test('a symlinked home: its real path is redacted too', () => {
+  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-real-home-'));
+  const link = real + '-link';
+  fs.symlinkSync(real, link);
+  const realPath = fs.realpathSync.native(real);
+  assert.equal(report.scrub(realPath + '/Library/x; done', link), '<path>; done');
+  assert.ok(!report.scrub(realPath + '/Library/x; done', link).includes(path.basename(realPath)), 'the real home name left the Mac');
 });
 
 test('a remote that throws gives no report, never an exception', () => {
