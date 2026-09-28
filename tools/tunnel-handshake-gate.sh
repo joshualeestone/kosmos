@@ -29,15 +29,26 @@
 # coordinator no longer knows. So when the candidate fails:
 #   1. the CONTROL connector (the build users are served now) runs the same attempt with the same
 #      identity. If it fails too, the environment or the identity is at fault: CANNOT TELL (2).
-#   2. if the control passes, the candidate runs again. Passing now means the first failure was
-#      the environment: PASS. Failing again, with the environment proven good between its two
-#      attempts, is the build: FAIL (1).
+#   2. if the control passes, the candidate runs again. Passing now is a PASS, and says it was a
+#      retry. Failing again leads to step 3.
+#   3. the control runs once more. The first control proved the environment only while it ran; a
+#      coordinator deploy or a network drop during the retry must not become a refusal. If it now
+#      fails: CANNOT TELL (2). If it passes, the candidate failed twice with the environment proven
+#      good before and after: FAIL (1).
 # With no control connector a candidate failure is CANNOT TELL (2): nothing separates the causes.
+#
+# NOT COVERED (a build broken only here still passes): what happens after the first visit
+# (keepalives, the reconnect loop, a renewal on reconnect); how the APP launches the connector
+# (its flags and env, supervision across an update, the path the 2026-09-27 drop went through);
+# first enrolment (the gate reuses an enrolled identity); and a copy of the identity on ANOTHER
+# machine, which the lock and the stale check cannot see.
 #
 # Exit: 0 pass; 1 FAIL (the build is broken: never forceable); 2 CANNOT TELL (hold; forceable
 # only after a hand check). Same convention as the #2063 experience gate in promote-channel.sh.
 # A staged tarball WITHOUT a connector is the build's defect (every Mac on it would lose remote
-# access), so it is FAIL; a tarball that does not exist is a wrong invocation, CANNOT TELL.
+# access), so it is FAIL, and it is checked FIRST, before anything about this machine, so no
+# machine-side CANNOT TELL (and the --force that would follow it) can carry it. A tarball that
+# does not exist is a wrong invocation, CANNOT TELL.
 #
 # Overrides (for a local proof against a dev relay and coordinator; defaults are the live ones):
 #   --state-dir DIR --coordinator URL --relay HOST:PORT --relay-ca FILE
@@ -77,36 +88,10 @@ fail() { say "FAIL at $1: $2"; exit 1; }
 [ -n "$TUNNEL" ] || [ -n "$TARBALL" ] || cannot "no --tarball or --tunnel (pass the staged build)"
 [ -n "$TUNNEL" ] && [ -n "$TARBALL" ] && cannot "pass --tarball OR --tunnel, not both"
 [ -n "$CTUNNEL" ] && [ -n "$CTARBALL" ] && cannot "pass --control-tarball OR --control-tunnel, not both"
-STATE="${STATE%/}"
-for f in mac_id mac_key address tls.crt tls.key coordinator_pubkey; do
-  [ -s "$STATE/$f" ] || cannot "no enrolled gate identity in $STATE (missing $f). Enrol it once: kosmos-relay deploy/release-gate.md"
-done
-ADDRESS="$(tr -d ' \n' < "$STATE/address")"
-case "$ADDRESS" in *[!A-Za-z0-9.-]*|'') cannot "the gate's address is not a hostname: '$ADDRESS'" ;; esac
 case "$TIMEOUT" in *[!0-9]*|'') cannot "--timeout is not a number of seconds: $TIMEOUT" ;; esac
-if [ -n "$RESOLVE" ]; then
-  # HOST:PORT:IP -> https://HOST:PORT/ (a local proof); the HOST must be the gate's own address.
-  rhost="${RESOLVE%%:*}"; rport="$(printf '%s' "$RESOLVE" | cut -d: -f2)"
-  [ "$rhost" = "$ADDRESS" ] || cannot "--visit-resolve names $rhost, but the gate's address is $ADDRESS"
-  URL="https://$rhost:$rport/"
-else
-  URL="https://$ADDRESS/"
-fi
+STATE="${STATE%/}"
 
-# One gate at a time per identity. mkdir is atomic, so two gates started together cannot both
-# pass (a pgrep alone is check-then-act). A lock whose owner is dead (a SIGKILLed run) is taken over.
-LOCK="$STATE.gate-lock"
-OWN_LOCK=0
-if ! mkdir "$LOCK" 2>/dev/null; then
-  holder="$(cat "$LOCK/pid" 2>/dev/null)"
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-    cannot "another gate run holds this identity (pid $holder, lock $LOCK)"
-  fi
-  rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null || cannot "could not take the lock $LOCK"
-fi
-echo $$ > "$LOCK/pid"; OWN_LOCK=1
-
-WORK=""; PID=""
+WORK=""; PID=""; OWN_LOCK=0; LOCK="$STATE.gate-lock"
 stop_connector() {
   [ -n "$PID" ] || return 0
   # In one redirected block: bash reports a signalled background job ("Terminated: 15")
@@ -128,21 +113,29 @@ trap cleanup EXIT
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/tunnel-gate.XXXXXX")" || cannot "no temp dir"
 
-# The connectors first, before the reachability probe: a staged build with NO connector is a FAIL
-# whatever the network is doing, and must not be reported as an outage.
+# THE BUILD FIRST, before anything about this machine (the identity, the lock, the network): a
+# staged build with NO connector is a FAIL whatever state the release machine is in, and must
+# never be reported as a forceable CANNOT TELL (a --force for a missing identity would carry it).
+# "No connector" is decided from the tarball's LISTING, so a failed extraction (a full disk, an
+# unwritable temp dir) is the machine's problem (CANNOT TELL), not the build's.
 # Only the connector, into the gate's own temp dir: the bytes being judged, nothing else.
-# Prints the path; returns 1 when the file does not exist, 3 when it has no connector.
+# Prints the path; returns 1: no such file, 3: no connector in it, 4: listed but not extracted.
+MEMBER=app/bin/kosmos-tunnel
 from_tarball() {
   [ -f "$1" ] || return 1
-  mkdir -p "$WORK/$2"
-  tar -xzf "$1" -C "$WORK/$2" app/bin/kosmos-tunnel 2>/dev/null || true
-  [ -x "$WORK/$2/app/bin/kosmos-tunnel" ] || return 3
-  printf '%s' "$WORK/$2/app/bin/kosmos-tunnel"
+  tar -tzf "$1" 2>/dev/null | grep -qxF "$MEMBER" || return 3
+  mkdir -p "$WORK/$2" && tar -xzf "$1" -C "$WORK/$2" "$MEMBER" 2>/dev/null || return 4
+  [ -f "$WORK/$2/$MEMBER" ] || return 4
+  [ -x "$WORK/$2/$MEMBER" ] || return 3
+  printf '%s' "$WORK/$2/$MEMBER"
 }
 if [ -n "$TARBALL" ]; then
   TUNNEL="$(from_tarball "$TARBALL" cand)"; rc=$?
-  [ "$rc" = 1 ] && cannot "no such tarball: $TARBALL"
-  [ "$rc" = 3 ] && fail build "$TARBALL has no executable app/bin/kosmos-tunnel: every Mac on this build would have no remote access"
+  case "$rc" in
+    1) cannot "no such tarball: $TARBALL" ;;
+    3) fail build "$TARBALL has no executable $MEMBER: every Mac on this build would have no remote access" ;;
+    4) cannot "could not extract $MEMBER from $TARBALL here (disk or temp dir), so this run says nothing about the build" ;;
+  esac
 fi
 [ -x "$TUNNEL" ] || cannot "the connector is not an executable file: $TUNNEL"
 CONTROL_NOTE=""
@@ -152,13 +145,56 @@ elif [ -n "$CTUNNEL" ] && [ ! -x "$CTUNNEL" ]; then
   CONTROL_NOTE="the control connector is not an executable file: $CTUNNEL"; CTUNNEL=""
 fi
 
+for f in mac_id mac_key address tls.crt tls.key coordinator_pubkey; do
+  [ -s "$STATE/$f" ] || cannot "no enrolled gate identity in $STATE (missing $f). Enrol it once: kosmos-relay deploy/release-gate.md"
+done
+ADDRESS="$(tr -d ' \n' < "$STATE/address")"
+case "$ADDRESS" in *[!A-Za-z0-9.-]*|'') cannot "the gate's address is not a hostname: '$ADDRESS'" ;; esac
+if [ -n "$RESOLVE" ]; then
+  # HOST:PORT:IP -> https://HOST:PORT/ (a local proof); the HOST must be the gate's own address.
+  rhost="${RESOLVE%%:*}"; rport="$(printf '%s' "$RESOLVE" | cut -d: -f2)"
+  [ "$rhost" = "$ADDRESS" ] || cannot "--visit-resolve names $rhost, but the gate's address is $ADDRESS"
+  URL="https://$rhost:$rport/"
+else
+  URL="https://$ADDRESS/"
+fi
+
+# One gate at a time per identity. mkdir is atomic, so two gates started together cannot both
+# pass (a pgrep alone is check-then-act). A lock is HELD while its pid is alive, and also while
+# it has no pid yet (its owner is between mkdir and writing it) unless it is over a minute old.
+# Taking over a dead owner's lock is itself serialised by a second mkdir, so two gates that both
+# see the same dead owner cannot both take it.
+lock_age() { echo $(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) )); }
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder="$(cat "$LOCK/pid" 2>/dev/null)"
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    cannot "another gate run holds this identity (pid $holder, lock $LOCK)"
+  fi
+  if [ -z "$holder" ] && [ "$(lock_age)" -lt 60 ]; then
+    cannot "another gate run is taking this identity's lock right now ($LOCK)"
+  fi
+  mkdir "$LOCK.takeover" 2>/dev/null || cannot "another gate run is taking over this identity's lock ($LOCK)"
+  # Re-read under the takeover lock: take it only if it still names the same dead owner.
+  if [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$holder" ]; then
+    rm -rf "$LOCK"; mkdir "$LOCK" 2>/dev/null
+    took=$?
+  else
+    took=1
+  fi
+  rmdir "$LOCK.takeover" 2>/dev/null
+  [ "$took" = 0 ] || cannot "could not take the lock $LOCK"
+fi
+echo $$ > "$LOCK/pid"; OWN_LOCK=1
+
 # Another connector already running with the gate's identity would take the address back on its
 # next reconnect and could answer the visit for THIS build: a false PASS. Two shapes: a connector
 # left by a SIGKILLed earlier gate (its copy under a tunnel-gate.* temp dir), and one started by
 # hand on the enrolled state dir itself, as `--state-dir DIR` or `--state-dir=DIR` (clap takes
-# both). The state path is escaped for the regex.
+# both), anywhere after `run` (anchored on the connector's name: the gate's own command line
+# carries --state-dir too). The state path is escaped for the regex. NOT seen: a relative
+# or symlinked spelling of the state path, or a copy of the identity on ANOTHER machine.
 state_re="$(printf '%s' "$STATE" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-stale="$(pgrep -f "run --state-dir[= ]([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
+stale="$(pgrep -f "kosmos-tunnel run .*--state-dir[= ]([^ ]*/tunnel-gate\\.[A-Za-z0-9]+/|$state_re/?( |\$))" 2>/dev/null | tr '\n' ' ')"
 [ -n "$stale" ] && cannot "another connector with the gate's identity is still running (pid ${stale% }); stop it first"
 
 # A fast hold when the coordinator or relay is plainly down. The coordinator counts only on a 2xx
@@ -251,6 +287,17 @@ if ! attempt "$CTUNNEL" control; then
   cannot "the served build's connector fails too (at $STEP: $WHY), so the environment or the gate identity is at fault, not this build"
 fi
 keep_renewed_cert
-attempt "$TUNNEL" "candidate again" && pass "on its second attempt; the first failure was the environment"
+FIRST="at $STEP: $WHY"
+# A retry pass is a PASS, and it says so: the control proved the environment was usable, and the
+# candidate then did the whole handshake. Weakest premise: a connector that fails intermittently
+# gets two tries. The line below names the first failure so a flaky one is visible in the log.
+attempt "$TUNNEL" "candidate again" && pass "on a RETRY; its first attempt failed $FIRST, while the served build's connector passed"
 show_log
-fail "$STEP" "$WHY (it failed twice, and the served build's connector passed between the two)"
+CAND_STEP="$STEP"; CAND_WHY="$WHY"
+# The control proved the environment only while IT ran. Prove it again AFTER the second failure:
+# a coordinator deploy, relay restart or network drop during the retry must not become a refusal.
+if ! attempt "$CTUNNEL" "control again"; then
+  show_log
+  cannot "the candidate failed twice, but the served build's connector then failed too (at $STEP: $WHY): the environment changed during the run"
+fi
+fail "$CAND_STEP" "$CAND_WHY (it failed twice, and the served build's connector passed before and after)"
