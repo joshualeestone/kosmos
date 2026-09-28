@@ -11,11 +11,11 @@
  * deploy/mac-remote-report.sh). This module only builds it, and never throws: a report
  * that cannot be built is not sent, and nothing here can cost the board its standing.
  *
- * What it carries (fixed values only; no free text ever leaves the Mac, review 4):
+ * What it carries (fixed values only; no free text ever leaves the Mac):
  *   on        the remote-access switch
  *   tunnel    running | starting | crashed | stopped | off, from remote.status(). `starting`
  *             with an error code is a tunnel process that is up but whose own retries keep
- *             failing (stuck), not one coming up: read the two together (review 20)
+ *             failing (stuck), not one coming up: read the two together
  *   error     a CODE from the fixed list in CODES, classified on the Mac from status()'s own
  *             sentence (the sentence itself is never sent); or, for a board whose switch is
  *             on and which holds a key but is not enrolled, `not-enrolled; missing: <files>`
@@ -35,9 +35,9 @@ const path = require('node:path');
 
 /* remote.status().state -> the coordinator's tunnel vocabulary. `off` means the switch
    is off; a board whose switch is ON but whose tunnel is not started reads `stopped`, and so
-   does one that is not enrolled, which will never start (review 12). status() reads
+   does one that is not enrolled, which will never start. status() reads
    `restarting` for the tunnel's own in-process reconnects too (a graceful close, a certificate
-   renewal), so it is `crashed` only when the supervisor's process is not up (review 12). */
+   renewal), so it is `crashed` only when the supervisor's process is not up. */
 function tunnelState(state, on, sup, enrolledHere) {
   if (state === 'up') return 'running';
   if (on && !enrolledHere) return 'stopped';
@@ -46,7 +46,7 @@ function tunnelState(state, on, sup, enrolledHere) {
   return on ? 'stopped' : 'off';
 }
 
-/* kosmos#4277 review 4: NO free text leaves the Mac. Four rounds of review kept finding
+/* kosmos#4277: NO free text leaves the Mac. Four rounds of review kept finding
    identifying text that a scrubber missed (hostnames, device names, LAN addresses, phone
    numbers, file:// and relative paths), and a scrubber that grows forever also destroys the
    diagnosis. So the board's own sentence is CLASSIFIED here, on the Mac, into one code from a
@@ -55,50 +55,54 @@ function tunnelState(state, on, sup, enrolledHere) {
 const CLASSIFY_MAX_CHARS = 2000;
 const CODES = [
   // The first pattern that matches wins. The board's own healthy "still dialling" sentences
-  // (remote.js status()) are matched exactly, so no failure pattern may also match them (review 7:
-  // "connecting to the relay" once read as relay-unreachable); remote-report.test.js asserts that
-  // each healthy sentence matches `starting` alone, whatever the order here.
+  // (remote.js status()) are matched exactly, so no failure pattern may also match them;
+  // remote-report.test.js asserts that each healthy sentence matches `starting` alone, whatever the
+  // order here.
   ['starting', /^(starting the connection|connecting to the relay)$/i],
   // The coordinator's own sentences (coordinator.rs) all start with `Kosmos+`, so they are taken
   // right after the healthy sentences, before every other pattern, any of which a gateway error
-  // page in their detail could otherwise match (reviews 10 and 16). A 4xx is a refusal and a 5xx
+  // page in their detail could otherwise match. A 4xx is a refusal and a 5xx
   // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
-  // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first
-  // (review 9). These are the only coordinator patterns (review 11).
-  // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage (review 18).
+  // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first.
+  // These are the only coordinator patterns.
+  // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage.
   ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,
-  // unreadable): a captive portal or a proxy in the way, on the ticket path itself (review 14).
+  // unreadable): a captive portal or a proxy in the way, on the ticket path itself.
   ['coordinator-bad-answer', /^(reading )?the Kosmos\+ answer/i],
   // No switch-off, settings-unreadable or no-relay-address: nothing is sent while the switch is
-  // off or the settings cannot be read, and RELAY() always has a default (review 14).
-  // No state-dir-invalid or awaiting-sign-in either (review 16): the tunnel refuses a state dir
+  // off or the settings cannot be read, and RELAY() always has a default.
+  // No state-dir-invalid or awaiting-sign-in either: the tunnel refuses a state dir
   // only without mac_id, which enrolled() requires, and only a not-enrolled board says it is
   // waiting for a code, which sends `not-enrolled; missing: ...` instead. Both read `other`.
   ['status-unreadable', /^status unreadable/i],
-  // status() words every spawn failure as `the tunnel program could not be started: <why>` (review 12).
+  // status() words every spawn failure as `the tunnel program could not be started: <why>`.
   ['binary-missing', /^the tunnel program could not be started/i],
   ['state-file-unreadable', /reading \S+ from|pinned coordinator_pubkey|decoding mac_key|mac_key is not 32 bytes/i],
-  // The ticket had expired by this Mac's clock: usually a Mac clock that is wrong, not a bad key (review 18).
-  ['ticket-expired', /ticket expired/i],
+  // The Mac's own check found the coordinator's ticket expired, by this Mac's clock: usually a Mac
+  // clock that is wrong, not a bad key. The relay's refusal of an expired ticket (`relay refused
+  // the tunnel: ticket refused: ticket expired ...`) points at the relay's clock instead and stays
+  // relay-refused.
+  ['ticket-expired', /^the Kosmos\+ ticket does not verify.*ticket expired/i],
   // The coordinator's ticket does not fit this Mac (the pinned key, or a stale address file).
   ['ticket-mismatch', /ticket does not verify|ticket names /i],
   ['cert-renewal', /^certificate renewal is due/i],
   // This Mac's own certificate or key (session.rs local TLS setup): unreadable or unparseable
-  // tls.crt / tls.key, a plausible failure after an update (review 16).
+  // tls.crt / tls.key, a plausible failure after an update.
   ['local-cert-unreadable', /^(opening certificate|parsing certificate|opening private key|parsing private key|no private key found|building local TLS config)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
-  // which is the whole question when a Mac never gets a ticket (review 6).
+  // which is the whole question when a Mac never gets a ticket.
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).
-  // A certificate the Mac does not trust is a trust or configuration fault, not an outage (review 10).
+  // A certificate the Mac does not trust is a trust or configuration fault, not an outage.
   ['relay-certificate', /relay TLS handshake: invalid peer certificate/i],
-  // `relay did not answer AUTH` is session.rs's AUTH read timeout: the relay never answered (review 10).
-  ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH/i],
+  // `relay did not answer AUTH` is session.rs's AUTH read timeout: the relay never answered.
+  ['relay-unreachable', /^connecting to \S+: |relay TLS handshake|relay did not answer AUTH|relay did not take AUTH/i],
   ['relay-refused', /relay refused|relay answered AUTH/i],
-  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay/i],
+  // A write error sending AUTH: the connection broke mid-handshake (kosmos#4315's tunnel wording).
+  ['relay-dropped', /go away|keepalive|connection lost|reader stopped|writer gone|frame from the relay|^writing AUTH to the relay/i],
   // The tunnel's own sentence for a session that ended WITHOUT an error (a relay-side graceful
-  // close): routine, not a failure (review 5).
+  // close): routine, not a failure.
   ['reconnecting', /the connection closed/i],
   ['crashed', /crash|killed|restarting/i],
   ['not-started', /has not started the tunnel/i],
@@ -139,7 +143,7 @@ function build(deps) {
     const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
     const tunnel = tunnelState(st.state, on, sup, ENROL_FILES.every(exists));
     // While the tunnel dials again it says only "connecting to the relay" (it clears its reason at
-    // each retry), so a stuck tunnel is named by the last failure its process wrote (review 22).
+    // each retry), so a stuck tunnel is named by the last failure its process wrote.
     let because = st.because;
     if (tunnel === 'starting' && classify(because) === 'starting' && typeof remote.lastTunnelFailure === 'function') {
       const last = remote.lastTunnelFailure();

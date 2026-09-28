@@ -22,13 +22,20 @@ Rejected:
 - `node --test engine/remote-report.test.js`: 13 of 13 (with real tunnel sentences: relay dial, TLS, 5xx vs 4xx): codes for every known failure kind, unknown text reads `other`, a 100k-character line classifies in under 200 ms, not-enrolled names the missing files, heal semantics.
 - `engine/mac-standing.test.js`: 18 of 18, including a 20-minute clock step back that still sends and a repeated failure logged once (mutants on both fail), including the not-enrolled report (missing files named, no email), the test-runner guard (spied, with a control), the heal commit at BOTH call sites, the in-flight guard, and key-only signing needing the key on disk and refusing every other route.
 - `engine/remote-standing-refresh.test.js`: 9 of 9, including a future standing_at (a clock stepped back) read as stale.
-- `engine/remote.test.js`: 110 of 110, including nine #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
+- `engine/remote.test.js`: 111 of 111, including ten #4277 tests: a killed tunnel relaunched and counted; a restart timer firing into an unwanted board counts nothing; a restart timer firing during a register does not count the register's start, through setup and through the in-app sign-in; the report's enrolment list equals enrolled()'s; the report timer fires early after boot, then on its own, and survives a throw; a sign-in over a half-registered Mac waits for its report already out. Mutants on the counting rules and the list each fail one.
 
 ## Deferred (review 2), since resolved
 - Resolved in review 17: clearHalfIdentity waits for signed calls already out (as Forget does) before it retires and wipes; the key-only report fires exactly when a person is likely to sign in again, so the race was no longer rare. Tested; a mutant without the wait fails.
 
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
+
+## Review 24
+- The two rules that clear the remembered tunnel failure are pinned: a remote.test.js test runs a tunnel that fails and then comes up (the failure is cleared), and one whose process is killed and relaunched as a new process that has written nothing yet (no inherited failure; the report reads `starting`). Mutants deleting either clear fail it. The fake `retry-loop` now writes `connecting` first, as run_forever does.
+- ticket-expired is only the MAC's own check (`the Kosmos+ ticket does not verify ... ticket expired`). The relay refusing an expired ticket the Mac had just accepted (`relay refused the tunnel: ticket refused: ticket expired ...`) points at the relay's clock and reads relay-refused, keeping the relay and the Mac apart. Tested both ways.
+- kosmos#4315 (Kitty) adds tunnel texts: `relay did not take AUTH within 10s` reads relay-unreachable, `writing AUTH to the relay: ...` reads relay-dropped (a write error is a broken connection). Verbatim tests.
+- server.js's ensure-tick comment says what a tick now costs (it samples a running child's status). forget()'s worst-case comment counts the register's new wait on signed calls (five bounds, about nine minutes).
+- Convention 5: review-by-review history ("review N") removed from every comment this branch added; it lives here.
 
 ## Review 23
 - A relaunch timer from before a same-identity register (rename or re-sign-in, which keeps the Mac id, so nothing stops the tunnel) survived the register: the register's ensure() returned early on it, the tunnel stayed down until the old backoff fired (up to 60 s), and that start was counted as a relaunch. A successful register now calls registerTakesOver(), which drops the pending flag AND the timer, then starts the tunnel itself. Test: a register that returns while a relaunch is pending leaves the process alive at once and counts nothing; a mutant that keeps the timer fails it.

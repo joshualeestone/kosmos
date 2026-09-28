@@ -265,10 +265,22 @@ if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
   // Like the real run_forever: a session fails (restarting, with a reason), then the next retry
-  // rewrites the status to connecting with NO reason (#4277 review 22).
-  if (mode.includes('retry-loop')) {
-    fs.writeFileSync(statusFile, JSON.stringify({ state: 'restarting', address: null, because: 'relay refused the tunnel: bad ticket', pid: process.pid }) + '\\n');
-    setTimeout(() => fs.writeFileSync(statusFile, JSON.stringify({ state: 'connecting', address: null, because: null, pid: process.pid }) + '\\n'), 400);
+  // rewrites the status to connecting with NO reason (#4277).
+  if (mode.includes('slow-up')) {
+    // A process that has written nothing yet (the board reads "starting the connection"), then is up.
+    const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
+    setTimeout(() => fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', address, because: null, pid: process.pid }) + '\\n'), 1500);
+    setInterval(() => {}, 1000);
+    process.on('SIGTERM', () => process.exit(0));
+  } else if (mode.includes('retry-loop')) {
+    const w = (o) => fs.writeFileSync(statusFile, JSON.stringify(Object.assign({ address: null, pid: process.pid }, o)) + '\\n');
+    w({ state: 'connecting', because: null });
+    setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 100);
+    setTimeout(() => w({ state: 'connecting', because: null }), 500);
+    if (mode.includes('then-up')) {
+      const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
+      setTimeout(() => w({ state: 'up', address, because: null }), 900);
+    }
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => process.exit(0));
   } else {
@@ -612,7 +624,7 @@ test('#4277: a killed tunnel is relaunched by the supervisor, counted, and comes
   remote.resetForTests();
 });
 
-/* kosmos#4277 reviews 6 and 7: a relaunch is counted only when the supervisor really starts the
+/* kosmos#4277: a relaunch is counted only when the supervisor really starts the
    tunnel again. A restart timer that fires into a board that is no longer wanted counts nothing,
    and a later start by the person is not a supervisor relaunch either. */
 test('#4277: a restart timer firing into an unwanted board counts nothing, and a later start is not a relaunch', async () => {
@@ -645,7 +657,7 @@ test('#4277: the report names the same enrolment files enrolled() checks', () =>
     'the not-enrolled report would name files enrolled() does not check');
 });
 
-/* kosmos#4277 review 10/11: a restart timer that fires while a register is out defers to the
+/* kosmos#4277/11: a restart timer that fires while a register is out defers to the
    register, which starts the tunnel itself; that start is the register's, not a relaunch. */
 test('#4277: a restart timer firing during a register does not count the register\'s start as a relaunch', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9447';
@@ -729,13 +741,13 @@ test('#4277: the report timer runs the refresh on its own, under a TTL below its
   const seen = [];
   remote.refreshStandingIfStale = (opts) => { seen.push(opts); if (seen.length === 1) throw new Error('boom'); return Promise.reject(new Error('later')); };
   // First, the early tick: an update restarts the board, and a board nobody is watching must not
-  // wait a whole interval to say how it came back (review 16).
+  // wait a whole interval to say how it came back.
   const early = remote.startReportTimer({ intervalMs: 60 * 60 * 1000, firstMs: 20 });
   try {
     assert.equal(early.first.hasRef(), false, 'the early tick holds the process open');
     await until(() => seen.length >= 1, 'the first report soon after boot');
     // The last report's time survives a restart (remote.json), so the early tick must not be
-    // TTL-gated, or it sends nothing most restarts (review 18).
+    // TTL-gated, or it sends nothing most restarts.
     assert.equal(seen[0].ttlMs, 0, 'the early tick is TTL-gated');
   } finally { clearInterval(early); clearTimeout(early.first); }
   assert.ok(remote.REPORT_FIRST_MS < remote.REPORT_INTERVAL_MS, 'the first tick is not early');
@@ -766,6 +778,40 @@ test('#4277: the ensure tick remembers the tunnel\'s last failure through its re
     assert.equal(remote.status().because, 'connecting to the relay', 'fixture: the live status no longer says why');
     const r = require('./remote-report').build();
     assert.equal(r.error, 'relay-refused', 'the report of a stuck tunnel said only that it is starting');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
+});
+
+test('#4277: the remembered failure belongs to one tunnel process: a new process, or the same one going up, clears it', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9452';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
+  const failed = async () => {
+    await until(() => { const f = statusFile(); return f && f.state === 'restarting'; }, 'the tunnel to write its failure');
+    remote.ensure(4370);
+    assert.equal(remote.lastTunnelFailure(), 'relay refused the tunnel: bad ticket', 'fixture: the failure was not kept');
+  };
+  try {
+    // 1. The same process goes up: the failure is cleared.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop then-up';
+    remote.ensure(4370);
+    await failed();
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(remote.lastTunnelFailure(), null, 'a tunnel that came up still carried its old failure');
+    // 2. A NEW process that has written nothing yet does not inherit the old one's failure.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+    remote.ensure(4370);
+    await failed();
+    process.env.FAKE_TUNNEL_MODE = 'slow-up';
+    const old = remote.currentChildPid();
+    process.kill(old, 'SIGKILL');
+    await until(() => remote.currentChildPid() && remote.currentChildPid() !== old, 'the supervisor to relaunch', 15000);
+    assert.equal(remote.status().because, 'starting the connection', 'fixture: the new process must not have written yet');
+    assert.equal(remote.lastTunnelFailure(), null, 'a new process inherited the old process\'s failure');
+    assert.equal(require('./remote-report').build().error, 'starting', 'a fresh tunnel read as stuck');
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 

@@ -87,7 +87,7 @@ test('refresh: a fetch that CANNOT determine (null) keeps the last-known value +
   assert.equal(remote.kosmosPlus(), true, 'the member keeps seeing it');
   // standing_at was restamped with the real clock (Date.now()), so it will not re-fetch again until
   // the next TTL. Asked on the same real clock: a synthetic `now` near 1000 would read that stamp as
-  // a far-future one, which is stale by design (a clock stepped back, #4277 review 20).
+  // a far-future one, which is stale by design (a clock stepped back, #4277).
   let called = false;
   await remote.refreshStandingIfStale({ now: Date.now() + 1, ttlMs: TTL, fetcher: async () => { called = true; return 'good'; } });
   assert.equal(called, false, 'restamped -> the retry is backed off to the next TTL');

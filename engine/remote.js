@@ -135,7 +135,7 @@ let backoffMs = 1000;
    report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
 let restarts = 0;   // since process start, never reset (resetForTests leaves it): read it as a delta
 let restartPending = false;
-/* kosmos#4277 review 22: the tunnel rewrites its status to "connecting" (no reason) at the start of
+/* kosmos#4277: the tunnel rewrites its status to "connecting" (no reason) at the start of
    every retry (kosmos-relay lib.rs run_forever), so a stuck tunnel shows WHY only in the backoff
    window. The last failure sentence the CURRENT process wrote is kept here, sampled whenever
    status() reads the file (the report, a page, and the 15 s ensure tick), so the report can name
@@ -248,15 +248,15 @@ async function fetchStanding() {
    it for next time. A no-op unless enrolled, single-flighted so concurrent polls do
    not stack fetches, and best-effort (never throws into the status tick). */
 /* kosmos#4277: the timer that sends the remote report on its own, so a board nobody is watching
-   still reports (review 8; tested here rather than in server.js, review 15). Every ten minutes it
+   still reports (tested here rather than in server.js). Every ten minutes it
    runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
    refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
    caller, at most one standing call per ten minutes. The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
-   skipped every other tick (review 10). Called through module.exports so a test can observe it; a
+   skipped every other tick. Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
    board that an update just restarted says how it came back without waiting a whole interval
-   (review 16). That tick asks with a TTL of 0: the last report's time is saved in remote.json and
+  . That tick asks with a TTL of 0: the last report's time is saved in remote.json and
    survives the restart, so under the ordinary TTL it sent nothing four restarts in five (review
    18). Both timers are unref'd so neither holds the process open; the early one rides on the
    returned interval as `.first`, so a caller can clear it too. */
@@ -288,7 +288,7 @@ async function refreshStandingIfStale(opts) {
   }
   const s = read();
   if (s.ok !== true) return;
-  // Math.abs (kosmos#4277 review 20): a wall clock stepped backwards (a wrong Mac clock being
+  // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
   if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
@@ -321,7 +321,7 @@ let notEnrolledLastLogged = null;   // one stderr line per distinct reason, not 
 function reportNotEnrolledIfDue(now) {
   // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
   try {
-    // NODE_TEST_CONTEXT on purpose, not live-execution.js's execArgv (review 19): this guard keeps a
+    // NODE_TEST_CONTEXT on purpose, not live-execution.js's execArgv: this guard keeps a
     // test from phoning the production coordinator, so a board a test SPAWNS must inherit it too,
     // as createdbeacon.js and feedbacksend.js reason. A test that supplies its own tunnel opts in.
     if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
@@ -553,7 +553,7 @@ function ensure(port) {
     // tunnel started in the retire wait would run on the key being deleted.
     const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
-    // Samples the tunnel's last failure (kosmos#4277 review 22). It also means a healthy board's
+    // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
     if (child) { status(); return; }
     if (restartTimer) return;
@@ -669,7 +669,7 @@ function scheduleRestart() {
   if (typeof restartTimer.unref === 'function') restartTimer.unref();
 }
 
-/* kosmos#4277 (reviews 12 and 23): a register that succeeded starts the tunnel itself, so a
+/* kosmos#4277: a register that succeeded starts the tunnel itself, so a
    relaunch the supervisor had pending (its flag AND its timer, which can outlive the register when
    the identity is kept and nothing stopped the tunnel) is dropped: the register's start is not a
    relaunch, and it must not wait for an old backoff to fire. */
@@ -958,10 +958,11 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs). Worst case, four bounds in a row, about eight minutes:
-  // the register first retiring a half identity (retireTimeoutMs, a minute), the
-  // register itself (five), signed calls already out (a minute, below), then this
-  // retire (a minute). Only when something is already broken.
+  // (registerTimeoutMs). Worst case, five bounds in a row, about nine minutes: the
+  // register first waiting on signed calls already out (a minute) and retiring a
+  // half identity (retireTimeoutMs, a minute), the register itself (five), signed
+  // calls already out again (a minute, below), then this retire (a minute). Only
+  // when something is already broken.
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -1125,7 +1126,7 @@ async function setupComplete(code, name) {
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
   // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
-  // while it was out; a register that fails leaves the pending relaunch for the next tick (review 12).
+  // while it was out; a register that fails leaves the pending relaunch for the next tick.
   if (result.ok) { registerTakesOver(); ensure(localPort); }
   /* #3889: cache this account's standing now. `setup complete` prints no JSON (setupRun never sets .data, so the
      branch that read result.data here never ran), and a new identity was just cleared to '' with a FRESH
@@ -1731,7 +1732,7 @@ const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be starte
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
-  // kosmos#4277 (review 17): a half-registered board sends a key-only report every five minutes,
+  // kosmos#4277: a half-registered board sends a key-only report every five minutes,
   // and this is exactly when a person signs in again. Let a signed call already out finish before
   // the retire and the wipe below, as Forget does. Bounded: each tracked call carries its own kill
   // timeout. No new one starts meanwhile: the register is out, and macRequest refuses while busy().
@@ -1936,10 +1937,10 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   stateDir: STATE_DIR,
   /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
   restartCount: () => restarts,
-  /* kosmos#4277 review 22: the current tunnel process's last failure sentence, for
+  /* kosmos#4277: the current tunnel process's last failure sentence, for
      engine/remote-report.js to classify. Never sent as text. */
   lastTunnelFailure: () => lastTunnelFailure,
-  /* kosmos#4277 review 10: whether the supervisor's tunnel process is up ('alive'), dead with a
+  /* kosmos#4277: whether the supervisor's tunnel process is up ('alive'), dead with a
      relaunch scheduled ('waiting'), or not running ('none'). This, not status(), says whether a
      relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */
   supervisorState: () => (restartTimer ? 'waiting' : (child ? 'alive' : 'none')),

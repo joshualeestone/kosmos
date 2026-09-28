@@ -48,7 +48,7 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const remote = require('./engine/remote');
 let base;
-/* kosmos#4277 review 22: the report timer is what makes a board nobody is watching report at all;
+/* kosmos#4277: the report timer is what makes a board nobody is watching report at all;
    pin that the real boot starts it (once), not only that the function works. */
 let reportTimerStarts = 0;
 const realStartReportTimer = remote.startReportTimer;

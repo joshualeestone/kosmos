@@ -46,7 +46,7 @@ test('every status maps to the coordinator vocabulary, and off follows the switc
     [{ state: 'up' }, 'running'],
     [{ state: 'connecting', because: 'x' }, 'starting'],
     [{ state: 'restarting', because: 'x' }, 'crashed'],
-    // The tunnel reconnecting inside a live process (a graceful close, a renewal) is not a crash (review 12).
+    // The tunnel reconnecting inside a live process (a graceful close, a renewal) is not a crash.
     [{ state: 'restarting', because: 'the connection closed', sup: 'alive' }, 'starting'],
     [{ state: 'off', because: 'the board has not started the tunnel' }, 'stopped'],
     [{ state: 'off', because: 'the switch is off', on: false }, 'off'],
@@ -69,10 +69,10 @@ test('the error is a CODE classified from status()\'s sentence; the sentence nev
 
 test('classify: each known failure kind gets its code, anything else is other, never the text', () => {
   const cases = [
-    // session.rs, verbatim shape: the tunnel reconnects to renew its certificate (review 13).
+    // session.rs, verbatim shape: the tunnel reconnects to renew its certificate.
     ['certificate renewal is due (20 days left); reconnecting to renew', 'cert-renewal'],
     ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
-    // Unreachable in a report (review 16: the tunnel refuses a dir only without mac_id, which
+    // Unreachable in a report (the tunnel refuses a dir only without mac_id, which
     // enrolled() requires), so it has no code of its own and must not leak.
     ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'other'],
     ['reading mac_key from /Users/j/remote: No such file', 'state-file-unreadable'],
@@ -90,39 +90,45 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['relay TLS handshake: invalid peer certificate: Expired', 'relay-certificate'],
     ['relay TLS handshake: invalid peer certificate: UnknownIssuer', 'relay-certificate'],
     ['relay TLS handshake: received fatal alert: HandshakeFailure', 'relay-unreachable'],
-    // session.rs AUTH read timeout: the relay never answered, which is not a refusal (review 10).
+    // session.rs AUTH read timeout: the relay never answered, which is not a refusal.
     ['relay did not answer AUTH: deadline has elapsed', 'relay-unreachable'],
     ['relay answered AUTH with ERROR', 'relay-refused'],
-    // A gateway page with relay words in a coordinator 5xx is still the coordinator (review 10).
+    // A gateway page with relay words in a coordinator 5xx is still the coordinator.
     ['Kosmos+ answered 502 for /v1/mac/relay-ticket: <html>connection lost keepalive</html>', 'coordinator-unreachable'],
     ['Kosmos+ answered 403 for /v1/mac/relay-ticket: <html>connection lost</html>', 'coordinator-refused'],
     ['unexpected Ping frame from the relay', 'relay-dropped'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: busy', 'coordinator-unreachable'],
     ['Kosmos+ answered 409 for /v1/mac/relay-ticket: taken', 'coordinator-refused'],
-    // Rate-limited or timed out is "not now", not a refusal (review 18).
+    // Rate-limited or timed out is "not now", not a refusal.
     ['Kosmos+ answered 429 for /v1/mac/relay-ticket: slow down', 'coordinator-unreachable'],
     ['Kosmos+ refused this Mac: slow down (HTTP 429 on /v1/mac/relay-ticket)', 'coordinator-unreachable'],
     ['Kosmos+ answered 408 for /v1/mac/relay-ticket: timeout', 'coordinator-unreachable'],
-    // A wrong Mac clock, not a bad key (review 18).
+    // A wrong Mac clock, not a bad key.
     ['the Kosmos+ ticket does not verify against the pinned key: ticket expired at unix 1790000000', 'ticket-expired'],
-    // coordinator.rs, verbatim: an answer that is not the coordinator's (review 14).
+    // The RELAY refusing an expired ticket the Mac had just accepted points at the relay, not this Mac.
+    ['relay refused the tunnel: ticket refused: ticket expired at unix 1790000000', 'relay-refused'],
+    // kosmos#4315's tunnel wording, verbatim.
+    ['relay TLS handshake did not finish within 10s', 'relay-unreachable'],
+    ['relay did not take AUTH within 10s', 'relay-unreachable'],
+    ['writing AUTH to the relay: Broken pipe (os error 32)', 'relay-dropped'],
+    // coordinator.rs, verbatim: an answer that is not the coordinator's.
     ['the Kosmos+ answer is not JSON: expected value at line 1 column 1', 'coordinator-bad-answer'],
     ['the Kosmos+ answer has no ticket field', 'coordinator-bad-answer'],
     ['reading the Kosmos+ answer: unexpected end of file', 'coordinator-bad-answer'],
-    // A 5xx whose body parses as a refusal is still an outage (review 9).
+    // A 5xx whose body parses as a refusal is still an outage.
     ['Kosmos+ refused this Mac: busy (HTTP 503 on /v1/mac/relay-ticket)', 'coordinator-unreachable'],
     ['status unreadable: ENOENT: no such file', 'status-unreadable'],
     ['mac_key is not 32 bytes', 'state-file-unreadable'],
     ['the Kosmos+ ticket does not verify against the pinned key', 'ticket-mismatch'],
     ['ticket names "a" but this Mac\'s address is "b"', 'ticket-mismatch'],
-    // Unreachable in a report (review 16): only a not-enrolled board says it, and that board sends
+    // Unreachable in a report: only a not-enrolled board says it, and that board sends
     // `not-enrolled; missing: ...` instead. It must never leak.
     ['waiting for the code sent to josh@stuff.io', 'other'],
-    // session.rs local TLS setup, verbatim: this Mac's own certificate or key (review 16).
+    // session.rs local TLS setup, verbatim: this Mac's own certificate or key.
     ['opening certificate: No such file or directory (os error 2)', 'local-cert-unreadable'],
     ['parsing certificate: invalid PEM', 'local-cert-unreadable'],
     ['no private key found', 'local-cert-unreadable'],
-    // A gateway page inside a coordinator answer never reads as a local fault (review 16).
+    // A gateway page inside a coordinator answer never reads as a local fault.
     ['Kosmos+ answered 502 for /v1/mac/relay-ticket: <html>error reading body from upstream</html>', 'coordinator-unreachable'],
     ['Kosmos+ answered 503 for /v1/mac/relay-ticket: certificate renewal in progress', 'coordinator-unreachable'],
     ['Kosmos+ unreachable for /v1/mac/relay-ticket: the tunnel program could not be started', 'coordinator-unreachable'],
@@ -135,14 +141,14 @@ test('classify: each known failure kind gets its code, anything else is other, n
 });
 
 test('classify: each healthy dialling sentence matches `starting` and no failure pattern', () => {
-  // The order of CODES must not be what keeps a healthy board from reading as failed (review 9).
+  // The order of CODES must not be what keeps a healthy board from reading as failed.
   for (const s of ['connecting to the relay', 'starting the connection']) {
     const hits = report.CODES.filter(([, re]) => re.test(s)).map(([c]) => c);
     assert.deepEqual(hits, ['starting'], s);
   }
 });
 
-test('a tunnel dialling again after a failure is named by that failure, not by "connecting" (review 22)', () => {
+test('a tunnel dialling again after a failure is named by that failure, not by "connecting"', () => {
   report.resetForTests();
   const dir = stateDir(report.ENROL_FILES);
   const stuck = report.build({ remote: fakeRemote({ dir, state: 'connecting', because: 'connecting to the relay', lastFailure: 'relay refused the tunnel: bad ticket' }), env: {} });
@@ -198,12 +204,12 @@ test('heal: counted only once a report is SENT; a tunnel still starting is not y
   commit();
   assert.equal(at(4, 'up'), 'none', 'the same count again is not a new relaunch');
   commit();
-  // A relaunched process still dialling is a relaunch that held, not a failure (review 10).
+  // A relaunched process still dialling is a relaunch that held, not a failure.
   assert.equal(at(5, 'connecting'), 'relaunched', 'a relaunched tunnel still dialling was not reported');
   commit();
   assert.equal(at(6, 'restarting'), 'relaunch-failed', 'a relaunch that died again was not reported');
   commit();
-  // The tunnel reconnecting INSIDE a live process reads `restarting` too; the relaunch held (review 10).
+  // The tunnel reconnecting INSIDE a live process reads `restarting` too; the relaunch held.
   assert.equal(at(7, 'restarting', 'alive'), 'relaunched', 'an in-process reconnect after a relaunch read as relaunch-failed');
   commit();
   // A deliberate stop after a relaunch: nothing is running and nothing is scheduled, so no result.

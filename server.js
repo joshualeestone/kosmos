@@ -17003,10 +17003,13 @@ function start(port = PORT) {
          way enrolment or the switch can land without one of those (measured
          on Josh's fresh Mac, 2026-08-26 08:50: "The board has not started the
          tunnel" after sign-in, every precondition true, no child) rests
-         forever. ensure() is idempotent (a running child or a pending
-         restart returns at once), so a tick costs one settings read and
-         four stat() calls every fifteen seconds, and the resting state can
-         last at most that long. unref'd so it never holds the process open. */
+         forever. ensure() is idempotent (a pending restart returns at once; a
+         running child is only sampled: status() reads the settings and the
+         tunnel's status file, which keeps its last failure for the remote
+         report and resets a healthy board's backoff), so a tick costs two
+         settings reads, a few stat() calls and one small file read every
+         fifteen seconds, and the resting state can last at most that long.
+         unref'd so it never holds the process open. */
       const ensureTick = setInterval(() => {
         try { remote.ensure(); } catch { /* status says what happened */ }
       }, Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TUNNEL_ENSURE_MS) : 15 * 1000);  // the env is the test seam only
