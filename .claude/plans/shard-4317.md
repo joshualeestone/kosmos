@@ -86,6 +86,10 @@
   its share.
 - A run now holds three macos-latest runners instead of one (#3499's contention was about those).
   Queue time is not part of timeout-minutes, so it cannot cancel a job; it can delay the result.
+- Latency down, machine time up. Each job pays its own checkout, tmux install and node setup, and
+  runs the guards (coverage, leak checks, both browser-check gates) itself, so a run uses a few more
+  runner-minutes in total than one job did, while the result arrives in about half the wall time.
+  The repo is public, so the minutes are not billed.
 - A hash does not balance by time. A new slow shell test could land on the larger shard, and the 70%
   warning is what catches that before it cancels.
 - Running each shell command with sh -c rather than inside yarn's single `sh -c` of the whole chain.

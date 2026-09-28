@@ -207,7 +207,7 @@ from a night in this codebase, kosmos#2616.)
    (`engine.foo.test.js`, `web.foo.test.js`) while a real `engine/` directory also exists, so a
    directory-scoped glob like `engine/*.test.js` matches only the files IN that directory and
    silently misses the far larger set at the root, still exiting green on the fraction it ran.
-   `tools/run-tests.sh` (around lines 170-207) globs `engine/*.test.js *.test.js`, refuses to
+   `tools/run-tests.sh` (its "coverage assertion" block) globs `engine/*.test.js *.test.js`, refuses to
    run unless that set matches every `*.test.js` in the tree, then runs that exact set
    (`KOSMOS_TEST_FILES`), so the count and the run cannot drift.
 
@@ -234,7 +234,7 @@ from a night in this codebase, kosmos#2616.)
    `engine/platform-gate-wiring.test.js`.
 
 4. **A committed `web/` change needs a `docs/browser-checks/` assertion or a
-   `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (around lines 213-222, via
+   `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (its call to `kosmos_browser_check_gate`, via
    `tools/lib/browser-check-gate.sh`) refuses a branch that changes a rendered surface without
    either updating a browser-check assertion or carrying the explicit trailer, so an
    unasserted rendered surface cannot merge.

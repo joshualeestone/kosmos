@@ -16,12 +16,25 @@ const sh = require('../tools/shell-shard');
 const ROOT = path.join(__dirname, '..');
 const WF = path.join(ROOT, '.github', 'workflows', 'test.yml');
 
-function workflow() {
-  const out = execFileSync('ruby', ['-ryaml', '-rjson', '-e',
+/* test.yml, parsed once with ruby's YAML, as ci.main-runs-finish-4021.test.js does (the repo has no
+   YAML dependency). Where ruby is missing or broken, the workflow tests skip off CI with the reason,
+   and the CI arm below fails, as #4021's does: on CI they must run. */
+let WORKFLOW = null;
+let RUBY_PROBLEM = null;
+try {
+  WORKFLOW = JSON.parse(execFileSync('ruby', ['-ryaml', '-rjson', '-e',
     'y = Psych::VERSION.to_i >= 4 ? YAML.load_file(ARGV[0], aliases: true) : YAML.load_file(ARGV[0]); puts JSON.generate(y.transform_keys(&:to_s))', WF],
-  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  return JSON.parse(out);
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+} catch (err) {
+  RUBY_PROBLEM = err && err.code === 'ENOENT' ? 'ruby is not on this machine' : 'ruby cannot parse test.yml: ' + String((err && err.message) || err).split('\n')[0];
 }
+const ON_CI = !!process.env.CI && process.env.CI !== 'false' && process.env.CI !== '0';
+const NEEDS_RUBY = { skip: RUBY_PROBLEM ? RUBY_PROBLEM + ' (the other #4317 checks still run)' : false };
+const workflow = () => WORKFLOW;
+
+test('#4317: on CI, test.yml is parsed, so the workflow checks below run', () => {
+  if (ON_CI) assert.equal(RUBY_PROBLEM, null, RUBY_PROBLEM + ' under CI: the shard matrix cannot be checked');
+});
 
 test('every test:shell command is in exactly one shard, for the shard count CI uses and for others', () => {
   const all = sh.commands();
@@ -66,7 +79,7 @@ test('a bad shard is refused, not read as a subset', () => {
   assert.throws(() => sh.commands({ scripts: {} }), /no test:shell commands/);
 });
 
-test('test.yml runs the node part once and every shell shard once, and `test` needs them all', () => {
+test('test.yml runs the node part once and every shell shard once, and `test` needs them all', NEEDS_RUBY, () => {
   const wf = workflow();
   const suite = wf.jobs.suite;
   assert.ok(suite, 'test.yml has no suite job');
@@ -88,7 +101,7 @@ test('test.yml runs the node part once and every shell shard once, and `test` ne
   assert.match(agg.steps.map((s) => s.run).join('\n'), /needs\.suite\.result \}\}" = success/);
 });
 
-test('the 70% warning reads the same limit as the timeout, and fires at 70%', () => {
+test('the 70% warning reads the same limit as the timeout, and fires at 70%', NEEDS_RUBY, () => {
   const suite = workflow().jobs.suite;
   assert.equal(Number(suite.env.SUITE_TIMEOUT_MIN), Number(suite['timeout-minutes']), 'SUITE_TIMEOUT_MIN must equal timeout-minutes');
   const warn = suite.steps.find((s) => /SUITE_TIMEOUT_MIN/.test(String(s.run || '')));
