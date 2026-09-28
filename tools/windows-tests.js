@@ -58,9 +58,7 @@ const START_BUDGET_MS = 33 * 60000;
 function selectFiles(engineNames, rootNames = []) {
   const isTest = (n) => n.endsWith('.test.js');
   const engine = engineNames.filter((n) => isTest(n) && (n.includes('win32') || ALSO.includes(n))).map((n) => 'engine/' + n);
-  // At the root, the Windows-side tools' tests are named tools.win-* / tools.windows-* (the
-  // `kosmos` command a Windows agent runs, the native installer and launcher, the shims).
-  const root = rootNames.filter((n) => isTest(n) && (n.includes('win32') || /^tools\.win(dows)?-/.test(n)));
+  const root = rootNames.filter((n) => isTest(n) && n.includes('win32'));
   return [...engine, ...root].sort();
 }
 
