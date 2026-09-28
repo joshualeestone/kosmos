@@ -7,8 +7,10 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-agent-sort-4428.js
  */
 const path = require('node:path');
+const fs = require('node:fs');
 const { chromium } = require('playwright');
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+const SHOTS = process.env.SHOTS || '';
 
 const problems = [];
 let pass = 0;
@@ -88,6 +90,15 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(`${t} the choice persists`, result.saved === 'role', JSON.stringify(result));
     ok(`${t} the tab Org chart hides Sort and is not repainted by a sort change`, result.sortHiddenInOrg && result.orgUnchanged, JSON.stringify(result));
     ok(`${t} the consolidated control shares the choice and hides for Org chart`, result.consShared && result.consHiddenInOrg, JSON.stringify(result));
+    if (SHOTS) {
+      fs.mkdirSync(SHOTS, { recursive: true });
+      await page.evaluate(() => {
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        showTab('agents');
+        layoutApply('agents', 'grid');
+      });
+      await page.screenshot({ path: path.join(SHOTS, `agent-sort-${theme}.png`), fullPage: false });
+    }
     await page.setViewportSize({ width: 390, height: 844 });
     const phone = await page.evaluate(() => {
       document.documentElement.setAttribute('data-layout', 'tabs');
