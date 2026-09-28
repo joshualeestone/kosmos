@@ -53,6 +53,7 @@ async function surfaces(page) {
     const box = document.getElementById('d-dmthread');
     const labels = box ? [...box.querySelectorAll('.msg-nm')].map((b) => b.textContent.trim()) : [];
     const note = document.querySelector('#d-meta .dmeta-note');
+    // busy reads e.g. "DDemis ... is working": #d-busy's text is the avatar disc's letter followed by the sentence.
     return { title: txt('d-talk-label'), heading: txt('d-name'), busy: txt('d-busy'), labels, rows: box ? box.querySelectorAll('.msg').length : 0,
       note: note ? note.textContent : '', box: (document.getElementById('d-rename') || {}).value,
       ini: (document.getElementById('d-initials') || {}).textContent, tint: (document.getElementById('d-initials') || { style: {} }).style.background,
