@@ -115,3 +115,33 @@ test('4. no signed call while the file is unreadable; the same enrolled Mac with
     process.env.AGENT_WORKFORCE_TUNNEL_STATE = EMPTY_STATE;
   }
 });
+
+test('5. a sign-in on a damaged file keeps its device id through the repair (no second "this computer")', async () => {
+  remote.resetForTests();
+  fs.writeFileSync(FILE, DAMAGED);
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');   // mints the device id; its own write is refused on the damaged file
+  const start = calls().map((l) => JSON.parse(l)).find((a) => a[0] === 'signin' && a[1] === 'start');
+  assert.ok(start, 'control: the sign-in never reached the tunnel, so no device id was minted');
+  const minted = start[start.indexOf('--device-id') + 1];
+  assert.match(minted, /^[A-Za-z0-9_-]+$/);
+  assert.equal(fs.readFileSync(FILE, 'utf8'), DAMAGED, 'the mint repaired the file on its own');
+  assert.equal(remote.setOn(true).ok, true);        // the person's repair
+  assert.equal(remote.read().device_id, minted, 'the repair dropped the device id the sign-in used');
+  remote.setOn(false);
+  remote.resetForTests();
+});
+
+test('6. a save removes temporary files left by a killed write, but never a fresh one', () => {
+  saveGood({ on: false });
+  const stale = FILE + '.99999.deadbeef.tmp';
+  const fresh = FILE + '.99998.cafef00d.tmp';
+  fs.writeFileSync(stale, '{"on":true,"email":"old@example.com"}');
+  fs.writeFileSync(fresh, '{"on":true}');
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(stale, old, old);
+  assert.equal(remote.setRelay('sweep.example:443').ok, true);
+  assert.equal(fs.existsSync(stale), false, 'a stale temporary file (with a copy of the settings) was left');
+  assert.equal(fs.existsSync(fresh), true, 'a fresh temporary file, possibly a live writer, was removed');
+  fs.rmSync(fresh, { force: true });
+});

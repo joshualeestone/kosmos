@@ -325,15 +325,38 @@ function federationLive() {
    the page would never say anything went wrong. So only a person's own action repairs: the switch, the relay,
    sign-in and Forget pass { repair: true }. Everything else leaves a damaged file exactly as it is. */
 const UNREADABLE = 'remote access settings could not be read';
+/* A write killed between opening its temporary file and the rename leaves remote.json.<pid>.<random>.tmp behind, and
+   each holds a copy of the settings. Remove any older than ten minutes, after a successful save: old enough that no
+   live writer (in this process or another) can still be filling it. */
+const STALE_TEMP_MS = 10 * 60 * 1000;
+function sweepStaleTemps() {
+  try {
+    const dir = path.dirname(FILE); const base = path.basename(FILE) + '.';
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith(base) || !name.endsWith('.tmp')) continue;
+      const p = path.join(dir, name);
+      try { if (Date.now() - fs.statSync(p).mtimeMs > STALE_TEMP_MS) fs.unlinkSync(p); } catch { /* gone, or not ours to remove */ }
+    }
+  } catch { /* best-effort housekeeping */ }
+}
 function write(patch, opts) {
   const current = read();
   if (current.ok === false && !(opts && opts.repair === true)) return { ok: false, because: UNREADABLE, unreadable: true };
   const next = { ...current, ...patch };
   delete next.ok;
-  /* Atomic and durable (#4308): the new content goes to a temporary file of its own in the same folder, is flushed
-     to disk, and only then renamed over the old one. An interrupted write leaves the previous file whole; a power
-     cut after the rename cannot leave it empty, because the bytes were flushed first. The name is unique per write,
-     so two processes saving at once cannot interleave into one temporary file. */
+  /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
+     device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
+     on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
+     start mints another, a second "this computer" in the account's device list (#3149, review of #4308). */
+  if (current.ok === false && !next.device_id && typeof mintedDeviceId === 'string' && DEVICE_ID.test(mintedDeviceId)) {
+    next.device_id = mintedDeviceId;
+  }
+  /* Atomic (#4308): the new content goes to a temporary file of its own in the same folder, is fsynced, and only
+     then renamed over the old one. An interrupted write leaves the previous file whole, and the bytes are handed to
+     the disk before the name moves, so the renamed file is not left empty by an ordinary crash. (On macOS fsync
+     does not flush the drive's own cache, only F_FULLFSYNC does, which Node does not expose; that last step is as
+     good as the platform allows.) The name is unique per write, so two processes saving at once cannot interleave
+     into one temporary file. */
   const tmp = FILE + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
   let fd = null;
   try {
@@ -341,11 +364,12 @@ function write(patch, opts) {
     fd = fs.openSync(tmp, 'w');
     fs.writeSync(fd, JSON.stringify(next) + '\n');
     fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = null;
+    const closing = fd; fd = null;   // never closed twice, even if this close throws
+    fs.closeSync(closing);
     fs.renameSync(tmp, FILE);
     try { const dir = fs.openSync(path.dirname(FILE), 'r'); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); } }
     catch { /* the rename is done; a folder flush is best-effort (some filesystems refuse it) */ }
+    sweepStaleTemps();
     return { ok: true };
   } catch {
     if (fd !== null) { try { fs.closeSync(fd); } catch { /* already failing */ } }
