@@ -31630,7 +31630,10 @@ const TERM_DRAFTS = {};
  */
 function dmWho(from, name) {
   if (!CURRENT) return String(from);
-  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : tskAgentName(from);   // #4421: others by their card
+  /* #4421: others by their card. `typeof`-guarded like dmRow's LAST, so a test that lifts this without
+     tskAgentName falls back to the id rather than throwing. */
+  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from))
+    : (typeof tskAgentName === 'function' ? tskAgentName(from) : String(from));
 }
 
 function dmRow(m, name, replyAdjacent) {
@@ -31684,15 +31687,16 @@ function dmRow(m, name, replyAdjacent) {
        without a LAST) fall back to the disc rather than throwing. */
     const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
       ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    const shownFrom = dmWho(m.from, name);   // #4421: one name for the label and the disc
     /* No data-open-agent here (unlike pjRoomRow): the [data-open-agent] click handler is
        bound to #pj-room only, and this DM already lives inside m.from's own detail panel,
        so opening the agent from here would re-open the current view. The name/avatar are
        therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
     const av = (card && card.hasAvatar)
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      /* #4421: the disc is the NAME's (the label's own dmWho), not the id's: a renamed agent's rows read its new
-         name, and a letter and tint derived from the id would disagree with the label and the working line. */
-      : (() => { const shown = dmWho(m.from, name); return '<div class="msg-av" aria-hidden="true" style="background:' + discTint(shown) + ';color:' + discInk(shown) + '">' + esc(initials(shown)) + '</div>'; })();
+      /* #4421: the disc is the NAME's (shownFrom, the label's own), not the id's: a renamed agent's rows read its
+         new name, and a letter and tint derived from the id would disagree with the label and the working line. */
+      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(shownFrom) + ';color:' + discInk(shownFrom) + '">' + esc(initials(shownFrom)) + '</div>';
     /* #3650: the person can react to the agent's message, as in a project room: the
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
@@ -31702,7 +31706,7 @@ function dmRow(m, name, replyAdjacent) {
         typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
-      + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
+      + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
@@ -49702,7 +49706,7 @@ async function pjReload() {
 
 function tkMemberName(p, sessionName) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
-  return (m && m.name) || tskAgentName(sessionName);   // #4421: a former member by its current card, as pjNameOf
+  return (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
 }
 
 /* THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
@@ -54806,8 +54810,8 @@ function pjRoomRow(m, p, hideHeader) {
       : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
       ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      /* #4421: the disc from the member's NAME (pjNameOf, the label's own lookup), not the id. */
-      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(pjNameOf(p, m.from)) + ';color:' + discInk(pjNameOf(p, m.from)) + '">' + esc(initials(pjNameOf(p, m.from))) + '</div>');
+      /* #4421: the disc from the member's NAME (`name`, the label's own pjNameOf), not the id. */
+      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(name) + ';color:' + discInk(name) + '">' + esc(initials(name)) + '</div>');
   /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
      royal-blue for the person's own post (`.msg.you`), the cream `--agent-msg` for an
      agent's (the same tokens the DM view uses; see the .msg-bd rules).
@@ -56109,7 +56113,7 @@ function pjNameOf(p, sessionName) {
   const m = (p.agents || []).find((a) => a.sessionName === sessionName);
   /* #4421: an agent that is no longer a member (a post from before it left) is named by its current card, the
      same lookup the Tasks page uses, and by its id only when there is no card at all. */
-  return (m && m.name) || tskAgentName(sessionName);
+  return (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // guarded as dmWho's
 }
 
 /**
