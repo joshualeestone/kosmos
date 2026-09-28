@@ -2801,6 +2801,45 @@ function looksLikeManager(role) {
    restart. A cursor file we cannot read is UNKNOWN, never "never opened": the
    count answers null and the badge draws nothing, the same rule readThread and
    the room precedent both follow. */
+/**
+ * #4340: does the agent owe the person an answer in their ONE-TO-ONE thread, from that thread's own rows?
+ *
+ * The DM thread's "Nothing back yet." (web dmOwesLine) used to ask messages.owesReply, which reads the
+ * `kosmos msg` / room-post log. A person's DM and the agent's `kosmos reply` are not in that log; they are the
+ * rows of this DIRECT thread. So a person's DM never made it owe, and a colleague's `kosmos msg` could make it
+ * owe under a thread whose answer is visible. This reads the thread the page draws.
+ *
+ * The two writers of a DIRECT thread: the person's message has NO `from` (see readThread), with a `delivery`;
+ * the agent's reply (keepAgentReply) has `from` equal to the agent. Only a person message that REACHED the
+ * agent (`delivery.state === placed`) can put it in debt: one that could not be delivered was never received,
+ * the same rule dmOwesLine applies to its timing. Owes when the newest such message is newer than the agent's
+ * newest reply. Never spoken to: clear.
+ *
+ * `rows === null` is a thread we could not read: UNKNOWN, never a confident clear. Same shape as owesReply.
+ */
+function dmOwes(rows, agent) {
+  const name = String(agent == null ? '' : agent);
+  if (rows === null || rows === undefined || !Array.isArray(rows)) {
+    return { state: 'unknown', lastHeardAt: null, lastSentAt: null, because: 'we could not read this conversation' };
+  }
+  const when = (at) => (typeof at === 'string' && Number.isFinite(Date.parse(at)) ? Date.parse(at) : null);
+  let heard = null; let heardAt = null;
+  let sent = null; let sentAt = null;
+  for (const m of rows) {
+    if (!m || typeof m !== 'object') continue;
+    const t = when(m.at);
+    if (t === null) continue;
+    if (m.from === undefined || m.from === null) {
+      if (!(m.delivery && m.delivery.state === DELIVERY.PLACED)) continue;
+      if (heard === null || t > heard) { heard = t; heardAt = m.at; }
+    } else if (m.from === name) {
+      if (sent === null || t > sent) { sent = t; sentAt = m.at; }
+    }
+  }
+  const owes = heard !== null && (sent === null || heard > sent);
+  return { state: owes ? 'owes' : 'clear', lastHeardAt: heardAt, lastSentAt: sentAt, because: null };
+}
+
 const DM_SEEN = path.join(store.ROOT, 'dm-seen.json');
 
 function dmSeenRead() {
@@ -3088,7 +3127,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
+  DELIVERY, DIRECT, dmOwes, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

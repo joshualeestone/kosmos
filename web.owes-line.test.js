@@ -81,14 +81,15 @@ test('an unparseable timestamp is not treated as long ago', () => {
   }
 });
 
-test('the route carries the answer, and reads it off the module rather than the local', () => {
+test('the route carries the answer, computed from the one-to-one thread itself (#4340)', () => {
   const srv = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  assert.match(srv, /const owes = messageLog\.owesReply\(name\);/,
-    'the thread route no longer computes it, or reads it off the shadowed name');
-  /* 🛑 `messages` IS SHADOWED IN THAT HANDLER by the local array being sent, so
-     `messages.owesReply` there would be a property of an array. The alias is
-     what makes the module reachable. */
-  assert.match(srv, /const messageLog = messages;/, 'the module alias is gone');
+  /* #4340: from the DIRECT thread's own rows (chat.dmOwes), under the agent's canonical name, not from the
+     `kosmos msg` / room log (messages.owesReply), which never holds a person's DM or the agent's reply.
+     server.dm-owes-4340.test.js proves the behaviour through the route; this pins where it comes from. */
+  assert.match(srv, /const owes = chat\.dmOwes\(messages, \(card && card\.sessionName\) \|\| name\);/,
+    'the thread route no longer computes it from the thread it serves');
+  assert.doesNotMatch(srv, /owes = messageLog\.owesReply|owes = messages\.owesReply/,
+    'the thread route went back to the message log, which never holds a person DM');
   assert.match(srv, /^\s+owes,$/m, 'the payload no longer carries it');
   assert.match(SCRIPT, /dmOwesLine\(body\.owes, rows\)/, 'the thread box no longer draws it');
 });

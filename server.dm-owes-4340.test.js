@@ -1,0 +1,76 @@
+'use strict';
+require('./test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
+
+/**
+ * #4340, end to end through the DM thread route: "Nothing back yet." is driven by the thread's `owes`, and
+ * `owes` must come from the ONE-TO-ONE thread, not the `kosmos msg` / room log.
+ *   1. a person's DM that reached the agent makes the route say owes (RED on main: owesReply stayed clear)
+ *   2. the agent's reply in the thread clears it
+ *   3. a colleague's `kosmos msg` to the agent, which the old log-based answer counted, does not bring it back
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-owes-4340-')));
+const mk = (n) => { const d = path.join(SANDBOX, n); fs.mkdirSync(d, { recursive: true }); return d; };
+process.env.AGENT_WORKFORCE_HOME = mk('home');
+process.env.AGENT_WORKFORCE_DATA = mk('data');
+process.env.AGENT_WORKFORCE_WORKERS = mk('workers');
+process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
+process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server, keepAgentReply } = require('./server');
+const chat = require('./engine/chat');
+const messages = require('./engine/messages');
+const create = require('./engine/create');
+
+const AGENT = 'novadm';
+let base;
+test.before(async () => {
+  fs.mkdirSync(create.workerDir(AGENT), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(AGENT), 'CLAUDE.md'), `# ${AGENT}\n`);
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(() => { try { server.close(); } catch { /* best effort */ } });
+
+async function owes() {
+  const res = await fetch(`${base}/api/agent/${AGENT}/thread`);
+  assert.equal(res.status, 200, 'the thread route did not answer for the fixture agent');
+  return (await res.json()).owes;
+}
+
+test('#4340: the route answers for an agent never spoken to, and nothing is owed', async () => {
+  assert.equal((await owes()).state, 'clear');
+});
+
+test('#4340: a person DM that reached the agent makes the thread owe (red on main)', async () => {
+  chat.appendMessage(chat.DIRECT, AGENT, {
+    text: 'Could you check the invoice?',
+    at: new Date(Date.now() - 5 * 60000).toISOString(),
+    delivery: { state: chat.DELIVERY.PLACED },
+  });
+  const o = await owes();
+  assert.equal(o.state, 'owes', 'a placed person DM did not make the thread owe: ' + JSON.stringify(o));
+});
+
+test('#4340: the agent\'s reply in the thread clears it', async () => {
+  keepAgentReply(AGENT, 'Checked: it is paid.', new Date(Date.now() - 60000).toISOString());
+  assert.equal((await owes()).state, 'clear');
+});
+
+test('#4340: a colleague\'s kosmos msg to the agent does not put the person\'s thread back in debt', async () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, JSON.stringify({
+    id: 'm-4340', kind: 'message', from: 'colleague', to: AGENT, text: 'ping', at: new Date().toISOString(),
+  }) + '\n');
+  assert.equal(messages.owesReply(AGENT).state, 'owes',
+    'fixture: the message log does not read this row as owed, so this test would pass for any code');
+  assert.equal((await owes()).state, 'clear', 'a colleague\'s message made the person\'s answered thread owe');
+});
