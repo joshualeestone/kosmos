@@ -22,8 +22,8 @@ lands under TMPDIR, and the name says which script left it.
 | state | new tmp.* in real root per test:shell run |
 |---|---|
 | origin/main 44d2a0c | 13 (upper bound: shared box) |
-| after tools/ templates (58ec009) | 7: 3 pkg postinstall, 4 foreign (s.db/k.log, no writer in this repo) |
-| after 5bced4d | 0 of ours (postinstall's test alone: 0 in the real root, 3 in the given TMPDIR) |
+| after tools/ templates (58ec009, a pre-rebase sha) | 7: 3 pkg postinstall, 4 foreign (s.db/k.log, no writer in this repo) |
+| after 5bced4d (pre-rebase sha) | 0 of ours (postinstall's test alone: 0 in the real root, 3 in the given TMPDIR) |
 
 ## Decisions
 - Template, do not trap: under run-tests.sh the per-run root removes everything. Standalone runs of a
@@ -60,7 +60,8 @@ The first full run on the rebased head failed that guard with three families, as
   Raiden's #4309 (PR #4320, merged as ffa620f6) fixes all three such tests on main, so after the
   rebase this branch touches neither server.doorflight-1618.test.js nor the allowlist.
 
-## Final measurement, on the shipped head (840e97f, after rebasing on #4320)
+## Final measurement at 840e97f (after rebasing on #4320; later commits touch only the checker, its test
+## and docs, none of which the measurement counts)
 A full `yarn test` (run-tests.sh, with #4306's run-root guard): PASSED, guard green. Across the run the
 real temp root gained ONE `tmp.*`, an empty directory created mid-run, not attributed (no other suite was
 running when checked). On origin/main before this branch, one `yarn test:shell` alone left 13.

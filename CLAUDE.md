@@ -269,7 +269,8 @@ from a night in this codebase, kosmos#2616.)
    `tools/run-tests.sh`'s per-run root, and stays there. Write
    `mktemp -d "${TMPDIR:-/tmp}/<script>.XXXXXXXXXX"`. Enforced by
    `tools/test-mktemp-template-4298.sh` (first in `test:shell`) over every shell script git tracks
-   under `tools/`, `install/` and `bin/`; kosmos#4298. Shell embedded in `.js` files is not covered.
+   under `tools/`, `install/` and `bin/`; kosmos#4298. Not covered: shell embedded in `.js` files,
+   and `ios/` (run by iOS CI, not `test:shell`; three bare calls remain there).
 
 ### This list is intentionally incomplete
 

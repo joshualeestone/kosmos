@@ -118,7 +118,7 @@ node tools/mktemp-template-check.js "$T/good.sh" >/dev/null \
 # postinstall's verify dir must come from getconf (the per-user temp dir a bare mktemp used),
 # not the shared /tmp, and under its `set -e` a failing getconf must fall back rather than
 # abort. The harness tests all run with TMPDIR set, so they never reach this; it is run
-# here on the line itself, with `mktemp -u` so nothing is created.
+# here on the line itself; it only computes the directory, so nothing is created.
 vt_line="$(grep -E '^[[:space:]]*_vt="\$\{TMPDIR:-' install/pkg-scripts/postinstall)"
 [ -n "$vt_line" ] || bad "could not find the postinstall's _vt line; re-point this arm"
 if [ -n "$vt_line" ]; then
