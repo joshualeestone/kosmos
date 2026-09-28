@@ -81,3 +81,15 @@ helpers), 28361 (tab click). Re-check with `git merge-tree` before the PR.
 - NIT the tabs pin missed `display:none` without a space: tightened, proven on that spelling.
 - Browser check 30 -> 44; every round-1 fix mutated back turns it red (5 of 5; one mutant first
   failed to apply and read as a pass, caught by asserting the edit landed).
+
+## Review round 2 (sonnet, blind): 1 BLOCKER, 1 WARNING
+- BLOCKER (reproduced) "All agents" from an agent's page opened anywhere but the Agents view landed on
+  the board (both rails, Projects lit). Partly a misread: that is where it went before #4345 too. But the
+  reviewer's underlying point is right, and so is the note that round 1's control checked the flag, not
+  the screen. Decided: in the consolidated layout "All agents" always opens the Agents view, from every
+  opener. That makes the round-1 `CONS_AGENTS_RETURN` tracking unnecessary, so it is deleted rather than
+  patched. The check now asserts the lit item and a visible grid, from two openers, with a tab-layout
+  control.
+- WARNING (reproduced) a saved 'list' showed Grid as pressed, so clicking it silently overwrote 'list'.
+  Pressed now means exactly the saved layout, so 'list' presses neither.
+- Browser check 44 -> 48; both fixes mutation-checked.

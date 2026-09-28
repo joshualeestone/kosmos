@@ -169,15 +169,23 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.d_leftCons = document.body.classList.contains('consolidated') === false;   // CONTROL: the page really left it
         tab('agents').click();
         res.d_agentsOpen = document.body.classList.contains('consolidated') && $('panel-cons-agents').hidden === false && CONS_AGENTS_OPEN === true;
-        // (b) "All agents" returns to the Agents view when the agent was opened from it...
-        showTab('detail');
+        // (b) "All agents" opens the Agents view in the consolidated layout from EVERY opener. Asserted on
+        // the screen (the lit item, the grid itself visible), not only the flag (review round 2).
+        const lit = () => [...document.querySelectorAll('#tabs .tab.on')].map((x) => x.dataset.tab).join(',');
+        const vis = (el) => !!el && el.getClientRects().length > 0;
+        for (const [label, from] of [['fromAgents', () => tab('agents').click()], ['fromBoard', () => tab('projects').click()]]) {
+          from();
+          showTab('detail');
+          $('detail-back').click();
+          res['b_' + label] = document.body.classList.contains('consolidated') && lit() === 'agents' && vis($('grid')) && $('panel-cons-agents').parentElement === $('panel-projects');
+        }
+        // CONTROL: in the tab layout "All agents" is the ordinary Agents tab (no consolidated class).
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        showTab('projects'); showTab('detail');
         $('detail-back').click();
-        res.b_back = $('panel-cons-agents').hidden === false && CONS_AGENTS_OPEN === true;
-        // ...and to the board when it was not (CONTROL).
-        tab('projects').click();
-        showTab('detail');
-        $('detail-back').click();
-        res.b_ctl = CONS_AGENTS_OPEN === false && $('panel-cons-agents').hidden === true;
+        res.b_tabs = document.body.classList.contains('consolidated') === false && lit() === 'agents' && vis($('grid'));
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
         // (c) The column's switch: Org chart shows the chart and saves the choice; Grid brings the grid back.
         tab('agents').click();
         const sw = (v) => $('panel-cons-agents').querySelector('[data-conslay="' + v + '"]');
@@ -186,6 +194,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.s_org = $('orgview').hidden === false && $('grid').hidden === true && sw('org').getAttribute('aria-pressed') === 'true' && saved === 'org';
         sw('grid').click();
         res.s_grid = $('grid').hidden === false && $('orgview').hidden === true && sw('grid').getAttribute('aria-pressed') === 'true';
+        // (c2) A saved 'list' shows the grid but presses neither button (no silent overwrite).
+        BOARD_LAYOUT = 'list';
+        tab('agents').click();
+        res.l_neither = $('grid').hidden === false && sw('grid').getAttribute('aria-pressed') === 'false' && sw('org').getAttribute('aria-pressed') === 'false';
+        BOARD_LAYOUT = 'grid';
+        tab('agents').click();
         // (d) Another overlay taking the column re-hides the grid, not only its wrapper.
         $('userpop-settings').click();
         res.t_rehidden = $('grid').hidden === true && CONS_AGENTS_OPEN === false;
@@ -196,10 +210,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     const R1 = JSON.stringify(r1);
     const r0 = r1.err === null;
     ok(t + ' from an agent\'s page, Agents lands on the Agents view (CONTROL: the page had left the consolidated class)', r0 && r1.d_leftCons === true && r1.d_agentsOpen === true, R1);
-    ok(t + ' "All agents" returns to the Agents view when the agent was opened from it', r0 && r1.b_back === true, R1);
-    ok(t + ' CONTROL: "All agents" returns to the board when the Agents view was not open', r0 && r1.b_ctl === true, R1);
+    ok(t + ' "All agents" opens the Agents view (lit, grid visible) when the agent came from the Agents view', r0 && r1.b_fromAgents === true, R1);
+    ok(t + ' "All agents" opens the Agents view too when the agent was opened from the board', r0 && r1.b_fromBoard === true, R1);
+    ok(t + ' CONTROL: in the tab layout "All agents" is the ordinary Agents tab', r0 && r1.b_tabs === true, R1);
     ok(t + ' the column\'s Org chart switch shows the chart and saves the choice', r0 && r1.s_org === true, R1);
     ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
+    ok(t + ' a saved list layout shows the grid and presses neither switch button', r0 && r1.l_neither === true, R1);
     ok(t + ' another overlay taking the column re-hides the grid itself', r0 && r1.t_rehidden === true, R1);
 
     // ---- The LIST state (no project open): the "Open or create a project" hint must not draw over

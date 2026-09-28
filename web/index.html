@@ -21414,8 +21414,6 @@ function showTab(tab) {
   placeTasksPanel(cons);
   // #4345: the Agents view's consolidated home, same chokepoint and flag. A tab switch is navigation,
   // so it always closes the Agents view; the board is what the consolidated tabs arrive at.
-  // Remember whether an agent's page was opened from the Agents view, so "All agents" goes back there.
-  if (tab === 'detail') { if (CONS_AGENTS_OPEN) CONS_AGENTS_RETURN = true; } else CONS_AGENTS_RETURN = false;
   CONS_AGENTS_OPEN = false;
   placeAgentsPanel(cons);
   if (cons) consNavLight('projects');
@@ -29408,8 +29406,6 @@ let BOARD_LAYOUT = 'grid';
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
 let CONS_AGENTS_OPEN = false;
-/* #4345: true while an agent's page is open that was reached from the consolidated Agents view. */
-let CONS_AGENTS_RETURN = false;
 function boardApplyVisibility(onAgents) {
   /* ⚠️ THREE CONTAINERS NOW, AND EACH ASKS FOR ITSELF. The two-container
      version tested `=== 'list'` and `=== 'grid'`, which are opposites only
@@ -29428,7 +29424,9 @@ function boardApplyVisibility(onAgents) {
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
     const orgC = document.getElementById('orgview');
     orgC.hidden = BOARD_LAYOUT !== 'org';
-    for (const b of document.querySelectorAll('#panel-cons-agents [data-conslay]')) b.setAttribute('aria-pressed', String((b.dataset.conslay === 'org') === (BOARD_LAYOUT === 'org')));
+    /* A saved 'list' (chosen in the tab view) shows the grid here but presses neither button, so a
+       click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
+    for (const b of document.querySelectorAll('#panel-cons-agents [data-conslay]')) b.setAttribute('aria-pressed', String(b.dataset.conslay === BOARD_LAYOUT));
     if (!orgC.hidden) paintOrg();
     return;
   }
@@ -35711,8 +35709,10 @@ document.getElementById('detail-back').addEventListener('click', () => {
   const pid = DETAIL_FROM_PROJECT;
   DETAIL_FROM_PROJECT = null;
   if (pid) { showTab('projects'); openProject(pid); }
-  /* #4345: an agent opened while the consolidated Agents view was showing returns there. */
-  else if (CONS_AGENTS_RETURN && layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); }
+  /* #4345: in the consolidated layout, "All agents" is the Agents view in the display column, from
+     every opener (review round 2). showTab('agents') alone lands on the board there, which is not
+     what the button says. */
+  else if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); }
   else showTab('agents');
 });
 
