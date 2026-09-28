@@ -33,7 +33,7 @@ lands under TMPDIR, and the name says which script left it.
   used; mktemp still makes files 0600 and dirs 0700, so nothing becomes readable by others. Only the
   postinstall, which always runs with TMPDIR stripped, gets the getconf fallback.
 - postinstall: template only. Its real leak (EXIT trap skipped by `exec /bin/sh`) is installer
-  behaviour and a separate card; the block is a single-quoted sh -c arg, so no apostrophes added.
+  behaviour and its own card, #4319; the block is a single-quoted sh -c arg, so no apostrophes added.
   `sudo -u -H` strips TMPDIR in a real install, so the template falls back to
   `getconf DARWIN_USER_TEMP_DIR`, the same per-user dir a bare mktemp used (checked with TMPDIR
   empty and `mktemp -u`), not the shared /tmp. /tmp only if getconf fails. A TMPDIR that survives
@@ -74,11 +74,11 @@ discarded and re-run. Never stash or edit a tree a suite is executing.
 
 ## Tests
 - tools/test-mktemp-template-4298.sh (first in test:shell): scope floor, tree clean, negative control
-  of 33 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
+  of 35 bare shapes asserted by line number (incl. `/usr/bin/mktemp`, `mktemp 2>/dev/null`,
   `command`/`env`/`sudo`/`nice`/`VAR=` prefixes, `if`/`{`/a `case` arm, `-dt`, a continued line,
   `bash -c`/`sh -ec`/`eval`/`trap` strings, including one that starts with mktemp, `timeout`,
   a quoted `"mktemp"`, `-t "$(basename "$0")"`, a template with no X run, `-t` beside a template (macOS then makes a second file in the per-user
-  root), `\mktemp`, `caffeinate`/`arch` wrappers); the scope is every shell script git tracks under
+  root), `\mktemp`, `caffeinate`/`arch`/`builtin` wrappers, `xargs -I{}`); the scope is every shell script git tracks under
   tools/, install/ and bin/ (git ls-files, by .sh or shell shebang), templated calls, messages,
   comments and `grep -c 'mktemp'` not flagged; and the installer's production arm (TMPDIR stripped:
   getconf dir; getconf failing under set -e: falls back, no abort).

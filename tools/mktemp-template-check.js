@@ -18,8 +18,9 @@
  * ⚠️ PER LINE, NOT A SHELL PARSER. Quote state does not carry across lines, so a heredoc
  * body or a multi-line string can read as code (a false positive: this checker's own
  * test excludes itself for its fixtures), and a line closing a multi-line quote before a
- * call can read as text (a false negative). The wrappers it looks through are a CLOSED list (WRAP
- * below): a call behind any other (`flock`, `ionice`) is not seen, so extend WRAP when one appears.
+ * call can read as text (a false negative). The wrappers it looks through are a fixed list (WRAP
+ * below); a call behind another wrapper may be missed (`flock /x mktemp` is), so extend WRAP when one
+ * appears.
  * The negative control pins the shapes it finds.
  */
 const fs = require('node:fs');

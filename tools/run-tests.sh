@@ -195,8 +195,8 @@ fi
 # by setting TMPDIR to two different values and getting /var/folders back both
 # times. Node's `os.tmpdir()` DOES honour it, which is why this catches 91 of
 # the 92. The shell half is closed at the call sites instead (#4298): every
-# mktemp under tools/, install/ and bin/ passes a "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX"
-# template, so it lands under this root too, and tools/test-mktemp-template-4298.sh
+# mktemp under tools/, install/ and bin/ names a template (nearly all of them
+# "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX", which lands under this root), and tools/test-mktemp-template-4298.sh
 # fails if a template-less one comes back. Shell embedded in .js files is not covered.
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
