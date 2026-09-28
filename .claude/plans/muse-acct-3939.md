@@ -202,3 +202,13 @@ Space, the poll): all re-check before acting.
   step as the press now asserts nothing is written, and removing the re-check fails it.
 - N2 FIXED (comment only): acctFocusRunningSignin's comment sits on its own function again.
 Neither changes behaviour, so the loop ends here.
+
+## Rebase 2026-09-28 00:3x (after the proof): main had moved 16 commits and conflicted
+- web/index.html, acctFlowPaint's flow-ended point: main's #4271 fix (#4281, focus kept in
+  the dialog when a Claude sign-in ends) sat where this slice clears the "under way" line.
+  Both kept: the line clears first, then #4271's focus move. Their check
+  (render-acct-stop-focus-4271.js) passes on this tree, as does this slice's (all).
+- main's #4275 fix (#4299) added web.flowpoll-4275.test.js, which lifts acctFlowPaint with a
+  stub page; it is given MUSE_BUSY and acctAddPickSay (the round-5 lesson, from the other
+  direction). 2029/2029 web tests.
+- The proof is re-done on the new diff after a fresh full validation.
