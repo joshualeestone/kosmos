@@ -1361,7 +1361,10 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
 .restart-back .restart-k { width: 88px; height: 103px; display: block; margin-bottom: 22px; }
 .restart-back h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .restart-back p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--k-ink-2); }
-.restart-back small { margin-top: 28px; font-size: 12px; color: var(--k-ink-3, #8a857c); }
+.restart-back small { margin-top: 28px; font-size: 12px; color: var(--k-ink-2); }
+/* The tab layout reserves a scrollbar gutter on <html>, which a fixed layer cannot paint over, so
+   while the screen is up the page does not scroll and reserves nothing. */
+html.restart-up { overflow: hidden; scrollbar-gutter: auto; }
 /* The pack's header: a three-column sticky grid (left group | centred nav
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
@@ -20376,6 +20379,12 @@ function paintOfflineNote(down, deviceIsOffline) {
 const RESTART_SCREEN_AFTER_MS = 15000;
 let BOARD_NO_ANSWER_SINCE = null;
 let RESTART_SCREEN_INERTED = [];
+let RESTART_SCREEN_WATCH = null;    // inerts anything added to <body> while the screen is up
+let RESTART_SCREEN_RETURN = null;   // where focus was, to give it back on recovery
+function restartScreenInert(el) {
+  if (el.classList && el.classList.contains('restart-back')) return;
+  if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }
+}
 function paintRestartScreen(down, deviceIsOffline) {
   const shown = document.querySelector('.restart-back');
   if (!down) BOARD_NO_ANSWER_SINCE = null;
@@ -20386,8 +20395,13 @@ function paintRestartScreen(down, deviceIsOffline) {
   if (!down || deviceIsOffline || remote || !served || UPDATING_NOW) {
     if (shown) {
       shown.remove();
+      if (RESTART_SCREEN_WATCH) { RESTART_SCREEN_WATCH.disconnect(); RESTART_SCREEN_WATCH = null; }
       RESTART_SCREEN_INERTED.forEach((el) => { el.inert = false; });
       RESTART_SCREEN_INERTED = [];
+      document.documentElement.classList.remove('restart-up');
+      const back = RESTART_SCREEN_RETURN;
+      RESTART_SCREEN_RETURN = null;
+      if (back && back.isConnected && typeof back.focus === 'function') back.focus();
     }
     return;
   }
@@ -20407,13 +20421,20 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<p>' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
     + (detail.length ? '<small>' + (d => d.charAt(0).toUpperCase() + d.slice(1))(detail.join(', ')) + '.</small>' : '')
     + '</div>';
+  RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
+  document.documentElement.classList.add('restart-up');
   startKLoader(back.querySelector('.restart-k'), { still: true });
   /* Everything behind it goes inert, and only what this screen made inert is given back when it
-     clears, so a dialog that was already inert for its own reason stays that way. */
-  document.querySelectorAll('body > *:not(.restart-back)').forEach((el) => {
-    if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }
-  });
+     clears, so a dialog that was already inert for its own reason stays that way. A tip, toast or
+     dialog added to <body> while it is up is made inert too. */
+  document.querySelectorAll('body > *').forEach(restartScreenInert);
+  if (typeof MutationObserver === 'function') {
+    RESTART_SCREEN_WATCH = new MutationObserver((recs) => {
+      recs.forEach((r) => r.addedNodes.forEach((n) => { if (n.nodeType === 1) restartScreenInert(n); }));
+    });
+    RESTART_SCREEN_WATCH.observe(document.body, { childList: true });
+  }
   back.querySelector('.restart-msg').focus();
 }
 
@@ -20608,6 +20629,10 @@ async function tick() {
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
+    /* #4343: a parsed 200 is the board answering, whatever a painter below then does. Without this
+       a painter that throws lands in the catch as "nothing answered", and the full-restart screen
+       would lock a person out of a board that is up. */
+    answered = true;
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
@@ -21159,7 +21184,7 @@ async function tick() {
     /* The board answered, so whatever this said is no longer true. Cleared on
        the same paint that proves it. */
     paintOfflineNote(false);
-    paintRestartScreen(false);
+    try { paintRestartScreen(false); } catch { /* the board answered; its own paint must go on */ }
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
@@ -21238,7 +21263,7 @@ async function tick() {
        engine's sentence; painting "not answering" over it would be the screen
        contradicting itself, and the person would believe the louder half. */
     paintOfflineNote(!answered, BOARD_DEVICE_OFFLINE);
-    paintRestartScreen(!answered, BOARD_DEVICE_OFFLINE);
+    try { paintRestartScreen(!answered, BOARD_DEVICE_OFFLINE); } catch { /* the failure paint below must still run */ }
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
     // #3124: the failed poll owns the stamp; stop the ~1s ager repainting an age

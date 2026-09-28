@@ -5,17 +5,21 @@
  * kosmos#4343 (Josh, 2026-09-28): when this window's board stops answering, show "Kosmos requires a
  * full restart" as one clean centered screen with the Kosmos mark, and nothing else behind it.
  *
- * Harness: a tiny static server that serves web/index.html and DROPS every /api/ request without an
- * answer, so the page's real 5-second status poll fails the way it does when the board is gone. The
- * 15-second wait is shortened by moving BOARD_NO_ANSWER_SINCE back, and the real poll then draws it.
+ * Harness: a tiny static server that serves web/index.html and answers /api/ in one of three modes:
+ * 'down' DROPS every request unanswered (the board is gone), 'up' answers /api/status with a minimal
+ * board, and 'broken' answers 200 with a body the board's painters throw on. The 15-second wait is
+ * shortened by moving BOARD_NO_ANSWER_SINCE back; the real 5-second poll does everything else.
  *
  * Arms (light and dark):
- *   - before the wait is up only the small note shows (positive control: the poll really failed);
- *   - after it, the screen: exact headline, the Mac remedy, the details line, opaque, full window,
- *     centered, everything behind it inert, focus on it, and a K that is drawn and does not move;
- *   - recovery (paintRestartScreen(false), the call the success path makes) removes it and gives
- *     back exactly the inert state it took;
- *   - it stays away while an update runs, when the device is offline, and on a file:// page.
+ *   - down, before the wait is up: only the small note (positive control: the poll really failed);
+ *   - down, after it: the screen. Exact headline, the Mac remedy, the details line, opaque, full
+ *     window, centered, page scroll off, everything behind it inert (including a node added while it
+ *     is up), focus on it, and a K that is drawn and does not move;
+ *   - up again: the real poll removes it, gives back exactly the inert elements it took, and puts
+ *     the page scroll back;
+ *   - broken (a 200 whose painting throws): never the screen, because the board did answer;
+ *   - it stays away while an update runs and when the device is offline, and on a file:// page
+ *     (where the note shows first, so the poll is known to be failing there).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-restart-screen-4343.js
  */
@@ -39,8 +43,20 @@ const problems = [];
 let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
 
+let MODE = 'down';
 const server = http.createServer((req, res) => {
-  if (req.url.startsWith('/api/')) { req.socket.destroy(); return; }   // nothing answers
+  if (req.url.startsWith('/api/')) {
+    if (MODE === 'down') { req.socket.destroy(); return; }   // nothing answers
+    if (req.url.startsWith('/api/status')) {
+      // 'up' is the least a board can say and still paint cleanly; 'broken' makes the painters throw.
+      const body = MODE === 'up' ? { agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() } : { agents: null };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+    return;
+  }
   if (req.url === '/' || req.url.startsWith('/?') || req.url === '/index.html') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(HTML);
@@ -70,6 +86,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: theme });
     const t = '[' + theme + ']';
+    MODE = 'down';
     page.on('pageerror', (e) => problems.push(t + ' pageerror: ' + e.message));
     await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
 
@@ -79,7 +96,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     ok(t + ' the poll failed and the small note shows (the harness really has no board)', noted);
     ok(t + ' before the wait is up there is no restart screen, only the note', !(await shown(page)));
 
-    const inertBefore = await page.evaluate(() => [...document.querySelectorAll('body > *')].filter((el) => el.inert).length);
+    // The exact elements already inert for their own reasons, kept on the page to compare by identity.
+    await page.evaluate(() => { window.__inertBefore = [...document.querySelectorAll('body > *')].filter((el) => el.inert); });
 
     // ── Once the wait is up, the next real poll draws the screen. ──
     await ageIt(page);
@@ -108,6 +126,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
           allInert: others.every((el) => el.inert),
           focused: msg.contains(document.activeElement),
           role: msg.getAttribute('role'),
+          scrollOff: document.documentElement.classList.contains('restart-up') && getComputedStyle(document.documentElement).overflow === 'hidden',
         };
       });
       ok(t + ' the headline is Josh\'s words exactly', s.head === 'Kosmos requires a full restart', JSON.stringify(s.head));
@@ -118,6 +137,12 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' the message is centered (within 2px each way)', s.dx <= 2 && s.dy <= 2, JSON.stringify({ dx: s.dx, dy: s.dy }));
       ok(t + ' everything behind it is inert, and focus is on it', s.allInert && s.focused, JSON.stringify({ allInert: s.allInert, focused: s.focused }));
       ok(t + ' it is announced (role=alert)', s.role === 'alert');
+      ok(t + ' the page behind does not scroll or keep its scrollbar gutter', s.scrollOff === true);
+      const late = await page.evaluate(() => {
+        const d = document.createElement('div'); d.tabIndex = 0; window.__late4343 = d; document.body.appendChild(d);
+        return new Promise((r) => setTimeout(() => r(d.inert === true), 50));
+      });
+      ok(t + ' a node added to the page while it is up is made inert too', late === true);
 
       const pix = () => page.evaluate(() => {
         const cv = document.querySelector('.restart-k');
@@ -132,18 +157,32 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' the K mark is drawn', a.lit > 500, JSON.stringify(a));
       ok(t + ' the K mark is still (nothing is working, so nothing moves)', a.sum === b.sum, JSON.stringify({ a: a.sum, b: b.sum }));
 
-      // ── The board answers again: the success path calls paintRestartScreen(false). ──
+      // ── The board answers again: the real poll removes it. ──
+      MODE = 'up';
+      const cleared = await page.waitForFunction(() => !document.querySelector('.restart-back'), null, { timeout: 12000 }).then(() => true, () => false);
+      ok(t + ' when the board answers again the real poll removes the screen by itself', cleared);
       const back = await page.evaluate(() => {
-        paintRestartScreen(false);
-        return {
-          gone: !document.querySelector('.restart-back'),
-          inert: [...document.querySelectorAll('body > *')].filter((el) => el.inert).length,
-          since: BOARD_NO_ANSWER_SINCE,
-        };
+        const now = [...document.querySelectorAll('body > *')].filter((el) => el.inert);
+        const was = window.__inertBefore;
+        const late = window.__late4343;
+        const same = now.length === was.length && now.every((el) => was.includes(el));
+        if (late) late.remove();
+        return { same, now: now.length, was: was.length, lateFree: !!late && late.inert === false,
+          since: BOARD_NO_ANSWER_SINCE, scrollBack: !document.documentElement.classList.contains('restart-up'), readOk: BOARD_LOOK_FAILED === null };
       });
-      ok(t + ' an answer removes the screen and forgets the outage', back.gone && back.since === null, JSON.stringify(back));
-      ok(t + ' it gives back exactly the inert state it took', back.inert === inertBefore, JSON.stringify({ before: inertBefore, after: back.inert }));
+      ok(t + ' it gives back exactly the inert elements it took (by identity), the late node included', back.same && back.lateFree, JSON.stringify(back));
+      ok(t + ' it forgets the outage and gives the page its scroll back', back.since === null && back.scrollBack, JSON.stringify(back));
+      ok(t + ' the recovery came through a clean read (the success path), not a failure', back.readOk, JSON.stringify(back));
     }
+
+    // ── A board that ANSWERS but whose painting throws is not "nothing answered". ──
+    MODE = 'broken';
+    await ageIt(page);
+    await nextPolls(page);
+    const broken = await page.evaluate(() => ({ failed: !!BOARD_LOOK_FAILED, screen: !!document.querySelector('.restart-back') }));
+    ok(t + ' a 200 whose painting throws is recorded as a failure (positive control)', broken.failed, JSON.stringify(broken));
+    ok(t + ' ... and never draws the restart screen, because the board did answer', broken.screen === false, JSON.stringify(broken));
+    MODE = 'down';
 
     // ── Controls: the cases where the note tells a different story. ──
     await page.evaluate(() => { UPDATING_NOW = true; });
@@ -168,6 +207,9 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('pageerror', (e) => problems.push('[file] pageerror: ' + e.message));
     await page.goto(FILE_PAGE);
+    const noted = await page.waitForFunction(() => /not answering/.test(document.getElementById('uoffline-slot').textContent || ''),
+      null, { timeout: 12000 }).then(() => true, () => false);
+    ok('[file] the poll fails on file:// too, and the small note shows (positive control)', noted);
     await ageIt(page);
     await nextPolls(page);
     ok('[file] a file:// page never shows the restart screen', !(await shown(page)));
@@ -181,6 +223,6 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-restart-screen-4343: ' + pass + ' passed (the full-restart screen: drawn by the real poll after the wait, Josh\'s headline, the Mac remedy, opaque and centered over everything, inert behind, a still K; removed on an answer; not during an update, a device outage or on file://). problems: none');
+  console.log('render-restart-screen-4343: ' + pass + ' passed (the full-restart screen: drawn by the real poll after the wait, Josh\'s headline, the Mac remedy, opaque and centered over everything, inert behind, a still K; removed by the real poll when the board answers, restoring inert and scroll; never for a board that answered; not during an update, a device outage or on file://). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-restart-screen-4343: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });
