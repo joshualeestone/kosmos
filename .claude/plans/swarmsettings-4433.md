@@ -58,3 +58,14 @@ That removing Stop now from the phone chat header costs nothing important. A per
 ## Review round 2 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
 - WARNING Stop now did not check SWARM_BUSY, unlike swarmPick. It was not reachable twice in practice (the first click hides the question), but it is now guarded the same way.
 - NIT A click on a card during a change moves focus but picks nothing, with no signal. KEPT: the change in flight answers within a second, and its message line then speaks.
+
+## Review round 3 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 4 NITs, all fixed
+- **WARNING** "It is still finishing" was printed from the cautious rule, so it showed on no evidence (a partial read, an unknown lead). Fixed: the line needs a counted helper or a lead reported working.
+  - New arm S45 (stopped, partial read, lead idle: no line; re-picking Stopped still asks).
+  - A mutant restoring the old rule goes red with the false sentence.
+  - Known and accepted: right after a stop, the row says working until the next poll, so the line can show for one poll beside the done message. It is true of the last reading.
+- **WARNING** One global SWARM_BUSY let one swarm's hung request freeze every other swarm's controls. Fixed: busy blocks only the swarm it is for (both handlers).
+- **NIT** The pill lagged the optimistic cards. Fixed: swarmPillPaint is painted with the cards.
+- **NIT** The stop question survived the field going. Fixed: it closes when the field goes, and on any section that is not the view.
+- **NIT** Stale comments. Rewritten.
+- **NIT** Dead `.swstop:disabled` CSS was removed. Re-picking a used-up Stopped now says "It is already stopped, with nothing left running."

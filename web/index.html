@@ -1770,7 +1770,6 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
 .swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
 .swstop:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.swstop:disabled { opacity: .5; }
 .swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
 /* #4433 (#3946 item 14, Mona's design): the Swarm Settings box and view. A state is a colour AND a word; the
    colour is a soft tint (about 14%) so the ink keeps its contrast, never a solid fill and never a left bar. */
@@ -33498,7 +33497,7 @@ function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
   /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
   if (section === 'swarm') { const sb = document.getElementById('d-nav-swarm'); if (!sb || sb.hidden) section = 'talk'; }
-  else if (typeof swarmConfirmShow === 'function') swarmConfirmShow(false);   // leaving the view closes an open stop question
+  if (section !== 'swarm' && typeof swarmConfirmShow === 'function') swarmConfirmShow(false);   // leaving the view closes an open stop question
   /* The reader's place is kept only across THEIR OWN click away from Talk
      (the open path passes focus:false and never captures: it is a different
      agent's thread, and openDetail has just reset the offset for it). */
@@ -45092,7 +45091,7 @@ function swarmStatusWords(a) {
   const st = a && a.state;
   return st === 'working' ? 'Working alone' : st === 'idle' ? 'Idle, working alone' : 'No helpers working';
 }
-/* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
+/* The swarm's Swarm Settings view (#4433; was the mock's section 3): the three states, Most helpers, the limit and Today. Painted from the
    status row every poll; a control the person is using is not repainted under them. */
 var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
 var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's page starts with an empty message line
@@ -45108,6 +45107,7 @@ function swarmPagePaint(a, { force = false } = {}) {
      section (web.agent-nav.test.js), so a view left open when the field goes says so instead of moving the reader. */
   const navBox = document.getElementById('d-nav-swarm');
   if (navBox) navBox.hidden = !sw;
+  if (!sw) swarmConfirmShow(false);
   { const none = document.getElementById('d-swarm-none'); if (none) none.hidden = !!sw; }
   /* The page's header face follows the field: it gains or loses the cluster when a poll brings or drops `swarm`. */
   { const head = document.getElementById('d-swarm'); if (head && a && (!!sw) === head.hidden && typeof renderAvatar === 'function') renderAvatar(a); }
@@ -45122,24 +45122,20 @@ function swarmPagePaint(a, { force = false } = {}) {
   if (SWARM_BUSY !== who) swarmCardsPaint(st);
   document.getElementById('d-swarm-l-limit').hidden = !limitPaused;
   document.getElementById('d-swarm-tolimit').hidden = !limitPaused || !(Number(sw.dailyTokenLimit) > 0);
-  if (navBox) {
-    const word = on ? 'Active' : limitPaused ? 'Paused (limit)' : st === 'stopped' ? 'Stopped' : 'Paused';
-    navBox.dataset.st = st;
-    document.getElementById('d-nav-swarm-word').textContent = word;
-    document.getElementById('d-nav-swarm-vh').textContent = ', ' + word;
-  }
-  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works, and while
-     the count itself could not be read in full (metered false), since it may be missing one that is. */
-  /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
-     once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
-  /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
-     still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
-  /* #4433: the old Stop now's rule, now read in ONE place: picking Stopped when it is ALREADY the chosen card
-     offers the stop only while a stop could still do something. From Paused (by the person or the limit), Stopped
-     always asks, because it is a real change: a limit pause resumes by itself, a stop does not. */
+  if (SWARM_BUSY !== who) swarmPillPaint(st, limitPaused);
+  /* #4433: when is a stop USED UP? Only when nothing is left to stop: stopped (or paused at the limit), no helper
+     counted in a full read (metered false may be missing one), and the lead itself known idle (the meter counts helpers
+     only, and a stop whose interrupt failed leaves it stopped with its turn running). Anything uncertain counts as
+     not used up. This decides one thing: whether picking Stopped when it is ALREADY the chosen card asks again. From
+     Paused (by the person or the limit), Stopped always asks, because it is a real change: a limit pause resumes by
+     itself, a stop does not. */
   SWARM_STOP_SPENT = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
+  /* The line claims work is still running, so it needs evidence, not the cautious rule above (review round 3): a helper
+     counted, or the lead reported working. Right after a stop the row still says working until a poll lands, so the
+     line may show for one poll beside the done message; it is true of the last reading. */
   const why = document.getElementById('d-swarm-why');
-  const words = st === 'stopped' && !SWARM_STOP_SPENT ? 'It is still finishing what it was doing. Pick Stopped again to stop it now.' : '';
+  const busyNow = (sw.metered !== false && Number(sw.activeHelpers) > 0) || a.state === 'working';
+  const words = st === 'stopped' && busyNow ? 'It is still finishing what it was doing. Pick Stopped again to stop it now.' : '';
   why.textContent = words; why.hidden = !words;
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
@@ -45260,9 +45256,9 @@ document.body.addEventListener('input', (e) => {
 });
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
-  if (SWARM_BUSY) return;   // one change at a time, as swarmPick (review round 2)
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for this swarm, as swarmPick
   swarmConfirmShow(false);
-  swarmCardsPaint('stopped');   // shown at once; a refused stop repaints the saved state
+  swarmCardsPaint('stopped'); swarmPillPaint('stopped', false);   // shown at once; a refused stop repaints the saved state
   const who = CURRENT.sessionName;
   await swarmSend('/api/agent/' + encodeURIComponent(who) + '/swarm/stop', 'POST', {},
     (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
@@ -45272,6 +45268,15 @@ document.addEventListener('click', async (e) => {
    between them, Space or Enter picks, a click picks. Active and Paused apply at once; Stopped asks first. */
 var SWARM_STOP_SPENT = false;   // set by swarmPagePaint: a stop now would change nothing
 function swarmCards() { return [...document.querySelectorAll('#d-swarm-states .swcard')]; }
+/* The Swarm Settings box's state, in colour and words. Painted with the cards, so the two never disagree. */
+function swarmPillPaint(st, limitPaused) {
+  const navBox = document.getElementById('d-nav-swarm');
+  if (!navBox) return;
+  const word = st === 'active' ? 'Active' : st === 'stopped' ? 'Stopped' : limitPaused ? 'Paused (limit)' : 'Paused';
+  navBox.dataset.st = st;
+  document.getElementById('d-nav-swarm-word').textContent = word;
+  document.getElementById('d-nav-swarm-vh').textContent = ', ' + word;
+}
 function swarmCardsPaint(st) {
   const cards = swarmCards();
   const focused = cards.find((c) => c === document.activeElement);   // a poll leaves the tab stop where the person is
@@ -45291,13 +45296,16 @@ function swarmConfirmShow(show) {
 }
 async function swarmPick(card) {
   if (!card || !CURRENT || !SWARM_ROW || SWARM_ROW.sessionName !== CURRENT.sessionName) return;
-  if (SWARM_BUSY) return;   // one change at a time: a second pick while the first is in flight would flicker the cards
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for THIS swarm; another swarm's stuck request never freezes it
   const chosen = card.getAttribute('aria-checked') === 'true';
   const st = card.dataset.st;
-  if (st === 'stopped') { if (!(chosen && SWARM_STOP_SPENT)) swarmConfirmShow(true); return; }
+  if (st === 'stopped') {
+    if (chosen && SWARM_STOP_SPENT) { document.getElementById('d-swarm-msg').textContent = 'It is already stopped, with nothing left running.'; return; }
+    swarmConfirmShow(true); return;
+  }
   swarmConfirmShow(false);
   if (chosen) return;
-  swarmCardsPaint(st);   // shown at once; a refusal repaints the saved state (swarmSend's finally)
+  swarmCardsPaint(st); swarmPillPaint(st, false);   // shown at once; a refusal repaints the saved state (swarmSend's finally)
   await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm', 'PUT', { active: st === 'active' });
 }
 document.addEventListener('click', (e) => {

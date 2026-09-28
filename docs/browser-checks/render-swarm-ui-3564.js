@@ -789,8 +789,16 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await waitFor(page, () => SWARM_STOP_SPENT === true && document.getElementById('d-swarm-why').hidden, null, 8000), 'S12 CONTROL: the same with no helper working, nothing is left to stop');
     await page.click('#d-swarm-states .swcard[data-st="stopped"]');
     await page.waitForTimeout(300);
-    chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden), 'S12 CONTROL: and picking Stopped again asks nothing');
-    crewSwarm = { ...crewSwarm, activeHelpers: 2 };
+    chk(await page.evaluate(() => document.getElementById('d-swarm-confirm').hidden && /already stopped, with nothing left running/.test(document.getElementById('d-swarm-msg').textContent)),
+      'S12 CONTROL: and picking Stopped again asks nothing, and says why', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
+    // S45 (#4433, review round 3): a partial read with no helper counted: a stop is not known to be used up, so picking
+    // Stopped again still asks, but nothing is claimed to be running (no evidence). The old rule printed "still finishing".
+    crewSwarm = { ...crewSwarm, metered: false, activeHelpers: 0 };
+    chk(await waitFor(page, () => SWARM_STOP_SPENT === false && !!SWARM_ROW && SWARM_ROW.swarm.metered === false && SWARM_ROW.state === 'idle', null, 8000)
+      && await page.evaluate(() => document.getElementById('d-swarm-why').hidden), 'S45 stopped, a partial read, the lead idle: nothing is claimed to be still running',
+      await page.evaluate(() => document.getElementById('d-swarm-why').textContent));
+    chk(await stopAsks(), 'S45 and picking Stopped again still asks (a stop is not known to be used up)');
+    crewSwarm = { ...crewSwarm, metered: true, activeHelpers: 2 };
     crewState = null;
     await waitFor(page, () => SWARM_STOP_SPENT === false, null, 8000);
     // S14: a stop that did not take says the engine's reason, not "Stopped".
