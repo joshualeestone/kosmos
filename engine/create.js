@@ -912,6 +912,70 @@ function serviceLabel(name, worldId) {
   return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
 }
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
+
+/* #4279: the system temp roots a leftover test job's plist can sit in: /tmp and
+   macOS's per-user /var/folders. Only their /private spellings are listed, because
+   leftoverJob compares the plist's REALPATH, and on macOS /tmp and /var are symlinks
+   into /private, so a real path never starts with the bare spelling. FIXED on
+   purpose: os.tmpdir() and $TMPDIR are NOT trusted, because TMPDIR is often
+   repointed (direnv, a sandbox, a shell profile) to a folder that persists. */
+function tempRoots() {
+  const roots = [];
+  roots.push('/private/tmp');
+  roots.push('/private/var/folders');
+  return roots; // one literal per line: the #1732 inventory counts one match per row
+}
+
+/* #4279: whether a LOADED job for a name is a leftover we may boot out, from
+   `launchctl print` output. Returns {path, why} or null. Only when launchd names
+   the plist it loaded, that plist is not `ours`, and it is gone or in temp. */
+/* #4279: whether p is the root or inside it, by whole segments: /tmpfoo is not under /tmp. */
+function underRoot(p, root) { return p === root || p.startsWith(root + '/'); }
+
+/* #4279: the plist a `launchctl print` names: its first-level `\tpath = ` line, checked
+   against real output on macOS 26 (2026-09-27); nested lines carry two tabs. The ONE
+   reader of that format, used by leftoverJob and by the refusal that names the file. */
+function printedPath(printed) {
+  const m = /^\tpath = (.+)$/m.exec(String(printed || ''));
+  return m ? m[1].trim() : '';
+}
+
+/* One path through its real folder: a missing file cannot be realpath'd, but its folder can,
+   so /private/var/... and /var/... name the same absent plist. */
+function canonPath(p) {
+  const r = path.resolve(p);
+  try { return fs.realpathSync.native(r); } catch { /* absent: canonicalise the folder */ }
+  try { return path.join(fs.realpathSync.native(path.dirname(r)), path.basename(r)); } catch { return r; }
+}
+/* Is `p` this agent's own plist, under any spelling of it? One helper for every own-path
+   question (#4279 review 11), so the bootout guard and the refusal copy cannot disagree. */
+function isOurs(p, ours) {
+  if (!p || !path.isAbsolute(p)) return false;
+  return path.resolve(p) === path.resolve(ours) || canonPath(p) === canonPath(ours);
+}
+
+function leftoverJob(printed, ours) {
+  const loadedFrom = printedPath(printed);
+  if (!loadedFrom) return null;
+  if (!path.isAbsolute(loadedFrom)) return null;
+  /* Both checks use the NORMALIZED path, never the raw string launchd reports: a
+     `/tmp/../Users/...` spelling would otherwise pass the temp-root prefix test while
+     naming a live plist elsewhere. A file that exists is also realpath'd, so a
+     symlink in temp that points at a live plist outside it is judged by its target. */
+  const resolved = path.resolve(loadedFrom);
+  if (isOurs(resolved, ours)) return null;
+  /* GONE means ENOENT, and only that: a permission error or a flaky mount also makes
+     existsSync say false, and "could not check" is not "deleted". Anything else refuses. */
+  try { fs.statSync(resolved); } catch (e) {
+    if (e && e.code === 'ENOENT') return { path: loadedFrom, why: 'its startup file is gone' };
+    return null;
+  }
+  let real = resolved;
+  try { real = fs.realpathSync.native(resolved); } catch { return null; }
+  if (isOurs(real, ours)) return null;
+  if (tempRoots().some((root) => underRoot(real, root))) return { path: loadedFrom, why: 'its startup file is in a temporary folder' };
+  return null;
+}
 /* {name, worldId} for one of our service labels, or null when it is not ours.
    The stray sweeps use it to keep only THIS board's world and to read the bare
    agent name from a label (#1704). */
@@ -4294,6 +4358,22 @@ function createAgentInner(opts) {
    * and unloading somebody else's service to free up a name is exactly the
    * "act on something we have not tied to us" move the rest of this codebase
    * refuses to make.
+   *
+   * 🔑 #4279: ONE EXCEPTION, AND IT IS NARROW ON PURPOSE. A job whose plist launchd
+   * loaded from somewhere other than this board's own plist path, AND whose plist
+   * is now gone or sits in a temp folder, is a leftover nobody can use: it cannot
+   * survive a restart (its plist is gone or in a folder the system clears), and a
+   * real agent's plist never lives in a temp folder. Measured on Agent1s
+   * 2026-09-27: a 09-24 test left `com.kosmos.agent.josh` loaded from
+   * `T/rx-launch-*`, respawning 8,096 times with exit 1, and it blocked the setup
+   * guide's creation for the name Josh. That kind is booted out and the creation
+   * goes on, with a step saying so. Anything else loaded under this name (a
+   * plist at our own path, or outside the system temp roots, or a path launchd
+   * does not report) is still refused: labels are world-scoped, so it can only
+   * be this board's agent or its leftover.
+   * ⚠️ This is a judgement, not a proof of death. Its weak premise: a live job's
+   * plist is never in a SYSTEM temp root. Only a launch root pointed there on
+   * purpose (AGENT_WORKFORCE_LAUNCH, which tests do) breaks it.
    */
   //
   // ⚠️ Loaded means launchctl actually DESCRIBED the service, not merely that
@@ -4303,13 +4383,64 @@ function createAgentInner(opts) {
   // also keeps the seam honest: a recorder that reports every command as
   // succeeding does not thereby claim every name is taken.
   let loaded = false;
+  let printed = '';
   try {
     const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
-    loaded = Boolean(r && r.ok !== false && String(r.stdout || '').trim());
+    printed = String((r && r.stdout) || '');
+    loaded = Boolean(r && r.ok !== false && printed.trim());
   } catch {
     loaded = false;
   }
   if (loaded) {
+    const leftover = leftoverJob(printed, plistPath(name));
+    if (leftover) {
+      let gone = false;
+      try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); } catch { /* verify below either way */ }
+      /* Real `launchctl print` THROWS when the service is gone (run() is execFileSync);
+         measured on macOS 26, 2026-09-27: exit 113 with stderr `Could not find service
+         "<label>" in domain for ...`. Only the message text is checked (the exit code is
+         not): a throw carrying it means the bootout worked; any other throw (a timeout,
+         a failed exec) is "could not confirm", which refuses. */
+      try {
+        run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+        /* A print that ANSWERED means the job is still there or could not be checked (an ok:false
+           from a refused live execution, say): neither is "gone". Only launchd's own not-found throw,
+           below, confirms it left (#4279 review 12). */
+        gone = false;
+      } catch (e) {
+        gone = /Could not find service/.test(`${(e && e.stderr) || ''} ${(e && e.message) || ''}`);
+      }
+      if (gone) {
+        try { console.log(`create: removed a leftover startup job for ${name} (${leftover.why}; it was loaded from ${leftover.path})`); } catch { /* never mask */ }
+        steps.push({ label: `removed a leftover startup entry for ${shown} that was blocking the name (${leftover.why}: ${leftover.path})`, ok: true });
+        loaded = false;
+      } else {
+        steps.push({ label: `tried to remove a leftover startup entry for ${shown} (${leftover.why}: ${leftover.path}), but it would not leave`, ok: false });
+      }
+    }
+  }
+  if (loaded) {
+    const tried = steps.find((s) => s.ok === false && /would not leave/.test(s.label || ''));
+    const namedPath = printedPath(printed);
+    let namedExists = false;
+    try { namedExists = Boolean(namedPath) && path.isAbsolute(namedPath) && Boolean(fs.statSync(namedPath)); } catch (e) { namedExists = Boolean(e && e.code && e.code !== 'ENOENT'); }
+    const namedIsOurs = isOurs(namedPath, plistPath(name));
+    if (!tried && namedExists && !namedIsOurs) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `something called ${shown} is already set to start on this computer, from a startup file Kosmos did not make here (${namedPath}). Pick another name, or remove that entry first.`,
+        field: 'name',
+        steps,
+      };
+    }
+    if (tried) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `something called ${shown} is still set to start on this computer from a leftover file, and removing it did not work. Pick another name for now.`,
+        field: 'name',
+        steps,
+      };
+    }
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
@@ -5404,6 +5535,10 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #4279: exported so the leftover-job rule is tested on its own. */
+  leftoverJob,
+  underRoot,
+  isOurs,
   /* #3034: exported so engine/setup-assistant.js reads the CREATED sentinel from
      one source instead of re-declaring the literal 'created' (convention: a
      duplicated fact needs one source or a pin). */
