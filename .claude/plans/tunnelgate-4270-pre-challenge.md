@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tunnelgate-4270
-diff_hash: f37de3788da205939f7884f28752258b74f9c6074a8045f3baa486e5a66a05fe
+diff_hash: 04de2f06c1956037cde079e5660740df93a6da3df91ba506e7ae2301d4966875
 validation: passed
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-09-28T05:56:45Z
@@ -17,7 +17,9 @@ converged: true
 **Findings on this branch:** 2 BLOCKERs, 10 MAJORs, about 20 MINORs, 5 NITs
 **All fixed, or stated in the header's NOT COVERED list** | **Asked:** 0
 
-Validation (validation_log_run_or_skip, stack=typescript) PASSED on this head after the rebase onto main:
+Validation (validation_log_run_or_skip, stack=typescript) PASSED on this head, and again after a second rebase
+onto main e9771873f (#4306: run-tests.sh now fails a suite that leaks temp dirs; the only conflict was the
+test:shell line in package.json, resolved as main's line plus this branch's three commands):
 type-check, lint, and the full `yarn test` (test-tunnel-handshake-gate 52 passed, 0 failed;
 test-staging-channel-2036 ALL PASS; test-staging-wire-2036 36 passed, 0 failed).
 **Real run against PRODUCTION on Mortals** (the promote machine, with the identity enrolled there):
