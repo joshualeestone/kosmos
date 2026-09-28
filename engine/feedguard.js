@@ -76,7 +76,7 @@ function nfkc(s) {
    or path without changing what a reader perceives. Never rewrite the stored
    post: accepted output must remain byte-for-byte what the agent submitted. */
 function stripFormatCharacters(s) {
-  return String(s).replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
+  return String(s).replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu, '');
 }
 
 /* Luhn checksum over a digit string. Used to detect card numbers with low false

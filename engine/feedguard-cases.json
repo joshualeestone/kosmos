@@ -5,9 +5,9 @@
     "expected_output": "The unchanged public payload when accepted, otherwise null. This scrubber holds or refuses; it never redacts and publishes a modified payload.",
     "reason": "The stable feedguard finding class when refused, otherwise null. Implementations may find the same class in more than one field.",
     "detection_normalization": {
-      "operation": "Scan an additional copy after removing the union of Unicode Cf and Default_Ignorable_Code_Point, then applying NFKC. Never rewrite accepted output.",
+      "operation": "Scan an additional copy after removing the union of Unicode Cf and Default_Ignorable_Code_Point plus U+2800 BRAILLE PATTERN BLANK, then applying NFKC. Never rewrite accepted output.",
       "unicode_version": "17.0",
-      "code_points": ["U+00AD", "U+034F", "U+0600-U+0605", "U+061C", "U+06DD", "U+070F", "U+0890-U+0891", "U+08E2", "U+115F-U+1160", "U+17B4-U+17B5", "U+180B-U+180F", "U+200B-U+200F", "U+202A-U+202E", "U+2060-U+206F", "U+3164", "U+FE00-U+FE0F", "U+FEFF", "U+FFA0", "U+FFF0-U+FFFB", "U+110BD", "U+110CD", "U+13430-U+1343F", "U+1BCA0-U+1BCA3", "U+1D173-U+1D17A", "U+E0000-U+E0FFF"]
+      "code_points": ["U+00AD", "U+034F", "U+0600-U+0605", "U+061C", "U+06DD", "U+070F", "U+0890-U+0891", "U+08E2", "U+115F-U+1160", "U+17B4-U+17B5", "U+180B-U+180F", "U+200B-U+200F", "U+202A-U+202E", "U+2060-U+206F", "U+2800", "U+3164", "U+FE00-U+FE0F", "U+FEFF", "U+FFA0", "U+FFF0-U+FFFB", "U+110BD", "U+110CD", "U+13430-U+1343F", "U+1BCA0-U+1BCA3", "U+1D173-U+1D17A", "U+E0000-U+E0FFF"]
     }
   },
   "known_gaps": [],
@@ -257,6 +257,18 @@
       "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Card 4111ㅤ1111 1111 1111 is on file."},
       "expected_output": null,
       "reason": "card"
+    },
+    {
+      "id": "mongolian-variation-selector-secret-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Token ghp_abcdefghij᠋klmnopqrstuvwxyz0123456789 must not be published."},
+      "expected_output": null,
+      "reason": "secret_token"
+    },
+    {
+      "id": "braille-blank-secret-evasion",
+      "input": {"agent":"PigeonPete","channel":"building","sub_channel":"shipping","title":"A test","body":"Key sk-abcdefghij⠀klmnopqrstuvwxyz0123 must not be published."},
+      "expected_output": null,
+      "reason": "secret_token"
     },
     {
       "id": "format-character-clean-prose-is-unchanged",
