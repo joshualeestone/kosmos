@@ -236,15 +236,18 @@ out="$(KOSMOS_HARNESS_SELF_PID=5252 KOSMOS_HARNESS_PROBE="$T/hprobe-self" kosmos
 # _kosmos_drop_self_subtree would drop the spawned processes as "self's subtree"
 # and both arms would pass for the WRONG reason (self-exclusion, not the filter or
 # detection). Measured: the direct form silently dropped the real harness.
-# #4410: the harness guard now drops proven unit-test fixtures (the #4259 rule), and a stand-in
-# under run-tests.sh's kt<digits> sandbox IS one, so run from the suite this arm would pass for
-# the wrong reason (dropped, not detected) and the detection arm would fail. So the stand-ins live
-# outside the sandbox. /tmp is not a kt<digits> folder under a T or tmp folder, nor under TMPDIR.
-E2E="$(mktemp -d /tmp/kosmos-cutguard-e2e.XXXXXX)"; mkdir -p "$E2E/tools"
-trap 'rm -rf "$T" "$E2E"' EXIT
+# #4410: the stand-in harness below is a REAL `bash tools/test-install.sh` for 4 seconds, and every
+# suite runs this file. Outside the fixture sandbox, every other guard on the Mac saw it: a cut
+# starting then refused (#3619 measured 12 of 26 release-gate arms red on it), and since #4410
+# heavy-gate and any other agent's run-tests.sh would read it as a live harness too. So the
+# stand-ins live in a kt<digits> folder under a T folder, which the shared fixture rule drops
+# everywhere, and cut-start.sh sets KOSMOS_HARNESS_KEEP_FIXTURES=1 so THIS test's own guard call
+# still sees it and the detection arm below is real. cut-start-plain.sh, without the seam, is the
+# arm showing what every other caller sees.
+E2E="$T/T/kt$$"; mkdir -p "$E2E/tools" || { fail "#4410 could not make the stand-in folder $E2E"; E2E="$T"; }
 _kosmos_path_in_kt_sandbox "$E2E/tools/test-install.sh" \
-  && fail "#4410 the end-to-end stand-ins sit in the fixture sandbox, so the arms below cannot answer ($E2E)" \
-  || pass "#4410 the end-to-end stand-ins sit outside the fixture sandbox, so the guard cannot drop them"
+  && pass "#4410 the end-to-end stand-ins sit in the fixture sandbox, so no other guard on the Mac counts them" \
+  || fail "#4410 the end-to-end stand-ins sit outside the fixture sandbox, so other agents' gates would count them ($E2E)"
 cat > "$E2E/tools/test-install.sh" <<SH
 #!/bin/bash
 if [ "\${1:-}" = "--sleep" ]; then sleep "\$2"; exit 0; fi
@@ -254,10 +257,17 @@ chmod +x "$E2E/tools/test-install.sh"
 cat > "$E2E/tools/cut-start.sh" <<SH
 #!/bin/bash
 . "$HERE/lib/cut-guard.sh"
-kosmos_refuse_if_harness_live "this cut" || exit 1
+KOSMOS_HARNESS_KEEP_FIXTURES=1 kosmos_refuse_if_harness_live "this cut" || exit 1
 echo CUT-PROCEEDS
 SH
 chmod +x "$E2E/tools/cut-start.sh"
+cat > "$E2E/tools/cut-start-plain.sh" <<SH
+#!/bin/bash
+. "$HERE/lib/cut-guard.sh"
+kosmos_refuse_if_harness_live "this cut" || exit 1
+echo CUT-PROCEEDS
+SH
+chmod +x "$E2E/tools/cut-start-plain.sh"
 live_harness="$(pgrep -fl 'test-install\.sh' 2>/dev/null | grep -E '^[0-9]+ +(/bin/)?(ba)?sh +([^ ]*/)?tools/test-install\.sh( |$)' || true)"
 if [ -n "$live_harness" ]; then
   _fh="${live_harness%%$'\n'*}"
@@ -325,6 +335,10 @@ else
   out="$(bash "$E2E/tools/cut-start.sh" 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] && pass "a real bash tools/test-install.sh IS detected and refuses the cut" \
     || fail "a live harness was not detected: rc=$rc out=$out"
+  out="$(bash "$E2E/tools/cut-start-plain.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" "CUT-PROCEEDS"; } \
+    && pass "#4410 the same live stand-in, in the fixture sandbox, is dropped by every guard without the test seam" \
+    || fail "#4410 a sandboxed stand-in refused a guard without the seam, so other agents' runs would too: rc=$rc out=$out"
   kill "$harness" 2>/dev/null; wait "$harness" 2>/dev/null
 fi
 
@@ -465,8 +479,25 @@ _wired "$RT" 'kosmos_refuse_if_harness_live "this test run"' \
 _wired "$TI" 'kosmos_refuse_if_suite_live "a full install-harness run"' \
   && pass "#4410 test-install.sh asks whether a test suite is live" \
   || fail "#4410 test-install.sh does NOT call kosmos_refuse_if_suite_live -- a harness can start beside a suite"
-_wired "$TI" 'KOSMOS_INSTALL_GATE:-0}" != 1 ] && \[ "${KOSMOS_HARNESS_IGNORE_SUITE' \
-  && pass "#4410 the harness's suite check stands down only in a cut's gate run or on its override" \
-  || fail "#4410 the harness's suite check is not scoped as the cut check is"
+_wired "$TI" 'KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 \] && ! kosmos_holds_machine_claim; then' \
+  && pass "#4410 the harness's suite check stands down only for the claim holder (a cut) or on its override" \
+  || fail "#4410 the harness's suite check is not scoped to the claim holder"
+_wired "$RT" '&& ! kosmos_holds_machine_claim; then' \
+  && pass "#4410 run-tests.sh's harness check stands down only for the claim holder (a cut's own suite)" \
+  || fail "#4410 run-tests.sh's harness check is not scoped to the claim holder"
+
+# kosmos_holds_machine_claim: our live claim yes; a foreign one, none, or no cookie of ours, no.
+MCD="$T/mc4410"; mkdir -p "$MCD"; ( sleep 30 ) & mcp=$!
+printf 'MINE %s %s host release x\n' "$mcp" "$(( $(date +%s) + 600 ))" > "$MCD/machine-claim"
+KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=MINE bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
+  && pass "#4410 the run holding the live claim is recognised as the claim holder" \
+  || fail "#4410 the claim holder was not recognised, so a cut's own runs would refuse each other"
+KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=OTHER bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
+  && fail "#4410 a foreign cookie read as the claim holder" || pass "#4410 CONTROL: a run with another cookie is not the holder"
+KOSMOS_RUN_MARKER_DIR="$MCD" bash -c 'unset KOSMOS_MACHINE_CLAIM_COOKIE; . "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
+  && fail "#4410 a run with no cookie read as the claim holder" || pass "#4410 CONTROL: a run with no cookie (yarn test:install-gate outside a cut) is not the holder"
+kill "$mcp" 2>/dev/null; wait "$mcp" 2>/dev/null
+KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=MINE bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
+  && fail "#4410 a claim whose holder is dead still read as held" || pass "#4410 CONTROL: a dead holder's claim is not held"
 
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

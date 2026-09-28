@@ -68,8 +68,8 @@ test('#4410: a real install harness (tools/test-install.sh) reads busy (control:
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /COUNTS 111: .*script .*tools\/test-install\.sh/);
   }
-  // `yarn test:install` and a bare name run from tools/ are the same run.
-  assert.equal(run([['112', WORK + '/tools', 'bash test-install.sh', 'node /usr/local/bin/yarn test:install']]).code, 1);
+  // A bare name run from tools/ (`cd tools && bash test-install.sh`) counts too.
+  assert.equal(run([['112', WORK + '/tools', 'bash test-install.sh', 'zsh']]).code, 1);
   assert.equal(run([]).code, 0);
 });
 

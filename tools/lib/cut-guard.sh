@@ -361,7 +361,8 @@ kosmos_refuse_if_browser_run_live() {
 # and two things wanting it is not a slow test, it is a failed release step
 # blamed on whatever the cut was doing then. So the CUT asks, at its own start,
 # whether a harness is already live. A harness is a process (tools/test-install.sh)
-# for as long as it runs; there is no lock file, same as a cut.
+# for as long as it runs; there is no lock file, same as a cut. (A cut's gate run holds a fixed
+# port; an ordinary harness probes one from 4460 up, and either boots real boards on it.)
 # 📌 THE PROCESS, NOT THE WORDS: only a bash/sh whose own command line IS
 # tools/test-install.sh counts, so a peer shell that merely MENTIONS the script (a
 # grep, a git log, the pkill that cleared the box during the 0.6.20 window) does
@@ -371,9 +372,13 @@ kosmos_refuse_if_browser_run_live() {
 # would. The seam (KOSMOS_HARNESS_PROBE) shows it red and green without a real
 # harness; a probe that cannot answer is a refusal, the same posture as above.
 # #4410: a proven unit-test fixture (tools/lib/process-fixture.sh, the rule heavy-gate and the
-# two guards above share since #4259) is not a harness, so the cut, heavy-gate and run-tests.sh
-# all read a test-install.sh the same way. tools/run-tests.sh now asks this too, before a suite
-# starts beside a harness; the optional second argument is the caller's own way to override it.
+# two guards above share since #4259) is not a harness, here as in heavy-gate. (The command
+# shapes still differ: heavy-gate also counts a zsh or a bare name run from tools/, which the
+# regex below does not.) tools/run-tests.sh now asks this too, before a suite starts beside a
+# harness; the optional second argument is the caller's own way to override it.
+# KOSMOS_HARNESS_KEEP_FIXTURES=1 is a test seam that keeps fixtures in the list, so
+# tools/test-cut-guard.sh can prove the real pgrep detects a stand-in that every OTHER guard on
+# the Mac drops. Left set by mistake it only refuses more, never less.
 kosmos_refuse_if_harness_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
@@ -394,7 +399,7 @@ kosmos_refuse_if_harness_live() {
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
-  if [ -n "$out" ]; then
+  if [ -n "$out" ] && [ "${KOSMOS_HARNESS_KEEP_FIXTURES:-0}" != 1 ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi
   if [ "$rc" -ge 2 ]; then
@@ -609,6 +614,20 @@ kosmos_refuse_if_machine_claimed() {
 
 # kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
 # stdout. Prints the holder + until for an active claim, else the all-clear.
+# #4410: true only when THIS run holds the live machine claim (a cut, or a gate run the cut
+# started, which inherits KOSMOS_MACHINE_CLAIM_COOKIE). The suite and harness checks stand down for
+# a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate) and
+# which the cut already checked at its start; everything else, including `yarn test:install-gate`
+# outside a cut, still asks.
+kosmos_holds_machine_claim() {
+  local active cookie self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
+  [ -n "$self" ] || return 1
+  active="$(_kosmos_machine_claim_active)"
+  [ -n "$active" ] || return 1
+  cookie="$(printf '%s' "$active" | awk '{print $1}')"
+  [ "$cookie" = "$self" ]
+}
+
 kosmos_machine_claim_status() {
   local active pid exp host label
   active="$(_kosmos_machine_claim_active)"

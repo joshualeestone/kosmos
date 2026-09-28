@@ -206,7 +206,10 @@ fi
 # clear heavy-gate, reddened its port checks (Kano, 2026-09-28). Fail-open on the library load,
 # as above. A harness only a unit test started (the #4259 fixture rule) does not count.
 # test-install.sh asks the mirror question (kosmos_refuse_if_suite_live) before it starts.
-if command -v kosmos_refuse_if_harness_live >/dev/null 2>&1 && [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+# A cut's own suite (it holds the live claim) stands down: the cut asked at its start, and its own
+# install gate runs only after this suite ends.
+if command -v kosmos_refuse_if_harness_live >/dev/null 2>&1 && [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] \
+   && ! kosmos_holds_machine_claim; then
   kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || exit 1
 fi
 

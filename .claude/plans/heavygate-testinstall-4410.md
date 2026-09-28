@@ -8,7 +8,10 @@
   unit-test fixtures, like the cut and browser guards beside it.
 - `tools/run-tests.sh` refuses to start beside a live harness (`KOSMOS_TESTS_IGNORE_HARNESS=1` runs
   anyway), and `tools/test-install.sh` refuses to start beside a live suite
-  (`kosmos_refuse_if_suite_live`, `KOSMOS_HARNESS_IGNORE_SUITE=1` runs anyway).
+  (`kosmos_refuse_if_suite_live`, `KOSMOS_HARNESS_IGNORE_SUITE=1` runs anyway). Both stand down
+  only for the run holding the live machine claim (a cut's own suite and gate:
+  `kosmos_holds_machine_claim`), not for `KOSMOS_INSTALL_GATE=1` alone, which
+  `yarn test:install-gate` also sets outside any cut.
 - A test for each, red on main: tools.heavy-gate-3805.test.js (two #4410 tests, both red against
   main's gate, measured) and tools/test-cut-guard.sh (the fixture drop, the suite guard, the wiring).
 - The port-range question answered with evidence (below).
@@ -37,9 +40,10 @@
 ## Decided, and why
 - heavy-gate counts the harness in DEFAULT mode, not only under --quiet-box: it boots real boards,
   like browser-checks, and the card's failure was two runs behind a clear default gate.
-- test-install's suite check stands down in a cut's own gate run (KOSMOS_INSTALL_GATE=1), as its
-  cut check does: the cut's suite has finished by step 4b, and its machine claim already refuses
-  new suites, so a refusal there could only abort a cut.
+- Both new checks stand down for the claim holder (review 1, W2/W3). A cut's own suite (step 3) and
+  its own install gate (step 4b) never overlap, and the cut asked both questions at its start, so a
+  refusal there could only abort a cut. KOSMOS_INSTALL_GATE=1 was the first scope and was wrong:
+  `yarn test:install-gate` sets it with no cut and no claim.
 - No run marker for the suite: markers exist for callers that self-match their own script (#1796);
   nothing that asks the suite question is a run-tests.sh. The harness keeps its existing marker.
 - The harness guard's override text is now the caller's (second argument). The cut's default
@@ -47,9 +51,12 @@
 - The harness guard's refusal no longer says "the install gate's fixed port": outside a cut the
   port is probed from 4460 up, and the reason that holds for both callers is the real boards on
   test ports.
-- tools/test-cut-guard.sh's end-to-end stand-ins moved from $T to a /tmp folder outside the
-  kt<digits> sandbox: with the fixture rule, a stand-in under run-tests.sh's sandbox would be dropped
-  and the detection arm would fail for the wrong reason. A new arm asserts the folder is outside it.
+- tools/test-cut-guard.sh's end-to-end stand-in (a real `bash tools/test-install.sh` for 4 s in every
+  suite run) now sits in a T/kt<digits> folder, so the shared fixture rule drops it in every guard on
+  the Mac (review 1, W1: outside it, heavy-gate and other agents' run-tests.sh would read it as a live
+  harness; #3619 measured the same stand-in reddening release-gate arms). Its own detection arm keeps
+  it visible with KOSMOS_HARNESS_KEEP_FIXTURES=1, a test seam that can only refuse more; a second arm
+  shows the same stand-in dropped without the seam.
 
 ## Weakest part
 - The cause of the reds (load vs the default port) is not proven; the fix does not depend on it.

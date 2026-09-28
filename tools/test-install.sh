@@ -64,9 +64,10 @@ if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" !
 fi
 # #4410: and not beside a live test suite (tools/run-tests.sh), which can take this run's board
 # ports and make its port checks red (Kano, 2026-09-28). run-tests.sh asks the mirror question.
-# Not in a cut's own gate run (KOSMOS_INSTALL_GATE=1): the cut's suite has finished by step 4b,
-# and its machine claim already refuses any new suite, so a refusal here would only abort a cut.
-if [ "${KOSMOS_INSTALL_GATE:-0}" != 1 ] && [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ]; then
+# Not in a cut's own gate run, which holds the live machine claim: the cut's suite has finished by
+# step 4b and its claim already refuses any new suite, so a refusal there would only abort a cut.
+# KOSMOS_INSTALL_GATE=1 alone is not enough (`yarn test:install-gate` sets it outside any cut).
+if [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ] && ! kosmos_holds_machine_claim; then
   kosmos_refuse_if_suite_live "a full install-harness run" || exit 1
 fi
 SB="$(mktemp -d)"
