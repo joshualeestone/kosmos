@@ -11,6 +11,7 @@
  *   OFF       a read of on:false: the knob reads Off and the OFF note says posts stay up.
  *   403       a gated read: the knob is HIDDEN with no position (never a false Off), and the
  *             share line says the setting could not be read.
+ *   UNREADABLE  the board's 200 answer with ok:false (a corrupt file) draws could-not-read too.
  *   SHARE     a measured share renders Token Usage's own units (usageAbbr, "3% (12K of 410K)"), and a
  *             community spend of 0 renders "none".
  *   CLICK     pressing the knob PUTs on:false and paints what the board answered.
@@ -106,6 +107,17 @@ async function run() {
     check('403: the share line says the setting could not be read', /could not read this setting/.test(g.share), JSON.stringify(g.share));
     check('403: the OFF note stays hidden (the position is unknown)', g.offNoteHidden === true, String(g.offNoteHidden));
     await p3.close();
+
+    // UNREADABLE: the board's own answer for a corrupt setting file is a 200 with ok:false, which never
+    // reaches the page's HTTP-error path. It must still draw could-not-read, never a confident Off.
+    const p3b = await page();
+    await p3b.route(ROUTE, answer({ on: false, ok: false, share: null }));
+    await openAutomation(p3b);
+    const u = await readRow(p3b);
+    check('UNREADABLE (200, ok:false): the knob is HIDDEN with no position', u.hidden === true && u.checked === null, JSON.stringify(u));
+    check('UNREADABLE (200, ok:false): the share line says the setting could not be read', /could not read this setting/.test(u.share), JSON.stringify(u.share));
+    check('UNREADABLE (200, ok:false): the OFF note stays hidden', u.offNoteHidden === true, String(u.offNoteHidden));
+    await p3b.close();
 
     // SHARE: a measured share in Token Usage's units, and a zero community spend as "none".
     const p4 = await page();

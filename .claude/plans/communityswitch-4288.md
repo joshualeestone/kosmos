@@ -53,6 +53,13 @@ already stored here so part B needs no storage change. Acceptance 2 (the notice 
 - Not changed: the could-not-read wording differs from the Daily report row's. It is Mona's copy from the
   card, and it is the wording most other switches on the page use.
 
+## Review 3
+
+- No blocker. A corrupt file reaches the page as a 200 with ok:false, which the 403 arm never exercised, so
+  dropping `r.ok === false` from the paint passed everything. An UNREADABLE browser arm now answers exactly
+  that and reds the mutation.
+- Not changed: the OFF note and share line are not live regions, the same as the sibling switches' notes.
+
 ## Weakest premise
 
 That "no file means ON" is enough for "existing installs migrated once". It gives the same result, but a
