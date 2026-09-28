@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 /**
  * kosmos#1945: A HEADLESS BOARD NEVER UPDATED. `update.poke()` is the only thing
  * that fetches latest.json and can fire an auto-install, and its only other
