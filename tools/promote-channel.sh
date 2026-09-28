@@ -244,6 +244,42 @@ if [ "$FAMILY" = mac ]; then
       [ -n "$PLUS_REASON" ] || PLUS_REASON="(the gate printed nothing)" ;;
     *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
+
+  # THE TUNNEL HANDSHAKE GATE (#4270). None of the gates above touch remote access: a build whose
+  # connector cannot fetch a ticket, authenticate at the relay or serve would pass them all and
+  # reach every Kosmos+ Mac. This runs the connector FROM THE STAGED TARBALL (the exact bytes being
+  # promoted) against the live relay with the reserved gate identity. Same contract: 0 promote;
+  # 1 the build is broken -> refuse, never forceable; 2 cannot-tell -> HOLD, forceable only after
+  # a HAND check. The CONTROL is the build prod serves now ($PROD_NAME's artifact): when the
+  # candidate fails, the gate runs the control with the same identity, so an outage or a lapsed
+  # identity (the control fails too) holds instead of blaming this build.
+  # Override via KOSMOS_PROMOTE_TUNNEL_GATE_CMD (it receives --tarball <the staged artifact>, and
+  # --control-tarball <the served one> when prod's artifact is on disk).
+  TUNNEL_GATE_CMD="${KOSMOS_PROMOTE_TUNNEL_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/tunnel-handshake-gate.sh}"
+  TUNNEL_CONTROL=()
+  SERVED_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
+  # A bare filename only, as for every pointer field here. A path-like one does not refuse the
+  # promote (it is the CONTROL, not the bytes being promoted); it only means no control.
+  case "$SERVED_ART" in *"/"*|*".."*) echo "promote-channel: NOTE $PROD_NAME's $ARTIFACT_FIELD ('$SERVED_ART') is not a bare filename; not using it as the tunnel gate's control" >&2; SERVED_ART="" ;; esac
+  if [ -n "$SERVED_ART" ] && [ -f "$SITE/dist/$SERVED_ART" ]; then
+    TUNNEL_CONTROL=(--control-tarball "$SITE/dist/$SERVED_ART")
+  else
+    echo "promote-channel: NOTE no served artifact on disk to use as the tunnel gate's control ($PROD_NAME names '${SERVED_ART:-nothing}'); a candidate failure will HOLD rather than refuse." >&2
+  fi
+  echo "promote-channel: running the tunnel handshake gate on $ARTIFACT's connector (control: ${SERVED_ART:-none}): $TUNNEL_GATE_CMD"
+  $TUNNEL_GATE_CMD --tarball "$SITE/dist/$ARTIFACT" ${TUNNEL_CONTROL[@]+"${TUNNEL_CONTROL[@]}"}; TUNNEL_RC=$?
+  case "$TUNNEL_RC" in
+    0) echo "promote-channel: tunnel handshake gate PASSED - $V's connector fetched a ticket, authenticated at the live relay and served." ;;
+    1) echo "promote-channel: tunnel handshake gate FAILED (exit 1) - $V's connector cannot reach remote access (the gate's FAIL line above names the step and why). REFUSING to promote; --force does not override it." >&2; exit 1 ;;
+    2)
+      if [ "$FORCE" = 1 ]; then
+        echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
+      else
+        echo "promote-channel: tunnel handshake gate could not tell (exit 2; its CANNOT TELL line above says why) - the coordinator or relay is down or mid-deploy, the served build's connector fails too, no gate identity is enrolled here (kosmos-relay deploy/release-gate.md), or another connector holds the gate identity. HOLDING. Fix that and run again; pass --force only after verifying remote access by hand." >&2
+        exit 2
+      fi ;;
+    *) echo "promote-channel: tunnel handshake gate returned an unexpected code ($TUNNEL_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
+  esac
 else
   # WINDOWS: derive the alias BEFORE anything is written, so a name that cannot be derived is a
   # refusal with prod untouched (the Mac derives it after the pointer write, below). The pointer's

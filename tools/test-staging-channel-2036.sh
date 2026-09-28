@@ -46,6 +46,11 @@ export AGENT_RC_WANT=0
 # PASS; it prints the snapshot it was handed so a case can check it is a copy of the pointer.
 PLUS_STUB="$T/stub-plus-gate.sh"; printf '#!/usr/bin/env bash\nprintf "plus-gate-arg1:%%s\\n" "${1:-}"\n[ -f "${1:-}" ] && printf "plus-gate-version:%%s\\n" "$(sed -n "s/.*\\"version\\": *\\"\\([^\\"]*\\)\\".*/\\1/p" "$1" | head -1)"\nexit "${PLUS_RC_WANT:-0}"\n' > "$PLUS_STUB"; chmod +x "$PLUS_STUB"
 export KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS_STUB"
+# #4270: a FOURTH gate, the tunnel handshake with the staged connector. Stubbed too, defaulting to
+# PASS; it prints what it was handed so a case can check it is the staged tarball.
+TUNNEL_STUB="$T/stub-tunnel-gate.sh"; printf '#!/usr/bin/env bash\nprintf "tunnel-gate-args:%%s\\n" "$*"\nexit "${TUNNEL_RC_WANT:-0}"\n' > "$TUNNEL_STUB"; chmod +x "$TUNNEL_STUB"
+export KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $TUNNEL_STUB"
+export TUNNEL_RC_WANT=0
 # #3940: a promote with no Kosmos+ record appends to promote-plus-unverified.log in this directory;
 # point it at the sandbox so a local run never writes into the real ~/.local/state.
 export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
@@ -168,6 +173,33 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Spy" 2>&
 # the shared pointer writer refuses a missing field rather than emitting a malformed pointer
 out="$(KM_LJ_VERSION="" KM_LJ_SHA=x KM_LJ_ARTIFACT=a KM_LJ_MANIFEST=m node "$HERE/lib/write-latest-pointer.js" "$T/should-not-exist.json" 2>&1)"; rc=$?
 [ "$rc" != 0 ] && [ ! -f "$T/should-not-exist.json" ] && has "$out" "missing field" && pass "write-latest-pointer: refuses an empty field" || bad "write-latest-pointer empty field (rc=$rc, out=$out)"
+
+# ---- the tunnel handshake gate, #4270 ----
+# It is handed the STAGED tarball (the bytes being promoted), and its arms follow the same contract.
+St0="$(make_site)"; bash "$PUBLISH" "$St0" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St0" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "tunnel-gate-args:--tarball $St0/dist/$(jget "$St0/dist/latest-staging.json" artifact)" && has "$out" "tunnel handshake gate PASSED" && [ -f "$St0/dist/latest.json" ] && pass "promote: tunnel gate is handed the staged tarball, 0 -> promote" || bad "promote tunnel-gate-0 (rc=$rc, out=$out)"
+St1="$(make_site)"; bash "$PUBLISH" "$St1" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "tunnel handshake gate FAILED" && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 (remote access broken) -> refuse, no promote" || bad "promote tunnel-gate-1 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=1 bash "$PROMOTE" "$St1" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$St1/dist/latest.json" ] && pass "promote: tunnel gate 1 is NOT forceable" || bad "promote tunnel-gate-1-force (rc=$rc, out=$out)"
+St2="$(make_site)"; bash "$PUBLISH" "$St2" >/dev/null 2>&1
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ ! -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 (cannot-tell) -> HOLD, no promote" || bad "promote tunnel-gate-2 (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=2 bash "$PROMOTE" "$St2" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$St2/dist/latest.json" ] && pass "promote: tunnel gate 2 + --force -> promote on hand check" || bad "promote tunnel-gate-2-force (rc=$rc, out=$out)"
+# The CONTROL: the build prod serves now. St0 had no prod pointer, so no control and a NOTE.
+St0out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$(St=$(make_site); bash "$PUBLISH" "$St" >/dev/null 2>&1; echo "$St")" 2>&1)"
+has "$St0out" "no served artifact on disk" && ! has "$St0out" "--control-tarball" && pass "promote: no served artifact -> the tunnel gate gets no control, and says so" || bad "promote tunnel no-control (out=$St0out)"
+St3="$(make_site)"; bash "$PUBLISH" "$St3" >/dev/null 2>&1
+echo served-bytes > "$St3/dist/kosmos-served-arm64.tar.gz"; printf '{"artifact":"kosmos-served-arm64.tar.gz"}\n' > "$St3/dist/latest.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St3" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "--control-tarball $St3/dist/kosmos-served-arm64.tar.gz" && pass "promote: the served build's tarball is the tunnel gate's control" || bad "promote tunnel control (rc=$rc, out=$out)"
+St4="$(make_site)"; bash "$PUBLISH" "$St4" >/dev/null 2>&1
+echo served-bytes > "$St4/kosmos-outside.tar.gz"; printf '{"artifact":"../kosmos-outside.tar.gz"}\n' > "$St4/dist/latest.json"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 TUNNEL_RC_WANT=0 bash "$PROMOTE" "$St4" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "is not a bare filename; not using it" && ! has "$out" "--control-tarball" && pass "promote: a path-like served artifact is not used as the control" || bad "promote tunnel pathy control (rc=$rc, out=$out)"
 
 # ---- the SECOND (agent-spawn) gate, #2036/#2129 ----
 # experience gate PASSES but the agent gate says WEDGED (1) -> refuse, latest.json NOT written.
