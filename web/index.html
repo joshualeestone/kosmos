@@ -53093,7 +53093,7 @@ function pjReplyStart(postId) {
   // not in this room, so nothing is ever misfiled.
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mine: m.operator === true, mention: null };
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -53122,10 +53122,11 @@ function pjReplyMention(p, m, previous) {
   if (previous && text.startsWith(previous)) { text = text.slice(previous.length); cut = previous.length; }
   const agent = m && m.operator !== true ? mentionCandidates(p).find((c) => c.key === m.from) : null;
   /* Already @-named anywhere in the words (typed by the person, at the front or mid-sentence): Reply
-     adds nothing and records nothing, so nothing later takes the person's own mention out. The key is
-     matched literally: a key in a named Kosmos carries a "+" (launchKey), a regex quantifier. */
-  const lit = agent ? agent.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
-  const named = !!agent && new RegExp('(^|[^A-Za-z0-9._+-])@' + lit + '(?![A-Za-z0-9._+-])').test(text);
+     adds nothing and records nothing, so nothing later takes the person's own mention out. "Named" is
+     the engine's own rule (engine/messages.js): the same token pattern and the same trailing-punctuation
+     retry, so "thanks @roomer." counts here exactly as it does when the post is routed. */
+  const named = !!agent && [...text.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)]
+    .some((t) => t[2] === agent.key || t[2].replace(/[._-]+$/, '') === agent.key);
   const ins = agent && !named ? '@' + agent.key + ' ' : '';
   if (PJ_REPLY[PJ_CURRENT]) PJ_REPLY[PJ_CURRENT].mention = ins || null;
   const after = ins + text;
