@@ -596,11 +596,17 @@ const chk = (ok, label, extra) => {
   const musePage = await q(async ([c]) => {
     ACCOUNTS = [c, { ...c, dir: '/h/.claude-b', email: 'd@example.com', isDefault: false }];
     CREATE_MODELS = [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5' }];
-    const muse = { sessionName: 'm1', runner: 'muse', provider: 'meta', account: null };
+    const muse = { sessionName: 'm1', runner: 'muse', provider: 'meta', account: null, isNamedOurs: true };
     CURRENT = muse;
     await paintModelPicker(muse);
     await paintAccountPicker(muse);
+    paintProviderPicker(muse);
+    const pSel = document.getElementById('d-provider');
+    const pTrig = pSel.parentElement.querySelector('.pcombo-trigger');
     const out = {
+      provValue: pSel.value, provOff: pSel.disabled, provTrigOff: !!(pTrig && pTrig.disabled),
+      provGoOff: document.getElementById('d-provider-go').disabled,
+      provMsg: document.getElementById('d-provider-msg').textContent,
       models: [...document.getElementById('d-model').options].map((o) => o.textContent),
       modelOff: document.getElementById('d-model').disabled,
       accts: [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean),
@@ -610,6 +616,9 @@ const chk = (ok, label, extra) => {
     const claude = { sessionName: 'c1', runner: 'claude', provider: 'anthropic', account: { dir: c.dir } };
     CURRENT = claude;
     await paintAccountPicker(claude);
+    paintProviderPicker({ ...claude, isNamedOurs: true });
+    out.claudeProvOff = document.getElementById('d-provider').disabled;
+    out.claudeProvMsg = document.getElementById('d-provider-msg').textContent;
     out.claudeAccts = [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean);
     CURRENT = null; ACCOUNTS = [];
     return out;
@@ -619,6 +628,10 @@ const chk = (ok, label, extra) => {
   chk(musePage.accts.length === 0 && /Meta sign-in through Muse Code, so there is no account to move it to/.test(musePage.acctMsg),
     'agent page, Muse agent: no account to move it to, said', JSON.stringify(musePage));
   chk(musePage.claudeAccts.length >= 1, 'CONTROL: a Claude agent on the same page is offered Claude accounts', JSON.stringify(musePage));
+  chk(musePage.provValue === 'meta' && musePage.provOff === true && musePage.provTrigOff === true && musePage.provGoOff === true
+    && musePage.provMsg === 'Moving an agent on Meta Muse to another provider is not offered yet.',
+    'agent page, Muse agent: shows Meta, offers no switch off it, and says so', JSON.stringify(musePage));
+  chk(musePage.claudeProvOff === false && musePage.claudeProvMsg === '', 'CONTROL: a Claude agent\'s provider menu stays usable, with no such line', JSON.stringify(musePage));
   // Chosen through the real logo combobox: no account row, no model row, one line on who picks the model.
   const picked = await q(([m, c]) => {
     CREATE_ACCOUNTS = [m, c];

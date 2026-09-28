@@ -72,3 +72,22 @@ Connections box counts a signed-in Muse as an account thinking for agents once o
   create request itself for provider meta / no account / no model.
 - Deferred: the one validation red at the start (engine/musefront.test.js "a long turn keeps saying
   working") is not in this diff and passes alone 15/15 at load 70; contention.
+
+## Review round 2 (sonnet, 09:28)
+- The browser-check index entry still said the Connections box does not count Muse; rewritten for 3c-3b.
+- NIT left: acctMoveWorld's 'muse' key is unreachable today (both callers stop earlier for a Muse agent),
+  as its 'antigravity' key already is; kept so the helper answers right if a caller changes.
+
+## Review round 3 (opus, 09:51)
+- providerOf reading muse as 'meta' made "Switch to Anthropic" reachable on a Muse agent's page, a
+  setProvider path (muse -> claude) no test covers, whose dialog would speak of model and account choices
+  a Muse agent does not have. DECIDED: moving an agent off Muse is not offered in this slice, like moving
+  one onto it: the provider menu is held down with one line saying so. Rejected: an engine test for the
+  switch now (it belongs with the slice that offers switching both ways). Weakest premise: the engine
+  still accepts that switch from a direct API call, as it did before this branch; the page just no
+  longer offers it.
+- A 500 arm beside the throw arm in the failed-read node test.
+- NITs left: museCreateAsk's finally has no open-form guard (it acts on the live form, not another
+  agent's, and the chain ends once the value leaves meta); the native option text still ends "coming
+  soon" (the Decided section's known premise; a follow-up when the flag turns on by default); goneLoad
+  stubs vendorPicksModel (the real one is pinned in web.agy-on-3568).

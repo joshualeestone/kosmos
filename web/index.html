@@ -41962,6 +41962,11 @@ function paintProviderPicker(a) {
   const usable = ours && !(a && a.neverRecorded === true);
   sel.disabled = !usable;
   go.disabled = true;
+  /* #3939 3c-3b: moving an agent off Meta Muse is not offered yet, as moving one onto it is not. */
+  if (current === 'meta') {
+    sel.disabled = true;
+    if (msg && usable) msg.textContent = 'Moving an agent on Meta Muse to another provider is not offered yet.';
+  }
   /* 🛑 kosmos#2338: THE ACCOUNT CONTROL IS NO LONGER PARKED FOR A CODEX AGENT.
      This block used to disable #d-account for an OpenAI agent, on the premise
      that "the engine refuses a move" -- true for a PROVIDER switch, but FALSE for

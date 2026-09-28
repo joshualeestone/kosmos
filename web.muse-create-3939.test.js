@@ -38,6 +38,7 @@ function page(answers) {
     calls.fetch += 1;
     const a = answers.shift();
     if (a === 'throw') throw new Error('offline');
+    if (a === 500) return { ok: false, json: async () => ({ error: 'x' }) };
     return { ok: true, json: async () => a };
   };
   const api = load(doc, fetch, null, () => 'anthropic', () => { calls.gone += 1; });
@@ -67,13 +68,15 @@ test('#3939 3c-3b: not read yet shows today\'s option (disabled, no reason), nev
   assert.equal(p.els['create-provider'].opt('meta').dataset.off, undefined);
 });
 
-test('#3939 3c-3b: a failed read keeps the last good answer', async () => {
-  const p = page([{ enabled: true, installed: true, signedIn: true }, 'throw']);
-  await p.api.museCreateAsk();
-  await p.api.museCreateAsk();
-  assert.equal(p.calls.fetch, 2, 'CONTROL: the second read was made');
-  assert.equal(p.els['create-provider'].opt('meta').disabled, false);
-  assert.deepEqual(p.api.state(), { on: true, installed: true, ready: true });
+test('#3939 3c-3b: a failed read (thrown, or not ok) keeps the last good answer', async () => {
+  for (const bad of ['throw', 500]) {
+    const p = page([{ enabled: true, installed: true, signedIn: true }, bad]);
+    await p.api.museCreateAsk();
+    await p.api.museCreateAsk();
+    assert.equal(p.calls.fetch, 2, 'CONTROL: the second read was made (' + bad + ')');
+    assert.equal(p.els['create-provider'].opt('meta').disabled, false, String(bad));
+    assert.deepEqual(p.api.state(), { on: true, installed: true, ready: true }, String(bad));
+  }
 });
 
 test('#3939 3c-3b: turned off here is not asked again; turned on is asked on every paint', async () => {
