@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: restartscreen-4343
-diff_hash: bd2a96498243466f4c78ee590d99ff79e4c6df751aaf395f42fb4a051d3e4526
+diff_hash: 5ce32b7870c0e499237995ca0060471e3494bf0418c1ad008e47f73b94d87aa8
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-28T17:37:33Z
@@ -26,7 +26,12 @@ Validation history, stated plainly:
 - 6g after iteration 2: green on 59b1e41.
 - After iteration 5: 6j found two modal-sweep failures (web.modal-way-out-1316). The screen's alertdialog was being counted under a wrong name. The fix gives it the id restart-screen, states its deliberate no-Escape exclusion, and pins the key-stopping listener (7df42c2).
 - Two runs were stopped unfinished, each with its whole process group and no orphans left, because a review round had already found code to change.
-- Final 6j on this HEAD (43c5248): 11292 tests, 0 fail, subdir audit clean.
+- Final 6j on 43c5248: 11292 tests, 0 fail, subdir audit clean.
+- After the PR opened, CI's browser checks found one more: render-dm-emoji-3744's "closes somewhere"
+  arm leaned on the offline note this harness used to trigger (a 200 its painters could not draw had
+  counted as "nothing answered"). With a 200 now an answer, the header is shorter and the panel fits
+  at 120, so the check adds 90 (ff8c1fc). It passes on this branch and on origin/main. That commit is
+  test-only (no page code), so the full-suite result above still describes web/index.html.
 
 Every fix came with a control: the change removed or reverted, the arm confirmed red, then restored.
 
@@ -105,6 +110,7 @@ Every fix came with a control: the change removed or reverted, the arm confirmed
 | 20 | 7 | WARNING | card | BRANCH | #4342 dependency unstated | FIXED | card comment |
 | 21 | 1 | CONVENTION | plan | BRANCH | plan file present | DEFERRED | not a defect |
 | 22 | 7 | CONVENTION | plan | BRANCH | plan matches card | DEFERRED | not a defect |
+| 23 | CI | BLOCKER | render-dm-emoji-3744.js | BRANCH | close arm leaned on a false offline note | FIXED | ff8c1fc |
 
 ### NITs (non-blocking, across all iterations)
 - The 15 s clock starts at the first failed poll; a hung board waits on #4342 (stated on the card).
