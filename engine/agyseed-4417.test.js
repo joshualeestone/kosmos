@@ -12,6 +12,9 @@
  *
  *   node --test engine/agyseed-4417.test.js
  */
+/* FIRST, for its side effect: the bridge this test runs writes its throttle marker under os.tmpdir(), and the child
+   inherits TMPDIR, so the marker lands in this process's own temp dir and goes with it (the #4273 leak gate). */
+require('../test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
