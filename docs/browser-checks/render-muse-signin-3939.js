@@ -776,6 +776,18 @@ const chk = (ok, label, extra) => {
   await q(() => { MUSE_CREATE = null; window.__museInstalled = true; window.__museSignedIn = true; }); await q(() => frPaintMeta()); await settle();
   fm = await frMeta();
   chk(fm.btn && fm.btnOff && /Connected/.test(fm.btnText) && fm.box === 'fr-connbox' && /Meta Muse is connected/.test(fm.msg), 'first run, signed in: the row reads Connected with the gold box', JSON.stringify(fm));
+  /* The box is DRAWN, not only named: its computed style matches Gemini's box on the same step (a class name
+     with no rule behind it reads as a bare line). CONTROL: Gemini's line given the same class is the reference. */
+  const boxes = await q(() => {
+    const cs = (el) => { const c = getComputedStyle(el); return c.backgroundColor + '|' + c.paddingTop + '|' + c.borderTopLeftRadius; };
+    const muse = document.getElementById('fr-muse-msg');
+    const gem = document.getElementById('fr-gemini-msg');
+    const was = gem.className; gem.className = 'fr-connbox';
+    const out = { muse: cs(muse), gemini: cs(gem) };
+    gem.className = was;
+    return out;
+  });
+  chk(boxes.gemini !== 'rgba(0, 0, 0, 0)|0px|0px' && boxes.muse === boxes.gemini, 'first run, signed in: the Meta box is drawn like Gemini\'s (background, padding, corners)', JSON.stringify(boxes));
   await q(() => { frClose(); MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; });
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));

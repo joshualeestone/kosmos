@@ -9213,8 +9213,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
    .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
    moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
-#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT */
-#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg, #firstrun #fr-muse-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT; #3939 3c-4: Meta Muse too */
+#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox, #firstrun #fr-muse-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* #2241 sibling for the SETTINGS add-provider success (#acct-success-box): the same
    gold-wash check-row box as first-run's .fr-connbox, but scoped here because .fr-connbox
@@ -26817,7 +26817,7 @@ async function frPaintMeta(opts) {
   /* fresh: after a sign-in, a read that started before it would answer "signed out", so wait it out and ask
      again. A failed read keeps the last answer (MUSE_CREATE is never cleared here). */
   if (opts && opts.fresh && MUSE_CREATE_ASKING) { try { await MUSE_CREATE_ASKING; } catch { /* the next read decides */ } }
-  try { await museCreateAsk(); } catch { /* a failed read keeps the last answer */ }
+  await museCreateAsk();   // never rejects: a failed read leaves MUSE_CREATE as it was
   const m = MUSE_CREATE;
   const live = !!(m && m.on);
   row.classList.toggle('on', live); row.classList.toggle('off', !live);

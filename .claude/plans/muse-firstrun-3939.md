@@ -105,3 +105,12 @@ handling. It is the first thing to measure.
   arm that reds when the fix is removed. README row and the check's header name the 3c-4 arms.
 - The plan no longer says the flag-off row is byte-for-byte today's: it gained ids and a hidden Connect;
   the two existing tests pin its class and its Coming soon pill.
+
+## Review round 2 (sonnet, 14:17)
+- BLOCKER: the signed-in box had its class but no rule (#fr-muse-msg was missing from the two first-run
+  .fr-connbox selector lists), so it drew as a bare line; the check tested the class name only. Both lists
+  now name it, and the check compares computed style with Gemini's box (removing the selector reds it).
+  My 390px shots showed the open sign-in, not the signed-in state, so they could not have caught it.
+- NITs: the try/catch around museCreateAsk was dead (it never rejects), replaced with a comment saying so.
+  Row words decided: "Llama" over "Meta", as every other coming-soon row names the model family over the
+  vendor (Qwen/Alibaba, Mistral/Open weights).
