@@ -20244,6 +20244,11 @@ function agoWords(ms) {
   return days + (days === 1 ? ' day ago' : ' days ago');
 }
 
+/* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
+   and the full-restart screen (#4343) branch on. One function, so the two cannot drift apart. */
+function offlineRemoteView() {
+  try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
+}
 /**
  * The one thing worth saying when nothing is answering at all.
  *
@@ -20285,11 +20290,6 @@ function agoWords(ms) {
  * job; a dismiss on a live condition is a note that lies on the next glance;
  * and a countdown would imply the page knows something about the recovery.
  */
-/* Whether this window is a Kosmos+ view of a Mac somewhere else, the one test both the offline note
-   and the full-restart screen (#4343) branch on. One function, so the two cannot drift apart. */
-function offlineRemoteView() {
-  try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
-}
 function paintOfflineNote(down, deviceIsOffline) {
   const slot = document.getElementById('uoffline-slot');
   if (!slot) return;
@@ -20382,6 +20382,14 @@ function paintOfflineNote(down, deviceIsOffline) {
  * The page cannot restart the board itself, so there is no button: it says how.
  */
 const RESTART_SCREEN_AFTER_MS = 15000;
+/* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
+   in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
+function restartHowMac() {
+  let app = false;
+  try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
+  return app ? 'Quit Kosmos with Command-Q, then open it again from your Applications folder.'
+    : 'Open Kosmos again from your Applications folder.';
+}
 /* While the restart screen is up, no key reaches the page behind it. Every dialog's Escape and Tab
    handler (first run, updates, the notices, the modals, the pickers) listens on document, and a
    window capture listener runs before all of them, so one guard covers the ones that exist and the
@@ -20432,7 +20440,7 @@ function paintRestartScreen(down, deviceIsOffline) {
     + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
     + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
     + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
-    + '<p id="restart-how">' + platformCopy('restartHow', 'Quit Kosmos with Command-Q, then open it again from your Applications folder.') + '</p>'
+    + '<p id="restart-how">' + platformCopy('restartHow', restartHowMac()) + '</p>'
     + '</div></div>';
   const back = holder.firstElementChild;
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did

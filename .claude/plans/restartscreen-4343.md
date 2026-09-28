@@ -32,6 +32,9 @@ the Kosmos K, "Kosmos requires a full restart" (Josh's words, verbatim), and how
   flag, which matches #268's rule that a board that answered is not absent.
 - While up: page scroll and the scrollbar gutter are off, nodes added to <body> are made inert, and
   focus goes back where it was on recovery. Both painter calls are try-isolated.
+- Mac copy depends on where the page runs: in the Kosmos app (its kosmosBadge bridge) "Quit Kosmos with
+  Command-Q, then open it again from your Applications folder."; in a browser tab (kosmos open), where
+  Command-Q would quit the browser, "Open Kosmos again from your Applications folder."
 - Windows copy is a constant in windowsCopyTable (restartHow), Homer's wording; the check's baked
   Windows page (/win) asserts it.
 - While it is up, one window capture keydown listener stops every key reaching the page behind it

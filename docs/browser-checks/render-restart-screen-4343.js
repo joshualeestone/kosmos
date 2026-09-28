@@ -12,7 +12,7 @@
  *
  * Arms (light and dark):
  *   - down, before the wait is up: only the small note (positive control: the poll really failed);
- *   - down, after it: the screen. Exact headline, the Mac remedy and nothing else (details logged), opaque, full
+ *   - down, after it: the screen. Exact headline, the remedy and nothing else (details logged), opaque, full
  *     window, centered, page scroll off, everything behind it inert (including a node added while it
  *     is up), focus on it, a K that is drawn and does not move, and Escape/Tab doing nothing to a
  *     dialog left open under it;
@@ -21,6 +21,7 @@
  *   - broken (a 200 whose painting throws): never the screen, because the board did answer;
  *   - it stays away while an update runs, during a world switch, when the device is offline, and on a
  *     file:// page (where the note shows first, so the poll is known to be failing there);
+ *   - the Kosmos app (its kosmosBadge bridge): Command-Q first; a browser tab is told to reopen Kosmos;
  *   - a baked Windows page: the Windows remedy, and the version in the logged details.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-restart-screen-4343.js
@@ -94,6 +95,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     process.exit(1);
   }
 
+  const grounds = {};
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: theme });
     const t = '[' + theme + ']';
@@ -146,7 +148,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
         };
       });
       ok(t + ' the headline is Josh\'s words exactly', s.head === 'Kosmos requires a full restart', JSON.stringify(s.head));
-      ok(t + ' it says how: Command-Q, then the Applications folder', /Command-Q/.test(s.how) && /Applications folder/.test(s.how), JSON.stringify(s.how));
+      ok(t + ' in a browser tab it says to reopen Kosmos (Command-Q there would quit the browser)', s.how === 'Open Kosmos again from your Applications folder.', JSON.stringify(s.how));
+      grounds[theme] = s.bg;
       ok(t + ' nothing else on it: the mark, the headline and how to restart, and no details line', s.parts === 'canvas,h1,p', s.parts);
       ok(t + ' the version and the address that did not answer go to the log instead', logs.some((l) => /^Kosmos requires a full restart: .*nothing answered at 127\.0\.0\.1:\d+\.$/i.test(l)), JSON.stringify(logs.slice(-3)));
       ok(t + ' the ground is opaque (nothing shows through)', s.alpha === 1, s.bg);
@@ -154,7 +157,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' the message is centered (within 2px each way)', s.dx <= 2 && s.dy <= 2, JSON.stringify({ dx: s.dx, dy: s.dy }));
       ok(t + ' everything behind it is inert, and focus is on it', s.allInert && s.focused, JSON.stringify({ allInert: s.allInert, focused: s.focused }));
       ok(t + ' it is a modal alert dialog named by its headline and described by its how-to', s.role === 'alertdialog' && s.modal === 'true'
-        && s.name === 'Kosmos requires a full restart' && /Command-Q/.test(s.desc || ''), JSON.stringify({ role: s.role, modal: s.modal, name: s.name, desc: s.desc }));
+        && s.name === 'Kosmos requires a full restart' && s.desc === s.how, JSON.stringify({ role: s.role, modal: s.modal, name: s.name, desc: s.desc }));
       ok(t + ' the page behind does not scroll or keep its scrollbar gutter', s.scrollOff === true);
       await page.keyboard.press('Escape');
       await page.keyboard.press('Tab');
@@ -232,6 +235,23 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       return was;
     });
     ok(t + ' when the device itself is offline it does not claim Kosmos needs a restart', offline === false);
+    await page.close();
+  }
+
+  ok('CONTROL: the dark pass really ran dark (the screen\'s ground differs from the light pass)', grounds.light && grounds.dark && grounds.light !== grounds.dark, JSON.stringify(grounds));
+
+  // ── The Kosmos app itself (its kosmosBadge bridge present): Command-Q, then the Applications folder. ──
+  {
+    MODE = 'down';
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[app] pageerror: ' + e.message));
+    await page.addInitScript(() => { window.webkit = { messageHandlers: { kosmosBadge: { postMessage() {} } } }; });
+    await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
+    await page.waitForFunction(() => /not answering/.test(document.getElementById('uoffline-slot').textContent || ''), null, { timeout: 12000 }).catch(() => {});
+    await ageIt(page);
+    const drawn = await page.waitForSelector('.restart-back', { timeout: 8000 }).then(() => true, () => false);
+    const how = drawn ? await page.evaluate(() => document.querySelector('.restart-back p').textContent) : null;
+    ok('[app] in the Kosmos app it says Command-Q, then the Applications folder', how === 'Quit Kosmos with Command-Q, then open it again from your Applications folder.', JSON.stringify(how));
     await page.close();
   }
 
