@@ -12,11 +12,6 @@
 # Globs are allowed. aoc-state.*.polls: a mid-name random token that happens to be all one
 # case is not recognised as random, so the family is matched by pattern.
 aoc-state.*.polls
-# (unnamed): TEMPORARY. Full run 3 left one entry whose whole name is random characters
-# (a mkdtemp with an empty prefix); its source was not found by searching. The guard now
-# prints a raw example beside every family it reports; trace it from that, fix the
-# source, and delete this line.
-(unnamed)
 # kosmos-dmfiles: left only when server.dmfiles-refresh-3614.test.js FAILS (seen once, a
 # load flake), i.e. a failure-path leak.
 agy-e2e
@@ -264,7 +259,6 @@ srv-trust-restart
 store-migrate
 sub-machine
 sub-machine-observed
-sweep
 switch-acct
 tsock
 v8-compile-cache

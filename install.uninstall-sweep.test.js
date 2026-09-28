@@ -6,6 +6,7 @@
  * markup pins: the uninstall is verified by hand per its own harness note,
  * and what a unit test can hold is that neither pass loses its gates.
  */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');

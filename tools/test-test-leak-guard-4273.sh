@@ -31,7 +31,7 @@ for pair in 'codex-forget-AbC123=codex-forget' 'tmp.ULxoc1RTFh=tmp' 'worlds-1704
             'win32stop-Ab12Cd=win32stop' 'yarn--1790560282614-0=yarn' 'yarn--1790999999999-0=yarn' \
             'avatarverAbC123=avatarver' 'kosmos-newAb12Cd=kosmos-new' 'cli path-AbC123=cli path' \
             'readme=readme' 'status=status' 'logfile=logfile' 'codex-forget-abcdef=codex-forget' \
-            'Ab12Cd=(unnamed)'; do
+            'sweep2-8ydBNT=sweep2' 'win32s-AbC123=win32s' 'Ab12Cd=Ab12Cd' '-AbC123=(unnamed)'; do
   name=${pair%%=*}; want=${pair#*=}; got=$(leak_family "$name")
   [ "$got" = "$want" ] && ok "family of $name is $want" || bad "family of $name: got '$got', want '$want'"
 done
@@ -49,10 +49,10 @@ printf '%s\n' "$out" | grep -q 'note: 1 allowlisted families left nothing' && ok
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?
 [ "$rc" -eq 0 ] && ok "only allowlisted families left: clean" || bad "allowlisted-only root: rc=$rc"
-mkdir "$root/Ab12Cd"
+mkdir -- "$root/-AbC123"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q '(unnamed)'; then ok "an entry that normalises to nothing is reported, not skipped"; else bad "unnamed entry: rc=$rc out=$out"; fi
-rm -rf "$root/Ab12Cd"
+rm -rf -- "$root/-AbC123"
 leak_tmp_check "$work/no-such-root" "$work/allow" > /dev/null; rc=$?
 [ "$rc" -eq 0 ] && ok "a missing root is clean, not an error" || bad "missing root: rc=$rc"
 

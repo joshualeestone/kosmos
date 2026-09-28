@@ -29,6 +29,9 @@
 # recognised only when that part mixes letters with digits or cases, so about 1 run in
 # 90 keeps it and reports a new family. Give such a prefix a separator, or allowlist it
 # as a glob (`fixture*`), as `aoc-state.*.polls` is for a random part mid-name.
+# Only a 6- or 10-character random tail is recognised (node's mkdtemp, macOS mktemp's
+# default): a `mktemp` template with 8 X's (13 sites use one, all cleaned up today) would
+# report a new family every run if it ever leaked. Use 6 or 10.
 #
 # The check functions print what they found to stdout and return 1 when they found
 # something, 0 when clean. They never exit, and never fail on a missing tool.
@@ -161,10 +164,12 @@ leak_family() {
         tok = substr(s, 1, RSTART - 1); sep = substr(s, RSTART, 1); s = substr(s, RSTART + 1)
         # A dropped token takes its separator with it: the NEXT separator replaces the
         # one before it, so `flags-32868.txt` reads `flags.txt`.
-        if (random(tok) || tok ~ /^[0-9]+$/) { if (out ~ /[-_.]$/) out = substr(out, 1, length(out) - 1) sep; continue }
+        # The FIRST token is the prefix a test chose, never random (`sweep2-`, `win32s-`): a
+        # measured trace of the suite found no mkdtemp without a named prefix.
+        if (out != "" && (random(tok) || tok ~ /^[0-9]+$/)) { if (out ~ /[-_.]$/) out = substr(out, 1, length(out) - 1) sep; continue }
         out = out tok sep
       }
-      if (!random(s) && s !~ /^[0-9]+$/) out = out s
+      if (out == "" || (!random(s) && s !~ /^[0-9]+$/)) out = out s
       gsub(/[-_.]+$/, "", out); gsub(/^[-_.]+/, "", out); gsub(/[-_]+\./, ".", out)
       print (out == "" ? "(unnamed)" : out)
     }'
