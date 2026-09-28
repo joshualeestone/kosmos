@@ -7,8 +7,9 @@
  * real thing, so a green suite here says nothing about Windows (#1777's "false green"). The
  * `windows` job in .github/workflows/windows.yml runs this script on a real Windows runner.
  *
- * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo root; the
- * root's tools.win-* / tools.windows-* files; and the files named in ALSO (engine) and ALSO_ROOT. One file at a time, stdin closed (a child that reads
+ * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo
+ * root; the root's tools.win-* / tools.windows-* files; and the files named in ALSO
+ * (engine) and ALSO_ROOT. One file at a time, stdin closed (a child that reads
  * stdin would otherwise wait for ever), with a per-test timeout so a hang is named as the test
  * that hangs, and an overall budget so the job ends with a verdict rather than being killed.
  * Left out on purpose: the files in HOST_BRANCH_EXCLUDED, each with its reason; github.test.js,
@@ -43,12 +44,11 @@ const cp = require('node:child_process');
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
-  'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js'];
+  'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js'];
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js'];
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
-  'engine/create.test.js': 'measured on windows-latest: 121 of 189 fail because they need Claude Code installed or macOS LaunchAgents (#4269); the Windows create path is the create.win32-* files, which pass',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
@@ -69,9 +69,6 @@ const ALL_SKIP_OK = {
 // in it. Every entry names the card that owns it. Names are as node's spec reporter prints them;
 // a failing SUBTEST also marks its parent failing, so list the parent's name as well.
 const KNOWN_RED = {
-  'engine/remove.test.js': { card: '#4269', tests: [
-    'a creation that did not record drops a stale record for its name (#169)',
-  ] },
   'tools.win-installer-native.test.js': { card: '#4266', tests: [
     'W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed',
     '\u{1F6D1} finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING',
@@ -88,7 +85,7 @@ const KNOWN_RED = {
 // or fail, and neither is judged. Each names its card. Keep this short; a test here is not run
 // in any sense that counts.
 const FLAKY = {
-  'engine/win32handoff.test.js': { card: '#4258', tests: [
+  'engine/win32handoff.test.js': { card: '#4278', tests: [
     '\u{1F6D1} win32-installer-native round 6 finding 1: the launcher\'s hand-off probe is unchanged: one 2 s limit for the connect and the answer (#2983)',
   ] },
 };

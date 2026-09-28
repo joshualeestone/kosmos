@@ -27,7 +27,9 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is
   news a Mac run cannot give: a Windows defect, or (more often so far) a test that assumes macOS.
-  A known red is listed in its `KNOWN_RED` with its card.
+  Its lists, each entry with its card or reason: `KNOWN_RED` (tests expected to fail), `FLAKY`
+  (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
+  (Windows-branching files left out).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
   shells out to `yarn` (`yarn -s test:shell`, line 210), and its own coverage-mismatch message
   names `yarn test` the canonical helper, so yarn must be present regardless. There is no

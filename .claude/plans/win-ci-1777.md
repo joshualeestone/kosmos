@@ -5,7 +5,7 @@ Every PR and every push to main runs the engine's Windows test files on a real W
 (windows-latest, node 26). The job is red on any failure that is not listed with its card, and red
 when a listed file passes again or is no longer run.
 
-## What is still true on main (measured 2026-09-27 at origin/main b5c8415; branch now rebased on 3aa29fe)
+## What is still true on main (measured 2026-09-27 at origin/main b5c8415; branch now rebased on c8cdb3f)
 - Items 1 and 2 of #1777 (name the surface, compose source pins): done
   (windows-coupling-audit-1732, win32-separator-guard).
 - Item 3 (the bare `| O_NOFOLLOW` in instructions.js): done (#3950).
@@ -86,21 +86,21 @@ when a listed file passes again or is no longer run.
 - Review round 4: host-branch files. Run 36363427109 added six. outbox, world-guard-lift and
   cli.world-outbox pass. boardauth's mode arm was fixed. remove's #169 arm is filed as #4269.
   create.test.js failed 121 of 189 (run 36364391579): they need Claude Code installed or macOS
-  LaunchAgents, so it is excluded with that reason. Its Windows path is the create.win32-* files,
-  which pass. The four e2e/integration files skip everything on the runner and are named in
+  LaunchAgents. It was excluded with that reason until #4274 made it state its platform. The four e2e/integration files skip everything on the runner and are named in
   ALL_SKIP_OK.
 - The same run failed a win32handoff arm that had passed five times: it probes the runner's own
-  address (10.1.0.10) and got "refused" instead of a timeout. It is listed in FLAKY under #4258;
+  address (10.1.0.10) and got "refused" instead of a timeout. It was listed in FLAKY under #4258 (now #4278);
   a flaky failure is not judged, and a kill is never excused.
 
 - Rebased onto origin/main after #4265 (#4257) and #4268 (#4267) landed. Both fixed their tests,
   so the four entries under those cards were dropped from KNOWN_RED.
 - Rebased again after #4272 fixed #4258's zone arm, whose entry was dropped. win32handoff's
   runner-address arm stays in FLAKY; its test is unchanged on main.
-- Still listed at 3aa29fe: #4266 (8 native-installer probes) and #4269 (remove's #169 arm).
-  **#4274 (open, #4269's fix)** also asks for create.test.js to move from HOST_BRANCH_EXCLUDED
-  into ALSO. Whichever of it and this PR lands second drops the remove entry and moves
-  create.test.js, measured on the runner.
+- Rebased again after #4274 (#4269's fix) landed; this PR landed second, so it dropped
+  remove.test.js's entry and moved create.test.js from HOST_BRANCH_EXCLUDED into ALSO
+  (#4274 makes it skip its POSIX-only tests on a win32 host). Still listed at c8cdb3f: #4266
+  (8 native-installer probes). FLAKY's one test moved to its own open card, #4278, since #4258
+  closed.
 - The runner run for the branch as it stands is cited in the PR body (it is taken after the
   last change, so it cannot be written here first).
 

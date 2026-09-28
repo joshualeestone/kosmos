@@ -211,6 +211,9 @@ test('the workflow runs this script on Windows, on PRs and pushes to main, and c
   assert.match(wf, /WINDOWS_TESTS_PR_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
   assert.match(wf, /fetch-depth: 0/, 'the PR diff needs the base commit');
   const minutes = Number(wf.match(/timeout-minutes: (\d+)/)[1]);
-  assert.ok(minutes * 60000 > w.START_BUDGET_MS + w.PER_FILE_TIMEOUT_MS,
+  // timeout-minutes also covers checkout (full history) and setup-node, before the script's clock
+  // starts; 5 minutes is allowed for them.
+  const SETUP_ALLOWANCE_MS = 5 * 60000;
+  assert.ok(minutes * 60000 >= w.START_BUDGET_MS + w.PER_FILE_TIMEOUT_MS + SETUP_ALLOWANCE_MS,
     'the job could be cancelled mid-file before the script prints its verdict');
 });
