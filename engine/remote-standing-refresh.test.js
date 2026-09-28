@@ -50,6 +50,19 @@ test('refresh: a NO-OP while the cache is still fresh (younger than the TTL)', a
   assert.equal(remote.kosmosPlus(), true, 'and the cached member value is served unchanged');
 });
 
+test('refresh: a standing_at in the FUTURE (a clock stepped back) is stale, not fresh (#4277)', async () => {
+  enroll();
+  // Stored an hour ahead of the clock now: a wrong Mac clock that was corrected.
+  writeSettings({ on: true, standing: 'good', standing_at: 1000 + 60 * 60 * 1000 });
+  let called = 0;
+  await remote.refreshStandingIfStale({ now: 1000, ttlMs: TTL, fetcher: async () => { called++; return 'good'; } });
+  assert.equal(called, 1, 'a future standing_at silenced the refresh until the clock caught up');
+  // And the early tick's TTL 0 asks too.
+  writeSettings({ on: true, standing: 'good', standing_at: 1000 + 60 * 60 * 1000 });
+  await remote.refreshStandingIfStale({ now: 1000, ttlMs: 0, fetcher: async () => { called++; return 'good'; } });
+  assert.equal(called, 2, 'the early tick (TTL 0) was silenced by a future standing_at');
+});
+
 test('refresh: the UPGRADE case -- a stale non-member re-fetches good and becomes a member', async () => {
   enroll();
   writeSettings({ on: true, standing: 'none', standing_at: 1000 });   // paid AFTER enrolling
@@ -72,9 +85,11 @@ test('refresh: a fetch that CANNOT determine (null) keeps the last-known value +
   await remote.refreshStandingIfStale({ now: 1000 + TTL + 1, ttlMs: TTL, fetcher: async () => null });
   assert.equal(remote.read().standing, before, 'null does NOT change the cached value (no flicker)');
   assert.equal(remote.kosmosPlus(), true, 'the member keeps seeing it');
-  // standing_at was restamped (~now), so it will not re-fetch again until the next TTL.
+  // standing_at was restamped with the real clock (Date.now()), so it will not re-fetch again until
+  // the next TTL. Asked on the same real clock: a synthetic `now` near 1000 would read that stamp as
+  // a far-future one, which is stale by design (a clock stepped back, #4277).
   let called = false;
-  await remote.refreshStandingIfStale({ now: 1000 + TTL + 2, ttlMs: TTL, fetcher: async () => { called = true; return 'good'; } });
+  await remote.refreshStandingIfStale({ now: Date.now() + 1, ttlMs: TTL, fetcher: async () => { called = true; return 'good'; } });
   assert.equal(called, false, 'restamped -> the retry is backed off to the next TTL');
 });
 

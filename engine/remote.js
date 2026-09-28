@@ -87,6 +87,8 @@ const store = require('./store');
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'remote.json');
 const STATE_DIR = () => process.env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(BASE, 'remote');
+/* Whether STATE_DIR() is the override rather than the default: one derivation, read by the report. */
+const STATE_DIR_IS_CUSTOM = () => !!process.env.AGENT_WORKFORCE_TUNNEL_STATE;
 const STATUS_FILE = () => path.join(BASE, 'remote-status.json');
 /* Where the connector lives. An explicit AGENT_WORKFORCE_TUNNEL_BIN wins (the
  * test seam, and any operator override). Otherwise prefer the copy this app
@@ -131,6 +133,24 @@ let child = null;
 let restartTimer = null;
 let restartBecause = null;
 let backoffMs = 1000;
+/* kosmos#4277: how many times the supervisor has relaunched the tunnel, so the remote
+   report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
+let restarts = 0;   // since process start, never reset (resetForTests leaves it): read it as a delta
+let restartPending = false;
+/* kosmos#4277: the tunnel rewrites its status to "connecting" (no reason) at the start of
+   every retry (kosmos-relay lib.rs run_forever), so a stuck tunnel shows WHY only in the backoff
+   window. The last failure sentence the CURRENT process wrote is kept here, sampled whenever
+   status() reads the file (the report, a page, and the 15 s ensure tick), so the report can name
+   it while the tunnel is dialling again. Memory only: the report classifies it and never sends
+   it. Cleared when that process is up, and for a new process. It is a sample: a failure is seen
+   only if a read lands in the tunnel's `restarting` window (its backoff, 1 s and doubling), so
+   a tunnel that failed once or twice may still read `starting`; one that keeps failing is caught
+   within about a minute, as the backoff passes the 15 s tick. */
+let lastTunnelFailure = null;
+/* When the current process was last seen NOT up (its start, or its first sample after being up),
+   on the board's monotonic clock, so a wall-clock step cannot move it. Null while up. Lets the
+   report tell a tunnel stuck on its first dial (which writes no failure) from one just started. */
+let dialingSince = null;
 let localPort = null;
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
@@ -236,6 +256,33 @@ async function fetchStanding() {
    contract: callers do NOT await it; the poll serves the cached value and this updates
    it for next time. A no-op unless enrolled, single-flighted so concurrent polls do
    not stack fetches, and best-effort (never throws into the status tick). */
+/* kosmos#4277: the timer that sends the remote report on its own, so a board nobody is watching
+   still reports (tested here rather than in server.js). Every ten minutes it
+   runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
+   refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
+   caller, at most one standing call per ten minutes. The TTL sits under
+   the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
+   skipped every other tick. Called through module.exports so a test can observe it; a
+   refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
+   board that an update just restarted says how it came back without waiting a whole interval.
+   That tick asks with a TTL of 0: the last report's time is saved in remote.json and survives
+   the restart, so under the ordinary TTL it would send nothing about four restarts in five. Both timers are unref'd so neither holds the process open; the early one rides on the
+   returned interval as `.first`, so a caller can clear it too. */
+const REPORT_INTERVAL_MS = 10 * 60 * 1000;
+const REPORT_TTL_MS = 9 * 60 * 1000;
+const REPORT_FIRST_MS = 60 * 1000;
+function startReportTimer({ intervalMs = REPORT_INTERVAL_MS, ttlMs = REPORT_TTL_MS, firstMs = REPORT_FIRST_MS } = {}) {
+  const tick = (ttl) => {
+    try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: ttl })).catch(() => {}); } catch { /* best-effort */ }
+  };
+  const first = setTimeout(() => tick(0), firstMs);
+  if (typeof first.unref === 'function') first.unref();
+  const t = setInterval(() => tick(ttlMs), intervalMs);
+  if (typeof t.unref === 'function') t.unref();
+  t.first = first;
+  return t;
+}
+
 async function refreshStandingIfStale(opts) {
   opts = opts || {};
   const ttl = typeof opts.ttlMs === 'number' ? opts.ttlMs : STANDING_TTL_MS;
@@ -243,10 +290,16 @@ async function refreshStandingIfStale(opts) {
   const fetcher = typeof opts.fetcher === 'function' ? opts.fetcher : fetchStanding;
   if (standingRefreshInFlight) return;
   if (busy()) return;                        // not on a key being replaced or retired
-  if (!enrolled()) return;                  // no account on this board -> nothing to refresh
+  if (!enrolled()) {                        // no account on this board -> nothing to refresh,
+    reportNotEnrolledIfDue(now);            // but a switch that is ON says why it cannot serve (#4277)
+    return;
+  }
   const s = read();
   if (s.ok !== true) return;
-  if (now - (s.standing_at || 0) < ttl) return;   // still fresh
+  // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
+  // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
+  // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
+  if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
   standingRefreshInFlight = true;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
@@ -263,6 +316,46 @@ async function refreshStandingIfStale(opts) {
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
   finally { standingRefreshInFlight = false; }
 }
+/* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
+   switch is on and it still holds a key: a board in that state never asks for a relay
+   ticket, and this is the only way the reason reaches us. At most every
+   NOT_ENROLLED_REPORT_MS, signed with the key alone, and the answer is ignored (it is not
+   a standing refresh: a board that is not enrolled has no standing to keep). Never under
+   the test runner unless a test supplies its own tunnel (the fetchStanding guard). */
+const NOT_ENROLLED_REPORT_MS = 5 * 60 * 1000;
+let notEnrolledReportAt = 0;
+let notEnrolledReportInFlight = false;
+let notEnrolledLastLogged = null;   // one stderr line per distinct reason, not one every five minutes
+function reportNotEnrolledIfDue(now) {
+  // Its own guard, stated rather than incidental: nothing here may throw into the status tick.
+  try {
+    // NODE_TEST_CONTEXT on purpose, not live-execution.js's execArgv: this guard keeps a
+    // test from phoning the production coordinator, so a board a test SPAWNS must inherit it too,
+    // as createdbeacon.js and feedbacksend.js reason. A test that supplies its own tunnel opts in.
+    if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
+    // Math.abs: a wall clock stepped backwards must not silence the report until it catches up.
+    if (notEnrolledReportInFlight || Math.abs(now - notEnrolledReportAt) < NOT_ENROLLED_REPORT_MS) return;
+    const s = read();
+    if (s.ok !== true || s.on !== true || !holdsKey()) return;
+    const report = require('./remote-report').build();
+    if (!report) return;
+    notEnrolledReportAt = now;
+    notEnrolledReportInFlight = true;
+    // Through the export, so a test can observe the call without any binary being run.
+    module.exports.macRequest('POST', KEY_ONLY_ROUTE, { remote: report }, { keyOnly: true })
+      .then((r) => {
+        if (r && r.ok) { notEnrolledLastLogged = null; require('./remote-report').commitHeal(report); return; }
+        const why = (r && r.because) || 'unknown';
+        if (why !== notEnrolledLastLogged) {
+          notEnrolledLastLogged = why;
+          process.stderr.write('remote: the remote report did not go (kosmos#4277): ' + why + '\n');
+        }
+      })
+      .catch(() => {})
+      .finally(() => { notEnrolledReportInFlight = false; });
+  } catch { notEnrolledReportInFlight = false; }
+}
+
 /* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
    True iff the cached coordinator standing is exactly "good" (ICK's contract:
    kosmos_plus == standing=="good"). Fail-safe: any other/unknown value is false,
@@ -398,9 +491,10 @@ function write(patch, opts) {
     certificate. Half a state dir is not enrolled. */
 /* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
    halfRegistered() whether it holds a key the coordinator knows (#3827). */
+const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
 function enrolled() {
   const dir = STATE_DIR();
-  return ['mac_id', 'address', 'tls.crt', 'tls.key'].every((f) =>
+  return ENROL_FILES.every((f) =>
     fs.existsSync(path.join(dir, f)));
 }
 
@@ -467,7 +561,10 @@ function ensure(port) {
     // tunnel started in the retire wait would run on the key being deleted.
     const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
-    if (child || restartTimer) return;
+    // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
+    // backoff is reset every tick (status() does that on `up`), not only when a page asks.
+    if (child) { status(); return; }
+    if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
     // minute would run the new identity on the old certificate. The register
@@ -498,6 +595,9 @@ function spawnFedSeat(edgeId) {
 }
 
 function startChild() {
+  if (restartPending) { restarts += 1; restartPending = false; }
+  lastTunnelFailure = null;   // a new process has written nothing yet
+  dialingSince = performance.now();
   const args = [
     'run',
     '--relay', RELAY(),
@@ -571,13 +671,24 @@ function scheduleRestart() {
   restartTimer = setTimeout(() => {
     restartTimer = null;
     backoffMs = Math.min(backoffMs * 2, 60000);
+    restartPending = true;   // counted in startChild, only if a tunnel really is started again
     ensure(localPort);
   }, backoffMs);
   /* A pending restart must not hold the board open on shutdown. */
   if (typeof restartTimer.unref === 'function') restartTimer.unref();
 }
 
+/* kosmos#4277: a register that succeeded starts the tunnel itself, so a
+   relaunch the supervisor had pending (its flag AND its timer, which can outlive the register when
+   the identity is kept and nothing stopped the tunnel) is dropped: the register's start is not a
+   relaunch, and it must not wait for an old backoff to fire. */
+function registerTakesOver() {
+  restartPending = false;
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+}
+
 function stopChild() {
+  restartPending = false;   // a deliberate stop: the next start is not a supervisor relaunch
   if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   backoffMs = 1000;
   restartBecause = null;
@@ -653,6 +764,9 @@ function status() {
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
+    if (raw.state === 'up') { lastTunnelFailure = null; dialingSince = null; }
+    else if (dialingSince === null) dialingSince = performance.now();
+    if (raw.state === 'restarting' && typeof raw.because === 'string' && raw.because) lastTunnelFailure = raw.because;
     if (raw.state === 'up') {
       /* A healthy run earns a fresh backoff: without this the window only
          ever grows (stopChild is the sole other reset), so a board that has
@@ -748,8 +862,24 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
 // A signed request is one round trip; 20 s covers a slow network and still
 // frees a caller (a Settings turn-on) stuck on a hung tunnel.
 const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
-async function macRequest(method, routePath, body) {
-  if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
+/* kosmos#4277: `opts.keyOnly` signs with only the identity files (mac_id and mac_key),
+   for the one call that must still go out when the board believes it is NOT enrolled:
+   the remote report, which is how we learn WHY. The tunnel's mac-request verb needs no
+   more than those two files. Every other caller keeps the enrolled() gate. */
+/* ONE derivation of "this Mac holds its key and id" (halfRegistered() below builds on it). */
+function holdsKey() {
+  const dir = STATE_DIR();
+  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(dir, f)));
+}
+const KEY_ONLY_ROUTE = '/v1/mac/standing';
+async function macRequest(method, routePath, body, opts) {
+  const keyOnly = !!(opts && opts.keyOnly);
+  // keyOnly opens ONE route, the report's, and nothing else, whatever a future caller passes.
+  if (keyOnly && !(method === 'POST' && routePath === KEY_ONLY_ROUTE)) {
+    return { ok: false, because: 'only the remote report may be signed without enrolment' };
+  }
+  const identityThere = keyOnly ? holdsKey() : enrolled();
+  if (!identityThere) return { ok: false, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
   // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
@@ -838,10 +968,11 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs). Worst case, four bounds in a row, about eight minutes:
-  // the register first retiring a half identity (retireTimeoutMs, a minute), the
-  // register itself (five), signed calls already out (a minute, below), then this
-  // retire (a minute). Only when something is already broken.
+  // (registerTimeoutMs). Worst case, five bounds in a row, about nine minutes: the
+  // register first waiting on signed calls already out (a minute) and retiring a
+  // half identity (retireTimeoutMs, a minute), the register itself (five), signed
+  // calls already out again (a minute, below), then this retire (a minute). Only
+  // when something is already broken.
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -1004,7 +1135,9 @@ async function setupComplete(code, name) {
   if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
-  if (result.ok) ensure(localPort);
+  // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
+  // while it was out; a register that fails leaves the pending relaunch for the next tick.
+  if (result.ok) { registerTakesOver(); ensure(localPort); }
   /* #3889: cache this account's standing now. `setup complete` prints no JSON (setupRun never sets .data, so the
      branch that read result.data here never ran), and a new identity was just cleared to '' with a FRESH
      standing_at, so the poll would not re-ask for a whole TTL: the member-only federation UI read "not a member"
@@ -1589,7 +1722,7 @@ const retireTimeoutMs = () => {
 // Exactly that: key and id, and no certificate. A Mac with its certificate is not
 // half anything (a missing address file alone must never retire and wipe it).
 const halfRegistered = () => !enrolled()
-  && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)))
+  && holdsKey()
   // The certificate is tls.crt; the tunnel writes tls.key first, so a kill between
   // the two leaves a key and no certificate, which is still half registered.
   && !fs.existsSync(path.join(STATE_DIR(), 'tls.crt'));
@@ -1609,6 +1742,11 @@ const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be starte
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
+  // kosmos#4277: a half-registered board sends a key-only report every five minutes,
+  // and this is exactly when a person signs in again. Let a signed call already out finish before
+  // the retire and the wipe below, as Forget does. Bounded: each tracked call carries its own kill
+  // timeout. No new one starts meanwhile: the register is out, and macRequest refuses while busy().
+  if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
   const r = await retireHere();
   // No answer (timed out, unreachable, the program would not start, a server
   // error) may work a moment later, and only this key can do it: keep it, and the
@@ -1753,6 +1891,7 @@ async function signinRegister(name) {
   if (macIdHere() !== before) stopChild();
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
+  registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
@@ -1773,6 +1912,10 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   kosmosPlus,
   fedSetStanding,
   refreshStandingIfStale,
+  startReportTimer,
+  REPORT_INTERVAL_MS,
+  REPORT_TTL_MS,
+  REPORT_FIRST_MS,
   federationLive,
   refreshFederationLiveIfStale,
   setOn,
@@ -1802,11 +1945,26 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      something. */
   coordinator: COORDINATOR,
   stateDir: STATE_DIR,
+  /* kosmos#4277: the supervisor's relaunch count, read by engine/remote-report.js. */
+  restartCount: () => restarts,
+  /* kosmos#4277: the current tunnel process's last failure sentence, for
+     engine/remote-report.js to classify. Never sent as text. */
+  lastTunnelFailure: () => lastTunnelFailure,
+  /* How long the current tunnel process has been dialling without being up, in ms, or null. */
+  dialingForMs: () => (dialingSince === null ? null : performance.now() - dialingSince),
+  holdsKey,
+  stateDirIsCustom: STATE_DIR_IS_CUSTOM,
+  /* kosmos#4277: whether the supervisor's tunnel process is up ('alive'), dead with a
+     relaunch scheduled ('waiting'), or not running ('none'). This, not status(), says whether a
+     relaunch held: status() reads `restarting` for the tunnel's own in-process reconnects too. */
+  supervisorState: () => (restartTimer ? 'waiting' : (child ? 'alive' : 'none')),
+  KEY_ONLY_ROUTE,
+  ENROL_FILES,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

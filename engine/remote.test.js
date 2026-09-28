@@ -158,6 +158,13 @@ if (args[0] === 'signin') {
     // can assert it landed via stdin and is absent from the recorded argv.
     const token = fs.readFileSync(0, 'utf8').trim();
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
+    // A register that takes its time and keeps this Mac's identity and certificate, writing
+    // nothing (#4277: a restart timer fires inside it, and no new id stops the tunnel after it).
+    if (mode.includes('slow-signin')) {
+      const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ }
+      console.log(JSON.stringify({ stage: 'registered', mac_id: 'fake', name: flag('--name'), address: flag('--name') + '.kosmos.invalid', standing: 'good', kept_certificate: true }));
+      process.exit(0);
+    }
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
@@ -257,10 +264,31 @@ if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
+  // Like the real run_forever: a session fails (restarting, with a reason), then the next retry
+  // rewrites the status to connecting with NO reason (#4277).
+  if (mode.includes('slow-up')) {
+    // A process that has written nothing yet (the board reads "starting the connection"), then is up.
+    const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
+    setTimeout(() => fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', address, because: null, pid: process.pid }) + '\\n'), 1500);
+    setInterval(() => {}, 1000);
+    process.on('SIGTERM', () => process.exit(0));
+  } else if (mode.includes('retry-loop')) {
+    const w = (o) => fs.writeFileSync(statusFile, JSON.stringify(Object.assign({ address: null, pid: process.pid }, o)) + '\\n');
+    w({ state: 'connecting', because: null });
+    setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 100);
+    setTimeout(() => w({ state: 'connecting', because: null }), 2500);
+    if (mode.includes('then-up')) {
+      const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
+      setTimeout(() => w({ state: 'up', address, because: null }), 2900);
+    }
+    setInterval(() => {}, 1000);
+    process.on('SIGTERM', () => process.exit(0));
+  } else {
   const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
   fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', address, because: null, pid: process.pid }) + '\\n');
   setInterval(() => {}, 1000);
   process.on('SIGTERM', () => process.exit(0));
+  }
 }
 `, { mode: 0o755 });
 
@@ -291,8 +319,8 @@ function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
   catch { return []; }
 }
-async function until(check, what) {
-  for (let i = 0; i < 200; i += 1) {
+async function until(check, what, ms = 5000) {
+  for (let i = 0; i < ms / 25; i += 1) {
     if (check()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -567,6 +595,242 @@ test('a crashing child renders restarting with a because, never fine', async () 
   const s = remote.status();
   assert.match(s.because, /crash|restarting/i);
   assert.notEqual(s.state, 'up', 'a crashed child rendered as fine');
+});
+
+/* kosmos#4277 acceptance: the supervisor is the self-heal. A tunnel killed out from under the
+   board comes back on its own, as a NEW process, and the relaunch is counted so the remote
+   report can say it happened. Then the update path: a board restart (the child stopped, the
+   switch still on) brings the tunnel back on the next ensure(), with no person involved. */
+test('#4277: a killed tunnel is relaunched by the supervisor, counted, and comes back up; a board restart brings it back too', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9445';
+  delete process.env.FAKE_TUNNEL_MODE;
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.ensure(4310);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const first = remote.currentChildPid();
+  const before = remote.restartCount();
+  process.kill(first, 'SIGKILL');
+  await until(() => remote.status().state === 'up' && remote.currentChildPid() && remote.currentChildPid() !== first,
+    'the supervisor to relaunch the killed tunnel as a new process');
+  assert.equal(remote.restartCount(), before + 1, 'the relaunch was not counted');
+  assert.equal(remote.supervisorState(), 'alive', 'the relaunched tunnel process is up');
+  // The update path: the board goes away (its child with it) and starts again with the switch on.
+  remote.resetForTests();
+  assert.equal(remote.currentChildPid(), null, 'the old board left a tunnel running');
+  remote.ensure(4310);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back after a board restart');
+  remote.resetForTests();
+});
+
+/* kosmos#4277: a relaunch is counted only when the supervisor really starts the
+   tunnel again. A restart timer that fires into a board that is no longer wanted counts nothing,
+   and a later start by the person is not a supervisor relaunch either. */
+test('#4277: a restart timer firing into an unwanted board counts nothing, and a later start is not a relaunch', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9446';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.ensure(4320);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  const before = remote.restartCount();
+  assert.equal(remote.supervisorState(), 'waiting', 'a crashed tunnel with a relaunch scheduled');
+  // The board stops being enrolled before the restart timer fires: ensure() finds it unwanted.
+  const crt = nodePath.join(remote.stateDir(), 'tls.crt');
+  const saved = fs.readFileSync(crt);
+  fs.rmSync(crt);
+  await until(() => remote.supervisorState() === 'none', 'the restart timer to fire into the unwanted board');
+  assert.equal(remote.restartCount(), before, 'a timer firing into an unwanted board counted a relaunch');
+  // The person puts it right and the board starts the tunnel: not a supervisor relaunch.
+  delete process.env.FAKE_TUNNEL_MODE;
+  fs.writeFileSync(crt, saved);
+  remote.ensure(4320);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up after the fix');
+  assert.equal(remote.restartCount(), before, 'a start after a deliberate stop was counted as a relaunch');
+  remote.resetForTests();
+});
+
+test('#4277: the report names the same enrolment files enrolled() checks', () => {
+  assert.deepEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
+    'the not-enrolled report would name files enrolled() does not check');
+});
+
+/* kosmos#4277/11: a restart timer that fires while a register is out defers to the
+   register, which starts the tunnel itself; that start is the register's, not a relaunch. */
+test('#4277: a restart timer firing during a register does not count the register\'s start as a relaunch', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9447';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  // A fresh supervisor (backoff back at 1 s), so the restart timer fires well inside the register.
+  remote.resetForTests();
+  remote.ensure(4330);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart', 15000);
+  // A rename re-runs setup on an enrolled Mac and keeps its id (the fake writes the same mac_id), so
+  // the register neither stops the tunnel nor lets ensure() start one while it is out. The next
+  // tunnel runs; the setup holds long enough for the 1 s restart timer to fire inside it.
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  process.env.FAKE_REGISTER_MS = '3000';
+  const before = remote.restartCount();
+  try {
+    const racing = remote.setupComplete('123456', 'theirs');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out', 15000);
+    assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
+    const r = await racing;
+    assert.equal(r.ok, true, r.because);
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up', 15000);
+    assert.equal(remote.restartCount(), before, 'the register\'s own start was counted as a supervisor relaunch');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
+test('#4277: a register that succeeds while a relaunch is still pending starts the tunnel now, and it is not counted', async (t) => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9451';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();   // backoff 1 s
+  remote.ensure(4360);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart');
+  // A quick rename (same Mac id, nothing stops the tunnel) returns while the relaunch is still pending.
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  process.env.FAKE_REGISTER_MS = '50';
+  const before = remote.restartCount();
+  try {
+    assert.equal(remote.supervisorState(), 'waiting', 'fixture: a relaunch must be pending when the register goes out');
+    const t0 = Date.now();
+    const r = await remote.setupComplete('123456', 'theirs');
+    // Under load the register can outlast the 1 s backoff, and then this is a different test.
+    if (Date.now() - t0 >= 900) { t.skip('the register outlasted the backoff on this box; nothing to measure'); return; }
+    assert.equal(r.ok, true, r.because);
+    assert.equal(remote.supervisorState(), 'alive', 'the register waited for the old backoff instead of starting the tunnel');
+    await until(() => remote.status().state === 'up', 'the tunnel to come up', 15000);
+    await new Promise((res) => setTimeout(res, 1500));   // past where the old 1 s timer would have fired
+    assert.equal(remote.restartCount(), before, 'the old relaunch timer fired after the register and was counted');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
+test('#4277: the same, through the in-app sign-in register when it keeps this Mac\'s identity', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9448';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  process.env.FAKE_TUNNEL_MODE = 'crash';
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();   // a fresh supervisor (backoff back at 1 s); it also drops any sign-in, so sign in after
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  remote.ensure(4340);
+  await until(() => remote.status().state === 'restarting', 'the crash to schedule a restart', 15000);
+  process.env.FAKE_TUNNEL_MODE = 'slow-signin';
+  process.env.FAKE_REGISTER_MS = '3000';
+  const before = remote.restartCount();
+  try {
+    const racing = remote.signinRegister('kept');
+    await until(() => remote.supervisorState() === 'none', 'the restart timer to fire while the register is out', 15000);
+    assert.equal(remote.currentChildPid(), null, 'fixture: ensure() started a tunnel while the register was out');
+    const r = await racing;
+    assert.equal(r.ok, true, r.because);
+    await until(() => remote.status().state === 'up', 'the register to bring the tunnel up', 15000);
+    assert.equal(remote.restartCount(), before, 'the sign-in register\'s own start was counted as a supervisor relaunch');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_REGISTER_MS; remote.resetForTests(); }
+});
+
+test('#4277: the report timer runs the refresh on its own, under a TTL below its interval, survives a throw, and never holds the process open', async () => {
+  assert.ok(remote.REPORT_TTL_MS < remote.REPORT_INTERVAL_MS, 'a TTL not under the interval skips every other tick (the refresh stamps after the fetch)');
+  const real = remote.refreshStandingIfStale;
+  const seen = [];
+  remote.refreshStandingIfStale = (opts) => { seen.push(opts); if (seen.length === 1) throw new Error('boom'); return Promise.reject(new Error('later')); };
+  // First, the early tick: an update restarts the board, and a board nobody is watching must not
+  // wait a whole interval to say how it came back.
+  const early = remote.startReportTimer({ intervalMs: 60 * 60 * 1000, firstMs: 20 });
+  try {
+    assert.equal(early.first.hasRef(), false, 'the early tick holds the process open');
+    await until(() => seen.length >= 1, 'the first report soon after boot');
+    // The last report's time survives a restart (remote.json), so the early tick must not be
+    // TTL-gated, or it sends nothing most restarts.
+    assert.equal(seen[0].ttlMs, 0, 'the early tick is TTL-gated');
+  } finally { clearInterval(early); clearTimeout(early.first); }
+  assert.ok(remote.REPORT_FIRST_MS < remote.REPORT_INTERVAL_MS, 'the first tick is not early');
+  seen.length = 0;
+  const t = remote.startReportTimer({ intervalMs: 20, firstMs: 60 * 60 * 1000 });
+  try {
+    assert.equal(t.hasRef(), false, 'the report timer holds the process open');
+    await until(() => seen.length >= 3, 'the timer to keep firing after a throw and a rejection');
+    assert.equal(seen[0].ttlMs, remote.REPORT_TTL_MS, 'the timer does not pass its TTL');
+  } finally { clearInterval(t); clearTimeout(t.first); remote.refreshStandingIfStale = real; }
+});
+
+test('#4277: the ensure tick remembers the tunnel\'s last failure through its retry, so the report names a stuck tunnel', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9449';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();
+  process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+  try {
+    remote.ensure(4350);
+    const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
+    // Read the FILE, not status(), so only the tick samples it.
+    // Only the tick samples here (the test reads the FILE, never status()), repeated until it
+    // catches the failure, as the real 15 s tick does across a backoff.
+    await until(() => { remote.ensure(4350); return remote.lastTunnelFailure() !== null; }, 'the tick to keep the failure', 15000);
+    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)', 15000);
+    assert.equal(remote.lastTunnelFailure(), 'relay refused the tunnel: bad ticket', 'the tick did not keep the failure');
+    assert.equal(remote.status().because, 'connecting to the relay', 'fixture: the live status no longer says why');
+    const r = require('./remote-report').build();
+    assert.equal(r.error, 'relay-refused', 'the report of a stuck tunnel said only that it is starting');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
+});
+
+test('#4277: the remembered failure belongs to one tunnel process: a new process, or the same one going up, clears it', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9452';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  // The tick, repeated until it catches the failure, as the real 15 s tick does across a backoff.
+  const failed = () => until(() => { remote.ensure(4370); return remote.lastTunnelFailure() === 'relay refused the tunnel: bad ticket'; }, 'the tick to keep the failure', 15000);
+  try {
+    // 1. The same process goes up: the failure is cleared.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop then-up';
+    remote.ensure(4370);
+    await failed();
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    assert.equal(remote.lastTunnelFailure(), null, 'a tunnel that came up still carried its old failure');
+    // 2. A NEW process that has written nothing yet does not inherit the old one's failure.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+    remote.ensure(4370);
+    await failed();
+    process.env.FAKE_TUNNEL_MODE = 'slow-up';
+    const old = remote.currentChildPid();
+    process.kill(old, 'SIGKILL');
+    await until(() => remote.currentChildPid() && remote.currentChildPid() !== old, 'the supervisor to relaunch', 15000);
+    assert.equal(remote.status().because, 'starting the connection', 'fixture: the new process must not have written yet');
+    assert.equal(remote.lastTunnelFailure(), null, 'a new process inherited the old process\'s failure');
+    assert.equal(require('./remote-report').build().error, 'starting', 'a fresh tunnel read as stuck');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
+});
+
+test('#4277: dialingForMs counts a process that is not up yet, and stops when it is up', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9453';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  remote.resetForTests();
+  process.env.FAKE_TUNNEL_MODE = 'slow-up';
+  try {
+    remote.ensure(4380);
+    const a = remote.dialingForMs();
+    assert.equal(typeof a, 'number', 'a process just started is not counted as dialling');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(remote.dialingForMs() >= a + 150, 'the dialling time does not grow');
+    await until(() => remote.status().state === 'up', 'the tunnel to come up', 15000);
+    assert.equal(remote.dialingForMs(), null, 'a tunnel that is up still counts as dialling');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 
 test('#648: enrolled with nothing set dials the REAL relay and coordinator, with no CA flag', async () => {
@@ -2319,6 +2583,35 @@ test('#3827: Forget lets a signed mac-request already out finish before it retir
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_DEVICE_HANG_MS;
+  }
+});
+
+test('#4277: a sign-in over a half-registered Mac lets its key-only report already out finish before the retire', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // Half-registered: the key and id stay, the enrolment files go.
+  for (const f of ['address', 'tls.crt', 'tls.key']) fs.rmSync(nodePath.join(remote.stateDir(), f), { force: true });
+  assert.equal(remote.enrolled(), false, 'fixture: not enrolled');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  process.env.FAKE_TUNNEL_MODE = 'hung-macreq';
+  process.env.FAKE_DEVICE_HANG_MS = '700';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const asking = remote.macRequest('POST', remote.KEY_ONLY_ROUTE, { remote: {} }, { keyOnly: true });
+    await new Promise((r) => setTimeout(r, 100));
+    const reg = await remote.signinRegister('mine');
+    await asking;
+    const calls = recorded().map((c) => c[0]);
+    assert.ok(calls.includes('retire'), 'fixture: the half identity was never retired: ' + JSON.stringify(calls) + ' ' + JSON.stringify(reg));
+    assert.ok(calls.indexOf('macreq-done') >= 0 && calls.indexOf('macreq-done') < calls.indexOf('retire'), 'the register retired and wiped while a key-only report was still out: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    remote.setOn(false);
+    await remote.forget();
   }
 });
 
