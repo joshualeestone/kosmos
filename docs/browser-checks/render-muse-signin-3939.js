@@ -61,6 +61,7 @@ const chk = (ok, label, extra) => {
     window.fetch = async (url, opts) => {
       const u = String(url);
       const method = (opts && opts.method) || 'GET';
+      if (/\/api\/muse$/.test(u)) window.__museReads = (window.__museReads || 0) + 1;
       if (/\/api\/muse$/.test(u)) { const hold = window.__holdMuse; if (hold) { window.__holdMuse = null; const ans = window.__museOn; await hold; return enc(ans ? { enabled: true, installed: true, because: null, signedIn: false } : { enabled: false }); } }
       if (/\/api\/muse$/.test(u)) { if (window.__museRead === 'throw') throw new Error('offline'); if (window.__museRead === 500) return enc({ error: 'x' }, 500); }
       if (/\/api\/muse$/.test(u)) return enc(window.__museOn ? { enabled: true, installed: window.__museInstalled !== false, because: window.__museInstalled === false ? 'Muse Code is not on this computer' : null, signedIn: window.__museSignedIn === true } : { enabled: false });
@@ -75,6 +76,7 @@ const chk = (ok, label, extra) => {
       }
       if (/\/api\/muse\/signin$/.test(u)) { if (window.__holdStatus) await window.__holdStatus; return enc(window.__status); }
       if (/\/api\/accounts(\?|$)/.test(u)) { window.__accountsPainted += 1; return enc({ accounts: window.__accounts || [] }); }
+      if (/\/api\/agents$/.test(u) && method === 'POST') { window.__created = JSON.parse((opts && opts.body) || '{}'); return enc({ outcome: 'created', name: window.__created.name, steps: [] }); }
       return enc({});
     };
   });
@@ -570,11 +572,17 @@ const chk = (ok, label, extra) => {
   await museRead();
   let cm = await createMeta();
   chk(cm.disabled === true && cm.off === '', 'create form, flag off: Meta stays disabled with no reason (Coming soon)', JSON.stringify(cm));
-  // On but not signed in: disabled, and it says where to set it up.
-  await q(() => { window.__museOn = true; window.__museSignedIn = false; });
+  // Flag off is settled for the page (the board reads it when it starts): the next paint does not ask again.
+  const readsOff = await q(() => window.__museReads || 0);
+  await museRead();
+  chk(await q((n) => (window.__museReads || 0) === n, readsOff), 'create form, flag off: a repaint does not ask /api/muse again');
+  // On but not signed in: disabled, and it says where to set it up. (A board with the flag on is a new page.)
+  await q(() => { MUSE_CREATE = null; window.__museOn = true; window.__museSignedIn = false; });
+  const readsOn = await q(() => window.__museReads || 0);
   await museRead();
   cm = await createMeta();
   chk(cm.disabled === true && cm.off === 'Set up in Settings: Add a provider', 'create form, on but not signed in: disabled, says where to set it up', JSON.stringify(cm));
+  chk(await q((n) => (window.__museReads || 0) > n, readsOn), 'CONTROL: with the flag on, the read is made');
   // On, installed and signed in: offered.
   await q(() => { window.__museSignedIn = true; });
   await museRead();
@@ -630,7 +638,27 @@ const chk = (ok, label, extra) => {
   await museRead();
   cm = await createMeta();
   chk(cm.disabled === false, 'CONTROL: a failed /api/muse read keeps the last good answer', JSON.stringify(cm));
-  await q(() => { window.__museRead = null; window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; });
+  /* Create pressed with Meta chosen: the request itself says provider meta and carries no account and no model
+     (read from the request, not the form, so a value sent from anywhere else would show). */
+  await q(() => { window.__museRead = null; window.__museSignedIn = true; });
+  await museRead();
+  const sent = await q(([m, c]) => {
+    CREATE_ACCOUNTS = [m, c]; CREATE_ACCOUNTS_KNOWN = true;
+    const sel = document.getElementById('create-provider');
+    sel.value = 'meta'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    fillCreateAccounts();
+    PICKED = 'own';
+    document.getElementById('create-label').value = 'Checks Meta';
+    const name = document.getElementById('create-name');
+    name.value = 'musecheck'; name.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__created = null;
+    document.getElementById('create-go').click();
+    return new Promise((r) => setTimeout(() => r(window.__created), 300));
+  }, [MUSE_ROW, CLAUDE_ROW]);
+  chk(!!sent && sent.provider === 'meta' && !('account' in sent) && !('model' in sent),
+    'Create with Meta chosen sends provider meta, no account, no model', JSON.stringify(sent));
+  chk(!!sent && sent.name === 'musecheck', 'CONTROL: the request captured is this create', JSON.stringify(sent));
+  await q(() => { window.__museRead = null; window.__museOn = false; window.__museSignedIn = false; CREATE_ACCOUNTS = []; MUSE_CREATE = null; });
   await museRead();
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));

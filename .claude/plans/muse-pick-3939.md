@@ -10,12 +10,14 @@ Everywhere the flag is off, the form is exactly as today (Meta disabled, "Coming
 Connections box counts a signed-in Muse as an account thinking for agents once one can be created.
 
 ## Changes (web/index.html)
-1. MUSE_CREATE state + paintMuseCreateOption(sel, current), modelled on paintAgyOption: the create
+1. MUSE_CREATE state + paintMuseOption(sel, current), modelled on paintAgyOption: the create
    form's (and the agent page's) Meta option is enabled only when GET /api/muse says enabled AND installed
    AND signedIn, or when it is the agent's current provider. Off-reasons in data-off: flag off -> no
    data-off ("Coming soon", today's pill); on but not installed or not signed in -> "Set up in Settings: Add a
-   provider"; not asked yet or the read failed -> "Checking Meta Muse". Asked when a provider menu paints,
-   one read in flight at a time, latest read wins.
+   provider"; not read yet, or every read so far failed -> no data-off either (today's "Coming soon", so a
+   flag-off board never shows a Meta word it would not show today). A failed read after a good one keeps the
+   good one. Asked by museCreateAsk when the create menu paints, one read in flight at a time; a flag-off
+   answer is settled for the page (the flag is the board process's environment).
 2. fillCreateAccounts: a 'meta' branch like 'antigravity' (empty account option, row hidden, return), so
    the Muse row is never listed as an account and the "Meta Muse key" fallback never shows.
 3. vendorPicksModel('meta') true, so applyCreateProviderUI hides the model row and says
@@ -40,8 +42,9 @@ Connections box counts a signed-in Muse as an account thinking for agents once o
   Meta disabled unless it is the current provider): setProvider's generic path to muse is untested.
 
 ## Tests
-- web.* node tests for fillCreateAccounts / applyCreateProviderUI / paintMuseCreateOption arms (flag off,
-  not signed in, signed in, read failed, current === 'meta').
+- web.muse-create-3939.test.js: paintMuseOption / museCreateAsk arms (flag off, not installed, not signed
+  in, signed in, not read, read failed, current === 'meta', flag off not re-asked) and createPickGone's
+  three Meta sentences. fillCreateAccounts / applyCreateProviderUI are covered by the browser check.
 - A browser check driving the real create form: Meta enabled on a stubbed signed-in /api/muse, account row
   hidden, model note shown, the POST body has provider meta and no account/model; and disabled with the
   right pill when not signed in.
@@ -56,3 +59,16 @@ Connections box counts a signed-in Muse as an account thinking for agents once o
   Measured: with a signed-in Muse row in the list, the old path listed that row (empty value and name), so the
   Meta branch only shows when the list is empty; the check's arm is aimed there, and a perturbation of the
   branch fails exactly that arm. web.* 2018/2018; render-muse-signin-3939 passes; surface gate rc 0.
+
+## Review round 1 (opus, 09:10)
+- Agent page for a Muse agent: the model picker gets a "Meta Muse picks its own model" arm, and the account
+  picker says there is no account to move it to (both as Antigravity). acctMoveWorld keys 'muse' so no row
+  matches.
+- museCreateAsk: a flag-off answer is not asked again per paint. Flag on stays asked per paint (sign-in shows
+  without a reload).
+- createPickGone's Meta sentence names the real reason: not available (flag off), not set up (not installed),
+  not signed in.
+- Node test file added (the stubs in four sibling tests already named it); the browser check now reads the
+  create request itself for provider meta / no account / no model.
+- Deferred: the one validation red at the start (engine/musefront.test.js "a long turn keeps saying
+  working") is not in this diff and passes alone 15/15 at load 70; contention.
