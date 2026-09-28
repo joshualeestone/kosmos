@@ -58,7 +58,7 @@ const sim = (() => {
   assert.ok(at > -1 && end > at, 'the simulation left the page');
   const m = SCRIPT.match(/const\s+ORG_STEP\s*=\s*([-\d.]+)\s*;/);
   // eslint-disable-next-line no-new-func
-  return new Function('const ORG_STEP = ' + m[1] + ';\n' + SCRIPT.slice(at, end) + '\nreturn { orgStep, ORG_SIM, ORG_SETTLE_STEPS };')();
+  return new Function('const ORG_STEP = ' + m[1] + ';\n' + SCRIPT.slice(at, end) + '\nreturn { orgStep, orgPlanarRepair, ORG_SIM, ORG_SETTLE_STEPS };')();
 })();
 
 /* Cards from the real producer (fixture-discipline refuses hand-built ones). Names carry a per-tree
@@ -140,10 +140,30 @@ const pageConst = (k) => {
 const ORG_PAD = pageConst('ORG_PAD');
 const ORG_PAD_MIN = pageConst('ORG_PAD_MIN');
 const HUB = { x: 600, y: 600 };   // the re-parent test's canvas; settled() re-centres on its own
-function settled(placed, seed) {
+const fitOf = (() => {
+  const src = ['orgNatural', 'orgFit'].map((name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    let d = 0;
+    for (let k = SCRIPT.indexOf('{', at); k < SCRIPT.length; k += 1) {
+      if (SCRIPT[k] === '{') d += 1; else if (SCRIPT[k] === '}') { d -= 1; if (!d) return SCRIPT.slice(at, k + 1); }
+    }
+    return '';
+  }).join('\n');
+  // eslint-disable-next-line no-new-func
+  return new Function('const ORG_PAD = ' + pageConst('ORG_PAD') + '; const ORG_PAD_MIN = ' + pageConst('ORG_PAD_MIN')
+    + '; const ORG_SQUEEZE_MIN = ' + pageConst('ORG_SQUEEZE_MIN') + ';\n' + src + '\nreturn orgFit;')();
+})();
+/* `avail` (optional): the width the chart must fit, squeezed as paintOrg squeezes it (orgFit scales every
+   radius by k; the canvas is fit.size). The settle then ends with orgPlanarRepair, as orgLiveSettle does. */
+function settled(placed, seed, avail) {
   let maxR = 0;
   for (const s of placed.values()) maxR = Math.max(maxR, s.r);
-  const size = Math.round((maxR + ORG_PAD) * 2);
+  let size = Math.round((maxR + ORG_PAD) * 2);
+  if (avail) {
+    const fit = fitOf(maxR, avail);
+    if (fit.k < 1) for (const s of placed.values()) s.r *= fit.k;
+    size = fit.size;
+  }
   const cx = size / 2;
   const shift = cx - HUB.x;   // a seed is given around HUB; move it with the canvas
   const hub = { x: cx, y: cx, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cx } };
@@ -172,6 +192,7 @@ function settled(placed, seed) {
     a *= 0.985;
     if (a <= 0.02 || moved <= 0.05) break;
   }
+  sim.orgPlanarRepair(bodies, hub);
   const pos = new Map(); const parentOf = new Map();
   for (const n of bodies) { pos.set(n.key, { x: n.x, y: n.y }); parentOf.set(n.key, n.parentKey); }
   return { pos, parentOf, hub: { x: hub.x, y: hub.y } };
@@ -334,6 +355,33 @@ test('a bigger branch gets a wider slice (sectors are weighted by the people at 
   // m1 has five leaves, m2 one, s1 none of its own (a leaf, weight 1).
   assert.ok(width('m1') > 3 * width('m2'), 'm1 (5 leaves) is not much wider than m2 (1 leaf): ' + width('m1').toFixed(2) + ' vs ' + width('m2').toFixed(2));
   assert.ok(Math.abs(width('m2') - width('s1')) < 1e-9, 'two branches of one leaf each got different slices');
+});
+
+test('squeezed to a phone, a large fleet still settles with no crossings (#4434, review it2)', () => {
+  /* orgFit squeezes a big chart to the screen by scaling every radius; faces then sit closer than the
+     physics' gap and push each other off their places. Without the rest-time repair, 60-90 agents at 375px
+     crossed in 9 of 150 trees (review it2). */
+  /* The six trees (seed, size) that crossed at 375px without the repair (found with the review harness), plus
+     a spread of others. */
+  const trees = [[27, 87], [28, 88], [48, 77], [49, 78], [77, 75], [88, 86]].concat(Array.from({ length: 8 }, (_, i) => [i * 11 + 2, 60 + ((i * 11 + 2) % 31)]));
+  for (const [seed, n] of trees) {
+    const { placed } = firstPaint(cards(randomTree(seed, n)));
+    const { pos, parentOf, hub } = settled(placed, null, 375);
+    const bad = crossings(segments(pos, parentOf, hub));
+    assert.deepEqual(bad, [], 'randomTree(' + seed + ', ' + n + ') at 375px: ' + bad.length + ' crossing(s): ' + bad.slice(0, 4).join(', '));
+  }
+});
+
+test('one manager with hundreds of direct reports: nobody overlaps on first paint (#4434, review it2)', () => {
+  const spec = [['pm']].concat(Array.from({ length: 300 }, (_, i) => ['r' + i, 'pm']));
+  const { pos } = firstPaint(cards(spec));
+  assert.equal(overlaps(pos, 46), 0, 'a 300-report team overlaps');
+});
+
+test('the rest-time repair is wired where every settle ends: the reduced-motion settle and the animation\'s stop', () => {
+  const body = (name) => { const at = SCRIPT.indexOf('function ' + name + '('); return SCRIPT.slice(at, SCRIPT.indexOf('\n}', at)); };
+  assert.match(body('orgLiveSettle'), /orgPlanarRepair\(bodies, L\.hub\)/, 'orgLiveSettle no longer repairs a crossing at rest');
+  assert.match(body('orgLiveRun'), /orgPlanarRepair\(\[\.\.\.L\.nodes\.values\(\)\], L\.hub\)/, 'the animation no longer repairs a crossing when it stops');
 });
 
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {

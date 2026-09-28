@@ -29071,6 +29071,40 @@ function orgStep(nodes, hub, alpha, box) {
   }
   return moved;
 }
+/* #4434: the last word on a settle. orgPlace's positions never cross (a uniform squeeze keeps that), but the
+   physics is soft: on a chart squeezed to a narrow screen, faces packed closer than the physics' gap push one
+   another off their places, and a large fleet could settle with a crossing (review it2: 60-90 agents at
+   375px, 9 of 150 trees). So when a TREE layout comes to rest with any two lines crossing, every node goes
+   back to its placed position (relative to the hub), which is crossing-free by construction. Crossings can
+   then only exist mid-motion, never at rest. Pure, for the tests; returns whether it moved anything. */
+function orgPlanarRepair(nodes, hub) {
+  const tree = nodes.filter((n) => n.home);
+  if (!tree.length) return false;
+  const o = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const segs = nodes.map((n) => ({ a: n.parent || hub, b: n }));
+  let crossed = false;
+  for (let i = 0; i < segs.length && !crossed; i += 1) {
+    for (let j = i + 1; j < segs.length; j += 1) {
+      const s = segs[i]; const t = segs[j];
+      if (s.a === t.a || s.a === t.b || s.b === t.a || s.b === t.b) {
+        /* Sharing an end, two lines still overlap if they lie along each other (measured: the canvas edge
+           clamped a manager and two reports onto one vertical line). */
+        const sh = s.a === t.a || s.a === t.b ? s.a : s.b;
+        const so = sh === s.a ? s.b : s.a; const to = sh === t.a ? t.b : t.a;
+        if (Math.abs(o(sh, so, to)) < 1e-6 && (so.x - sh.x) * (to.x - sh.x) + (so.y - sh.y) * (to.y - sh.y) > 0) { crossed = true; break; }
+        continue;
+      }
+      const d1 = o(t.a, t.b, s.a); const d2 = o(t.a, t.b, s.b); const d3 = o(s.a, s.b, t.a); const d4 = o(s.a, s.b, t.b);
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) { crossed = true; break; }
+    }
+  }
+  if (!crossed) return false;
+  /* Back to the placement around the hub's HOME, not where it drifted: the placement fits the canvas by
+     construction, while offsets from a drifted hub can land past the edge. */
+  if (hub.home) { hub.x = hub.home.x; hub.y = hub.home.y; hub.vx = 0; hub.vy = 0; }
+  for (const n of tree) { n.x = hub.x + n.home.dx; n.y = hub.y + n.home.dy; n.vx = 0; n.vy = 0; }
+  return true;
+}
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
@@ -29275,8 +29309,10 @@ function orgPlace(nodes) {
     };
     let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
     let spots = lay(r);
+    /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
+       room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
     for (let tries = 0; tries < 400 && tightest([...spots.values()].map((s) => s.ang), r) < ORG_MIN_ARC; tries += 1) {
-      r += 8;
+      r = Math.max(r + 8, r * 1.03);
       spots = lay(r);
     }
     for (const [name, spot] of spots) placed.set(name, spot);
@@ -29723,6 +29759,7 @@ function orgLiveSettle() {
     if (a <= 0.02 || moved <= 0.05) break;
   }
   L.alpha = 0.02;
+  orgPlanarRepair(bodies, L.hub);   // #4434: never rest with a crossing
   orgLiveSync();
 }
 function orgLiveSync() {
@@ -29755,7 +29792,10 @@ function orgLiveRun() {
     orgLiveSync();
     L.alpha *= 0.985;
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
-    else { L.raf = 0; L.alpha = Math.max(L.alpha, 0.02); }
+    else {
+      L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
+      if (orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing
+    }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
 }
