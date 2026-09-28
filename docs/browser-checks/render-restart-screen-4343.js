@@ -153,6 +153,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' it is a modal alert dialog named by its headline and described by its how-to', s.role === 'alertdialog' && s.modal === 'true'
         && s.name === 'Kosmos requires a full restart' && /Command-Q/.test(s.desc || ''), JSON.stringify({ role: s.role, modal: s.modal, name: s.name, desc: s.desc }));
       ok(t + ' the page behind does not scroll or keep its scrollbar gutter', s.scrollOff === true);
+      const covered = await page.evaluate(() => ({ wn: wnCovered(), tip: tipModalOpen() }));
+      ok(t + ' the What\'s New window and the tips know they are covered (their keys stand down)', covered.wn === true && covered.tip === true, JSON.stringify(covered));
       const late = await page.evaluate(() => {
         const d = document.createElement('div'); d.tabIndex = 0; window.__late4343 = d; document.body.appendChild(d);
         return new Promise((r) => setTimeout(() => r(d.inert === true), 50));
@@ -240,7 +242,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     if (drawn) {
       const w = { how: await page.evaluate(() => document.querySelector('.restart-back p').textContent),
         small: logs.find((l) => /^Kosmos requires a full restart: /.test(l)) || '' };
-      ok('[win] it gives the Windows remedy, not Command-Q', w.how === 'Close the Kosmos window, then double-click Kosmos.exe in your Kosmos folder.', JSON.stringify(w.how));
+      ok('[win] it gives the Windows remedy, not Command-Q', w.how === 'Close the Kosmos window, then open Kosmos again from the Start menu.', JSON.stringify(w.how));
       ok('[win] the logged details lead with the baked version', /^Kosmos requires a full restart: Version 0\.7\.09, nothing answered at 127\.0\.0\.1:\d+\.$/.test(w.small), JSON.stringify(w.small));
     }
     await page.close();
