@@ -16,23 +16,25 @@ const ROOT = path.join(__dirname, '..');
 test('selection: win32 test files in engine/ and at the root, plus ALSO, and nothing else', () => {
   const got = w.selectFiles(
     ['win32board.test.js', 'runners.win32-codex.test.js', 'store.test.js', 'store.js', 'win32board.js', 'status.test.js'],
-    ['web.win32-update-offer.test.js', 'web.status.test.js', 'win32notes.md', 'store.test.js'],
+    ['web.win32-update-offer.test.js', 'web.status.test.js', 'win32notes.md', 'store.test.js',
+      'tools.windows-kosmos-cli-570.test.js', 'tools.win-open-board-2007.test.js', 'tools.build-windows-570.test.js', 'tools.winding.test.js'],
   );
   assert.deepEqual(got, [
     'engine/runners.win32-codex.test.js', 'engine/store.test.js', 'engine/win32board.test.js',
-    'web.win32-update-offer.test.js',
+    'tools.win-open-board-2007.test.js', 'tools.windows-kosmos-cli-570.test.js', 'web.win32-update-offer.test.js',
   ]);
 });
 
 test('selection on the real tree: named files are in, and the count has not shrunk', () => {
   const got = w.selectFiles(fs.readdirSync(__dirname), fs.readdirSync(ROOT));
-  // 83 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
-  // raises the count and needs nothing.
-  assert.ok(got.length >= 83, `only ${got.length} files selected`);
+  // 94 when this was written (#1777). A narrowed rule or a mass rename shows here; a new file
+  // raises the count and needs nothing. A single file renamed out of the rule does not.
+  assert.ok(got.length >= 94, `only ${got.length} files selected`);
   for (const f of [
     'engine/win32apply.test.js', 'engine/runners.win32-codex.test.js', 'engine/win32board.test.js',
     'engine/runners.win-runnable-2270.test.js', 'engine/windows-coupling-audit-1732.test.js',
     'engine.connect-win32-install-570.test.js', 'web.win32-update-offer.test.js',
+    'tools.windows-kosmos-cli-570.test.js', 'tools.win-installer-native.test.js',
   ]) assert.ok(got.includes(f), `${f} is not selected`);
   for (const n of w.ALSO) assert.ok(fs.existsSync(path.join(__dirname, n)), `ALSO names ${n}, which is not in engine/`);
 });

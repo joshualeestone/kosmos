@@ -28,22 +28,21 @@ function file(name, mode) {
   return p;
 }
 
-// The POSIX controls read the real exec bit through X_OK, which a Windows HOST does not have
-// (#1777 measured them red on windows-latest), so they run only on a POSIX host. The platform
-// under test is still injected; this is about the machine the test runs on.
+// The 0o644 POSIX control reads the real exec bit through X_OK, which a Windows HOST does not
+// have (X_OK acts as F_OK there, so any existing file answers true; #1777 measured it red on
+// windows-latest), so it runs only on a POSIX host. The platform under test is still injected;
+// this is about the machine the test runs on.
 const POSIX_HOST = process.platform !== 'win32';
 
-test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => {
+test('#2270: on win32, executability is the EXTENSION, not the exec bit', (t) => {
   // A real executable (0o755) with NO extension: launchable on POSIX, NOT a
   // runner on Windows (the loader needs a PATHEXT suffix). This is the exact
   // case the old X_OK-only code got wrong on win32.
   const execNoExt = file('claude', 0o755);
   assert.equal(runnableExactly(execNoExt, 'win32'), false,
     'win32 must reject an extensionless file even with the exec bit set (X_OK is a no-op there)');
-  if (POSIX_HOST) {
-    assert.equal(runnableExactly(execNoExt, 'darwin'), true,
-      'POSIX control: the same 0o755 file IS runnable by X_OK');
-  }
+  assert.equal(runnableExactly(execNoExt, 'darwin'), true,
+    'POSIX control: the same 0o755 file IS runnable by X_OK');
 
   // A 0o644 `.exe`: NOT X_OK-executable, but Windows launches it by extension.
   const exe644 = file('claude.exe', 0o644);
@@ -52,6 +51,8 @@ test('#2270: on win32, executability is the EXTENSION, not the exec bit', () => 
   if (POSIX_HOST) {
     assert.equal(runnableExactly(exe644, 'darwin'), false,
       'POSIX control: a 0o644 file is not runnable, .exe or not');
+  } else {
+    t.diagnostic('POSIX control for a 0o644 file NOT RUN: this host has no exec bit');
   }
 });
 

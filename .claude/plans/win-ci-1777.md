@@ -24,7 +24,8 @@ when a listed file passes again or is no longer run.
   first probe, which left stdin open.
 - The reds:
   - projects.win32-reveal and trust.win32-key-2281 compare a path with its 8.3 short name
-    (RUNNER~1). The reveal's safety behaviour holds; check #2281's key spelling. Filed as #4257.
+    (RUNNER~1). The reveal's safety behaviour holds; check #2281's key spelling. Filed as #4257
+    (April has it; the job's two #4257 entries go with whichever PR lands second).
   - win32handoff's zone-by-interface-name arm: Windows zones are numeric. Filed as #4258.
 
 ## Build
@@ -53,6 +54,14 @@ when a listed file passes again or is no longer run.
   now checks out LF, as the shipped bundle is) and the #2270 POSIX controls (no exec bit on a
   Windows host; now POSIX-host only). Run 36358953385 at 4171134: success, 80 passed, 3 known
   red, 0 new, 0 stale. win32apply took 413s.
+
+- Review round 3 found the root's tools.win-* / tools.windows-* tests (the `kosmos` command a
+  Windows agent runs, the native installer and launcher, the shims) unselected and unexcused.
+  Run 36361538285 selected them (94 files): 8 of the 11 pass; three fail and are filed:
+  #4266 (8 native-installer probes; lead: the 8.3 %TEMP% of #4257, possibly a product bug for
+  long user names) and #4267 (the open-board opener seam's spawn EFTYPE, and PowerShell's
+  kosmos.ps1 resolution). tools.build-windows / tools.publish-windows stay out: Mac-side
+  release tooling.
 
 ## Decided
 - CI on a GitHub Windows runner, free on this public repo, over the options below.

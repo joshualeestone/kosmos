@@ -7,12 +7,14 @@
  * real thing, so a green suite here says nothing about Windows (#1777's "false green"). The
  * `windows` job in .github/workflows/windows.yml runs this script on a real Windows runner.
  *
- * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo root,
- * plus the few engine files named in ALSO. One file at a time, stdin closed (a child that reads
+ * WHAT IT RUNS: every test file with "win32" in its name, in engine/ and at the repo root, the
+ * root's tools.win-* / tools.windows-* files, plus the few engine files named in ALSO. One file at a time, stdin closed (a child that reads
  * stdin would otherwise wait for ever), with a per-test timeout so a hang is named as the test
  * that hangs, and an overall budget so the job ends with a verdict rather than being killed.
  * Left out on purpose: securewrite, sendertoken and github tests (POSIX file modes and a fake
- * `gh` script; they describe macOS behaviour, measured red on Windows in #1777).
+ * `gh` script; they describe macOS behaviour, measured red on Windows in #1777), and
+ * tools.build-windows / tools.publish-windows (Mac-side release tooling that builds the Windows
+ * bundle; it never runs on Windows).
  *
  * HOW IT JUDGES: a failing file is a failure unless KNOWN_RED lists it, with its card AND the
  * exact tests expected to fail. Any other failing test in a listed file, or a listed file that
@@ -32,7 +34,8 @@ const cp = require('node:child_process');
 const ALSO = ['platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js'];
 
 // A failing file listed here does not fail the job, as long as exactly the named tests fail
-// in it. Every entry names the card that owns it. Names are as node's spec reporter prints them.
+// in it. Every entry names the card that owns it. Names are as node's spec reporter prints them;
+// a failing SUBTEST also marks its parent failing, so list the parent's name as well.
 const KNOWN_RED = {
   'engine/projects.win32-reveal.test.js': { card: '#4257', tests: [
     'openFile on Windows hands a document to File Explorer as one quoted path, after its own gates',
@@ -40,6 +43,23 @@ const KNOWN_RED = {
   ] },
   'engine/trust.win32-key-2281.test.js': { card: '#4257', tests: [
     '#2281 the written key carries NO backslash, whatever the host spells',
+  ] },
+  'tools.win-installer-native.test.js': { card: '#4266', tests: [
+    'W-20 probe: the shortcut is written into a temp Start Menu, points where it should, follows a new folder, and is removed',
+    '\u{1F6D1} finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING',
+    '\u{1F6D1} #3286 probe: a NEWER copy updates the installed Kosmos through the updater and starts it, so there is only ever one install',
+    '\u{1F6D1} #3286 review probe: SAME is an update that finished; a board the replace ended always runs again; a copy Kosmos was not pointed at is not installed',
+    '\u{1F6D1} round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; with nothing installed it runs where it is',
+    '\u{1F6D1} #3286 probe: from a cleaned-up place with nothing installed, Kosmos installs itself WITHOUT asking and starts the installed copy; a refusal is a plain note',
+    '\u{1F6D1} round 3 finding 6 probe: the installed copy hands off to a newer copy the pointer names and re-points nothing; otherwise it runs and re-points, never handing off to itself or to nothing',
+    '\u{1F6D1} uninstall probe: a clean removal takes the shortcut, the Apps entry and the kept-here memory; anything left keeps all three',
+  ] },
+  'tools.win-open-board-2007.test.js': { card: '#4267', tests: [
+    'openInBrowser hands the resolved url to the opener (KOSMOS_OPEN_BIN seam)',
+    'main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url',
+  ] },
+  'tools.windows-kosmos-shims-570.test.js': { card: '#4267', tests: [
+    'PowerShell: a bare `kosmos` is kosmos.ps1, and a multi-line, quoted, &-laden answer arrives exactly',
   ] },
   'engine/win32handoff.test.js': { card: '#4258', tests: [
     '\u{1F6D1} win32-installer-native round 5 findings 1 and 3: the bind host is resolved, and only this machine\'s own addresses are looked on, with their zone',
@@ -58,7 +78,9 @@ const START_BUDGET_MS = 33 * 60000;
 function selectFiles(engineNames, rootNames = []) {
   const isTest = (n) => n.endsWith('.test.js');
   const engine = engineNames.filter((n) => isTest(n) && (n.includes('win32') || ALSO.includes(n))).map((n) => 'engine/' + n);
-  const root = rootNames.filter((n) => isTest(n) && n.includes('win32'));
+  // At the root, the Windows-side tools' tests are named tools.win-* / tools.windows-* (the
+  // `kosmos` command a Windows agent runs, the native installer and launcher, the shims).
+  const root = rootNames.filter((n) => isTest(n) && (n.includes('win32') || /^tools\.win(dows)?-/.test(n)));
   return [...engine, ...root].sort();
 }
 
@@ -83,7 +105,7 @@ function judge(results, knownRed = KNOWN_RED) {
     const entry = knownRed[r.file];
     if (r.notRun) { failed.push({ file: r.file, why: 'not run: the start budget ran out' }); continue; }
     if (r.ok) { if (entry) stale.push({ file: r.file, card: entry.card, why: 'it PASSES now' }); continue; }
-    if (!entry) { failed.push({ file: r.file, why: r.killed ? 'killed (a hang or the file cap)' : 'failed' }); continue; }
+    if (!entry) { failed.push({ file: r.file, why: r.killed ? 'killed (a hang or the file cap)' : r.error ? `could not run (${r.error})` : 'failed' }); continue; }
     if (r.killed) { failed.push({ file: r.file, why: `killed (a hang or the file cap), which ${entry.card} does not cover` }); continue; }
     const unexpected = (r.failing || []).filter((n) => !entry.tests.includes(n));
     if (unexpected.length || !(r.failing || []).length) {
@@ -128,7 +150,9 @@ function main() {
     });
     const output = `${run.stdout || ''}\n${run.stderr || ''}`;
     const ok = run.status === 0;
-    const killed = run.status === null;
+    // status is null for a kill (timeout or signal) and also for a spawn error or maxBuffer
+    // overflow, which carry run.error; only the first is a hang.
+    const killed = run.status === null && !(run.error && run.error.code !== 'ETIMEDOUT');
     const ms = Date.now() - started;
     const why = run.error ? ` (${run.error.code || run.error.message})`
       : run.signal ? ` (killed by ${run.signal})` : ok ? '' : ` (exit ${run.status})`;
@@ -139,9 +163,9 @@ function main() {
     const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
       const lines = output.split('\n').filter((l) => /^\s*✖|Error/.test(l));
-      for (const l of lines.slice(0, 20)) console.log('    ' + l.trim());
+      for (const l of lines.slice(0, 40)) console.log('    ' + l.trim());
     }
-    results.push({ file, ok, failing, killed });
+    results.push({ file, ok, failing, killed, error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
   }
   const { failed, stale, known } = judge(results);
   for (const k of known) console.log(`known red ${k.file} (${k.card})`);
