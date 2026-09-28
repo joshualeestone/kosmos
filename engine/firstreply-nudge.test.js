@@ -214,8 +214,10 @@ test('#3226 real store: a person\'s unanswered first DM, a minute old, is nudged
   const s = roster[0].sessionName;
   freshStore(s);
   personDm(s);
-  // Why owesReply could never have seen this: the person's DM is not in the message log.
-  assert.equal(messageLog.owesReply(s).state, 'clear', 'premise: a DM leaves the message log untouched');
+  // Why the message log could never have seen this: the person's DM is not in it. (#4340 deleted owesReply, which
+  // read that log; the premise is checked on the log itself.)
+  const logged = messageLog.record();
+  assert.ok(!(logged.ok && logged.rows.some((r) => r.to === s)), 'premise: a DM leaves the message log untouched');
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 1, 'the card\'s own case was not nudged');
   assert.equal(sent[0].session, s);
@@ -239,10 +241,12 @@ test('#3226 real store CONTROL: a colleague `kosmos msg` with an empty DIRECT th
   freshStore(s);
   fs.mkdirSync(path.dirname(messageLog.LOG), { recursive: true });
   fs.writeFileSync(messageLog.LOG, JSON.stringify({ kind: 'message', id: 'c1', from: 'leo', to: s, text: 'are you free?', at: HEARD }) + '\n');
-  // Positive control: this row IS what the first build read as "owes its first reply".
-  const owes = messageLog.owesReply(s);
-  assert.equal(owes.state, 'owes', 'the fixture did not reach the message log');
-  assert.equal(owes.lastSentAt, null);
+  // Positive control: this row IS what the first build read as "owes its first reply" (through owesReply, deleted
+  // by #4340): a colleague's message in the log, addressed to the agent, with nothing from the agent after it.
+  const logged = messageLog.record();
+  assert.ok(logged.ok && logged.rows.some((r) => r.id === 'c1' && r.kind === 'message' && r.to === s),
+    'the fixture did not reach the message log');
+  assert.ok(!logged.rows.some((r) => r.from === s), 'fixture: the agent has already written in the log');
   const { sent } = realSweep(roster);
   assert.equal(sent.length, 0, 'a colleague\'s message was read as the person\'s');
 });
