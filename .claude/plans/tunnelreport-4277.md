@@ -29,6 +29,11 @@ Rejected:
 ## Accepted (review 5)
 - The coordinator bounds `error` but does not restrict it to known codes, so its privacy rests on the board's classify() discipline. The board sends only fixed tokens or fixed file names.
 
+## Review 13
+- settings-unreadable, no-relay-address and cert-renewal now each have a verbatim test sentence (remote.js status() and session.rs).
+- `said no` dropped from coordinator-refused: `Kosmos+ said no` comes only from the setup/signin CLI (setup.rs), never a status() sentence.
+- remote.js notes that `restarts` is never reset (since process start), so tests read it as a delta.
+
 ## Review 12
 - A board holding a key but not enrolled signs a standing call to report why, and the coordinator's standing handler refreshed `last_seen` for every signed call, so a Mac nobody can reach would read "Answering now" on the account page and count as seen in the admin summary. The coordinator now skips touch_mac when the report's error is `not-enrolled` (kosmos-relay branch reportonly-4277, a separate PR, with a test and a control). **Ship order: that coordinator change must be deployed before a Mac cut carries this board change.**
 - `tunnel` no longer reads `crashed` for the tunnel's own in-process reconnects (graceful close, renewal): `restarting` is `crashed` only when the supervisor's process is not up, else `starting`. A board ON but not enrolled reads `stopped`, not `starting`, since it will never start.
@@ -38,7 +43,7 @@ Rejected:
 - The CODES order in this plan now follows the code.
 
 ## Review 11
-- The three later coordinator patterns were dead: every coordinator sentence starts with `Kosmos+` and is taken by the anchored pair first. Removed; `Kosmos+ said no` joined the anchored refusal.
+- The three later coordinator patterns were dead: every coordinator sentence starts with `Kosmos+` and is taken by the anchored pair first. Removed; 
 - The enrolment file list is one list: remote.js ENROL_FILES, which enrolled() reads; remote-report.js keeps its copy (so it loads without remote.js) and a remote.test.js test asserts the two are equal (an added-file mutant fails it).
 - The register-overlap fix now has a test: a rename re-runs setup on an enrolled Mac while a crashed tunnel's restart timer fires inside it; reverting the fix makes it fail.
 - A second stray stderr line in a mac-standing test silenced.

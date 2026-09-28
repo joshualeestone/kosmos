@@ -69,6 +69,11 @@ test('the error is a CODE classified from status()\'s sentence; the sentence nev
 test('classify: each known failure kind gets its code, anything else is other, never the text', () => {
   const cases = [
     ['the switch is off', 'switch-off'],
+    // remote.js status(), verbatim (review 13).
+    ['your remote-access settings could not be read', 'settings-unreadable'],
+    ['no relay address is set yet', 'no-relay-address'],
+    // session.rs, verbatim shape: the tunnel reconnects to renew its certificate (review 13).
+    ['certificate renewal is due (20 days left); reconnecting to renew', 'cert-renewal'],
     ['the tunnel program could not be started: spawn /x ENOENT', 'binary-missing'],
     ['/Volumes/Josh Stone/x does not look like a Mac state dir (no mac_id)', 'state-dir-invalid'],
     ['reading mac_key from /Users/j/remote: No such file', 'state-file-unreadable'],

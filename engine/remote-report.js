@@ -74,7 +74,7 @@ const CODES = [
   // Mac: <why> (HTTP <code> on <path>)` for ANY status whose body parses as a refusal, 5xx included,
   // so the 5xx form is taken first (review 9). These are the only coordinator patterns (review 11).
   ['coordinator-unreachable', /^Kosmos\+ (answered 5\d\d|unreachable)|^Kosmos\+ refused.*\bHTTP 5\d\d\b/i],
-  ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d|said no)/i],
+  ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket (review 6).
   // The tunnel's own dial error is `connecting to <host:port>: <why>` (a colon after the address).

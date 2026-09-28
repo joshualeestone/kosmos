@@ -133,7 +133,7 @@ let restartBecause = null;
 let backoffMs = 1000;
 /* kosmos#4277: how many times the supervisor has relaunched the tunnel, so the remote
    report (engine/remote-report.js) can say a relaunch happened, and whether it took. */
-let restarts = 0;
+let restarts = 0;   // since process start, never reset (resetForTests leaves it): read it as a delta
 let restartPending = false;
 let localPort = null;
 
