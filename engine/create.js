@@ -5672,6 +5672,8 @@ module.exports = {
   museEnabled,
   recordedRunner,
   plistPath,
+  // #4353: engine/agyrefresh.js reads a plist's own launch folder back through this one decoder.
+  unxml,
   refuseRealLaunchWriteUnderTest,
   isRealLaunchTargetUnderTest,
   removeJobFileForRollback,

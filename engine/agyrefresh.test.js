@@ -18,9 +18,9 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const agyrefresh = require('./engine/agyrefresh');
-const agyhooks = require('./engine/agyhooks');
-const create = require('./engine/create');
+const agyrefresh = require('./agyrefresh');
+const agyhooks = require('./agyhooks');
+const create = require('./create');
 
 function fakes(jobs, versions = {}, hooked = []) {
   const calls = { ensure: [], version: [] };
@@ -122,7 +122,7 @@ test('#4353 the launch folder the refresh uses is the one plistFor gives the sup
 });
 
 test('#4353 the board runs the refresh at start, after the supervisor refresh, never under the dry run', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const sup = src.indexOf('const put = create.installSupervisor();');
   const ref = src.indexOf("require('./engine/agyrefresh').refreshAtBoardStart()");
   assert.ok(sup > 0 && ref > sup, 'the refresh is missing, or runs before the bridge is refreshed');

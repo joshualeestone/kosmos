@@ -24,6 +24,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
+/* How long `<agy> --version` may take before it is killed and read as unknown (tool hooks off). */
+const VERSION_TIMEOUT_MS = 5000;
+
 /** Does `<workdir>/.agents/hooks.json` already carry an entry named `hookName`? Unreadable = no. */
 function hasKosmosHook(workdir, hookName) {
   try {
@@ -91,7 +94,7 @@ function versionOf(bin) {
   return new Promise((resolve) => {
     if (!bin) { resolve(''); return; }
     try {
-      execFile(bin, ['--version'], { timeout: 5000, killSignal: 'SIGKILL', encoding: 'utf8' }, (_err, stdout) => {
+      execFile(bin, ['--version'], { timeout: VERSION_TIMEOUT_MS, killSignal: 'SIGKILL', encoding: 'utf8' }, (_err, stdout) => {
         resolve(String(stdout || '').split('\n')[0]);
       });
     } catch { resolve(''); }
@@ -106,7 +109,7 @@ function launchDir(create, name) {
     const text = require('node:fs').readFileSync(create.plistPath(name), 'utf8');
     const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
     const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => m[1]) : [];
-    if (args[3]) return args[3].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+    if (args[3]) return create.unxml(args[3]);
   } catch { /* fall back */ }
   return create.workerDir(name);
 }
