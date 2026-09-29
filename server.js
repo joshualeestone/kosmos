@@ -3797,6 +3797,24 @@ function sameAgentName(a, b, byKey) {
   const ka = key(a);
   return ka !== null && ka === key(b);
 }
+/* #4540: one plain sentence from a task message's `delivered` list, for the CLIs to print (the Mac CLI is bash 3.2
+   with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
+   not. No double quote or backslash, so that read cannot be cut short. `assigned` is how many are on the task; the
+   sender is already off `delivered`. */
+function taskMessageSummary(delivered, assigned) {
+  const plain = (x) => String(x == null ? '' : x).replace(/["\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  const list = Array.isArray(delivered) ? delivered : [];
+  if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
+  if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
+  const told = list.filter((d) => d && d.state === chat.DELIVERY.PLACED).map((d) => plain(d.agent));
+  const maybe = list.filter((d) => d && d.state === chat.DELIVERY.UNCONFIRMED).map((d) => plain(d.agent));
+  const not = list.filter((d) => d && d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.UNCONFIRMED);
+  const parts = [];
+  if (told.length) parts.push('Told ' + told.join(', ') + '.');
+  if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
+  for (const d of not) parts.push('Not told: ' + plain(d.because || (plain(d.agent) + ' could not be reached')).replace(/\.$/, '') + '.');
+  return parts.join(' ');
+}
 /* A caller whose token resolved without a roster row (`paneless`, on the result or its card): its name is the key. */
 function panelessCaller(tokenSender) {
   return !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
@@ -16765,7 +16783,7 @@ const server = http.createServer(async (req, res) => {
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
         if (!viaScreen) taskMessageValveRecord();
-        sendJson(res, 200, { ok: true, delivered });
+        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -18766,6 +18784,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
