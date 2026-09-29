@@ -393,7 +393,8 @@ function kosmosPlus() {
    null here, which is exactly the old stub's behaviour, so this is safe to ship before it.
    ⚠️ Switching OFF is an explicit `federation_live: false`, never a missing field or a revert: null
    keeps the last-known value on purpose (no flicker), so a board that saw true keeps it until told false.
-   The coordinator therefore always publishes the field (false unless turned on).
+   So the coordinator MUST always publish the field (false unless turned on) and never remove it;
+   that is a requirement on its /v1/meta (the relay side of kosmos#4649), not yet true today.
    ⚠️ A plain HTTPS read, NOT through the tunnel binary and its pinned key: this flag only decides what
    the screens OFFER, and the shared-room routes still refuse non-members on the server, so a spoofed
    answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
