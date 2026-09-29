@@ -168,6 +168,10 @@ function nameOk(v) {
    someone else's computer opens that account's own (empty) room, never this one. */
 const OWN_PREFIX = 'kosmos-own:';
 const OWN_CODE_MAX = 1024;
+/* An own code's ref reaches the connector's command line (`--own-project <ref>`), and a pasted
+   code is written by whoever made it, so it must look like a ref this board mints (a UUID):
+   letters, digits, _ and -, never starting with -. */
+const OWN_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
@@ -185,7 +189,7 @@ function ownCodeRefusal(projectId) {
 function ownCode(projectId, projectName) {
   if (ownCodeRefusal(projectId)) return null;
   const link = linkFor(projectId);
-  let ref = link && (link.role === 'owner' || link.role === 'self') && refOk(link.ref) ? link.ref : null;
+  let ref = link && (link.role === 'owner' || link.role === 'self') && OWN_REF_RE.test(String(link.ref)) ? link.ref : null;
   if (!ref) {
     if (link) return null;   // a member of someone else's project: not ours to add computers to
     ref = require('crypto').randomUUID();
@@ -208,7 +212,7 @@ function parseOwnCode(text) {
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
-  if (!o || o.v !== 1 || !refOk(o.ref) || typeof o.name !== 'string') return null;
+  if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
   const name = o.name.trim().slice(0, NAME_MAX);
   return name ? { ref: o.ref, name } : null;
 }
@@ -228,7 +232,7 @@ async function invite(remote, body) {
      hold no seal state, so they could no longer read or post there (#4658). An unreadable
      links record does not block an invite; the paths that read links report it. */
   let selfShared = false;
-  try { selfShared = Object.values(links()).some((l) => l && l.role === 'owner' && l.selfShared === true && l.ref === body.project_ref); } catch { selfShared = false; }
+  try { selfShared = Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true) || l.role === 'self') && l.ref === body.project_ref); } catch { selfShared = false; }
   if (selfShared) {
     return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
   }
@@ -264,7 +268,9 @@ async function verify(remote, body) {
      bound, since it carries the project's name. */
   const own = parseOwnCode(pasted);
   if (own) {
-    const here = Object.entries(links()).find(([, l]) => l && (l.role === 'self' || l.role === 'owner') && l.ref === own.ref);
+    let all;
+    try { all = links(); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
+    const here = Object.entries(all).find(([, l]) => l && (l.role === 'self' || l.role === 'owner') && l.ref === own.ref);
     if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
     const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };

@@ -91,3 +91,19 @@ test('an invite takes a project name over 128 bytes (the byte bound is for refs 
   const refTooLong = await federation.invite(stub, { project_ref: '中'.repeat(43), project_name: 'n', invited_kind: 'person' });
   assert.equal(refTooLong.status, 400, 'a ref over 128 bytes is still refused');
 });
+
+test('an own code\'s ref must look like a ref this board mints: it reaches the connector\'s command line', () => {
+  const enc = (ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name: 'n' })).toString('base64url');
+  for (const bad of ['--coordinator=https://x', '-abc', 'a b', 'a\u0007b', 'a/b', 'a=b'])
+    assert.equal(federation.parseOwnCode(enc(bad)), null, JSON.stringify(bad));
+  assert.ok(federation.parseOwnCode(enc('0b0c9f2e-1d2a-4c3b-9e8f-000000000001')), 'a UUID is a ref');
+});
+
+test('an invite is refused for a project this computer joined by own code (the same room)', async () => {
+  federation.recordLink('proj-selfinv', { role: 'self', ref: 'ref-selfinv' });
+  let called = 0;
+  const stub = { macRequest: async () => { called += 1; return { ok: true, data: { code: 'C', expires_at: 1, invite_id: 'i' } }; } };
+  const out = await federation.invite(stub, { project_ref: 'ref-selfinv', project_name: 'Mine', invited_kind: 'person' });
+  assert.equal(out.status, 409);
+  assert.equal(called, 0);
+});

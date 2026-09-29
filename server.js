@@ -15997,7 +15997,8 @@ const server = http.createServer(async (req, res) => {
         const refusal = federation.ownCodeRefusal(proj.id);
         if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
         const code = refusal ? null : federation.ownCode(proj.id, proj.name);
-        if (!code) { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+        if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+        if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
         fedseats.ensure(proj.id).catch(() => {});
         sendJson(res, 200, { code });
       })

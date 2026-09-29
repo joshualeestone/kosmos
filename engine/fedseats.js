@@ -368,6 +368,15 @@ function spawnFor(projectId, edge) {
     // 2 is a usage error: this computer's connector does not know the verb.
     // Restarting cannot fix that; updating Kosmos does.
     if (code === 2) {
+      /* An owner's OWN room (no edge) on a connector too old for --own-project: the project
+         keeps waiting for guests on its edges; only its own room stops for this session. */
+      const l2 = safeLink(projectId);
+      if (l2 && l2.role === 'owner' && !cur.edge) {
+        cur.ownRefused = true;
+        say(projectId, 'Your other computers cannot join this project yet: this computer\'s Kosmos connector is too old. Update Kosmos and they will connect.');
+        setStatus(projectId, 'waiting');
+        return;
+      }
       say(projectId, 'This computer cannot join the external project yet: its Kosmos connector is too old. Update Kosmos and it will connect.');
       setStatus(projectId, 'ended');
       return;

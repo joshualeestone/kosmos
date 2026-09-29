@@ -35,6 +35,11 @@ it needs none.
   (a human-checked Allow with a match code) is #4658; it does not block the weekend. Until then the own-code
   route REFUSES (409 `sealed`) a project that has handed out a sealing invite: a computer joined by own code
   has no seal state, so in a sealed room it could neither read nor post (review iteration 1).
+- **Sharing with your other computers is one-way for now.** Once a project is shared that way (or joined
+  by own code), an outside invite for it is refused (409 `self-shared`): sealing it would lock those
+  computers out. The settings hint says so. Undoing it, and inviting both, waits on #4658.
+- **An own code's ref is limited to letters, digits, _ and -, starting alphanumeric.** It reaches the
+  connector's command line, and a pasted code is written by whoever made it.
 - **"Add your other computer" still shows on a project joined from someone else.** The page is not told a
   project's share role; pressing it gets a 409 that says why in one sentence. Deferred, not missed.
 
