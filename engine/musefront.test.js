@@ -461,3 +461,25 @@ test('#4569 review round 5: a second stop counts a colleague\'s dropped message 
   h.pending[1](OK('Stopped.')); await h.f.drained();
   assert.match(h.calls[2] && h.calls[2].prompt, /^\[Kosmos: your operator asked you to stop again, and 1 message addressed to you was dropped too\.\]\n/);
 });
+
+test('#4569 review round 6: Escape during a busy retry\'s wait cancels the note; it never runs after that', async () => {
+  const run = require('./muserun');
+  assert.equal(run.BUSY, 'Muse Code is still working on this agent\'s last turn', 'musefront spells muserun.BUSY; keep them equal');
+  assert.equal(run.STOPPED, 'Stopped before Muse Code finished', 'musefront spells muserun.STOPPED; keep them equal');
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt)) return { ok: false, text: '', because: run.BUSY };
+    return OK('ok');
+  }, { busyRetryMs: 150 });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setTimeout(r, 40));    // the note has been refused once and is waiting to retry
+  const before = h.calls.length;
+  h.f.feed('\u001b');                               // Escape during the wait
+  await within(h.f.drained(), 'the front did not settle after Escape');
+  assert.equal(h.calls.length, before, 'the cancelled note ran again after Escape');
+  assert.match(h.out(), /\(Stopped before Muse Code finished\)\n> $/);
+  // A later stop starts fresh and does not claim a turn was ended when none was running.
+  h.f.feed('x\r'); await h.f.drained();
+  h.f.feed(OP('stop') + '\r'); await h.f.drained();
+  assert.ok(!/the turn you were on was ended/.test(h.calls[h.calls.length - 1].prompt || ''), 'a stop with nothing running claimed it ended a turn');
+});

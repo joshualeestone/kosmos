@@ -37,6 +37,9 @@ This PR is the write-up's fixes 1-3, in the Muse front only. Fix 4 (show the que
 - Review round 5: a stop kills the running Muse process and its note starts at once, while Muse may still hold
   the session; a stop note answered "still working on this agent's last turn" (muserun.BUSY, now exported) is
   tried again up to 4 times, 500 ms apart. A second stop also counts a colleague's addressed message it drops.
+- Review round 6: Escape during a busy retry's wait cancels the note (it is not run after all, and the pane says
+  Stopped); the stop handle is cleared as each attempt returns, so nothing reads as running during the wait. A test
+  pins musefront's spellings of muserun.BUSY and STOPPED.
 - Known and accepted (round 3 NIT): a project name containing "]" makes a room-wide stop read as an ordinary
   message; it still goes first.
 

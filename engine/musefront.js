@@ -124,7 +124,8 @@ const DIGEST_MAX = 40;
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
 const BUSY_RETRY_MS = 500;
-const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY, spelled here to keep this file's require lazy
+const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY (a test pins them equal)
+const MUSE_STOPPED = 'Stopped before Muse Code finished';                      // muserun.STOPPED (likewise)
 /* ...and posts stop being added past this many characters (review round 2: forty long posts are still one argv
    string). A single post longer than this still goes whole; room posts are bounded where they are made. */
 const DIGEST_MAX_CHARS = 32 * 1024;
@@ -182,8 +183,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         try {
           for (let tries = 0; ; tries++) {
             r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
+            stopTurn = null;   // that turn is over: nothing is running during the wait (review round 6)
             if (!(isNote && stopNoteRunning && r && !r.ok && r.because === MUSE_BUSY && tries < BUSY_RETRIES)) break;
             await new Promise((ok) => setTimeout(ok, busyRetryMs));
+            // Review round 6: Escape during the wait cancels the note; it must not run after all.
+            if (!stopNoteRunning) { r = { ok: false, text: '', because: MUSE_STOPPED }; break; }
           }
         }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
@@ -224,8 +228,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   function stop() {
     const dropped = queue.length;
     queue.length = 0;
-    STOP_NOTES.clear();
-    stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)   // a stop note Escape drops is no longer waiting (review round 2)
+    STOP_NOTES.clear();        // a stop note Escape drops is no longer waiting (review round 2)
+    stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
     if (stopTurn) { const f = stopTurn; stopTurn = null; try { f(); } catch { /* the turn is ending anyway */ } }
