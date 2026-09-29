@@ -68,3 +68,11 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
   - Mutant: the request back in the foreground makes it red ("waited 3997ms for the door").
 - **NIT** `exit 130` for every signal. Fixed: 128 + the signal (INT 130, TERM 143, HUP 129).
 - Confirmed clean: the trap is cleared on every exit path and clobbers no other trap; the shim's CONTROL runs first; connectionsHeld and the page's SVC_BUILT list match exactly (21 services); nothing on the page calls the held route.
+
+## Review round 3 (opus, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- **WARNING** Round 2 backgrounded kosmos_curl, a shell FUNCTION. Killing its subshell skipped the function's own cleanup, so the board token's header file (`kosmos-auth.*`) stayed on disk, and the orphaned curl finished the POST anyway.
+  - Fixed: the trap stops the curl INSIDE the job (`pkill -TERM -P`) and then waits for the subshell, which removes its own header file.
+  - A second bug surfaced while fixing it: under the script's `set -e`, pkill (nothing to stop) or wait (143) returning non-zero ended the trap before its cleanup. Both are guarded with `|| true`, and this is written in the comment.
+  - The test now also counts `kosmos-auth.*` files. Mutant restoring round 2's `kill "$_cpid"` goes red with the header file left.
+  - Stated honestly in the comment: a request the board already received may still be completed there; the interrupt stops this command waiting.
+- **NIT** The 2s bound against a 4s hold. The hold is now 8s.

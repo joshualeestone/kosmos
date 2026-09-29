@@ -130,7 +130,7 @@ test('#4451: kosmos connect says a refusal in the service\'s words, and refuses 
 }));
 
 test('#4451: an interrupt while the door checks the token leaves no token file behind', () => withStub({
-  'POST /api/svc/brave-search/token': { holdMs: 4000, json: { service: 'Brave Search', connected: true } },
+  'POST /api/svc/brave-search/token': { holdMs: 8000, json: { service: 'Brave Search', connected: true } },
 }, async (port, seen) => {
   const tmp = privateDir();
   const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
@@ -146,10 +146,11 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   child.kill('SIGTERM');
   const code = await new Promise((r) => child.on('close', (c, sig) => r(c === null ? sig : c)));
   const took = Date.now() - at;
-  /* Promptly, not after the door answers (the stub holds it for 4 seconds): a trap that waited for the request
+  /* Promptly, not after the door answers (the stub holds it for 8 seconds): a trap that waited for the request
      would still remove the file, so the file alone could not tell prompt from late (review round 2). */
   assert.ok(took < 2000, 'an interrupted connect waited ' + took + 'ms for the door instead of stopping');
   assert.equal(code, 143, 'TERM is not reported as 128 + 15');
-  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect')), [], 'an interrupted connect left the token (or its answer file) on disk');
+  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect') || f.startsWith('kosmos-auth')), [],
+    'an interrupted connect left the token, its answer file, or the board token\'s header file on disk (review round 3)');
 }));
 
