@@ -143,7 +143,10 @@ Fixed across four blind rounds (opus, sonnet, opus, sonnet):
 - The Kosmos+ bar observes both of the header's boxes (the gutter moves the border box; a new --scrollbar-width moves
   only the padding). P8 in render-plus-bar-3837, both arms, each red without its observer.
 - The org chart (orgWatchWidth) and the project room's @mention mirror (pjMentionWatchWidth) watch their own boxes;
-  new gated check render-gutter-return-4506 (G1, G2), each arm red without its watcher.
+  new gated check render-gutter-return-4506 (G1, G2), each arm red without its watcher. G1 holds the board's status
+  poll while it runs: every ~5s tick repaints the chart, so without the hold a tick could pass the arm with no
+  watcher (iteration 5). With the hold the no-watcher mutant reds 5 runs of 5. The same fact bounds the org defect:
+  without the watcher the chart was wrong for up to one poll, not for good.
 
 Checked and left, with the reason (not measured, reasoned from the code):
 - fitDetailName: runs on open, section change and resize. Talk's gutter rule applies as the section shows, so its fit

@@ -42,6 +42,7 @@ test('#4506 the org chart watches its own box, with the width-guarded repaint as
   assert.equal(seen.length, 1);
   assert.equal(seen[0].el, wrap);
   assert.equal(seen[0].cb, repaint);
+  assert.equal(seen[0].opts, undefined, 'the content box: a gutter change moves the chart box\'s own width');
 });
 
 test('#4506 and it is armed at load, next to the resize listener', () => {

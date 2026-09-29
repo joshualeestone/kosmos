@@ -30542,9 +30542,9 @@ window.addEventListener('resize', orgResizeRepaint);
 /* #4506: the chart's own box too, because its width also changes with NO window resize: the tab layout's scrollbar
    gutter (#1309) is dropped while the boot cover, the first-run and update overlays, the first screen and the restart
    screen are up, and by Talk, and it comes back when they go, giving the chart 15px on a classic-scrollbar machine.
-   One observer covers every one of those instead of a call at each place an overlay closes. orgResizeRepaint
-   repaints only when the width differs from the last paint's, so a height change (every paint makes one) costs a
-   comparison, not a repaint. */
+   One observer covers every one of those instead of a call at each place an overlay closes. The ~5s status poll also
+   repaints the chart, so without this it was wrong for up to one poll, not for good. orgResizeRepaint repaints only
+   when the width differs from the last paint's. render-gutter-return-4506 G1 measures it, with the poll held. */
 function orgWatchWidth() {
   const wrap = document.getElementById('orgview');
   if (wrap && typeof ResizeObserver === 'function') new ResizeObserver(orgResizeRepaint).observe(wrap);
@@ -56477,10 +56477,7 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
 window.addEventListener('resize', pjMentionPaint);
 /* #4506: the composer's own box too. Its width changes with NO window resize whenever the tab layout's scrollbar
    gutter comes or goes (the overlays that drop it, and Talk), and a mirror sized before that would draw the draft
-   wrapped at the old width, off the caret, until the next keystroke. pjMentionPaint writes only the mirror, never
-   the textarea, so this cannot feed itself. Only a WIDTH the mirror does not already have repaints: the composer
-   grows in height as the person types, and pjGrowComposer already repaints for that. render-gutter-return-4506
-   measures it. */
+   wrapped at the old width, off the caret, until the next keystroke. render-gutter-return-4506 G2 measures it. */
 function pjMentionWatchWidth() {
   const input = document.getElementById('pj-post');
   const mirror = document.getElementById('pj-post-mirror');

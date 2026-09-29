@@ -163,6 +163,8 @@ const bar = (page) => page.evaluate(() => {
     const b8 = await chromium.launch({ headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'], ignoreDefaultArgs: ['--hide-scrollbars'] });
     try {
       const p8 = await b8.newPage({ viewport: { width: 1280, height: 800 } });
+      const errs8 = [];
+      p8.on('pageerror', (e) => errs8.push(e.message));
       await p8.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
       if (await p8.$('#firstrun:not([hidden])')) { await p8.keyboard.press('Escape'); await p8.waitForTimeout(200); }
       await p8.evaluate(() => {
@@ -201,6 +203,7 @@ const bar = (page) => page.evaluate(() => {
       chk(padOnly.headW === headBefore, 'P8 precondition: a new --scrollbar-width moves only the header\'s padding, not its border box', JSON.stringify({ headBefore, headW: padOnly.headW }));
       chk(padOnly.pad >= 30 && padOnly.right === 0, 'P8 when only the header\'s padding changes (a new scrollbar measurement, same width), the bar re-fits too', JSON.stringify(padOnly));
       await p8.evaluate(() => document.documentElement.style.removeProperty('--scrollbar-width'));
+      chk(errs8.length === 0, 'P8 no page errors', errs8.join(' | '));
     } finally { await b8.close(); }
   } finally {
     await browser.close();

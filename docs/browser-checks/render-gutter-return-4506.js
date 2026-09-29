@@ -14,8 +14,9 @@
  *
  * 🔑 WHAT ONLY A BROWSER CAN SAY: a real, space-taking 15px scrollbar (--hide-scrollbars dropped, a
  * ::-webkit-scrollbar width, a page tall enough to scroll), the CSS that drops the gutter under the cover, and the
- * observers' timing. Measured with each observer's load-time call removed: G1 stays painted at the old width,
- * G2's mirror stays at the old width.
+ * observers' timing. G1 holds the board's status poll while it runs, because each poll tick repaints the chart and
+ * would re-fit it without the watcher (the watcher saves up to one poll, about 5s, of a chart fitted to the wrong
+ * width). G2 needs no hold: nothing periodic repaints the composer's mirror (only a project switch, a send and typing).
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-gutter-return-4506.js
  *      (HEADED=0 on a machine with no console session)
@@ -73,6 +74,12 @@ function chk(ok, label, extra) {
     await page.evaluate(() => paintOrg());
     await page.waitForTimeout(300);
     const org = () => page.evaluate(() => ({ box: document.getElementById('orgview').clientWidth, painted: ORG_VIEW_W }));
+    /* The board's ~5s status poll repaints the chart on every tick (and so re-fits it on its own within a poll), which
+       would pass these arms without the watcher whenever a tick landed in a wait. So the poll's reads are HELD for
+       the arms below: only the watcher can repaint the chart while they run. Released after G1. */
+    const held = [];
+    await page.route('**/api/status*', (route) => { held.push(route); });
+    await page.waitForTimeout(300);
     const g1a = { ...(await org()), gutter: await gutter() };
     chk(g1a.gutter === 15 && g1a.box > 0 && g1a.painted === g1a.box, 'G1 precondition: a real 15px gutter, and the chart painted at its box width', JSON.stringify(g1a));
     await cover(true);
@@ -84,6 +91,8 @@ function chk(ok, label, extra) {
     await page.waitForTimeout(400);
     const g1c = { ...(await org()), gutter: await gutter() };
     chk(g1c.gutter === 15 && g1c.painted === g1c.box && g1c.box === g1a.box, 'G1 once the cover lifts the chart repaints back to its box, with no window resize', JSON.stringify(g1c));
+    await page.unroute('**/api/status*');
+    for (const r of held) await r.continue().catch(() => {});
 
     // G2: the @mention mirror in a project room.
     const made = await page.evaluate(async () => {
