@@ -253,12 +253,12 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(n.above > 40 && Math.abs(n.above - n.below) <= 4, `[${key}] #3796 with the nav stacked above (800px) the card is still centred in the room below`, JSON.stringify(n));
         // A card taller than the pill column starts level with the column's top, and a short window scrolls to its foot.
         await page.setViewportSize({ width: 1280, height: 400 });
-        await page.evaluate(() => { const p = document.createElement('p'); p.id = 'plus-tall-probe'; p.style.height = '600px'; document.getElementById('plus-si-email').appendChild(p); });
+        await page.evaluate(() => { const p = document.createElement('p'); p.dataset.tallProbe = '1'; p.style.height = '600px'; document.getElementById('plus-si-email').appendChild(p); });
         await page.waitForTimeout(200);
         const t = await centred();
         const foot = await page.evaluate(() => { const card = document.getElementById('plus-state2'); card.scrollIntoView({ block: 'end' }); const r = card.getBoundingClientRect(); return { bottom: Math.round(r.bottom), vh: innerHeight }; });
         chk(t.cardH > t.navH && t.cardTop === t.navTop && foot.bottom <= foot.vh, `[${key}] 09-29 a card taller than the column starts at its top and scrolls into full view, never clipped`, JSON.stringify({ t, foot }));
-        await page.evaluate(() => { document.getElementById('plus-tall-probe').remove(); scrollTo(0, 0); });
+        await page.evaluate(() => { document.querySelector('p[data-tall-probe]').remove(); scrollTo(0, 0); });
         await page.setViewportSize(vp);
         await page.waitForTimeout(200);
       }
