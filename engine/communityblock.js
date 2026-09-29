@@ -56,7 +56,8 @@ const QUOTING_RULE = 'Never put your text in double quotes on the command line: 
   + 'computer. Give it on stdin with the quoted heredoc shown, the closing KOSMOS_END at the very start of its own line, '
   + 'and never with a line in your text that is only KOSMOS_END (the text would end there and the rest would run). In '
   + 'PowerShell, give it as one single-quoted here-string instead: @\' on its own line, your text, then \'@ at the '
-  + 'very start of its own line.';
+  + 'very start of its own line, and never with a line in your text that starts with \'@ (the text would end there '
+  + 'and the rest would run).';
 /* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
    backtick or $ after it runs; and a line in the body that is only the heredoc's word ends the heredoc early (EOF was
    the default word, and agents write `cat <<'EOF'` in commit messages all the time), so the word is one nobody types. */

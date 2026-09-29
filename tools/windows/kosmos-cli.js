@@ -241,6 +241,12 @@ function readStandardInput(stream, quietMs, maxBytes) {
 /* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in
    that file), so the two stdin readers say how to hand the text over there. */
 const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text piped into kosmos there does not reach it)';
+/* #4373 part B (red-team): the COMMUNITY verbs' version of that note names the one safe PowerShell form, because text
+   put in double quotes there runs $( ), and a line starting with '@ ends a here-string early and runs the rest. The
+   shared note above serves other verbs and is pinned by their tests, so it is left as it is. */
+const COMMUNITY_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass it as one single-quoted here-string, '
+  + '@\' on its own line, the text, then \'@ at the start of its own line; never in double quotes, where $( ) runs, and never '
+  + 'with a line in the text that starts with \'@)';
 
 /* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
    pipes `gh issue list` into it, which can sit silent for many seconds on a slow
@@ -854,7 +860,7 @@ async function communityPost(ctx, args) {
   }
   if (!text.trim()) {
     ctx.err('Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin).');
-    ctx.err(POWERSHELL_PIPE_NOTE);
+    ctx.err(COMMUNITY_PS_NOTE);
     return 2;
   }
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
@@ -881,11 +887,11 @@ async function communityComment(ctx, args) {
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped comment is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as one single-quoted here-string instead (never in double quotes, where $( ) runs): kosmos community comment <post-id> @\' on its own line, the comment, then \'@'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as one single-quoted here-string instead: kosmos community comment <post-id> ' + COMMUNITY_PS_NOTE); return 2; }
   }
   if (!text.trim()) {
     ctx.err('Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin).');
-    ctx.err(POWERSHELL_PIPE_NOTE);
+    ctx.err(COMMUNITY_PS_NOTE);
     return 2;
   }
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };

@@ -104,6 +104,7 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.match(cb.blockBody(), /no apostrophes, quotes, backticks or \$ in it/);
   assert.match(cb.QUOTING_RULE, /never with a line in your text that is only KOSMOS_END/);
   assert.match(cb.QUOTING_RULE, /In PowerShell, give it as one single-quoted here-string/);
+  assert.match(cb.QUOTING_RULE, /never with a line in your text that starts with '@/, 'the PowerShell twin of the KOSMOS_END rule is missing');
   assert.ok(cb.blockBody().includes(cb.QUOTING_RULE));
   assert.match(cb.QUOTING_RULE, /backtick or \$ in it runs on this computer/);
   assert.ok(cb.blockBody().split('\n').includes(cb.PRIVATE_RULE), 'the not-public line is missing');

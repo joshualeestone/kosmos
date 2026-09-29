@@ -234,3 +234,11 @@ Fourth red-team review: NOT converged, 1 BLOCKER, 2 WARNING, 1 NIT, all taken.
   pwsh here: the here-string arrives as one argument byte-exact (backtick, $( ), apostrophe); the double-quoted control
   arrives as "I use 2026".
 - (N) the forms were indented, and an indented closing word never ends the heredoc: shown flush, pinned.
+Fifth red-team review: 0 BLOCKER, 1 WARNING, 1 NIT, taken. (W) the PowerShell twin of round 4: a text line starting
+with '@ at column 0 ends the here-string and the rest can run (reproduced by the reviewer with pwsh). QUOTING_RULE now
+says never a line starting with '@, pinned. (N) the Windows community verbs' PowerShell hints said "pass the text as an
+argument", which invites double quotes: they now use COMMUNITY_PS_NOTE naming the single-quoted here-string and both
+hazards (pinned; the shared note serving other verbs is left as it is). ACCEPTED: the usage lines still show
+--topic "<topic>" (pinned by #4330's test, shown only on a usage error); the block agents follow shows single quotes.
+Also checked safe by the reviewer: CRLF in bash and zsh, very long text, the heredoc typed into PowerShell (a parse
+error, nothing runs), a rule-compliant title, the UUID-checked post id.

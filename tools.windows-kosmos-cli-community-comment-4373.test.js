@@ -81,3 +81,13 @@ test('#4373 B review 3: published while Community is off, it says it will not go
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], off.io), 0);
   assert.match(off.lines.out.join("\n"), /not sending to the community right now, so it will not go/);
 });
+
+test('#4373 B fifth red-team: an empty comment in PowerShell is told the safe form, never double quotes', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'comment', POST, '   '], h.io), 2);
+  const err = h.lines.err.join('\n');
+  assert.match(err, /single-quoted here-string/);
+  assert.match(err, /never in double quotes, where \$\( \) runs/);
+  assert.match(err, /never with a line in the text that starts with '@/);
+  assert.doesNotMatch(err, /pass the text as an argument/, 'the shared "as an argument" note invites double quotes');
+});
