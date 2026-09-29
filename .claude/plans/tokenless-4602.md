@@ -6,7 +6,8 @@ Card: joshualeestone/kosmos#4602 (the Meta agent's finding in Josh's Five Famili
 - server.js `boardTokenRefusal(req, tail)`, used by the board-token gate and POST /api/team's operator path. With no
   credential presented (no board token by cookie, header or query; no agent token header) and not from a browser:
   "no board token or agent token came with this request, so it was refused (<the account sentence>). Kosmos's own
-  commands send one for you: use `kosmos ...` rather than calling the board directly".
+  commands send one when they can read this board's token; if you are calling the board directly, use a `kosmos`
+  command instead". It says "in this request's headers": an agent token in a JSON body is read after this gate.
 - A token that was sent and does not match, and every browser request, keep the account sentence word for word.
 
 ## Decided
@@ -15,6 +16,11 @@ Card: joshualeestone/kosmos#4602 (the Meta agent's finding in Josh's Five Famili
 - A browser keeps the old sentence: the page shows this error to a person (org-chart import, Settings), for whom
   `kosmos open` is the advice. Browser = Sec-Fetch-Site present. Not Sec-Fetch-Mode: Node's own fetch (the
   Windows CLI) sends `sec-fetch-mode: cors` by itself and no Site (measured).
+
+## Out of scope (review iteration 1)
+- The report, report-show and reply handlers' own no-credential refusal (`denyPaneFallback`) says "this board only
+  ... from the account that started it". Same class, different code path, reached after the gate; left for a
+  follow-up so this change stays the gate the Meta agent hit.
 
 ## Weakest premise
 That no agent calls the board through a real browser engine without a token. A Playwright-driven agent would get

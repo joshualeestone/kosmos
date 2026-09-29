@@ -26,7 +26,7 @@ const { start, server, boardAuthState } = require('./server');
 
 const BOARD = 'BOARDTOKEN_test_4602_0123456789abcdef';
 const ACCOUNT = 'this board belongs to the account that started it; open it with `kosmos open`';
-const MISSING = /^no board token or agent token came with this request, so it was refused \(/;
+const MISSING = /^no board token or agent token came in this request\u2019s headers, so it was refused \(/;
 let base;
 
 test.before(async () => {
@@ -52,7 +52,7 @@ test('#4602 no credential at all: told a token is missing and how one is sent, a
     assert.equal(r.code, 403, m + ' ' + p);
     assert.match(r.error, MISSING, m + ' ' + p + ': ' + r.error);
     assert.ok(r.error.includes(ACCOUNT), 'the account clause is kept word for word: ' + r.error);
-    assert.match(r.error, /use `kosmos \.\.\.` rather than calling the board directly/);
+    assert.match(r.error, /if you are calling the board directly, use a `kosmos` command instead$/);
   }
 });
 
@@ -61,6 +61,10 @@ test('#4602 a token that was sent and does not match: the account sentence exact
   assert.deepEqual(wrongBoard, { code: 403, error: ACCOUNT });
   const wrongAgent = await call('POST', '/api/msg', { 'x-kosmos-agent-token': 'ab'.repeat(32) }, {});
   assert.deepEqual(wrongAgent, { code: 403, error: ACCOUNT }, 'an agent token that resolves to nobody was still SENT');
+  const staleCookie = await call('GET', '/api/projects', { cookie: 'kosmos_board=another-accounts-token', 'sec-fetch-site': 'same-origin' });
+  assert.deepEqual(staleCookie, { code: 403, error: ACCOUNT }, 'a stale cookie from another account counts as sent');
+  const cookieNoBrowser = await call('GET', '/api/projects', { cookie: 'kosmos_board=another-accounts-token' });
+  assert.deepEqual(cookieNoBrowser, { code: 403, error: ACCOUNT }, 'a cookie counts as sent without the browser header too');
   const queryToken = await call('GET', '/api/projects?token=wrong');
   assert.deepEqual(queryToken, { code: 403, error: ACCOUNT }, 'a token in the query counts as sent');
 });
