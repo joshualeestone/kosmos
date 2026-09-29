@@ -19,7 +19,6 @@ const path = require('node:path');
    working, as summaries/YYYY-MM-DD-HH.md in the agent's own folder. */
 const SUMMARY_RHYTHM_HOURS = 4;
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
-/* A summaries folder is a few files a day; far more is not one, and it is not read whole. */
 /* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
    stat'ed per member per request, on the single-threaded board). The names are dated, so the newest file is among the
    newest names unless an old one was rewritten later, which this reports by its write time anyway. */

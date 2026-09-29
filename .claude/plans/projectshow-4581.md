@@ -63,3 +63,10 @@ VS16+ZWJ pair stay (tested with 🏳️‍🌈). The folder filter now marks the
 (an unreadable store; a view that fails to build) now have tests; removing the server's try fails one (measured). A
 summary file name goes through the scrubber; hitting the scan bound with no file found reads unreadable, not none.
 Also merged main: project list/show use #4466's say_not_up / say_unreached.
+Round 6 (Sonnet, separate reviewer, 14:06): NOTHING ABOVE NIT (converged). Named, not changed:
+- A member that is not running shows "family unknown": the family comes from the live card's runner.
+- The Mac CLI's refusal text is cut at an escaped quote by its sed (display only); Windows shows it whole.
+- The brief's "done" section is found even inside a code fence and ends at a `---` inside the person's own text.
+- Network: the board binds 127.0.0.1 unless KOSMOS_BIND_HOST is set on purpose for a remote agent (#1112); then a remote
+  agent holding its own token can also read these two routes, consistent with "any agent may read any project".
+A stale comment above SUMMARY_SCAN_MAX removed (comment only).
