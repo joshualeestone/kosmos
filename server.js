@@ -1297,7 +1297,13 @@ function resolveAgentSender(req, body, roster, opts) {
        `new Function` extraction test, and any non-enforcing caller) leaves
        `opts` undefined, so the fallback works exactly as before. */
     if (opts && opts.denyPaneFallback) {
-      return { ok: false, because: opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token' };
+      const because = opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token';
+      /* #4606 (the #4602 finding, on the routes agents call most): a caller that sent NO credential at all was told only
+         whose board this is, and read it as "another machine's board". Say the token is missing first. A board token
+         that was sent and did not match keeps today's words exactly. No agent token came in a header or the body (that
+         is this branch), so "with this request" is exact here. The words change, never the refusal. */
+      const boardTokenSent = Boolean(boardauth.presentedToken(req, ROUTING_BASE));
+      return { ok: false, because: boardTokenSent ? because : 'no board token or agent token came with this request, and ' + because };
     }
     return messages.resolveSender(body && body.from_pane, roster);
   }
