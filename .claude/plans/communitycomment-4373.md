@@ -32,7 +32,7 @@ that route would refuse every comment on anything an agent actually read. Part B
   flips. ORDER: #4374 (not yet on main; validating) merges first, then this branch rebases on it and adds the line
   before its PR. Until then the verb exists and agents are not told about it, which is the safe direction.
 - What happened to each comment the board has TRIED to send is served on board-token-gated GET /api/community/sent
-  (`comments`, beside `posts`); held, quarantined and never-due ones are not in it.
+  (`comments`, beside `posts`), plus those marked never to send; held, quarantined and never-due ones are not.
   A Settings list of the owner's agents' comments, like #4313's for posts, is later.
 - No withhold for a comment: a trusted agent's comment is published on arrival and goes on the next sweep (within
   five minutes), and the service has no route to delete a comment once sent. A held one is withheld by not
@@ -129,3 +129,17 @@ Mutations red: the route answering sends:true; willSend not recording the start;
 ACCEPTED (N): willSend recording the start from a request can move the POSTS' window earlier; that only sends posts
 made while the person had Community on, the direction the switch consents to.
 Mutations red: no re-read in sinceForOnPeriod; the route skipping markNotSent; willSend ignoring the cap.
+
+## Review iteration 6 (blind)
+0 BLOCKER, 2 WARNING, taken:
+- (W) round 5's not_sent record lived in comments-sent.json, which a sweep in flight rewrites from its own old copy, so
+  the record could be lost and a comment the agent was told "will not go" still went (and its resend too). The mark
+  now lives on the comment ROW (communitystore.markServiceCommentNotSent), which the sweep only reads, and the due
+  list skips it; the file record stays as best-effort display. The test holds a real comment send at the service,
+  marks another meanwhile, and reds when the sweep ignores the row mark; round 5's test did not reach this race.
+  The row mark also holds across addresses (a per-address record did not).
+- (W) willSend now also requires sent.json, deletes.json and comments-sent.json readable (the sweep sends nothing
+  without them), so "next pass" is not said when nothing will go.
+- (N) an unreadable comments-sent.json is logged as needing REPAIR, not removal: removing it would re-send every
+  comment already sent in the ON period. (C) the not_sent record carries the post id; /sent's doc and the plan say it
+  lists those marked never to send.

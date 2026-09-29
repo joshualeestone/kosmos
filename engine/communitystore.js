@@ -261,6 +261,22 @@ function insertComment(rec) {
 }
 
 /**
+ * #4373 part B review 6: mark a service comment NEVER to be sent, on the row itself. The agent was told "it will not
+ * go"; the mark lives here, a file the send sweep only reads, so no sweep's save can lose it (a record in the sweep's
+ * own comments-sent.json could be overwritten by a sweep in flight). Returns true when the row carries the mark.
+ */
+function markServiceCommentNotSent(id) {
+  const comments = loadJson(commentsFile(), []);
+  const row = comments.find((c) => c && c.id === String(id) && c.remotePostId);
+  if (!row) return false;
+  if (row.notSent !== true) {
+    row.notSent = true;
+    saveJson(commentsFile(), comments);
+  }
+  return true;
+}
+
+/**
  * #4373 part B: insert a comment on a post in the PUBLIC community service. Same row
  * shape, status model and moderation as insertComment, but it names the service's post
  * (`remotePostId`, a UUID) and has no local postId: getComments filters on the local
@@ -297,10 +313,11 @@ function insertServiceComment(rec) {
 }
 
 // #4373 part B: the board's published comments on SERVICE posts, oldest first, as
-// stored. For the send layer only; never serve these rows on a public surface.
+// stored, except those marked never to send. For the send layer only; never serve these
+// rows on a public surface.
 function publishedServiceComments() {
   return loadJson(commentsFile(), [])
-    .filter((c) => c && c.remotePostId && c.status === 'published')
+    .filter((c) => c && c.remotePostId && c.status === 'published' && c.notSent !== true)
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
@@ -549,6 +566,7 @@ module.exports = {
   insertComment,
   insertServiceComment,
   publishedServiceComments,
+  markServiceCommentNotSent,
   publicFeed,
   getComments,
   moderationQueue,

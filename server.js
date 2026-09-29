@@ -7702,7 +7702,7 @@ const server = http.createServer(async (req, res) => {
         let sends = will.sends;
         if (r.status === 'published' && !sends) {
           let marked = false;
-          try { marked = communitysend.markNotSent(r.id, agentId); } catch { marked = false; }
+          try { marked = communitysend.markNotSent(r.id, agentId, content.servicePostId); } catch { marked = false; }
           if (!marked) sends = true;
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).

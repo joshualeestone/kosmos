@@ -435,3 +435,39 @@ test('review 5: past the daily comment cap, willSend says it goes LATER, not on 
   assert.deepEqual(cs.willSend('ava'), { sends: true, later: true });
   assert.deepEqual(cs.willSend('bo'), { sends: true, later: false });
 });
+
+test('review 6: a "will not go" mark made while a sweep is sending survives that sweep\'s save, and the comment never goes', async () => {
+  await on();
+  comment('ava', 'first, to register');
+  await cs.sweep();
+  comment('ava', 'the one in flight');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  cs.setSender(async (url, init) => { await gate; return fetch(url, init); });
+  const before = be.st.seen.length;
+  const sweeping = cs.sweep();                          // holds its copy of comments-sent.json across the wait
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(be.st.seen.length, before, 'control: the sweep is held at the service');
+  const r = comment('ava', 'told it will not go');
+  assert.equal(r.status, 'published');
+  assert.equal(cs.markNotSent(r.id, 'ava', POST), true);
+  release();
+  await sweeping;                                       // its save rewrites comments-sent.json from its old copy
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(be.st.comments.filter((c) => c.body === 'told it will not go').length, 0, 'a comment the agent was told would not go, went');
+});
+
+test('review 6: willSend is false while a file the sweep needs is unreadable', async () => {
+  await on();
+  SW = { on: true, ok: true };
+  for (const f of [cs._paths.sentFile(), cs._paths.deletesFile(), cs._paths.commentsSentFile()]) {
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const had = fs.existsSync(f) ? fs.readFileSync(f) : null;
+    fs.writeFileSync(f, '{not json');
+    assert.equal(cs.willSend('ava').sends, false, path.basename(f));
+    if (had) fs.writeFileSync(f, had); else fs.rmSync(f);
+  }
+  assert.equal(cs.willSend('ava').sends, true, 'control: with every file readable it sends');
+});

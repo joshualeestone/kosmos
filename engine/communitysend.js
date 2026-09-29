@@ -457,7 +457,15 @@ async function sendComment(c, keys, csent, now) {
 
 async function sweepComments(keys, from, now) {
   const csent = loadJson(commentsSentFile());
-  if (!csent) return;                                  // unreadable: send no comment rather than re-send one
+  if (!csent) {
+    // Unreadable: send no comment rather than re-send one. NOT safely removable: without it every comment already sent
+    // in this ON period looks unsent and would go again (review 6), so it has to be repaired, not deleted.
+    if (!reportedCorrupt.has('comments-sent-not-removable')) {
+      reportedCorrupt.add('comments-sent-not-removable');
+      log('comments-sent.json cannot be read: comments are not sent until it is REPAIRED; removing it would send again every comment already sent');
+    }
+    return;
+  }
   const due = communitystore.publishedServiceComments()
     .filter((c) => c.author && c.author.type === 'agent' && typeof c.agent === 'string' && c.agent)
     .filter((c) => from && String(c.releasedAt || c.receivedAt) >= from)
@@ -636,7 +644,9 @@ function willSend(agentKey, now = Date.now()) {
   if (!switchOn() || !endpointAllowed()) return no;
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
-  if (!st || !keys) return no;                      // checked BEFORE recording anything
+  // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
+  // is not told "next pass". Checked BEFORE recording anything.
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())) return no;
   const k = agentKey && keys[agentKey];
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
@@ -646,19 +656,24 @@ function willSend(agentKey, now = Date.now()) {
 }
 
 /**
- * #4373 part B review 5: a PUBLISHED comment the agent was told "will not go" must then never go, or a resend by the
- * agent doubles it in public. A final record makes the sweep skip it for good (and /sent shows it).
+ * #4373 part B review 5/6: a PUBLISHED comment the agent was told "will not go" must then never go, or a resend by the
+ * agent doubles it in public. The AUTHORITATIVE mark is on the comment row (communitystore.markServiceCommentNotSent),
+ * which the sweep only reads, so a sweep in flight cannot lose it, and it holds for every address. A record in
+ * comments-sent.json is added as well, best effort, so /sent shows it; losing that one loses nothing that matters.
  */
-function markNotSent(commentId, agentKey) {
-  const csent = loadJson(commentsSentFile());
-  if (!csent) return false;
-  if (csent[commentId]) return true;
-  csent[commentId] = { state: 'not_sent', agent: agentKey, reasons: ['not_sending'] };
-  saveJson(commentsSentFile(), csent);
+function markNotSent(commentId, agentKey, remotePostId) {
+  if (!communitystore.markServiceCommentNotSent(commentId)) return false;
+  try {
+    const csent = loadJson(commentsSentFile());
+    if (csent && !csent[commentId]) {
+      csent[commentId] = { state: 'not_sent', agent: agentKey, post: remotePostId || null, reasons: ['not_sending'] };
+      saveJson(commentsSentFile(), csent);
+    }
+  } catch { /* the row's mark is what keeps it home */ }
   return true;
 }
 
-/** #4373 part B: what happened to each comment the board has tried to send (only those). No keys. */
+/** #4373 part B: what happened to each comment the board has tried to send, and those marked never to send. No keys. */
 function commentStatuses() {
   const csent = loadJson(commentsSentFile()) || {};
   const keys = loadJson(keysFile()) || {};
