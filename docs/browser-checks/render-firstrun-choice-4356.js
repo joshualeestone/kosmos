@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-choice frc-title frc-btn frc-buttons frc-logo
+// Browser-check-surface: fr-choice frc-title frc-btn frc-buttons frc-logo firstrun
 'use strict';
 
 /**
@@ -136,7 +136,9 @@ const look = (page) => page.evaluate(() => {
     s = await look(page);
     chk(JSON.stringify(s.posted) === '["run"]', 'C2 Run agents tells the app "run"', JSON.stringify(s.posted));
     chk(!s.shown && s.wizard, 'C2 the screen goes and first run opens');
-    chk(s.gutter.gutter === 'stable' && s.gutter.overflow !== 'hidden', 'C2 and the page scrolls and keeps its gutter again', JSON.stringify(s.gutter));
+    // #4494: the wizard is a full-window layer too, so while it is up the page still reserves no gutter and does not
+    // scroll; render-layer-gutter-4494 asserts the gutter comes back when the wizard closes.
+    chk(s.gutter.gutter === 'auto' && s.gutter.overflow === 'hidden', 'C2 and the wizard, a full-window layer too, keeps the page from showing a gutter beside it (#4494)', JSON.stringify(s.gutter));
     chk(!/[?&]mode=/.test(s.search), 'C2 the address no longer asks, so a Reload does not show the screen again', s.search);
     await page.context().close();
 

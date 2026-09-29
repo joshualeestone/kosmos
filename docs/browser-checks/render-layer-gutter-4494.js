@@ -14,6 +14,7 @@
  * which a custom scrollbar needs before it takes width), so the strip is measurable here and not only
  * on a Mac with a mouse attached. The not-scrolling case (a reserved gutter on a short page) is the
  * same rule's other half and is not reproducible with a custom scrollbar; CI's classic runner has it.
+ * Chromium only: the Mac app's WebKit view is not exercised here.
  *
  * Arms:
  *   - positive control, before each layer opens: the tab layout really reserves the 15px gutter and

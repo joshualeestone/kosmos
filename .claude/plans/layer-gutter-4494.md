@@ -21,7 +21,7 @@ a mouse attached) and goes red with the rule removed.
   also sets `auto`, so it cannot fight this.
 - The wizard scrolls inside its own layer (`.fr-back { overflow-y: auto }`), so hiding the page's
   overflow takes nothing from it.
-- #4489's first-screen rule is NOT duplicated here: #4489 is still open and carries it.
+- #4489's first-screen rule (#fr-choice) is not duplicated here; it landed on main separately.
 - Accepted trade: the update overlay is an 0.86 wash, not opaque, so when the gutter goes the board behind it
   widens 15px, faintly visible under the wash (the restart screen makes the same trade and is opaque). A 15px
   shift under a wash that announces the board is about to reload, over a bright strip beside it.
@@ -30,6 +30,12 @@ a mouse attached) and goes red with the rule removed.
 - Rebased onto main after #4421 moved the emit-site counts (201->202, 122->123), and again after #4489 (#4356) moved
   EXPECTED_SITES 202->204; this branch's +3/+2 now reads 207/125, measured by the equality test on the rebased tree.
   #4489's own first-screen rule (#fr-choice) is on main beside this one; neither duplicates the other.
+- #4489's check (render-firstrun-choice-4356, gated) asserted C2: after Run agents the wizard opens and the page
+  "scrolls and keeps its gutter again". This branch makes the wizard drop the gutter too, so C2 went red (found by
+  the post-rebase review, measured both ways). C2 now asserts the wizard's state (no gutter, no page scroll); this
+  branch's own check asserts the gutter returns when the wizard closes. `firstrun` added to that check's surface
+  tokens, since the surface gate could not link the two before. Lesson: after a rebase, run the checks the
+  incoming commits added, not only this branch's.
 
 ## The check (render-layer-gutter-4494)
 - MEASURED: this Mac's Chromium 151 (headless and headed) gives a stable gutter 0 width, and a
@@ -39,6 +45,8 @@ a mouse attached) and goes red with the rule removed.
   (positive control), then opens each layer the real way (`?first-run=1`, the Update button).
 - Stated gap: the short-page case (a reserved but unscrolled gutter) cannot be reproduced with a
   custom scrollbar; the same rule covers it, and CI's classic-scrollbar runner exercises it.
+- Stated gap: the check runs in Chromium. The Mac app draws the board in WebKit, which is not exercised here (as for
+  the sibling gutter checks); the rule is plain CSS both engines support (:has and scrollbar-gutter).
 - Red with the rule removed: MEASURED, 4 failures (both layers: gutter 15, not covered).
 - Registered in gated.txt, the README index, and the emit-site counts (+3/+2, measured by removing
   the file: main's counts are exact without it).
