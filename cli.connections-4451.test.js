@@ -11,6 +11,7 @@
  * Harness as cli.presents-token.test.js: an in-process stub answering the CLI's own health check with a
  * page containing "Kosmos", and ASYNC child processes (a synchronous one blocks the stub's event loop).
  */
+require('./test-support/tmpscope');   // #4273: first, so every temp dir this file makes is contained and removed
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
@@ -60,7 +61,7 @@ function curlShim(dir) {
 
 /** Run the CLI with `stdin` piped in (or null for none), in a private TMPDIR. */
 function cli(port, args, stdin, tmpdir, shimDir) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmpdir };
     if (shimDir) env.PATH = shimDir + ':' + env.PATH;
     delete env.KOSMOS_AGENT_TOKEN;
@@ -69,7 +70,13 @@ function cli(port, args, stdin, tmpdir, shimDir) {
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
     const t = setTimeout(() => child.kill('SIGKILL'), 20000);
-    child.on('close', (code) => { clearTimeout(t); resolve({ code, out, argv: child.spawnargs }); });
+    child.on('close', (code, sig) => {
+      clearTimeout(t);
+      const r = { code, out, argv: child.spawnargs };
+      /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
+      resolve(r);
+    });
     if (stdin !== null) child.stdin.end(stdin); else child.stdin.end();
   });
 }
@@ -135,6 +142,7 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   const tmp = privateDir();
   const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
   delete env.KOSMOS_AGENT_TOKEN;
+  /* exit code not read (#3628) as a code: a close with none resolves the signal's NAME, which can never equal the 143 asserted, so a kill still fails. */
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end(TOKEN);
   // Wait until the request is at the door (the token file exists by then), then interrupt.
@@ -162,6 +170,7 @@ test('#4451: an interrupt while the token is still arriving on stdin stops at on
   const tmp = privateDir();
   const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
   delete env.KOSMOS_AGENT_TOKEN;
+  /* exit code not read (#3628) as a code: a close with none resolves the signal's NAME, which can never equal the 143 asserted, so a kill still fails. */
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.write(TOKEN.slice(0, 8));   // a producer that has not finished (stdin stays open)
   // Wait until the private token file exists: the writer is running and waiting for the rest of stdin.

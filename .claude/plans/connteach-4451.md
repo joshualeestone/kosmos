@@ -89,3 +89,16 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
 - The parity reader took install/kosmos's `[ "$svc" = "cloudflare" ]` for a subcommand. The service is not one, so that compare is now a `case`.
 - New: tools.windows-kosmos-cli-connections-4451.test.js (6 tests). Mutants, each red: reads the live sweep; takes an argv token; sends a cut-off token; sends the agent token.
 - Weakest premise: in PowerShell, text piped into kosmos does not reach it (kosmos.ps1 never reads pipeline input), so a Windows agent in PowerShell cannot use the taught form. The usage and the empty-stdin refusal both say to run it from Git Bash. Reading a token from pipeline input in kosmos.ps1 would be the fix if that turns out to matter.
+
+## Review round 6 (sonnet, blind, on the Windows commit): 0 BLOCKERs, 0 WARNINGs, 5 NITs
+- **NIT** Windows refuses extra arguments to connect where the Mac ignores them. KEPT: stricter and safer.
+- **NIT** Windows reads `error` only when it is a string. KEPT: no server path sends another shape.
+- **NIT** No "kosmos start" hint on Windows. KEPT: Windows has no kosmos start.
+- **NIT** The stdin mock ignores maxBytes, so nothing checks the 64 KB cap is passed. KEPT for a follow-up (test hardening, not a defect).
+- **NIT** The "token was printed" check covers only some paths. KEPT for the same follow-up.
+
+## The second validation run (after the Windows fix): 2 reds and a leak, all mine, none contention
+- browser-checks-reason-grep: 200 emit sites, expected 199. The new site is render-conn-ask-4451's run-count guard (SHAPE-4). EXPECTED_SITES is now 200, with its row.
+- cli.exit-code-mapping-3628: cli.connections-4451.test.js had 3 spawn sites that did not check the exit code was a number. The harness now rejects a close with no code. The two interrupt tests carry the marker with the reason: a close with no code resolves the signal's name, which can never equal the 143 they assert.
+- LEAK: 8 kosmos-cli4451 temp dirs left in the suite root. The file now requires test-support/tmpscope first.
+- The failing arm for each of these is the validation log itself. All three files pass now (16 tests).
