@@ -30,10 +30,26 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
 - Existing tests that re-sent identical text on purpose now vary it (#460 quoting, #4447 spill files: they test
   where text lands, not repeats); #2909's timeout arm now expects exactly one retry.
 
+## Review round 1 (fable): 1 BLOCKER + 4 WARNINGs + 1 CONVENTION + 5 NITs, all fixed
+- BLOCKER: a folded retry in a FEDERATED room was sent to the other side again (federateOut gated only on id and
+  text). `federateOut` now returns on `duplicate`. Arm in server.fedmsg-3311 with a control; red without the guard.
+- W: the log scan STOPPED at the first row older than the window, but rows are appended at finish with the start
+  time, so a slow fan-out lands out of order and hid a newer send. It skips old rows now. Arm, red on the old scan.
+- W: the direct-message fold sat AFTER the pair valve, so a retry at the cap its own first copy reached was refused
+  ("delivered but told it failed" again). It is now before the valve (the post fold already was). Arm, red.
+- W: the folded post's state was a second derivation that disagreed for an agent alone in a room. One
+  `aggregateState()` now serves both. Arm, red.
+- W: the key ignored the message being answered, so "yes" to two different questions was folded into one. The
+  answered message is part of the key and the match, on both paths. Arm with a same-question control, red.
+- CONVENTION: the Windows retry notice goes through `ctx.err` (captured and asserted), not process.stderr.
+- NITs: a post-side in-flight arm; dead code removed; the cut-always control runs `post` too; the #2909 arm's
+  34 s wall time is explained; the CLAUDE.md #4466 row names the fold.
+
 ## Weakest premise
 An agent that MEANS to send the identical text twice within two minutes gets one copy. I judge that the right trade:
 the realistic case is a short "ok" or "done", and the cost of the other error is a room full of copies.
 
 ## Status
 - [x] engine + Mac CLI + Windows CLI, red-checked; messages/chat/server 406/406, CLI 231/231, Windows CLI 112/112
+- [x] review round 1 fixed; engine+federation 404/404, CLI 231/231, Windows 112/112
 - [ ] challenge loop (focused tests per iteration), rebase after #4539 + noproxy, full suite once, PR

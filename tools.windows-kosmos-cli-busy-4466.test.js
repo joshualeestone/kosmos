@@ -70,6 +70,7 @@ test('#4580 Windows: a msg whose reply is cut is asked once more, and the receip
   const h = sequence([reset(), kept]);
   assert.equal(await cli.main(['msg', 'mara', 'the lease is signed'], h.io), 0, h.err());
   assert.match(h.out(), /^Placed with mara \(it had arrived the first time; it was not sent twice\)\.$/);
+  assert.match(h.err(), /asking once more/, 'the retry says so, on the captured stderr');
   assert.equal(h.calls(), 2);
 });
 

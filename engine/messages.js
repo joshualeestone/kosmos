@@ -951,6 +951,12 @@ const SEND_DEDUP_WINDOW_MS = 2 * 60 * 1000;
    Keyed by sender, place and text; cleared when the first finishes, either way. */
 const IN_FLIGHT_SENDS = new Map();
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
+/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
+   (or nobody to deliver to) is placed; anything else is unconfirmed. */
+function aggregateState(outcomes) {
+  const states = Object.values(outcomes || {});
+  return states.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+}
 function asDuplicate(result) { return result && typeof result === 'object' ? { ...result, duplicate: true } : result; }
 function trackInFlight(key, pending) {
   IN_FLIGHT_SENDS.set(key, pending);
@@ -966,7 +972,9 @@ function recentSameSend(log, atIso, isSame) {
     if (!r || typeof r.at !== 'string') continue;
     const t = Date.parse(r.at);
     if (!Number.isFinite(t)) continue;
-    if (t < now - SEND_DEDUP_WINDOW_MS) break;   // the log is in order: everything earlier is older still
+    // Rows are appended when a send FINISHES but carry the time it STARTED, so on a busy board they are out of
+    // order: skip an old row, never stop at it (the valves already walk the whole log per send).
+    if (t < now - SEND_DEDUP_WINDOW_MS) continue;
     if (isSame(r)) return r;
   }
   return null;
@@ -1085,6 +1093,15 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     replyTo = wanted;
   }
 
+  /* #4580: the same send again (sender, recipient, text and the message it answers) is folded into the first,
+     BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. */
+  const cleaned = chat.cleanMessage(text);
+  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
+  if (sameMsg) return { state: sameMsg.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
+  // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
+  if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
+
   /* THE VALVE, split per the person's control (limits.js): crossing the
      budget ALWAYS logs the tell, once per pair per window (the counter
      is not configurable); the setting decides only whether this send is
@@ -1139,12 +1156,6 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* The envelope: one line (a newline in the pane is a submit), sender and
      reply pointer first so the recipient reads WHO before WHAT. Past
      SPILL_AT the pane gets the head and a path instead of the wall. */
-  const cleaned = chat.cleanMessage(text);
-  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned);
-  if (sameMsg) return { state: sameMsg.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
-  const msgKey = sendKey('message', from, toName, cleaned);
-  // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
-  if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
   let body = cleaned;
   let spillFile = null;
   if (cleaned.length > SPILL_AT) {
@@ -1570,22 +1581,24 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
 
   const rec = record();
   const log = rec.rows;
-  if (operator !== true) {
-    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true);
-    if (samePost) {
-      const prior = Object.values(samePost.outcomes || {});
-      const priorState = prior.length && prior.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
-      return { state: priorState, because: null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
-    }
-    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
-    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(sendKey('post', from, projectId, stored)) : null;
-    if (inFlight) return inFlight.then(asDuplicate);
-  }
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
   const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
     ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
     : null;
+  /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
+     room valve. The answered post is part of it: "yes" to two different questions is two answers. */
+  const answeredId = answered ? answered.id : null;
+  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
+  if (operator !== true) {
+    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
+    if (samePost) {
+      return { state: aggregateState(samePost.outcomes), because: null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
+    }
+    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
+    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(postKey) : null;
+    if (inFlight) return inFlight.then(asDuplicate);
+  }
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for
@@ -1938,9 +1951,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */
-  const states = Object.values(outcomes);
-  const state = states.every((v) => v === chat.DELIVERY.PLACED)
-    ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+  const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, from, text: stored };
@@ -1951,7 +1962,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       for (const name of recipients) await deliverOne(name);
       return finishDeliveries();
     })();
-    return operator === true ? pending : trackInFlight(sendKey('post', from, projectId, stored), pending);
+    return operator === true ? pending : trackInFlight(postKey, pending);
   }
   for (const name of recipients) deliverOne(name);
   return finishDeliveries();

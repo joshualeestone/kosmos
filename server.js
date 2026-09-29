@@ -17924,6 +17924,8 @@ function joinedProjectName(ownerName) {
    post local, and the seat manager says so in the room with a Kosmos note. */
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
+  // #4580: a folded retry is the SAME post; it went out the first time and must not go out again.
+  if (delivery.duplicate === true) return;
   let link = null;
   try { link = fedseats.linkFor(projectId); } catch (err) {
     fedseats.logUnreadable(err);
