@@ -36,3 +36,10 @@ validation runs through the queue as the closing gate, before the proof.
 - (N) the never-shown-overlay premise was reasoned: measured below.
 - (N) tools/test-install.sh seeds data/you.json at the pre-#1848 path; nothing breaks (it is fingerprint content), noted
   on #4563 as a follow-up rather than changed here.
+- Measured after iteration 1: the never-shown control (a route answering /api/first-run with done:true) reds section 1
+  with 4 FAILs, "the overlay is up..." first, so the swallowed wait cannot hide a missing overlay.
+- Seen ONCE, unexplained: one run of cdd654d46 threw in section 12 when advanceToAnchor clicked #fr-alt ("Skip connecting
+  a model") and the link went invisible mid-click; its retry passed. Not reproduced in 5 more runs of the fix, and 0 in
+  5 of main, so it is not attributable either way. REASONED, not measured: waitOverlay returns at once when the overlay is
+  already up (the usual case) and otherwise starts the walk LATER than before, so it cannot make the walker read an
+  earlier frame. The likely mechanism is advanceToAnchor reading one transitional frame and clicking what it saw.
