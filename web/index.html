@@ -13987,6 +13987,14 @@ window.kosmosMeasureScrollbarWidth();
             <button class="btn uprime" type="button" id="orgchart-undo-go" hidden>Remove them</button>
             <button class="btn" type="button" id="orgchart-undo-keep" hidden>Keep them</button>
           </div>
+          <!-- #4559: more than the usual team size is started only on this explicit yes (Liu Kang m3436). -->
+          <div class="orgchart-consent" id="orgchart-many" role="group" aria-labelledby="orgchart-many-say" hidden>
+            <p id="orgchart-many-say"></p>
+            <div class="importrow">
+              <button class="btn uprime" type="button" id="orgchart-many-go"></button>
+              <button class="btn" type="button" id="orgchart-many-no">Not now</button>
+            </div>
+          </div>
         </div>
         <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
       </div>
@@ -46516,6 +46524,7 @@ let ORGCHART_UNDO_BUSY = false;
 let ORGCHART_FILE_PEOPLE = null;
 let ORGCHART_FILE_PENDING = null;
 let ORGCHART_READ_CTL = null;
+let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORGCHART_TEAM_DEFAULT at once
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -46526,6 +46535,9 @@ const ORGCHART_NAME_MAX = 32;
 
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
+  ORGCHART_MANY_OK = false;
+  const many = document.getElementById('orgchart-many');
+  if (many) many.hidden = true;
   ORGCHART_GEN += 1;   // an Undo still asking or removing must not paint over what comes next
   const box = document.getElementById('orgchart-preview-box');
   if (box) box.hidden = true;
@@ -46665,12 +46677,16 @@ function orgchartLoops(rows) {
 /* The preview: each row's title, who it came from (a file), who it reports to (editable), a "Check this"
    line when the reader was not sure, and the agent name last (the #1280 check reads the text after the arrow). */
 let ORGCHART_RESULT_SHOWN = false;   // the box shows a create's result, not a preview
-/* #4559: the most agents one create makes (engine/team.js MAX_TEAM_CAP, pinned equal by web.orgchart-parse-1280.test.js).
-   The person's own Create may raise the usual cap up to it (#2972), so a chart up to this size is made in one go;
-   past it the preview says so instead of painting a list Create would refuse (and a select per row of every row). */
+/* #4559: the usual team size and the most one create makes (engine/team.js DEFAULT_TEAM_CAP and MAX_TEAM_CAP, pinned
+   equal by web.orgchart-parse-1280.test.js). Past the usual size, Create first asks, in words about the load and the
+   bill, and only a yes sends #2972's operator-only raise (Liu Kang m3436). Past the most, the preview says so instead
+   of painting a list Create would refuse (and a select per row of every row). */
+const ORGCHART_TEAM_DEFAULT = 12;
 const ORGCHART_TEAM_MAX = 50;
 function orgchartPaint() {
   ORGCHART_RESULT_SHOWN = false;
+  ORGCHART_MANY_OK = false;   // a changed list is asked about again
+  document.getElementById('orgchart-many').hidden = true;
   const rows = ORGCHART_PARSED || [];
   if (rows.length > ORGCHART_TEAM_MAX) {
     document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
@@ -46841,6 +46857,21 @@ document.getElementById('orgchart-consent-go').addEventListener('click', () => {
   ORGCHART_FILE_PENDING = null;
   if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ);
 });
+document.getElementById('orgchart-many-go').addEventListener('click', () => {
+  document.getElementById('orgchart-many').hidden = true;
+  ORGCHART_MANY_OK = true;
+  const create = document.getElementById('orgchart-create');
+  create.disabled = false;
+  create.click();
+});
+document.getElementById('orgchart-many-no').addEventListener('click', () => {
+  document.getElementById('orgchart-many').hidden = true;
+  ORGCHART_MANY_OK = false;
+  document.getElementById('orgchart-create').disabled = false;
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = 'Nothing was created. Go back to the list to make it ' + ORGCHART_TEAM_DEFAULT + ' or fewer, or create again to start them all.';
+  msg.hidden = false;
+});
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
@@ -46912,6 +46943,18 @@ document.getElementById('orgchart-edit').addEventListener('click', () => {
 
 document.getElementById('orgchart-create').addEventListener('click', async () => {
   if (!ORGCHART_PARSED || !ORGCHART_PARSED.length) return;
+  const n = ORGCHART_PARSED.length;
+  if (n > ORGCHART_TEAM_DEFAULT && !ORGCHART_MANY_OK) {
+    document.getElementById('orgchart-many-say').textContent = 'This starts ' + n + ' agents at once. Each one runs on your AI '
+      + 'subscription and uses this Mac\'s memory. Start all ' + n + '?';
+    document.getElementById('orgchart-many-go').textContent = 'Start all ' + n;
+    document.getElementById('orgchart-many').hidden = false;
+    document.getElementById('orgchart-create').disabled = true;
+    document.getElementById('orgchart-many-go').focus();
+    return;
+  }
+  const raise = ORGCHART_MANY_OK;
+  ORGCHART_MANY_OK = false;
   // Capture the generation: if the operator changes mode or reopens the form while
   // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
   // is skipped, so a late response cannot yank a screen the person has left.
@@ -46949,9 +46992,10 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      /* cap: the person's own Create raises the usual team cap to this chart's size (#2972 lets the board token do
-         that, never an agent); orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
-      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members, cap: Math.min(members.length, ORGCHART_TEAM_MAX) }),
+      /* cap only after the person's yes above: #2972's raise (the board token may, an agent never), to this chart's
+         size. orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
+      body: JSON.stringify(Object.assign({ creator: 'operator', purpose: 'Imported from an org chart', members },
+        raise ? { cap: Math.min(members.length, ORGCHART_TEAM_MAX) } : {})),
     });
     result = await res.json().catch(() => null);
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read

@@ -160,3 +160,9 @@ test('#4559: the page refuses a chart past the same number of agents one create 
   assert.ok(m, 'ORGCHART_TEAM_MAX is gone from the page');
   assert.equal(Number(m[1]), require('./engine/team').MAX_TEAM_CAP);
 });
+
+test('#4559: the page asks before more than the usual team size, the same size the engine uses', () => {
+  const m = /const ORGCHART_TEAM_DEFAULT = (\d+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_TEAM_DEFAULT is gone from the page');
+  assert.equal(Number(m[1]), require('./engine/team').DEFAULT_TEAM_CAP);
+});
