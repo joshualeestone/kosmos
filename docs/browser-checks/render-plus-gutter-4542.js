@@ -86,7 +86,7 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
         gutter: Math.round(innerWidth - document.documentElement.getBoundingClientRect().right),
         overflows: document.documentElement.scrollHeight > innerHeight,
       }));
-      chk(pre.plus && pre.classic && pre.gutter >= 10 && pre.overflows, `[${scheme}] G1 precondition: Plus is up, a classic gutter is reserved, and the page overflows (a gutter shows the canvas only while a scrollbar is up)`, JSON.stringify(pre));
+      chk(pre.plus && pre.classic && pre.gutter >= 10 && pre.overflows, `[${scheme}] G1 precondition: Plus is up, a classic gutter is reserved, and the page overflows (the arms sample a page that scrolls, as the card measured)`, JSON.stringify(pre));
       const px = async (x, y) => {
         const b64 = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
         return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');

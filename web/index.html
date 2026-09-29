@@ -1649,8 +1649,8 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
    change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not the consolidated layout, not
    while the tour dims. A root with a colour of its own no longer lets the body's gradient paint the canvas, so the body
    fills at least the window (as tip-dimming's does, above): a Plus page shorter than a tall window keeps its gradient to
-   the bottom instead of a flat band under it. Specificity (0,4,2): a later root rule for a dialog over Plus (#4506) has
-   to outrank it. */
+   the bottom instead of a flat band under it. Specificity (0,4,2): any future root rule for a dialog over Plus (#4506
+   is still open) must outrank it. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) > body { min-height: 100vh; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
