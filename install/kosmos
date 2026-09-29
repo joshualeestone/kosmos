@@ -782,8 +782,11 @@ _invoked_by_agent() {
   return 1
 }
 # #4466: the next step for a person, or for an agent, whose stop/restart the guard would refuse anyway.
+# [pid]: a holder nothing tracks whose reclaim kill just failed. 'kosmos stop' leaves such a board alone and
+# 'kosmos restart' repeats the same kill, so a person is sent to the process itself (or a reboot).
 _stop_advice() {
   if _invoked_by_agent; then printf '%s' "Tell the person who runs this computer; do not restart Kosmos yourself."
+  elif [ -n "${1:-}" ]; then printf '%s' "Quit process $1 (for example: kill -9 $1), or reboot, then start again."
   else printf '%s' "Stop it with 'kosmos stop' (or reboot), then start again."; fi
 }
 agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, exits to refuse
@@ -919,7 +922,7 @@ cmd_start() {
       # current build regardless, and the token bind is race-safe (a bind-loser rejects).
       rm -f "$STOP_MARKER" 2>/dev/null || true
       if port_has_listener; then
-        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. $(_stop_advice)"
+        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. $(_stop_advice "$_lpid")"
       fi
       # The reclaimed process's pidfile (if it was this install's) now points at a dead
       # pid; clear it so the running_pid guard below does not die on a stale entry.

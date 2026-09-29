@@ -247,6 +247,20 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - NIT deferred, MEASURED: `display-message -t <pane> '#{@kosmos_agent}'` does read a session option on the
   real tmux 3.6a (throwaway server: "mara"; a session without it: empty).
 - NIT deferred: the plan file name has no timestamp; the gate finds it by branch, as for most siblings.
+- 6g on f70a9de8e: GREEN.
+
+## Review round 21 (opus): 1 NEW NIT fixed, 3 deferred; loop continues
+- FIXED: a person whose reclaim of an UNTRACKED holder failed was told "Stop it with 'kosmos stop'", which
+  leaves such a board alone (and `restart` repeats the kill that failed). `_stop_advice <pid>` now says
+  "Quit process N (kill -9 N), or reboot"; a tracked board keeps the stop advice. Arm with a no-pid control
+  and an agent control, red-checked.
+- FIXED (comment only): the watchdog says at the busy-grace site that a wedged board now waits 300 s, not
+  45 s (the trade-off was only in the weakest premises).
+- DEFERRED, by design: busy `status` never mentions `kosmos restart`. Busy and wedged cannot be told apart,
+  and "a busy board is never told to restart" is this card's rule (pinned by "NO start or restart advice
+  anywhere"); a wedged board is the watchdog's, or the person's own judgement.
+- DEFERRED, out of scope: `say_not_up` on a stranger-held port says "not running ... kosmos start" exactly as
+  main does; this branch does not change what a stranger hears.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.

@@ -338,6 +338,18 @@ wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }))
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('#4466 a failed reclaim of an untracked holder sends a person to the process, not to `kosmos stop` (which leaves it alone)', async () => {
+  const port = await closedPort();
+  const person = await bash(`source "${CLI}"; echo "[$(_stop_advice 4242)]"; echo "[$(_stop_advice)]"`, baseEnv(port));
+  const [withPid, plain] = person.stdout.trim().split('\n');
+  assert.match(withPid, /Quit process 4242 .*kill -9 4242.*reboot/);
+  assert.doesNotMatch(withPid, /kosmos (stop|restart)/);
+  assert.match(plain, /Stop it with 'kosmos stop'/, 'CONTROL: a tracked board still gets the stop advice');
+  const agent = await bash(`source "${CLI}"; _stop_advice 4242`, baseEnv(port, { KOSMOS_AGENT_SESSION: 'grok-agent' }));
+  assert.match(agent.stdout, /Tell the person who runs this computer/);
+  assert.doesNotMatch(agent.stdout, /kill/);
+});
+
 test('#4466 part 6: 8 simultaneous agent restarts over a STALE claim (every outage after the first): exactly one goes ahead', async () => {
   // The claim file outlives each start, so a later outage finds an old claim, not none: the replace
   // path is the common one and must be as atomic as the first create.

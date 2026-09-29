@@ -164,6 +164,8 @@ DOWN_SINCE="$(num "$DOWN_SINCE_RAW")"
 # #4466: a busy board (status exit 4) gets BUSY_GRACE, counted from when it was first seen BUSY. A board
 # that was down for a while and has just come back slow is busy for the first time now: timing its grace
 # from the down streak would reclaim (kill) it on its first busy reading.
+# The cost, accepted: a truly wedged board (#2955, holds the port and never answers) now reads as busy and
+# waits BUSY_GRACE (300 s) for its first recovery, not GRACE (45 s). A busy board is killed never.
 if [ "$STATUS_RC" -eq 4 ]; then
   if [ -z "$BUSY_SINCE_RAW" ]; then state_put "$DOWN_SINCE" "$LAST_KICK" "$FAILS" "$NOW"; exit 0; fi
   [ "$((NOW - $(num "$BUSY_SINCE_RAW")))" -lt "$BUSY_GRACE" ] && exit 0
