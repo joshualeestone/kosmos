@@ -14,7 +14,7 @@ Card: joshualeestone/kosmos#4586 (Josh, #admin, 2026-09-29 11:35, reversing #350
   the title takes the free space (margin-right: auto) so the chevron sits against it and "+ New task"
   stays at the far right.
 - Test pin web.tasks-new-3703 widened to allow the leading chevron (New task still follows the title).
-- New gated browser check render-subback-4586 (16 assertions; fails on origin/main).
+- New gated browser check render-subback-4586: consolidated Documents and Tasks, tab-view Tasks at 1280 and 390, focus kept across a repaint, and controls (all-projects Tasks, tab-view Documents, #docs-back still hidden). Fails on origin/main.
 
 ## Decided
 - Documents chevron is consolidated-only: the tab view keeps its "<- name" back above the title, and
