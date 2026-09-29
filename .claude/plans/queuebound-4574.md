@@ -247,3 +247,13 @@ follows because this is code after convergence.
 - (N, taken) the give-up line says "since this run joined the queue or a waiter ahead last left it" (true for the
   front waiter); an empty LOCAL start time also reads as stale; the clock seam's comment says it must answer for the
   whole wait; RT2 is in the EXIT trap.
+
+## Review iteration 18 (blind, sonnet)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) the live-marker rule was one nested || condition with a `local` declared inside it, the hardest line in the file
+  on the safety-critical rule: now two plain steps (does a start time match: line 4 against UTC, or line 3 against the
+  local form; then decide). Control: forcing "matches" reds the recycled-pid, wrong-start-time and entry-clear arms.
+- (W, SELF) the header said an older copy of the lib "reads" line 3: true only in the writer's zone and locale; a reader
+  elsewhere deletes the marker and counts the waiter as a running suite (the safe side, as before). Said so.
+- (N, taken) the ceiling's comment says live waiters at entry (the first count is taken before this run is marked);
+  the EXIT trap reaps the stand-in waiters. Measured: plain and KOSMOS_NO_WAIT=1 both 0 failures.
