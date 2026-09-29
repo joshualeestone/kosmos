@@ -1,16 +1,16 @@
 'use strict';
 
 /**
- * #2906: the Codex Memory reader must resolve each agent's OWN account home.
+ * #2906/#4592: the Codex Memory reader must resolve each agent's OWN runtime home.
  *
  * The status reader runs under the board process's CODEX_HOME. Before this fix
  * `status.readCodexSession` called `codexsession.read(dir)` with no home, so it
  * walked only the board process's sessions tree; a multi-account OpenAI agent,
  * whose rollout lives under its OWN account home, read `found:false` ("Not yet
- * read") even while active. The fix threads the target agent's account home
- * (from its launch job's CODEX_HOME, i.e. `readJob().configDir`, or
- * `defaultAgentCodexHome()` for a default-account agent) into the read, and fails
- * closed rather than ever reading the board's account.
+ * read") even while active. #2906 threaded the target agent's account home into
+ * the read. #4592 gives each managed agent a private runtime home, so the reader
+ * now prefers that home after its first isolated launch and keeps the account
+ * home only as a migration fallback before that directory exists.
  *
  * The sandbox keeps four DISTINCT homes so a wrong read is detectable:
  *   HOME_BOARD   the board process's own account (codexsession default HOME())
@@ -54,6 +54,7 @@ const store = require('./store');
 const status = require('./status');
 const codexsession = require('./codexsession');
 const create = require('./create');
+const codexruntime = require('./codexruntime');
 
 const CLAUDE_BIN = path.join(SB, 'claude');
 const TMUX_BIN = path.join(SB, 'tmux');
@@ -95,6 +96,25 @@ function codexAgent(name, workdir, configDir) {
     'utf8',
   );
 }
+
+function runtimeHome(name) { return codexruntime.forAgent(name); }
+
+test('#4592: a relaunched agent reads its private runtime rollout, never the account-home decoy', () => {
+  const wd = path.join(SB, 'work', 'runtimeprobe');
+  codexAgent('runtimeprobe', wd, HOME_B);
+  writeRolloutIn(runtimeHome('runtimeprobe'), wd, 15459, 258400);
+  writeRolloutIn(HOME_B, wd, 99999, 258400);
+  const ctx = status.readCodexContext('runtimeprobe');
+  assert.equal(ctx.tokens, 15459, 'read the private runtime home, not the selected account home');
+});
+
+test('#4592: an existing agent not relaunched yet falls back to its selected account home', () => {
+  const wd = path.join(SB, 'work', 'legacyprobe');
+  codexAgent('legacyprobe', wd, HOME_C);
+  writeRolloutIn(HOME_C, wd, 24591, 258400);
+  assert.equal(fs.existsSync(runtimeHome('legacyprobe')), false, 'premise: runtime home has not been created');
+  assert.equal(status.readCodexContext('legacyprobe').tokens, 24591);
+});
 
 test('#2906/1: an explicit account home reads only that home, never the board process account', () => {
   const wd = path.join(SB, 'work', 'beta');

@@ -818,22 +818,41 @@ if [ -z "$adopt" ]; then
     # an unattended agent. Give every agent a private, persistent runtime home
     # and carry only the account credential into it.
     #
-    # The path mirrors engine/store.js dataRootFor on this shell launch path:
-    # AGENT_WORKFORCE_DATA names the app-data parent, and the default is the
-    # person's Application Support. A named world's resolved data parent is
-    # already in AGENT_WORKFORCE_DATA, so worlds cannot share runtime homes.
-    _codex_data_parent="${AGENT_WORKFORCE_DATA:-${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support}"
-    _codex_runtime_home="$_codex_data_parent/Kosmos/codex-homes/$SESSION"
+    # One derivation shared with the board's rollout reader. The installed
+    # supervisor has an engine-path pointer, so this works from both a checkout
+    # and the Application Support copy. No engine means no account-home fallback.
+    _codex_runtime_home=""
+    if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ]; then
+      _codex_runtime_home="$("$NODE_BIN" -e '
+        try { process.stdout.write(require(process.argv[1]).forSession(process.argv[2])); }
+        catch (_) { process.exit(1); }
+      ' "$_eng/codexruntime.js" "$SESSION" 2>/dev/null || true)"
+    fi
     _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"
     _codex_runtime_auth="$_codex_runtime_home/auth.json"
 
-    if mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then
+    if [ -n "$_codex_runtime_home" ] && [ ! -L "$_codex_runtime_home" ] \
+      && mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then
+      # The trust entry is the one harmless part of account config an unattended
+      # launch needs. Write it with create.js's canonical TOML writer, never by
+      # copying the account config that may load plugins or hooks.
+      if ! "$NODE_BIN" -e '
+        try { require(process.argv[1]).trustCodexFolder(process.argv[2], process.argv[3], false); }
+        catch (_) { process.exit(1); }
+      ' "$_eng/create.js" "$WORKDIR" "$_codex_runtime_home" 2>/dev/null; then
+        say "$SESSION: could not trust its launch folder in the private Codex home"
+      fi
+
       # Codex 0.149.1 refreshes file credentials by opening auth.json with
       # truncate+write, not temp+rename. That preserves this symlink and writes
       # the authoritative account file. Rebuild it on every launch so an account
       # switch reaches an existing agent. A regular file here would be a forked
       # credential, so remove it rather than accepting it.
-      if [ -e "$_codex_source_auth" ]; then
+      _codex_runtime_physical="$(cd "$_codex_runtime_home" 2>/dev/null && pwd -P || true)"
+      _codex_source_physical="$(cd "$EFFECTIVE_CODEX_HOME" 2>/dev/null && pwd -P || true)"
+      if [ -n "$_codex_runtime_physical" ] && [ "$_codex_runtime_physical" = "$_codex_source_physical" ]; then
+        say "$SESSION: refused a private Codex home that resolves to the selected account home"
+      elif [ -e "$_codex_source_auth" ]; then
         if [ -e "$_codex_runtime_auth" ] || [ -L "$_codex_runtime_auth" ]; then
           rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
         fi
@@ -842,6 +861,7 @@ if [ -z "$adopt" ]; then
         fi
       else
         rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
+        say "$SESSION: the selected OpenAI account is not signed in; sign in through Kosmos account setup"
       fi
 
       # A fresh home has no update-notice dismissal. Seed only the first launch
@@ -857,7 +877,7 @@ if [ -z "$adopt" ]; then
     fi
     EFFECTIVE_CODEX_HOME="$_codex_runtime_home"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
-    unset _codex_data_parent _codex_runtime_home _codex_source_auth _codex_runtime_auth
+    unset _codex_runtime_home _codex_source_auth _codex_runtime_auth _codex_runtime_physical _codex_source_physical
   fi
   # #3953: the codex, gemini and grok report bridges are node scripts their runner starts by name
   # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`

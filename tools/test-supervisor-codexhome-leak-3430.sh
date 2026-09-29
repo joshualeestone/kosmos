@@ -31,6 +31,7 @@ trap 'rm -rf "${SB:-}"' EXIT
 
 mkdir -p "$SB/bin" "$SB/work" "$DEFAULT_HOME" "$LEAK_HOME"
 cp bin/agent-supervisor.sh "$SB/bin/agent-supervisor.sh"
+printf '%s\n' "$PWD/engine" > "$SB/bin/engine-path"
 
 # Stub tmux: no live session, a server-global CODEX_HOME reporting the LEAK dir (to prove the fix
 # does not read it), and a new-session recorder.

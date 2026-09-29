@@ -42,6 +42,39 @@ function withCodexHome(root, fn) {
 }
 const discover = require('./discover');
 
+test('#4592: discovery also reads a managed agent rollout from its private runtime home', () => {
+  const root = sandbox();
+  const work = path.join(root, 'managed'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'AGENTS.md'), '# You are Runtime Agent\n');
+  const priorData = process.env.AGENT_WORKFORCE_DATA;
+  const priorHome = process.env.AGENT_WORKFORCE_HOME;
+  const priorOsHome = process.env.HOME;
+  process.env.AGENT_WORKFORCE_DATA = path.join(root, 'data');
+  process.env.AGENT_WORKFORCE_HOME = root;
+  process.env.HOME = root;
+  try {
+    const codexruntime = require('./codexruntime');
+    const runtime = codexruntime.forAgent('runtime-agent');
+    const day = path.join(runtime, 'sessions', '2026', '09', '29');
+    fs.mkdirSync(day, { recursive: true });
+    fs.writeFileSync(path.join(day, 'rollout-runtime.jsonl'), JSON.stringify({
+      timestamp: '2026-09-29T12:00:00.000Z', type: 'session_meta',
+      payload: { session_id: 'runtime', cwd: work, originator: 'codex-tui' },
+    }) + '\n');
+    assert.deepEqual(codexruntime.homes(), [runtime], 'the private runtime root is enumerable');
+    assert.equal(require('./status').sandboxIsInconsistent(), false, 'the fixture home and data roots agree');
+    const r = withCodexHome(root, () => discover.foundCodex(undefined));
+    assert.equal(r.agents.some((agent) => agent.name === 'Runtime Agent'), true, JSON.stringify(r));
+  } finally {
+    if (priorData === undefined) delete process.env.AGENT_WORKFORCE_DATA;
+    else process.env.AGENT_WORKFORCE_DATA = priorData;
+    if (priorHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = priorHome;
+    if (priorOsHome === undefined) delete process.env.HOME;
+    else process.env.HOME = priorOsHome;
+  }
+});
+
 test('#1159: a Codex agent is found from AGENTS.md on disk', () => {
   const root = sandbox();
   const work = path.join(root, 'proj'); fs.mkdirSync(work);
