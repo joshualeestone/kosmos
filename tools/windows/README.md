@@ -233,6 +233,19 @@ the Start menu goes to a temp folder, the key goes under
 It targets .NET Framework 4.x, which ships in-box on every Windows 10 and 11
 machine: no runtime to install, and no bundled runtime to sign.
 
+## The one-line install (setup.ps1)
+
+`tools/windows/setup.ps1` is what the site serves at `https://installkosmos.com/setup.ps1`, for
+`irm https://installkosmos.com/setup.ps1 | iex`. It reads `latest-win.json` (or
+`latest-win-staging.json` under `KOSMOS_UPDATE_CHANNEL=staging`), downloads the versioned zip
+publish-r2.ps1 published, refuses unless the zip matches both the pointer's sha256 and the
+`.sha256` sidecar and the extracted Kosmos.exe is validly signed by Kosmos Agent Manager, Inc.,
+then runs that Kosmos.exe from a fresh folder under `%TEMP%`. Everything after that is the
+launcher's installer duties above: a temporary folder installs itself, a newer build updates the
+installed copy, the same or an older one hands off. The script removes the extracted copy once
+the launcher has handed over, and keeps it only when Kosmos is still running from it.
+`tools.win-setup-ps1.test.js` runs it through `irm | iex` against a fake host.
+
 ## Why it is committed rather than built during the release
 
 The release lane runs on a Mac. Compiling this during a cut would make a Windows
