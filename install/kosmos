@@ -1034,6 +1034,8 @@ _await_board_up() {
       # Two readings are safe against a board still booting: before listen() its socket is not a LISTEN socket
       # (lsof does not list it, so it reads down), and once it listens the kernel accepts connects at once. Only
       # a refusal WHILE lsof shows the listener counts here.
+      # A listener that is not the launched pid (another process on the port): never a kill; the wait runs on and,
+      # if nothing changes, ends in "did not come up" (safe, if not the most precise words).
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" != "$_pid" ]; then _unreach_seen=0; fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ] && ! _shell_is_sandboxed; then
         say "Kosmos started at $URL (process $_pid), but $(_unreachable_why), so this shell cannot use it."
@@ -1118,7 +1120,7 @@ cmd_start() {
     if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
       # Nothing was started, so a deliberate stop a person made stands (#2955's early clear is undone).
       if [ -n "$_had_stop_marker" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
-      die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run 'kosmos start' from a shell that can reach it."
+      die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
     fi
     say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
     return 0
@@ -2624,7 +2626,7 @@ cmd_restart() {
   # pid, and restart is a person's one-shot recovery there.
   healthy --once || true
   if [ "$HEALTH_STATE" = unreachable ] && _shell_is_sandboxed; then
-    die "$(_unreachable_lead) $(_unreachable_why), so it cannot be restarted from here. Nothing was stopped; run 'kosmos restart' from a shell that can reach it."
+    die "$(_unreachable_lead) $(_unreachable_why), so it cannot be restarted from here. Nothing was stopped; run this from a shell that can reach it."
   fi
   _KOSMOS_RESTART_HAD_MARKER=""
   if [ -f "$STOP_MARKER" ]; then _KOSMOS_RESTART_HAD_MARKER=1; fi   # #4636: what cmd_start restores on a refusal

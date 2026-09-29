@@ -165,7 +165,7 @@ fi
 # it would not help, so it kicks nothing and ends any down streak and busy clock (a later down or busy reading
 # starts a fresh grace). Accepted, like the busy/down flap below: a board whose status flips between 5 and 4 (or
 # 1) on every tick restarts a clock each time and so is never recovered by the watchdog; under launchd, 5 comes
-# only from a real local network fault, where a restart could not fix the kernel's state anyway. Logged once per spell, not every tick: a marker file ($UNREACH_MARK) holds the spell.
+# only from a real local network fault, where a restart could not fix the kernel's state anyway.
 if [ "$STATUS_RC" -eq 5 ]; then
   # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent. Any other
   # status reading ends the spell (its marker is removed), so only an unbroken run of exit-5 readings, across a
