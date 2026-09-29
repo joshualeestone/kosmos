@@ -31,8 +31,9 @@ const printDisabled = (names) => (bin, args) => (bin === '/bin/launchctl' && arg
   : { ok: true, stdout: '' });
 
 // alexis: live (plist present), renamed (shown as Morpheus). eric, larry: stale overrides (no plist).
-// oldone: removed through Kosmos (and its plist gone).
+// oldone: removed through Kosmos, its plist still there, so only the removed list can hide it.
 fs.writeFileSync(create.plistPath('alexis'), '<plist/>');
+fs.writeFileSync(create.plistPath('oldone'), '<plist/>');
 store.writeProfile('alexis', { displayName: 'Morpheus' });
 const FIXTURE = ['alexis', 'eric', 'larry', 'oldone'];
 const REMOVED = { ok: true, names: ['oldone'] };
@@ -62,6 +63,26 @@ test('#4479 a live agent with no display name recorded is named by its job name'
     const got = machine.agentAutostartCheck(printDisabled(['plainjob']), { ...DARWIN, removed: { ok: true, names: [] } });
     assert.match(got.detail, /^plainjob has its/);
   } finally { fs.rmSync(create.plistPath('plainjob'), { force: true }); }
+});
+
+test('#4479 an agent with no recorded display name is named as the board names it, from its identity line', () => {
+  fs.writeFileSync(create.plistPath('neojob'), '<plist/>');
+  fs.mkdirSync(create.workerDir('neojob'), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir('neojob'), 'CLAUDE.md'), 'You are **Neo**, the one.\n\n## Who you are\nThe one.\n');
+  try {
+    const got = machine.agentAutostartCheck(printDisabled(['neojob']), { ...DARWIN, removed: { ok: true, names: [] } });
+    assert.match(got.detail, /^Neo has its/, 'the row named an agent differently from the board: ' + got.detail);
+  } finally { fs.rmSync(create.plistPath('neojob'), { force: true }); }
+});
+
+test('#4479 a plist check that cannot look (not "not there") counts the agent as live, the safe direction', () => {
+  const presence = create.jobPresence;
+  create.jobPresence = () => 'unknown';
+  try {
+    const got = machine.agentAutostartCheck(printDisabled(['eric']), { ...DARWIN, removed: { ok: true, names: [] } });
+    assert.equal(got.state, machine.STATE.ATTENTION, 'an unreadable check hid a possibly live agent');
+    assert.match(got.detail, /^eric has its/);
+  } finally { create.jobPresence = presence; }
 });
 
 test('#4479 the row is still left out on Windows', () => {

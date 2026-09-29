@@ -1696,9 +1696,9 @@ function win32BoardAutostartCheck(opts) {
    #4479 (an external tester, 2026-09-28: "11 agents ... alexis, eric, larry, and 8 more", none of them his agents'
    names): launchd's disabled-overrides list KEEPS an entry after its plist is gone, so an agent deleted any way
    but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
-   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent exists now (its
-   plist is present: the board's roster is built from the same files, createdroster.js), and it is named by the
-   name the person sees (its profile's displayName). A stale override is left out and NOT cleaned: this is a read,
+   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent's plist is still
+   there, and it is named by the name the person sees (create.spokenName). A stale override is left out and NOT
+   cleaned: this is a read,
    and `launchctl enable` on a label with no plist is harmless to leave. opts.live(name) and opts.shownName(name)
    are the seams. */
 function agentAutostartCheck(runner, opts) {
@@ -1745,17 +1745,14 @@ function agentAutostartCheck(runner, opts) {
   } catch { /* unreadable -> treat none as removed (safe direction, above) */ }
   const removedSet = new Set(removedNames.map((n) => create.cleanName(n)));
 
+  /* Only a plist that is NOT THERE (ENOENT, create.jobPresence 'no') makes a job a leftover: a check that could
+     not look ('unknown': a denied or broken folder) counts the agent as live, the safe direction, as for the
+     removed list above. The name is create.spokenName, the board's own (the profile's name, then the identity
+     line in the agent's instructions), so this row and the board cannot name one agent two ways. */
   const live = typeof o.live === 'function' ? o.live
-    : (n) => { try { return fs.existsSync(create.plistPath(n)); } catch { return true; } };
+    : (n) => { try { return create.jobPresence(n, 'darwin') !== 'no'; } catch { return true; } };
   const shownName = typeof o.shownName === 'function' ? o.shownName
-    : (n) => {
-      try {
-        const p = require('./store').readProfile(n);
-        const d = p && typeof p.displayName === 'string' ? p.displayName.trim() : '';
-        return d || n;
-      } catch { return n; }
-    };
-  /* An unreadable plist check counts the agent as live (the safe direction, as for the removed list above). */
+    : (n) => { try { return create.spokenName(n) || n; } catch { return n; } };
   const concerning = disabledNames
     .filter((n) => !removedSet.has(create.cleanName(n)) && live(n))
     .map((n) => shownName(n));
