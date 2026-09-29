@@ -20644,7 +20644,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
 /* #4562 (#4543, Homer's find): the status poll's time limit. A FROZEN board (running but stuck) still
    accepts the connection, so a fetch with no limit neither answers nor fails, the failure clock above
    never starts, and the restart screen never shows (what Josh hit on Friday 2026-09-26). A poll with no
-   answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit; any
+   answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
+   #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
    screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
@@ -20923,6 +20924,7 @@ async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
   let statusCut = null;   // #4562: the poll's time limit (STATUS_POLL_TIMEOUT_MS), cleared once it is read
+  let statusTimedOut = false;   // #4562: set when that limit, not the network, ended the poll
   /* #4562 review: polls overlap now (every 5 s, each allowed 10 s), so an older poll's timeout can land
      after a newer poll has answered. Numbered on the function itself (tests lift tick() alone), and a
      failure paints only if no newer poll has answered since this one went out. */
@@ -20937,7 +20939,8 @@ async function tick() {
        fetch); where neither exists the poll goes out with no limit, as before. */
     const statusAbort = typeof AbortController === 'function' ? new AbortController() : null;
     // typeof-guarded: tests lift tick() alone, without the const beside RESTART_SCREEN_AFTER_MS.
-    if (statusAbort) statusCut = setTimeout(() => statusAbort.abort(), typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000);
+    const statusLimit = typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000;
+    if (statusAbort) statusCut = setTimeout(() => { statusTimedOut = true; statusAbort.abort(); }, statusLimit);
     const res = await fetch('/api/status', statusAbort ? { cache: 'no-store', signal: statusAbort.signal } : { cache: 'no-store' });
     /* 🛑 THE SERVER'S SENTENCE WAS NEVER READ. This threw `status 500` and the
        box showed exactly that, while the response body carried a sentence and,
@@ -21591,7 +21594,10 @@ async function tick() {
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
     // reached `#grid` was invisible exactly where it mattered most.
-    BOARD_LOOK_FAILED = err && err.message ? err.message : 'we could not read the agents';
+    /* #4562 review: a timed-out poll's error is the browser's own abort text ("signal is aborted without
+       reason"), which would sit in the board's parenthesis for a frozen board. Say what happened instead. */
+    BOARD_LOOK_FAILED = statusTimedOut ? 'nothing answered for ' + Math.round((typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000) / 1000) + ' seconds'
+      : err && err.message ? err.message : 'we could not read the agents';
     /* #2023: a fetch that never ANSWERED is an outage, not a signin state. The
        403 path above (answered) sets BOARD_NEEDS_SIGNIN correctly; a genuine
        no-answer must clear it, or the board draws "not signed in" AND "not

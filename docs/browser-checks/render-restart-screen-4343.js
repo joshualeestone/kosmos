@@ -57,7 +57,7 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/')) {
     if (MODE === 'down') { req.socket.destroy(); return; }   // nothing answers
     // #4562 'frozen': the board is RUNNING but stuck. The connection is accepted and nothing is ever sent,
-    // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 8 s late (just
+    // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 6 s late (well
     // inside the page's 10 s limit); 'onestuck' holds ONE /api/status past the limit and answers the rest.
     if (MODE === 'frozen') { HELD.push(res); return; }
     if (MODE === 'onestuck' && req.url.startsWith('/api/status') && !ONESTUCK_TAKEN) { ONESTUCK_TAKEN = true; HELD.push(res); return; }
@@ -66,7 +66,7 @@ const server = http.createServer((req, res) => {
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() }));
-      }, 8000);
+      }, 6000);
       return;
     }
     if (req.url.startsWith('/api/status')) {
@@ -310,7 +310,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
   // ── #4562: a FROZEN board (running, accepts the connection, never answers). With no time limit on the
   //    poll this never counted as down, so the screen never came (Josh, Friday). Measured end to end with
   //    the real clocks, no aging: it must show within about STATUS_POLL_TIMEOUT_MS + RESTART_SCREEN_AFTER_MS
-  //    plus a poll. And a board that is merely SLOW (answers in 3 s) never counts as down. ──
+  //    plus two polls. And a board that is merely SLOW (answers in 6 s) never counts as down. ──
   {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('pageerror', (e) => problems.push('[frozen] pageerror: ' + e.message));
@@ -328,6 +328,10 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     const bound = limits.poll + limits.wait + 10000 + 1500;
     ok('[frozen] a board that accepts the connection and never answers gets the restart screen', drawn, 'waited ' + took + ' ms');
     ok('[frozen] and within the poll limit + the wait + two polls (' + bound + ' ms)', drawn && took <= bound, took + ' ms');
+    // What the board underneath says: a plain sentence, never the browser's own abort text.
+    const said = await page.evaluate(() => (document.getElementById('grid') || {}).textContent || '');
+    ok('[frozen] the board behind says nothing answered for 10 seconds, not the browser\'s abort text',
+      /nothing answered for 10 seconds/.test(said) && !/abort/i.test(said), JSON.stringify(said.slice(0, 300)));
     // The board unfreezes: it answers what was queued (released here) and every poll after.
     MODE = 'up';
     for (const r of HELD.splice(0)) { try { r.destroy(); } catch { /* already gone */ } }
@@ -346,7 +350,7 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     await page.waitForTimeout(20000);
     const st = await page.evaluate(() => ({ screen: !!document.querySelector('.restart-back'),
       note: /not answering/.test(document.getElementById('uoffline-slot').textContent || ''), since: BOARD_NO_ANSWER_SINCE }));
-    ok('[slow] a board answering 8 s late is polled and answers (control)', answeredOnce);
+    ok('[slow] a board answering 6 s late is polled and answers (control)', answeredOnce);
     ok('[slow] and it never counts as down: no note, no screen, no failure clock', !st.screen && !st.note && st.since === null, JSON.stringify(st));
     await page.close();
   }
