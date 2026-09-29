@@ -51,8 +51,9 @@ test('the sentence carries no double quote, backslash or newline, whatever the r
 });
 
 test('control characters are stripped too, so JSON never puts a backslash back into the sentence', () => {
-  const s = taskMessageSummary([{ agent: 'zed', state: 'could_not', because: 'bell\u0007 and escape\u001b[31m red\u007f' }], 1);
+  const s = taskMessageSummary([{ agent: 'zed', state: 'could_not', because: 'bell\u0007 and escape\u001b[31m red\u007f c1\u0085 ls\u2028 ps\u2029' }], 1);
   assert.doesNotMatch(JSON.stringify(s), /\\/, JSON.stringify(s));
+  assert.doesNotMatch(s, /[\u0080-\u009f\u2028\u2029]/, 'a C1 control or line separator would reach the terminal raw');
 });
 
 test('a reason that does not name the agent (chat\'s own) is said after the name', () => {

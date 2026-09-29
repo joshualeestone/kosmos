@@ -16,9 +16,11 @@ only the first sentence.
   CLI is bash 3.2 with no JSON parser (a clean Mac has no python3 or jq). The CLI extracts one plain string with
   sed, exactly as it already extracts `error`. The summary is built without double quotes or backslashes so that
   extraction cannot be cut short or mis-read.
-- Wording per state: placed -> "Told X."; unconfirmed -> "X may have been told (Kosmos could not confirm it)."
-  (never "told" for unconfirmed); could_not -> "Not told: <the board's reason>."; no assignees -> "Nobody is
-  assigned to it, so no agent was told." The sender is already left off `delivered`, so it is never listed.
+- Wording per state: placed -> "Told X."; unconfirmed, or no state at all -> "X may have been told (Kosmos could not
+  confirm it)." (never claimed either way); could_not -> "Not told: X (<reason>)." or, when the reason already starts
+  with the name, "Not told: <reason>."; a blank reason -> "Not told: X could not be reached."; no assignees ->
+  "Nobody is assigned to it, so no agent was told."; only the sender assigned -> "Nobody else is assigned to it, so no
+  agent was told." Names are said once each. The sender is already left off `delivered`, so it is never listed.
 - Rejected: parsing `delivered` in bash (fragile over agent names and reasons), and keeping a vaguer fixed
   sentence ("assignees may have been notified"), which is true but tells the person nothing.
 
