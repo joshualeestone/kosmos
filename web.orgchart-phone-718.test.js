@@ -131,11 +131,11 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
 test('#718: positions from a canvas of another width are carried across in proportion', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
   // #4434: the factor is orgCarryFactor; a tree also carries positions across when its own canvas changes size.
-  assert.match(paint, /const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\)\);/);
+  assert.match(paint, /const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, tree\);/);
   // eslint-disable-next-line no-new-func
   const carry = new Function(lift('orgCarryFactor') + '\nreturn orgCarryFactor;')();
   assert.equal(carry(true, 500, 400, false), 0.8, 'a width change carries positions in proportion');
-  assert.equal(carry(false, 500, 400, false), 1, 'a flat fleet at the same width keeps its positions, as before #4434');
+  assert.equal(carry(false, 500, 400, false), 1, 'a flat fleet at the same width keeps its positions, as before #4434 (from a flat paint: a tree paint before it clears them, orgKeepPositions)');
   assert.equal(carry(true, 0, 400, false), 1, 'no earlier canvas: nothing to carry');
   // A zero-width box (an ancestor not laid out) is neither a width change nor a new ORG_SIZE.
   assert.match(paint, /const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;/);

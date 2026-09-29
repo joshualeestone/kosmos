@@ -29139,6 +29139,7 @@ let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
+let ORG_POS_TREE = null; // #4434: whether ORG_POS came from a tree layout (null: nothing painted yet)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
 /* #718: true while a drag is really under way: the node has moved (a tap is not a
@@ -29392,6 +29393,9 @@ function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
    same width (an agent removed or re-parented shrinks or grows its rings a lot), and positions left in the old
    frame put faces past the new edge, which the first physics frame then clamps in one jump (review it7: over
    1000px). A tree carries them across in proportion too. A flat fleet keeps its positions, as before. */
+/* #4434: whether positions kept from the last paint may seed this one: not across a change between a tree
+   layout and a flat one (see paintOrg). wasTree null means nothing was painted yet. */
+function orgKeepPositions(wasTree, tree) { return wasTree === null || wasTree === tree; }
 function orgCarryFactor(widthChanged, sizeWas, size, tree) {
   if (!(sizeWas > 0) || size === sizeWas) return 1;
   return widthChanged || tree ? size / sizeWas : 1;
@@ -29476,7 +29480,13 @@ function paintOrg() {
   // A box with no width yet (an ancestor not laid out) is not a width change, and
   // does not move ORG_SIZE either: the next real paint compares against the last one.
   const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
-  const f = orgCarryFactor(widthChanged, ORG_SIZE, size, [...placed.values()].some((sp) => Number.isFinite(sp.lo)));
+  const tree = [...placed.values()].some((sp) => Number.isFinite(sp.lo));
+  /* #4434: positions from a TREE layout mean nothing to a flat one, and the other way round: a tree's canvas can
+     be many times a flat one's for the same people, and a flat fleet has no repair at rest (review it8: the last
+     manager removed left faces resting on top of each other). A change of kind starts from the new placement. */
+  if (!orgKeepPositions(ORG_POS_TREE, tree)) ORG_POS.clear();
+  ORG_POS_TREE = tree;
+  const f = orgCarryFactor(widthChanged, ORG_SIZE, size, tree);
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
