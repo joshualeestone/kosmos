@@ -4256,8 +4256,6 @@ function createAgentInner(opts) {
     if (typeof wantTeam !== 'string' || !wantTeam.trim()) {
       return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief has to be words', steps };
     }
-    // The brief is capped far below the boot file's own cap, so the standard blocks spliced after it
-    // (about-you, reports-to, messaging) are never the ones pushed out.
     if (Buffer.byteLength(wantTeam, 'utf8') > TEAM_BRIEF_MAX) {
       return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
     }
