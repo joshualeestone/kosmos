@@ -32,10 +32,10 @@ test('control: the same run plus one screen that is not phone-only passes the ch
 test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser starts', () => {
   const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'cmnotic' });
   assert.equal(r.status, 2, r.stderr);
-  assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be cmnotice or overlay, not cmnotic/);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not cmnotic/);
 });
 
-for (const [name, screen] of [['cmnotice', 'home'], ['overlay', 'allow-card']]) {
+for (const [name, screen] of [['cmnotice', 'home'], ['overlay', 'allow-card'], ['spill', 'allow-card']]) {
   test(`control: MSHOTS_COVER_CONTROL=${name} on ${screen} is accepted and the plan is made`, () => {
     const r = run(['--sizes', 'se', '--screens', screen, '--themes', 'light', '--engines', 'chromium'], { MSHOTS_COVER_CONTROL: name });
     assert.equal(r.status, 0, r.stderr);
@@ -54,4 +54,10 @@ test('MSHOTS_COVER_CONTROL=overlay without the allow-card screen is refused: it 
   const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'overlay' });
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /MSHOTS_COVER_CONTROL=overlay needs the allow-card screen/);
+});
+
+test('MSHOTS_COVER_CONTROL=spill without the allow-card screen is refused: it would plant nothing and pass', () => {
+  const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'spill' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL=spill needs the allow-card screen/);
 });

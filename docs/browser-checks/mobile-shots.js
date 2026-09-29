@@ -166,8 +166,12 @@ const SCREENS = [
      (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible and is itself what sits
      at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
+    /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
+       This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card at every phone size.
+       MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
+    const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
-      { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
+      { device_id: 'd-sample-0001', name: 'iPhone', code, first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
     await at(page, '?tab=settings&sec=plus');
     const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
@@ -197,6 +201,21 @@ const SCREENS = [
       await page.waitForTimeout(200);
     }
     if (hit) throw new Error('the Allow button is not seen: ' + hit);
+    /* #4568: the code's boxes must sit inside the request card (.askreq) they belong to, within its padding. The
+       page-level overflow audit cannot see this: the row runs past the card, not past the page. */
+    const spill = await page.evaluate((sel) => {
+      const card = document.querySelector(sel).closest('.askreq');
+      if (!card) return 'no .askreq card around the Allow button';
+      const cs = getComputedStyle(card), r = card.getBoundingClientRect();
+      const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+      const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+      const cells = [...card.querySelectorAll('.devcode-cell')];
+      if (!cells.length) return 'no code boxes in the card';
+      const out = cells.map((c) => c.getBoundingClientRect()).filter((b) => b.right > right + 0.5 || b.left < left - 0.5);
+      return out.length ? out.length + ' of ' + cells.length + ' code boxes leave the card, the last by '
+        + Math.round(Math.max(...out.map((b) => b.right - right))) + 'px' : '';
+    }, allow);
+    if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -731,14 +750,14 @@ async function fitOf(page) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   // A control with a mistyped name would arm nothing and pass; refuse it instead.
-  if (COVER_CONTROL && COVER_CONTROL !== 'cmnotice' && COVER_CONTROL !== 'overlay') {
-    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice or overlay, not ' + COVER_CONTROL);
+  if (COVER_CONTROL && !['cmnotice', 'overlay', 'spill'].includes(COVER_CONTROL)) {
+    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not ' + COVER_CONTROL);
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
   // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
-  if (COVER_CONTROL === 'overlay' && !screens.some((s) => s.name === 'allow-card')) {
-    throw new Error('MSHOTS_COVER_CONTROL=overlay needs the allow-card screen');
+  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
+    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
   }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
