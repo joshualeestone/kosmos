@@ -132,3 +132,30 @@ Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the 
 - NITs fixed: stale counts and rule count here; the Talk arm's header says it pins the selector, not the phone layout.
 - NIT noted: the Talk min-height skip applies at every width (the tour's is phone-only); between 40 and 56rem Talk's page
   is taller than the window, so it is harmless.
+
+## CI red on PR #4579, and the re-run loop (12:20 CDT onward)
+CI browser-checks (run 36597171409, macos-latest, real 15px scrollbars) failed render-plus-bar-3837 P2: the Kosmos+
+bar 15px past the page. Cause: the boot cover drops the gutter; the bar is fitted under it, and its re-fit waited on a
+content-box ResizeObserver of the header, whose content box does not change when the gutter comes back (#3497 moves
+the padding with it). Main passes the same check nightly on the same runners, so it was this branch.
+
+Fixed across four blind rounds (opus, sonnet, opus, sonnet):
+- The Kosmos+ bar observes both of the header's boxes (the gutter moves the border box; a new --scrollbar-width moves
+  only the padding). P8 in render-plus-bar-3837, both arms, each red without its observer.
+- The org chart (orgWatchWidth) and the project room's @mention mirror (pjMentionWatchWidth) watch their own boxes;
+  new gated check render-gutter-return-4506 (G1, G2), each arm red without its watcher.
+
+Checked and left, with the reason (not measured, reasoned from the code):
+- fitDetailName: runs on open, section change and resize. Talk's gutter rule applies as the section shows, so its fit
+  follows it; the boot cover is the only new route, and a name fitted 15px wide falls back to the CSS ellipsis. A
+  ResizeObserver on text it resizes risks a re-fit loop for a transient already bounded.
+- frSyncSwitchOverlays and the first-run star field: they live inside the first-run wizard, which drops the gutter
+  when it opens, so they are fitted after the drop and are gone when it comes back.
+- The emoji picker, the reaction bar and the tour card: transient, positioned when they open.
+- Two dialogs open at once dim the page twice while the gutter is dimmed once. The dialogs are modal; rare.
+
+Weakest premises, added:
+- G2 drops the gutter with the two root properties every overlay sets, not through a real overlay in a room (opening
+  a room lifts the boot cover itself). It proves the watcher follows the composer's width, not that a particular
+  overlay reaches a room.
+- browser-checks-reason-grep's site counts were measured against this branch's base; re-measure after the next merge.

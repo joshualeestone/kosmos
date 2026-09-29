@@ -56478,10 +56478,16 @@ window.addEventListener('resize', pjMentionPaint);
 /* #4506: the composer's own box too. Its width changes with NO window resize whenever the tab layout's scrollbar
    gutter comes or goes (the overlays that drop it, and Talk), and a mirror sized before that would draw the draft
    wrapped at the old width, off the caret, until the next keystroke. pjMentionPaint writes only the mirror, never
-   the textarea, so this cannot feed itself. render-gutter-return-4506 measures it. */
+   the textarea, so this cannot feed itself. Only a WIDTH the mirror does not already have repaints: the composer
+   grows in height as the person types, and pjGrowComposer already repaints for that. render-gutter-return-4506
+   measures it. */
 function pjMentionWatchWidth() {
   const input = document.getElementById('pj-post');
-  if (input && typeof ResizeObserver === 'function') new ResizeObserver(pjMentionPaint).observe(input);
+  const mirror = document.getElementById('pj-post-mirror');
+  if (!input || !mirror || typeof ResizeObserver !== 'function') return;
+  new ResizeObserver(() => {
+    if (Math.round(parseFloat(mirror.style.width) || 0) !== input.offsetWidth) pjMentionPaint();
+  }).observe(input);
 }
 pjMentionWatchWidth();
 
