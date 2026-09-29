@@ -130,8 +130,8 @@ test('a lead with 30 and 50 reports, and a CEO over 4 x 20, shrink with the wide
 
 test('no line within 12px of a face that is not one of its ends, first ring included; none over the hub; none crossing (#4499)', () => {
   /* On #4473 the least was 5.5px (a first-ring spill), on #4472 10.55px. A crowded first ring (dozens of agents on
-     several lanes) cannot meet it with radial hub lines, each full inner lane ruling out ~139 degrees; that case is
-     outside this sweep and said so on #4499. */
+     several lanes, each full inner lane ruling out ~139 degrees for a hub line) now meets it by starting further out,
+     which costs size there (measured: 1000 agents at 30% first ring, mean 13,323 -> 15,769 against #4472). */
   let checked = 0; let least = Infinity; let where = ''; let hub = Infinity; let crossings = 0;
   const specs = [];
   for (const n of [30, 60, 100]) for (const p of [0.05, 0.33]) for (let seed = 1; seed <= 12; seed += 1) specs.push(['randomTree(' + seed + ', ' + n + ', ' + p + ')', randomTree(seed, n, p)]);
@@ -168,18 +168,24 @@ test('the exact crossing test: a tree that crosses without it does not cross (#4
   assert.equal(crossings, 0, crossings + ' crossing(s) in randomTree(3, 200, 0.01)');
 });
 
-test('the layout stays within its speed budget: a 1000-agent tree in well under 150ms (#4499)', () => {
+test('the layout stays within its speed budget: 1000 agents in well under 150ms, a tree and a crowded first ring (#4499)', () => {
   /* orgPlace runs on every repaint (each 5s poll and each drag's rest). Measured on the Mac mini: 1000 agents ~21ms
      (#4472: 17.6ms); an early #4499 version without the per-team filters took 160ms. 150ms is headroom for a slower
      machine or a busy CI box, not a target: it catches a change of order, not of a few ms. Median of 5 runs. */
-  const agents = page.orgTreeOf(cards(randomTree(1, 1000, 0.05)));
-  page.orgPlace(agents);
-  const ms = [];
-  for (let i = 0; i < 5; i += 1) {
-    const t = process.hrtime.bigint();
+  /* Two shapes: a deep tree, and a crowded first ring (1000 agents with no manager plus one small team), where the
+     first-ring search once checked every face for every agent on every lane and took 481ms (review it1; now ~40ms,
+     #4472 ~14ms). */
+  const flatPlusTeam = [['lead'], ['a', 'lead'], ['b', 'lead'], ['c', 'lead']].concat(Array.from({ length: 1000 }, (_, i) => ['f' + i]));
+  for (const [label, spec] of [['a 1000-agent tree', randomTree(1, 1000, 0.05)], ['1000 agents with no manager and one team', flatPlusTeam]]) {
+    const agents = page.orgTreeOf(cards(spec));
     page.orgPlace(agents);
-    ms.push(Number(process.hrtime.bigint() - t) / 1e6);
+    const ms = [];
+    for (let i = 0; i < 5; i += 1) {
+      const t = process.hrtime.bigint();
+      page.orgPlace(agents);
+      ms.push(Number(process.hrtime.bigint() - t) / 1e6);
+    }
+    ms.sort((a, b) => a - b);
+    assert.ok(ms[2] < 150, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over 150ms');
   }
-  ms.sort((a, b) => a - b);
-  assert.ok(ms[2] < 150, 'orgPlace on 1000 agents took ' + ms[2].toFixed(1) + 'ms (median of 5), over 150ms');
 });

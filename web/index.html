@@ -30641,10 +30641,11 @@ function orgPlace(nodes) {
        one side than the other (as far as the slice allows), the reports are ordered heaviest and lightest
        alternating, the first and last report's slice runs on to the manager's slice edges, and a big team
        with no managers in it may take two staggered rings.
-     - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap), and
-       below the first ring the tangent cap keeps each line's distance from the hub rising, so a manager's
-       own line and its reports' lines meet only at the manager. web.org-sectors-4434.test.js counts
-       crossings.
+     - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap). For a
+       team in the capped window, below the first ring the tangent cap keeps each line's distance from the hub
+       rising, so a manager's own line and its reports' lines meet only at the manager. A team in the wide
+       window (#4499) has no such cap: there an exact test against every line already drawn, and no report line
+       within ORG_HUB_CLEAR of the hub, are what rule crossings out. web.org-sectors-4434.test.js counts crossings.
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -30679,6 +30680,7 @@ function orgPlace(nodes) {
   /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
      light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
   const ORG_SHARE_POWER = 0.85;
+  const ORG_FIRST_LANE = 58;  // the first ring's lane pitch when it spills (as the flat layout's)
   const ORG_HUB_CLEAR = 74;   // #4434: no report's line nearer the hub's centre than its radius plus a face's (52 + 22)
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
@@ -30750,18 +30752,28 @@ function orgPlace(nodes) {
          nearer-in of the two radii). The free angle nearest the slice's centre, within `spare` of it, is taken. */
       const spare = span / 2 - Math.min(span / 2, ORG_LINE_CLEAR / base);
       const wrap = (x) => { const d = x - ang; return d - TAU * Math.round(d / TAU); };
+      /* Only near neighbours can block: the agents are placed in angle order, each inside its own slice, so walk back
+         from the last one placed (and on from the first, round the wrap) until the gap passes this agent's spare room
+         plus the widest block any face makes (the same-lane spacing on the innermost lane). Checking every face for
+         every agent on every lane took 515ms for 1000 first-ring agents (review it1). */
+      const widest = Math.max(2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * base))), Math.asin(Math.min(1, ORG_LINE_CLEAR / base)));
+      const reachAng = spare + widest;
+      const nb = [];
+      for (let i = spots.length - 1; i >= 0 && ang - spots[i].ang < reachAng; i -= 1) nb.push(spots[i]);
+      for (let i = 0; i < spots.length && spots[i].ang + TAU - ang < reachAng; i += 1) nb.push(spots[i]);
+      const nbAt = nb.map((f) => wrap(f.ang));
       const freeOn = (L) => {
-        const rr = base + L * 58;
+        const rr = base + L * ORG_FIRST_LANE;
         const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * rr)));
-        const blocked = [];
-        for (const b of lanes[L] || []) blocked.push([wrap(b) - need, wrap(b) + need]);
-        for (const f of spots) {
-          if (Math.abs(f.r - rr) < 1e-9) continue;
+        const near = [];   // the blocks that reach within `spare` of the centre
+        nb.forEach((f, i) => {
+          const at = nbAt[i];
+          if (Math.abs(f.r - rr) < 1e-9) { if (Math.abs(at) - need < spare) near.push([at - need, at + need]); return; }
           const k = ORG_LINE_CLEAR / Math.min(f.r, rr);
+          if (Math.abs(at) - k * (Math.PI / 2) >= spare) return;   // asin(k) <= k pi/2: too far round to block
           const w = k >= 1 ? Math.PI / 2 : Math.asin(k);
-          blocked.push([wrap(f.ang) - w, wrap(f.ang) + w]);
-        }
-        const near = blocked.filter(([x, y]) => y > -spare && x < spare);
+          if (Math.abs(at) - w < spare) near.push([at - w, at + w]);
+        });
         const inside = (t) => near.some(([x, y]) => t > x + 1e-12 && t < y - 1e-12);
         const tries = [0, ...near.flatMap(([x, y]) => [x, y])].filter((t) => Math.abs(t) <= spare).sort((u, v) => Math.abs(u) - Math.abs(v));
         for (const t of tries) if (!inside(t)) return ang + t;
@@ -30774,21 +30786,21 @@ function orgPlace(nodes) {
         if (a !== null) { lane = L; ang2 = a; }
       }
       const fits = (L, a) => {
-        const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * (base + L * 58))));
+        const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * (base + L * ORG_FIRST_LANE))));
         return !(lanes[L] || []).some((b) => { const d = Math.abs(a - b) % TAU; return Math.min(d, TAU - d) < need; });
       };
       if (lane < 0) { fellBack = true; lane = 0; while (!fits(lane, ang)) lane += 1; }
       if (!lanes[lane]) lanes[lane] = [];
       lanes[lane].push(ang2);
-      spots.push({ ang: ang2, r: base + lane * 58, node: n, lo: at, hi: at + span });
+      spots.push({ ang: ang2, r: base + lane * ORG_FIRST_LANE, node: n, lo: at, hi: at + span });
       at += span;
     });
     return { spots, fellBack };
   };
   /* #4499: a first ring too crowded to clear ORG_LINE_CLEAR (about 40 agents over several lanes: each full inner lane
-     rules out ~139 degrees for a hub line passing it) starts further out, half a lane at a time, until none falls
-     back. It always ends: once every two neighbouring slice centres are ORG_MIN_ARC apart at `base`, every agent
-     fits the first lane, and no hub line passes a face at all. */
+     rules out ~139 degrees for a hub line passing it) starts further out, at the nearest base where none falls back
+     (bisected, then stepped; below). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
+     apart at `base`, every agent fits the first lane, and no hub line passes a face at all. */
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)));
   let ring = firstRing(ORG_R0);
@@ -30797,11 +30809,11 @@ function orgPlace(nodes) {
        at a time was 30 placements and 350ms), then, since clearing is not proven to hold at every larger base, step
        on from there half a lane at a time: settledBase always clears, so this always ends. */
     let lo = ORG_R0; let hi = settledBase;
-    while (hi - lo > 29) {
+    while (hi - lo > ORG_FIRST_LANE / 2) {
       const m = (lo + hi) / 2;
       if (firstRing(m).fellBack) lo = m; else hi = m;
     }
-    for (let base = hi; ; base = Math.min(base + 29, settledBase)) {
+    for (let base = hi; ; base = Math.min(base + ORG_FIRST_LANE / 2, settledBase)) {
       ring = firstRing(base);
       if (!ring.fellBack || base >= settledBase) break;
     }
@@ -30940,8 +30952,9 @@ function orgPlace(nodes) {
     };
     /* #4472: each team at its own radius, just outside its manager, pushed out only until its own faces and
        every face already placed clear each other. One shared radius per ring let a single crowded team push the
-       whole ring out, and every ring below stacked on it. Teams keep their own slices and every line still runs
-       away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
+       whole ring out, and every ring below stacked on it. Teams keep their own slices, and a capped team's lines
+       still run away from the hub, so a team at a different radius from its neighbour cannot cause a crossing; a
+       wide team (#4499) is kept only when the exact crossing test in apart() passes. */
     /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
        added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
        its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within the line's band,
