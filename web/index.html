@@ -30539,6 +30539,17 @@ function orgResizeRepaint() {
   });
 }
 window.addEventListener('resize', orgResizeRepaint);
+/* #4506: the chart's own box too, because its width also changes with NO window resize: the tab layout's scrollbar
+   gutter (#1309) is dropped while the boot cover, the first-run and update overlays, the first screen and the restart
+   screen are up, and by Talk, and it comes back when they go, giving the chart 15px on a classic-scrollbar machine.
+   One observer covers every one of those instead of a call at each place an overlay closes. orgResizeRepaint
+   repaints only when the width differs from the last paint's, so a height change (every paint makes one) costs a
+   comparison, not a repaint. */
+function orgWatchWidth() {
+  const wrap = document.getElementById('orgview');
+  if (wrap && typeof ResizeObserver === 'function') new ResizeObserver(orgResizeRepaint).observe(wrap);
+}
+orgWatchWidth();
 /* #718: where the person left the scroll, recorded only while the box is the width
    it was painted at. A box that gets wider clamps its scroll to the new, smaller
    maximum (and fires scroll) before the repaint runs, so reading scrollLeft then
@@ -64426,13 +64437,7 @@ document.addEventListener('focusin', (e) => {
    timeout fallback at the boot call both call it, and calling it twice is a no-op. */
 function revealBoot() {
   const c = document.getElementById('boot-cover');
-  if (!c || c.hidden) return;
-  c.hidden = true;
-  /* #4506: the cover drops the scrollbar gutter while it is up, so lifting it gives the page 15px back on a
-     classic-scrollbar machine, and no window resize says so. The org chart fits itself to its width and repaints on
-     resize only, so a chart first painted under the cover would stay fitted to the wider box until the next poll.
-     orgResizeRepaint repaints only when the width really changed, so this costs nothing otherwise. */
-  if (typeof orgResizeRepaint === 'function') orgResizeRepaint();
+  if (c) c.hidden = true;
 }
 
 /* ---- #3574 (Josh, 2026-09-24, for 0.6.93): first-run help and first-visit tips ----
