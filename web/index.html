@@ -7208,8 +7208,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
 .dfiles .pj-docs { margin-top: 8px; }
-/* #3757: View All sits at the right of the Files header, as on the project page's header. */
-.dfiles-head .pj-viewall { display: inline; width: auto; }
+/* #3757: View All sits at the right of the Files header, as on the project page's header.
+   #4570 (Josh, 2026-09-29 10:46): at the project page's size too, the small link size its Files and
+   Tasks doors use, not the inherited body size (it read as a second heading beside FILES). */
+.dfiles-head .pj-viewall { display: inline; width: auto; font-size: var(--consolidated-link-size); }
 .dfiles-screen-head { margin-bottom: 4px; }
 #d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
 #d-files-back { align-self: flex-start; }
