@@ -919,7 +919,7 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
 # board above is needed. The slice is the frame, the accounts page and the
-# allow card at the smallest phone, both engines; nav-menu and agents-list fail if their control
+# allow card at the smallest phone and at the desktop size, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there

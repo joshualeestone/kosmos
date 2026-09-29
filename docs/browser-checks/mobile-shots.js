@@ -818,7 +818,7 @@ async function run() {
                    so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
                    to its markup to this check. */
                 if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
-                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept, to show it)');
+                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
                 }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
