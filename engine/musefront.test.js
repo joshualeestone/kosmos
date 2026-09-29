@@ -250,3 +250,275 @@ test('the bridge maps the two events the front sends to working and idle', () =>
   assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' });
   assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' });
 });
+
+/* #4569 (Josh, 11:57: Mark ignored "stop" twice, behind 14 room posts). */
+const OP = (t) => '[message from your operator at 11:52 AM · to answer, run: kosmos reply] ' + t;
+const BG = (n) => '[background from your colleague Sam · m' + n + ' · project fivefamilies · not addressed to you] thanks ' + n;
+const COL = (t) => '[message from your colleague Dario · m9 · project fivefamilies · to answer, run: kosmos post --in-reply-to m9 fivefamilies] ' + t;
+
+test('#4569: a message from the person runs before waiting room posts, behind only the person\'s earlier ones', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok ' + i)));
+  h.f.feed('long job\r');
+  h.f.feed(COL('can you check X') + '\r');
+  h.f.feed(OP('first from Josh') + '\r');
+  h.f.feed(OP('second from Josh') + '\r');
+  assert.match(h.out(), /queued ahead of other waiting messages: a message from your operator/);
+  h.pending[0](OK('done'));
+  await within(h.f.drained(), 'the queue did not drain');
+  assert.deepEqual(h.calls.map((c) => c.prompt), ['long job', OP('first from Josh'), OP('second from Josh'), COL('can you check X')],
+    'the person waited behind a colleague\'s message, or their own two swapped');
+  // CONTROL: two colleague messages keep arrival order.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(COL('a') + '\r'); c.f.feed(COL('b') + '\r');
+  c.pending[0](OK('done')); await c.f.drained();
+  assert.deepEqual(c.calls.map((x) => x.prompt), ['long job', COL('a'), COL('b')]);
+});
+
+test('#4569: "stop" from the person ends the running turn, drops what waits, and runs as the next turn saying what was dropped', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Stopped.')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 14; n++) h.f.feed(BG(n) + '\r');
+  h.f.feed(OP('are you there') + '\r');
+  h.f.feed(OP('Stop.') + '\r');
+  await within(h.f.drained(), '"stop" did not end the running turn');
+  assert.equal(h.stops[0], 1, 'the running turn was not stopped');
+  assert.equal(h.calls.length, 2, 'a dropped message ran: ' + h.calls.map((c) => c.prompt.slice(0, 40)).join(' | '));
+  const note = h.calls[1].prompt;
+  assert.match(note, /^\[Kosmos: your operator asked you to stop, so the turn you were on was ended; 14 other waiting messages were dropped; these earlier messages from your operator were dropped unread: "are you there"\. Stop the work you were doing\.\]\n/);
+  assert.ok(note.endsWith(OP('Stop.')), 'the stop message itself did not reach the agent');
+  assert.match(h.out(), /stopped at your operator's request; 15 waiting messages were dropped/);
+  assert.equal(h.reports[h.reports.length - 1], 'idle');
+});
+
+test('#4569: only a short stop from the person stops; a longer instruction, a colleague\'s "stop", or a stop with nothing running is a normal message', async () => {
+  for (const [label, msg] of [['an instruction', OP('stop posting duplicates and fix the summary')], ['a colleague', COL('stop')]]) {
+    const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+    h.f.feed('long job\r'); h.f.feed(BG(1) + '\r'); h.f.feed(msg + '\r');
+    assert.equal(h.stops[0], 0, label + ' stopped the running turn');
+    h.pending[0](OK('done')); await h.f.drained();
+    assert.equal(h.calls.length, 3, label + ': a waiting message was dropped');
+  }
+  const idle = harness([OK('Nothing to stop.')]);
+  idle.f.feed(OP('you can pause') + '\r');
+  await within(idle.f.drained(), 'an idle stop hung');
+  assert.deepEqual(idle.calls.map((c) => c.prompt), [OP('you can pause')], 'an idle stop got a note about dropping nothing');
+  // CONTROL: the same "you can pause" during a turn does stop it.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('you can pause') + '\r');
+  await within(c.f.drained(), 'CONTROL: "you can pause" did not stop');
+  assert.equal(c.stops[0], 1);
+});
+
+test('#4569: background posts that pile up during a turn run as ONE turn; addressed messages keep their own', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(BG(1) + '\r'); h.f.feed(COL('please review') + '\r'); h.f.feed(BG(2) + '\r'); h.f.feed(BG(3) + '\r');
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  assert.equal(h.calls.length, 3, 'three background posts were three turns: ' + h.calls.length);
+  const digest = h.calls[1].prompt;
+  assert.match(digest, /^\[Kosmos: 3 room posts arrived while you were busy, all background, none addressed to you\. Read them together; answer only if one needs you\.\]\n/);
+  assert.ok(digest.includes(BG(1)) && digest.includes(BG(2)) && digest.includes(BG(3)), 'a background post was lost from the digest');
+  assert.equal(h.calls[2].prompt, COL('please review'));
+  // CONTROL: a single background post runs as itself, with no digest note.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(BG(1) + '\r');
+  c.pending[0](OK('done')); await c.f.drained();
+  assert.equal(c.calls[1].prompt, BG(1));
+});
+
+test('#4569 review round 1: a stop with Kosmos\'s framing around it (a reply quote, a reactions note, a catch-up note) still stops', async () => {
+  for (const [label, words] of [
+    ['a reply quote', '(answering: "working on it") stop'],
+    ['a reactions note', 'stop [kosmos] reactions from the person you have not been told about yet: \u{1F44D} on "done"'],
+    ['a catch-up note', 'you can pause [This room has been talking without you: 3 earlier posts]'],
+  ]) {
+    const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+    h.f.feed('long job\r'); h.f.feed(OP(words) + '\r');
+    await within(h.f.drained(), label + ': the stop did not end the turn');
+    assert.equal(h.stops[0], 1, label + ' was not read as a stop');
+  }
+  // CONTROL: framing around an instruction does not make it a stop.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('(answering: "stop") keep going') + '\r');
+  assert.equal(c.stops[0], 0, 'a quoted "stop" in a reply stopped the turn');
+  c.pending[0](OK('done')); await c.f.drained();
+});
+
+test('#4569 review round 1: a second stop leaves the first stop\'s note running, so what was dropped is still said', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(OP('are you there') + '\r');
+  h.f.feed(OP('stop') + '\r');            // ends turn 0; the note becomes turn 1 (held)
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.calls.length, 2, 'the stop note did not start');
+  assert.match(h.calls[1].prompt, /dropped unread: "are you there"/);
+  h.f.feed(BG(1) + '\r');
+  h.f.feed(OP('STOP!') + '\r');           // must not end the note or replace it
+  assert.equal(h.stops[1], 0, 'the second stop ended the first stop\'s note');
+  assert.match(h.out(), /already stopping; 1 more waiting message was dropped/);
+  h.pending[1](OK('Stopped, sorry.'));
+  await within(h.f.drained(), 'the note did not finish');
+  assert.equal(h.calls.length, 2, 'something ran after the note: ' + h.calls.map((c) => c.prompt.slice(0, 30)).join(' | '));
+});
+
+test('#4569 review round 1: a digest carries at most 40 posts, the newest, and says how many it left out', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 45; n++) h.f.feed(BG(n) + '\r');
+  h.pending[0](OK('done')); await h.f.drained();
+  const d = h.calls[1].prompt;
+  assert.match(d, /^\[Kosmos: 45 room posts arrived while you were busy, all background, none addressed to you\. The 5 oldest are left out; they are in that project's room \(kosmos room <project-id>\) if you need them\./);
+  assert.ok(!d.includes('thanks 5\n') && d.includes('thanks 6\n') && d.endsWith('thanks 45'), 'not the newest 40');
+  assert.equal(h.calls.length, 2);
+});
+
+test('#4569 review round 2: a digest also stops at 32 KB of posts, keeping the newest; after Escape drops a waiting stop note, a later stop gets its own', async () => {
+  const big = (n) => '[background from your colleague Sam \u00b7 m' + n + ' \u00b7 project p \u00b7 not addressed to you] ' + String(n).padStart(3, '0') + 'x'.repeat(3000);
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 20; n++) h.f.feed(big(n) + '\r');
+  h.pending[0](OK('done')); await h.f.drained();
+  const d = h.calls[1].prompt;
+  assert.ok(d.length < 34 * 1024, 'the digest is ' + d.length + ' characters');
+  assert.match(d, /^\[Kosmos: 20 room posts arrived .* The \d+ oldest are left out;/);
+  assert.ok(d.includes('] 020x'), 'the newest post was left out');
+  // Escape while a stop note waits: the note is dropped and a later stop still gets its own note.
+  const e = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));   // 0 long job, 1 another job, 2 the later stop's note
+  e.f.feed('long job\r'); e.f.feed(OP('stop') + '\r');   // the note waits behind the ending turn
+  e.f.feed('\u001b');                                       // Escape: drops the waiting note
+  await within(e.f.drained(), 'Escape did not settle');
+  assert.equal(e.calls.length, 1, 'a dropped stop note still ran');
+  e.f.feed('another job\r'); e.f.feed(OP('stop') + '\r');
+  await within(e.f.drained(), 'the later stop did not end the turn');
+  assert.match(e.calls[e.calls.length - 1].prompt, /^\[Kosmos: your operator asked you to stop/, 'a later stop was treated as "already stopping"');
+});
+
+test('#4569 review round 3: a message sent between two stops is named to the agent, not only in the pane', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(OP('stop') + '\r');                              // turn 0 ends; the note is turn 1 (held)
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(OP('actually, deploy the fix first') + '\r');   // waits behind the running note
+  h.f.feed(OP('stop') + '\r');                              // drops it
+  h.pending[1](OK('Stopped.'));
+  await within(h.f.drained(), 'the notes did not finish');
+  assert.equal(h.calls.length, 3, 'the in-between message was never mentioned to the agent');
+  assert.match(h.calls[2].prompt, /^\[Kosmos: your operator asked you to stop again, and these messages from them, sent in between, were dropped unread: "actually, deploy the fix first"\.\]\n/);
+  // CONTROL: a second stop with nothing of the person's in between adds no note.
+  const c = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  c.f.feed(BG(1) + '\r'); c.f.feed(OP('stop') + '\r');
+  c.pending[1](OK('Stopped.')); await c.f.drained();
+  assert.equal(c.calls.length, 2);
+  // "hold" is an answer, not a stop.
+  const d = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  d.f.feed('long job\r'); d.f.feed(OP('hold') + '\r');
+  assert.equal(d.stops[0], 0, '"hold" stopped the turn');
+  d.pending[0](OK('done')); await d.f.drained();
+});
+
+test('#4569 review round 4: the same dropped message named twice waits as ONE note, and it is still a stop note', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(OP('x') + '\r'); h.f.feed(OP('stop') + '\r');   // note 2 names "x"
+  h.f.feed(OP('x') + '\r'); h.f.feed(OP('stop') + '\r');   // the same note again: not queued twice
+  h.f.feed(OP('y') + '\r');                                // the person's next message queues BEHIND the waiting note
+  h.pending[1](OK('Stopped.'));
+  await within(h.f.drained(), 'the queue did not drain');
+  const prompts = h.calls.map((c) => c.prompt);
+  assert.equal(prompts.filter((q) => /stop again/.test(q)).length, 1, 'the identical note ran twice: ' + prompts.length);
+  assert.ok(/stop again/.test(prompts[2]) && prompts[3] === OP('y'), 'order: ' + prompts.map((q) => q.slice(0, 30)).join(' | '));
+});
+
+test('#4569 review round 5: a stop note Muse refuses as busy (the stopped turn still holding the session) is tried again and runs', async () => {
+  const run = require('./muserun');
+  let busyLeft = 2;
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt) && busyLeft > 0) { busyLeft--; return { ok: false, text: '', because: run.BUSY }; }
+    return OK('Stopped.');
+  }, { busyRetryMs: 5 });
+  h.f.feed('long job\r'); h.f.feed(OP('are you there') + '\r'); h.f.feed(OP('stop') + '\r');
+  await within(h.f.drained(), 'the retried note never finished');
+  const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
+  assert.equal(notes.length, 3, 'the note was not tried again after a busy answer');
+  assert.ok(!h.out().includes(run.BUSY), 'a busy answer the retry recovered from was printed as a failure');
+  assert.match(h.out(), /Stopped\./);
+  // CONTROL: an ordinary message refused as busy is not retried (only a stop note is).
+  const c = harness([{ ok: false, text: '', because: run.BUSY }], { busyRetryMs: 5 });
+  c.f.feed('hello\r'); await within(c.f.drained(), 'an ordinary busy message hung');
+  assert.equal(c.calls.length, 1);
+  assert.ok(c.out().includes('(' + run.BUSY + ')') && !c.out().includes('Stopped before'), 'an ordinary busy message was retried or relabelled: ' + c.out());
+});
+
+test('#4569 review round 5: a second stop counts a colleague\'s dropped message to the agent', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(COL('can you check X') + '\r'); h.f.feed(OP('stop') + '\r');
+  h.pending[1](OK('Stopped.')); await h.f.drained();
+  assert.match(h.calls[2] && h.calls[2].prompt, /^\[Kosmos: your operator asked you to stop again, and 1 message addressed to you was dropped too\.\]\n/);
+});
+
+test('#4569 review round 6: Escape during a busy retry\'s wait cancels the note; it never runs after that', async () => {
+  const run = require('./muserun');
+  assert.equal(run.BUSY, 'Muse Code is still working on this agent\'s last turn', 'musefront spells muserun.BUSY; keep them equal');
+  assert.equal(run.STOPPED, 'Stopped before Muse Code finished', 'musefront spells muserun.STOPPED; keep them equal');
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt)) { input.onStop(() => {}); return { ok: false, text: '', because: run.BUSY }; }   // as muserun: onStop is handed over first
+    return OK('ok');
+  }, { busyRetryMs: 150 });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setTimeout(r, 40));    // the note has been refused once and is waiting to retry
+  const before = h.calls.length;
+  h.f.feed('\u001b');                               // Escape during the wait
+  await within(h.f.drained(), 'the front did not settle after Escape');
+  assert.equal(h.calls.length, before, 'the cancelled note ran again after Escape');
+  assert.match(h.out(), /\(Stopped before Muse Code finished\)\n> $/);
+});
+
+test('#4569 review round 7: a stop typed during the wait after Escape starts a fresh note that does not claim a turn was ended', async () => {
+  const run = require('./muserun');
+  let refusals = 1;
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt) && refusals-- > 0) { input.onStop(() => {}); return { ok: false, text: '', because: run.BUSY }; }   // as muserun: onStop first
+    return OK('ok');
+  }, { busyRetryMs: 150 });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setTimeout(r, 40));      // the first note was refused once; the loop waits (still running)
+  h.f.feed('\u001b');                                 // cancels it
+  h.f.feed(OP('please stop') + '\r');                // running, nothing waiting, no turn in flight
+  await within(h.f.drained(), 'the front did not settle');
+  const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
+  assert.equal(notes.length, 2, 'expected the cancelled note once and the fresh note once: ' + notes.length);
+  assert.match(notes[1].prompt, /^\[Kosmos: your operator asked you to stop, so nothing else was waiting\./, 'the fresh note claimed a turn was ended');
+});
+
+test('#4569 review round 8: a note Muse stays busy for is given up after 1 + 4 tries, and says why', async () => {
+  const run = require('./muserun');
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt)) { input.onStop(() => {}); return { ok: false, text: '', because: run.BUSY }; }
+    return OK('ok');
+  }, { busyRetryMs: 2 });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await within(h.f.drained(), 'the retries never gave up');
+  assert.equal(h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt)).length, 5);
+  assert.match(h.out(), new RegExp('\\(' + run.BUSY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\)\\n> $'));
+  assert.equal(h.reports[h.reports.length - 1], 'idle');
+});
+
+test('#4569 review round 8: two stops in one read: the second finds the first note waiting, not yet running', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r'); h.f.feed(OP('are you there') + '\r');
+  h.f.feed(OP('stop') + '\r' + OP('stop') + '\r');   // one chunk: the note is queued, not started, when the second arrives
+  await within(h.f.drained(), 'did not settle');
+  const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
+  assert.equal(notes.length, 1, 'the second stop replaced or duplicated the waiting note');
+  assert.match(notes[0].prompt, /dropped unread: "are you there"/);
+});
