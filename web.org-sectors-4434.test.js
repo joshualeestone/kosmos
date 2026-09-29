@@ -654,7 +654,7 @@ function livePage() {
   };
   const simAt = SCRIPT.indexOf('const ORG_SIM = {');
   const simSrc = SCRIPT.slice(simAt, SCRIPT.indexOf('let ORG_LIVE = null;'));
-  const frames = [];
+  const frames = []; let nextFrame = 0;
   const el = () => ({ style: {}, classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, dataset: {}, isConnected: true,
     setAttribute() {}, removeAttribute() {}, setPointerCapture() {}, releasePointerCapture() {} });
   const els = new Map();
@@ -672,8 +672,9 @@ function livePage() {
   const env = {
     window: { matchMedia: () => ({ matches: false }) },
     CSS: { escape: (x) => x },
-    requestAnimationFrame: (f) => { frames.push(f); return frames.length; },
-    cancelAnimationFrame: () => {},
+    requestAnimationFrame: (f) => { nextFrame += 1; frames.push({ id: nextFrame, f }); return nextFrame; },
+    // Cancels as a browser does, so a second orgLiveStart with a frame still queued does not replay it (review it10).
+    cancelAnimationFrame: (id) => { const i = frames.findIndex((q) => q.id === id); if (i > -1) frames.splice(i, 1); },
   };
   // eslint-disable-next-line no-new-func
   const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
@@ -690,7 +691,7 @@ function livePage() {
     let far = 0; let n = 0; let jump = 0;
     let last = new Map(from);
     while (frames.length && n < 5000) {
-      frames.shift()(); n += 1;
+      frames.shift().f(); n += 1;
       const now = new Map();
       for (const [k, q] of page.pos()) {
         const f = from.get(k); if (f) far = Math.max(far, Math.hypot(q.x - f.x, q.y - f.y));
@@ -705,7 +706,7 @@ function livePage() {
   /* Press the hub, optionally move the pointer by (dx, dy), and let go, through the page's own listeners. */
   const hubEl = { ...el(), classList: { ...el().classList, contains: (c) => c === 'hub' } };
   const at = { button: 0, pointerType: 'mouse', pointerId: 1, target: { closest: () => hubEl }, clientX: 100, clientY: 100 };
-  const one = () => { if (frames.length) frames.shift()(); };
+  const one = () => { if (frames.length) frames.shift().f(); };
   const down = () => on.pointerdown(at);
   const up = () => on.pointerup(at);
   const press = (dx, dy) => {

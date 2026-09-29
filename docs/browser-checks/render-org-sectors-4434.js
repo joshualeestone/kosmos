@@ -40,9 +40,10 @@ function crossings(segs) {
   for (let i = 0; i < segs.length; i += 1) {
     for (let j = i + 1; j < segs.length; j += 1) {
       const s = segs[i]; const t = segs[j];
-      const d1 = o(t.a, t.b, s.a); const d2 = o(t.a, t.b, s.b);
-      const d3 = o(s.a, s.b, t.a); const d4 = o(s.a, s.b, t.b);
-      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) out.push(s.name + ' x ' + t.name);
+      /* A side counts only when clear of rounding (as orgPlanarRepair and the node test count it): two wires at
+         exactly opposite angles never meet but their orientations can round to tiny numbers of mixed sign. */
+      const side = (v, g) => { const e = 1e-9 * ((g.b.x - g.a.x) ** 2 + (g.b.y - g.a.y) ** 2); return v > e ? 1 : (v < -e ? -1 : 0); };
+      if (side(o(t.a, t.b, s.a), t) * side(o(t.a, t.b, s.b), t) < 0 && side(o(s.a, s.b, t.a), s) * side(o(s.a, s.b, t.b), s) < 0) out.push(s.name + ' x ' + t.name);
     }
   }
   return out;
