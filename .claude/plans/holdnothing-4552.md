@@ -71,3 +71,7 @@ something else.
 - CONVENTION fixed: commitments.js names the Assigner as the one deliberate exception to "unknown is never safe".
 - CONVENTION fixed: the future-dated arm now has its control (present-dated empty list is given).
 - NITs taken: future-dated added to the Assigner's "does not" list; the uneven-over-time rule stated in the plan.
+### Iteration 4 (sonnet): CONVERGED
+- No BLOCKER, WARNING or CONVENTION. NITs noted: the long tick line; the commitments header's "every other reader"
+  (checked: no other reader of stale or neverReported); the residual risk (already the weakest premise; note the
+  reviewer called the setting off by default, but it is ON when never configured, assigner-setting.js).
