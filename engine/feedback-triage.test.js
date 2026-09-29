@@ -180,3 +180,28 @@ test('#4415: the report form\'s own questions are not items, and frontmatter is 
   assert.ok(!all.includes('aad22250'), 'the install id from the frontmatter reached the digest');
   assert.ok(all.includes('weekly limit never records a reset'), 'control: the report itself is still read');
 });
+
+test('#4415: freshSince keeps only reports that arrived after the last post, and never guesses an undated one', () => {
+  const t = require('./feedback-triage');
+  const f = (name, at) => ({ name, body: '---\ndate: x\n' + (at ? 'generated_at: ' + at + '\n' : '') + '---\n- a line\n' });
+  const since = Date.parse('2026-09-28T12:00:00Z') / 1000;
+  const got = t.freshSince([f('2026-09-28-a.md', '2026-09-28T13:00:00Z'), f('2026-09-27-b.md', '2026-09-27T13:00:00Z'), f('2026-09-28-c.md', null)], since);
+  assert.deepEqual(got.map((r) => r.date), ['2026-09-28'], 'the old and the undated report were kept');
+  assert.equal(t.freshSince([f('2026-09-28-a.md', '2026-09-28T13:00:00Z')], 'not a number').length, 0, 'a bad watermark reads nothing, not everything');
+});
+
+test('#4415: adminSummary is empty with nothing new, and shows five candidates then a count', () => {
+  const t = require('./feedback-triage');
+  assert.equal(t.adminSummary([], '', 'https://x/admin'), '', 'nothing new must post nothing');
+  const lines = ['Room scroll jumps upward whenever messages arrive, broken', 'Updater silently fails overnight', 'Export crashes Kosmos instantly',
+    'Dock icon vanishes after reboot, a bug', 'Weekly quota never resets, error', 'Windows codex TOML path wrong, fails to load',
+    'Login button unresponsive, does not work', 'Settings pane crashes on open', 'Voice microphone errors out constantly'];
+  const body = '---\ndate: 2026-09-28\n---\n' + lines.map((l) => '- ' + l + '.').join('\n') + '\n';
+  const out = t.adminSummary([{ date: '2026-09-28', body }], '', 'https://x/admin');
+  const res = t.triage([{ date: '2026-09-28', body }], { openCards: [] });
+  assert.ok(res.candidates.length > 5, 'fixture must exceed five candidates, got ' + res.candidates.length);
+  const shown = out.split('\n').filter((l) => l.startsWith('- '));
+  assert.equal(shown.length, 5);
+  assert.match(out, new RegExp('\\.\\.\\.and ' + (res.candidates.length - 5) + ' more\\.'));
+  assert.match(out, /https:\/\/x\/admin \(Reports\)\. No card was opened\.$/);
+});

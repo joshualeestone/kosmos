@@ -442,7 +442,48 @@ function digestFor(reports, cardsText) {
   return renderDigest(result, { range });
 }
 
+/**
+ * kosmos#4415 slice 2: the pulled reports that ARRIVED after `sinceSec` (epoch seconds), read from each report's
+ * own `generated_at` line (engine/feedbackpull.js writes it into the frontmatter). A report with no readable
+ * generated_at is left out rather than guessed at: the daily post covers what is new, and an undated report
+ * cannot be placed on either side of the last post. Pure; the daily job (tools/feedback-digest-daily.sh) reads
+ * the files and hands them in as { name, body }.
+ */
+function freshSince(files, sinceSec) {
+  const since = Number(sinceSec);
+  const out = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const body = String((f && f.body) || '');
+    const m = /(?:^|\n)generated_at:\s*(\S+)/.exec(body);
+    const at = m ? Date.parse(m[1]) : NaN;
+    if (Number.isFinite(at) && Number.isFinite(since) && at / 1000 > since) {
+      out.push({ date: String((f && f.name) || '').slice(0, 10), body });
+    }
+  }
+  return out;
+}
+
+/**
+ * kosmos#4415 slice 2: the SHORT post the daily job puts in #admin: the counts, the top five candidates, and the
+ * link to /admin's Reports inbox, where every report is read and marked triaged. '' when there is nothing new, so
+ * the job posts nothing rather than a daily "0 new". It never opens a card (#2246: a person decides).
+ */
+const ADMIN_TOP = 5;
+function adminSummary(reports, cardsText, adminUrl) {
+  const fresh = Array.isArray(reports) ? reports : [];
+  if (!fresh.length) return '';
+  const openCards = String(cardsText == null ? '' : cardsText).split('\n').map((x) => x.trim()).filter(Boolean);
+  const res = triage(fresh, { openCards });
+  const lines = ['Daily reports: ' + fresh.length + ' new since the last digest. ' + res.candidates.length + ' to review, '
+    + res.duplicatesOfOpenCards.length + ' look already carded, ' + res.noise.length + ' below the bar.'];
+  for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- ' + String(c.text).replace(/\s+/g, ' ').slice(0, 220));
+  if (res.candidates.length > ADMIN_TOP) lines.push('...and ' + (res.candidates.length - ADMIN_TOP) + ' more.');
+  lines.push('Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
+  return lines.join('\n');
+}
+
 module.exports = {
   normalize, tokens, parseItems, classify, similarity,
   groupDuplicates, matchOpenCard, triage, renderDigest, digestFor,
+  freshSince, adminSummary, // kosmos#4415
 };
