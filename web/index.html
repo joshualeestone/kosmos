@@ -8698,7 +8698,7 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
 @media (max-width: 40rem) {
   .nak-btn { flex-basis: 100%; max-width: none; min-height: 0; flex-direction: row; text-align: left;
              padding: 14px 16px; gap: 14px; flex-wrap: wrap; }
-  .nak-art { width: 84px; height: 42px; margin: 0; }
+  .nak-art { width: 124px; height: 40px; margin: 0; align-self: center; }   /* Mona's review: the art about 40px tall */
   .nak-name { flex: 1 1 60%; }
   .nak-desc { flex-basis: 100%; }
 }
@@ -13969,16 +13969,19 @@ window.kosmosMeasureScrollbarWidth();
     <h2 id="cstep-team-title" tabindex="-1">Create a Team of Agents</h2>
     <p class="dhint" style="margin:-6px 0 14px;">A lead and the agents who report to it, made in one go.</p>
     <div class="nak-team-opt">
-      <label class="flabel" for="team-seeded">Pick a ready-made team</label>
-      <select id="team-seeded" disabled><option value="">Loading the teams...</option></select>
-      <p class="rolehelp" id="team-seeded-desc"></p>
-      <div class="importrow">
-        <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
+      <!-- Mona's review: no dropdown or disabled Create while no teams exist; the note below says so once. -->
+      <div id="team-seeded-pick">
+        <label class="flabel" for="team-seeded">Pick a ready-made team</label>
+        <select id="team-seeded" disabled><option value="">Loading the teams...</option></select>
+        <p class="rolehelp" id="team-seeded-desc"></p>
+        <div class="importrow">
+          <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
+        </div>
       </div>
       <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
     </div>
     <div class="nak-team-opt" id="team-orgchart-opt" hidden>
-      <p class="flabel">Or upload an org chart</p>
+      <p class="flabel" id="team-orgchart-label">Or upload an org chart</p>
       <div class="importrow">
         <button class="btn" type="button" id="team-orgchart-open" aria-expanded="false" aria-controls="orgchartpick">Upload an org chart</button>
       </div>
@@ -46273,6 +46276,8 @@ function cstep(which) {
   });
   /* #4556: Back to the three-way choice, only from a path's second screen. */
   document.getElementById('create-path-back').hidden = !(which === 'role' || which === 'team');
+  /* Mona's review: one back link on a second screen, "Choose another kind"; All agents is one step further back. */
+  document.getElementById('create-back').hidden = (which === 'role' || which === 'team');
 }
 
 /* #4556: which of New Agent's three paths the person chose on the first screen: 'single', 'team' or 'swarm'.
@@ -46333,10 +46338,16 @@ async function loadSeededTeams() {
     } catch { SEEDED_TEAMS = null; }
   }
   if (gen !== SEEDED_GEN) return;
-  if (!SEEDED_TEAMS || !SEEDED_TEAMS.length) {
-    sel.innerHTML = '<option value="">Ready-made teams are coming soon</option>';
+  const none = !SEEDED_TEAMS || !SEEDED_TEAMS.length;
+  /* Mona's review: with no teams, no control that can do nothing. The note says it once, and Upload an org chart is
+     the screen's main (gold) action; the dropdown and Create come back once #4555 seeds teams. */
+  document.getElementById('team-seeded-pick').hidden = none;
+  document.getElementById('team-orgchart-open').classList.toggle('uprime', none);
+  document.getElementById('team-orgchart-label').textContent = none ? 'Upload an org chart' : 'Or upload an org chart';
+  if (none) {
+    sel.innerHTML = '';
     document.getElementById('team-seeded-desc').textContent = '';
-    teamSaySeeded('Ready-made teams are coming soon. You can upload an org chart now.');
+    teamSaySeeded('Ready-made teams are coming soon.');
     return;
   }
   sel.innerHTML = '<option value="">Choose a team</option>'
@@ -46454,20 +46465,7 @@ function buildPicker() {
      rather than a description. That moved to the last step in 0.2.92 and is
      still shown before the agent exists. */
   updateRecPill();
-  const rest = ROLES.filter((r) => r.key !== pm.key);
-  document.getElementById('pick-list-desc').textContent =
-    rest.length + ' ready-made jobs, from bookkeeping to security review';
-  // Optgroups in the catalogue's own order of first appearance.
-  const groups = [];
-  for (const r of rest) {
-    let g = groups.find((x) => x.name === r.group);
-    if (!g) { g = { name: r.group, roles: [] }; groups.push(g); }
-    g.roles.push(r);
-  }
-  document.getElementById('rolesel').innerHTML = groups.map((g) =>
-    `<optgroup label="${esc(g.name || 'Roles')}">` +
-    g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
-    '</optgroup>').join('');
+  paintRoleMenu();
   document.getElementById('pick-list').hidden = false;
   // Only offered when the payload actually served the entry: a radio whose
   // Continue silently does nothing (roleByKey('own') -> null -> return) is
@@ -46481,8 +46479,33 @@ function buildPicker() {
 /* #4556: which role-screen options this path offers. Run on every open (buildPicker runs only on the first
    fetch), so a Swarm visit after a Single one does not keep the Single options. A swarm has no Project Manager
    and no import (Josh, #4554). */
+/* #4556 (Mona's design review): the roles that direct other agents or projects. A swarm has no one directing it
+   (Josh, #4554: no project-manager option), so on the Swarm path these are left out and the menu opens on the first
+   role that remains. Operations Manager stays: it keeps recurring work moving, it does not direct agents. */
+const SWARM_LEFT_OUT = ['pm', 'director'];
+/* The "Pick another role" menu for the path chosen, in the catalogue's own order of first appearance. Written only
+   when its contents change, so a pick in it survives a repaint that changes nothing. */
+function paintRoleMenu() {
+  const swarmPath = CREATE_PATH === 'swarm';
+  const rest = (ROLES || []).filter((r) => r.key !== 'pm' && !(swarmPath && SWARM_LEFT_OUT.includes(r.key)));
+  document.getElementById('pick-list-desc').textContent =
+    rest.length + ' ready-made jobs, from bookkeeping to security review';
+  const groups = [];
+  for (const r of rest) {
+    let g = groups.find((x) => x.name === r.group);
+    if (!g) { g = { name: r.group, roles: [] }; groups.push(g); }
+    g.roles.push(r);
+  }
+  const html = groups.map((g) =>
+    `<optgroup label="${esc(g.name || 'Roles')}">` +
+    g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
+    '</optgroup>').join('');
+  const sel = document.getElementById('rolesel');
+  if (sel.dataset.menu !== html) { sel.innerHTML = html; sel.dataset.menu = html; }
+}
 function paintPathOptions() {
   const swarmPath = CREATE_PATH === 'swarm';
+  if (ROLES && ROLES.length) paintRoleMenu();
   document.getElementById('pick-pm').hidden = swarmPath;
   document.getElementById('pick-import').hidden = !OWN_ROLE || swarmPath;
   /* #4556 design shots: with no Project Manager above it (the Swarm path), "another" has nothing to follow. */

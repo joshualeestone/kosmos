@@ -49,6 +49,9 @@ let NO_OWN = false;          // K9: serve no define-your-own role
 const ROLES = {
   roles: [
     { key: 'pm', label: 'Project Manager', blurb: 'Runs the work.', group: 'Running the work' },
+    // Mona's review: the catalogue's order, the director first after pm, so the Swarm default is tested for real.
+    { key: 'director', label: 'Project Director', blurb: 'Holds the picture.', group: 'Running the work' },
+    { key: 'ops', label: 'Operations Manager', blurb: 'Keeps work moving.', group: 'Running the work' },
     { key: 'writer', label: 'Writer', blurb: 'Writes.', group: 'Content' },
   ],
   own: { key: 'own', label: 'Your own', blurb: 'Describe it yourself.' },
@@ -108,10 +111,14 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         return { onKind: !document.getElementById('cstep-kind').hidden, onRole: !document.getElementById('cstep-role').hidden,
           names: cards.map((b) => b.querySelector('.nak-name').textContent), rows: new Set(tops).size,
           art: cards.every((b) => !!b.querySelector('svg.nak-art .nak-gold')),
+          // Mona's review: the drawn art (its gold dots and lines) about 40px tall on a phone, not the 20px it was.
+          artH: Math.round(cards[1].querySelector('svg.nak-art').getBBox ? (() => { const sv = cards[1].querySelector('svg.nak-art');
+            const bb = sv.getBBox(); const k = sv.getBoundingClientRect().height / 90; return bb.height * Math.min(k, sv.getBoundingClientRect().width / 278); })() : 0),
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       ok(t + ' K1 New Agent opens on the three-way choice, not the role screen', k1.onKind && !k1.onRole, JSON.stringify(k1));
       ok(t + ' K1 the three choices, in Josh\'s order, each with line art', JSON.stringify(k1.names) === JSON.stringify(['Create a Single Agent', 'Create a Team of Agents', 'Create a Swarm of Autonomous Agents']) && k1.art, JSON.stringify(k1.names));
+      if (width <= 600) ok(t + ' K1 the phone art is about 40px tall (Mona\'s review)', k1.artH >= 32, String(k1.artH));
       ok(t + (width > 600 ? ' K1 side by side in one row' : ' K1 stacked, with no sideways scroll'),
         width > 600 ? k1.rows === 1 : (k1.rows === 3 && !k1.overflow), JSON.stringify(k1));
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: nodePath.join(SHOTS, 'newagent-' + theme + '-' + label + '.png'), fullPage: true }); }
@@ -122,9 +129,13 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       const k2 = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, imp: !document.getElementById('pick-import').hidden,
         orgRadio: !!document.getElementById('pick-orgchart'), back: !document.getElementById('create-path-back').hidden,
         listName: document.querySelector('#pick-list .p2n').textContent,
+        roles: [...document.querySelectorAll('#rolesel option')].map((o) => o.value),
+        allAgents: !document.getElementById('create-back').hidden,
         title: document.getElementById('cstep-role-title').textContent }));
       ok(t + ' K2 Single: Project Manager and import are offered, the org chart is not, and Back shows',
         k2.pm && k2.imp && !k2.orgRadio && k2.back && k2.title === 'What should this agent do?' && k2.listName === 'Pick another role', JSON.stringify(k2));
+      ok(t + ' K2 Single: one back link, Choose another kind (Mona\'s review)', !k2.allAgents, JSON.stringify(k2));
+      ok(t + ' K2 Single: the role menu still offers Project Director (CONTROL for the Swarm list)', k2.roles.includes('director') && !k2.roles.includes('pm'), JSON.stringify(k2.roles));
       await page.click('#pick-pm');
       await page.click('#role-next');
       await page.waitForSelector('#cstep-name:not([hidden])', { timeout: 8000 }).catch(() => {});
@@ -142,10 +153,13 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForTimeout(200);
       const k4 = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, imp: !document.getElementById('pick-import').hidden,
         list: !!document.querySelector('input[name="rmode"][value="list"]:checked'), title: document.getElementById('cstep-role-title').textContent,
-        listName: document.querySelector('#pick-list .p2n').textContent, selFont: parseFloat(getComputedStyle(document.getElementById('rolesel')).fontSize) }));
+        listName: document.querySelector('#pick-list .p2n').textContent, selFont: parseFloat(getComputedStyle(document.getElementById('rolesel')).fontSize),
+        roles: [...document.querySelectorAll('#rolesel option')].map((o) => o.value), picked: PICKED }));
       ok(t + ' K4 Swarm: no Project Manager and no import; it opens on the role menu', !k4.pm && !k4.imp && k4.list && k4.title === 'What should this swarm do?', JSON.stringify(k4));
       // Design shots: with no Project Manager above it, "another" had nothing to follow; and a phone menu under 16px zooms on iOS.
       ok(t + ' K4 Swarm: the menu option reads "Pick a role", not "Pick another role"', k4.listName === 'Pick a role', k4.listName);
+      ok(t + ' K4 Swarm: no role that directs agents is offered, and it opens on the first that remains (Mona\'s review)',
+        !k4.roles.includes('director') && !k4.roles.includes('pm') && k4.roles.includes('ops') && k4.roles[0] === 'ops' && k4.picked === 'ops', JSON.stringify(k4));
       if (width <= 600) ok(t + ' K4 Swarm: the role menu is at least 16px on a phone', k4.selFont >= 16, String(k4.selFont));
       await page.click('#role-next');
       await page.waitForSelector('#cstep-name:not([hidden])', { timeout: 8000 }).catch(() => {});
@@ -159,9 +173,15 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.evaluate(() => openCreate());
       await page.click('#cstep-kind [data-path="team"]');
       await page.waitForTimeout(400);
-      const k5 = await page.evaluate(() => ({ onTeam: !document.getElementById('cstep-team').hidden, sel: document.getElementById('team-seeded').disabled,
-        msg: document.getElementById('team-seeded-msg').textContent, go: document.getElementById('team-seeded-go').disabled }));
-      ok(t + ' K5 Team with no catalogue: says coming soon, the dropdown and Create are off', k5.onTeam && k5.sel && k5.go && /coming soon/.test(k5.msg), JSON.stringify(k5));
+      const k5 = await page.evaluate(() => ({ onTeam: !document.getElementById('cstep-team').hidden,
+        pick: !document.getElementById('team-seeded-pick').closest('[hidden]'),
+        msg: document.getElementById('team-seeded-msg').textContent,
+        soon: (document.getElementById('cstep-team').innerText.match(/coming soon/gi) || []).length,
+        gold: document.getElementById('team-orgchart-open').classList.contains('uprime'),
+        label: document.getElementById('team-orgchart-label').textContent,
+        allAgents: !document.getElementById('create-back').hidden }));
+      ok(t + ' K5 Team with no catalogue: no dropdown or Create, "coming soon" said once, Upload an org chart is the gold action (Mona\'s review)',
+        k5.onTeam && !k5.pick && k5.msg === 'Ready-made teams are coming soon.' && k5.soon === 1 && k5.gold && k5.label === 'Upload an org chart' && !k5.allAgents, JSON.stringify(k5));
       await page.click('#team-orgchart-open');
       ok(t + ' K5 Upload an org chart opens its panel on the Team screen', await visible(page, '#orgchart-text'));
 
@@ -174,7 +194,11 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForFunction(() => !document.getElementById('team-seeded').disabled, null, { timeout: 5000 }).catch(() => {});
       await page.selectOption('#team-seeded', 'marketing');
       const k6 = await page.evaluate(() => ({ opts: [...document.getElementById('team-seeded').options].map((o) => o.value),
-        desc: document.getElementById('team-seeded-desc').textContent, go: document.getElementById('team-seeded-go').disabled }));
+        desc: document.getElementById('team-seeded-desc').textContent, go: document.getElementById('team-seeded-go').disabled,
+        pick: !document.getElementById('team-seeded-pick').hidden, gold: document.getElementById('team-orgchart-open').classList.contains('uprime'),
+        label: document.getElementById('team-orgchart-label').textContent }));
+      ok(t + ' K6 with teams: the dropdown is back and the org chart is the second, plain choice (CONTROL for K5)',
+        k6.pick && !k6.gold && k6.label === 'Or upload an org chart', JSON.stringify(k6));
       ok(t + ' K6 the seeded teams are listed, and choosing one describes it and enables Create',
         JSON.stringify(k6.opts) === JSON.stringify(['', 'marketing', 'home']) && /A CMO and four reports\. 5 agents\./.test(k6.desc) && !k6.go, JSON.stringify(k6));
       await page.click('#team-seeded-go');
