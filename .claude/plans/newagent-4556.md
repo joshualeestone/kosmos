@@ -64,5 +64,12 @@ and at phone width.
   form at 34rem, both centred; measured red with the 60rem rule removed.
 - Review: with /api/roles failing, Team said only "Ready-made teams are coming soon." and never retried, and a failed
   load overlapping a good one could hide an org chart that had loaded. The Team path now starts the roles load when
-  there is none, a failure never empties a list another load filled and hides the org chart, and `#team-orgchart-msg`
-  says why. K10 in render-newagent-paths-4556 measures the note and the retry (each red with its fix removed).
+  there is none, and `#team-orgchart-msg` says why when it fails. K10 in render-newagent-paths-4556 measures the note
+  and the retry (each red with its fix removed).
+- Review pass 3: overlapping roles loads still raced (a stale success wrote the shared lists, and a later path choice
+  took the fast path without building the picker: Single with an empty Project Manager and Loading forever). Now one
+  `/api/roles` request at a time is shared by every caller (`fetchRoles`), it alone writes ROLES / OWN_ROLE /
+  CREATE_MODELS, the picker is built whenever it has not been for the current list, only the newest caller paints,
+  and Team repaints its options from what is there. K12 reproduces the race (slow success plus a failing second
+  request, Team, Back, Team, Back, Single): red in all 8 arms on the previous code, green now. K11: a revisit keeps
+  the chosen ready-made team.

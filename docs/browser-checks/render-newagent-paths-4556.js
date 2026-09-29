@@ -27,8 +27,8 @@
  *      role menu with no Project Manager picked (ROLES_GEN);
  *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
  *   K11 Back and Team again keep the team the person had picked.
- *   K12 a slow first roles load while the person goes Team, Back, Single: Single ends fully built (the menu, the
- *       define-your-own option, no "Loading"), and Team reached the same way ends with the org chart offered.
+ *   K12 a slow first roles load, and a second that fails while it is out, across Team, Back, Team, Back, Single:
+ *       Team ends with the org chart and no failure note, and Single ends fully built (the review's race).
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -59,6 +59,7 @@ let ROLES_DELAY_ONCE = 0;   // K8: hold the next /api/roles this many ms
 let IMPORT_DELAY = 0;       // K3b: hold /api/agent-import this many ms
 let NO_OWN = false;          // K9: serve no define-your-own role
 let ROLES_FAIL = false;      // K10: /api/roles answers 500
+let ROLES_SLOW_THEN_FAIL = 0; // K12: the next /api/roles answers after 900ms; any sent while it is out answers 500
 const ROLES = {
   roles: [
     { key: 'pm', label: 'Project Manager', blurb: 'Runs the work.', group: 'Running the work' },
@@ -75,6 +76,8 @@ const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0];
   if (u === '/api/roles') {
     if (ROLES_FAIL) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
+    if (ROLES_SLOW_THEN_FAIL === 1) { ROLES_SLOW_THEN_FAIL = 2; setTimeout(() => { ROLES_SLOW_THEN_FAIL = 0; json(res, ROLES); }, 900); return; }
+    if (ROLES_SLOW_THEN_FAIL === 2) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
     const body = NO_OWN ? { ...ROLES, own: null } : ROLES;
     const wait = ROLES_DELAY_ONCE; ROLES_DELAY_ONCE = 0;
     if (wait) { setTimeout(() => json(res, body), wait); return; }
@@ -312,25 +315,24 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       const k9c = await page.evaluate(() => document.getElementById('team-orgchart-opt').hidden);
       ok(t + ' K9 the org chart is offered only when the board serves a define-your-own role', k9 === true && k9c === false, JSON.stringify([k9, k9c]));
 
-      // K12: one slow roles load shared by every path choice made while it is out (the review's race).
-      ROLES_DELAY_ONCE = 1500;
+      // K12 (the review's race): the first roles load is slow and succeeds, and a second one sent while it is out
+      // fails. Team, then Back, Team, Back, Single: every screen must end built from the list that did arrive.
+      ROLES_SLOW_THEN_FAIL = 1;
       await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
       await page.click('#cstep-kind [data-path="team"]');
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(1300);
       await page.click('#create-path-back');
-      await page.waitForTimeout(150);
-      await page.click('#cstep-kind [data-path="single"]');
-      await page.waitForFunction(() => document.getElementById('roles-msg').textContent === '', null, { timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(200);
-      const k12 = await page.evaluate(() => ({ list: !document.getElementById('pick-list').hidden, own: !document.getElementById('pick-own').hidden,
-        pm: (document.querySelector('#pick-pm .p2n') || {}).textContent || '', msg: document.getElementById('roles-msg').textContent }));
-      ok(t + ' K12 a slow first roles load across Team, Back, Single ends with Single fully built', k12.list && k12.own && k12.pm.trim() !== '' && k12.msg === '', JSON.stringify(k12));
-      ROLES_DELAY_ONCE = 1500;
-      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
       await page.click('#cstep-kind [data-path="team"]');
-      await page.waitForTimeout(2200);
-      const k12b = await page.evaluate(() => ({ opt: document.getElementById('team-orgchart-opt').hidden, note: document.getElementById('team-orgchart-msg').hidden }));
-      ok(t + ' K12 and Team reached during that load ends with the org chart offered', k12b.opt === false && k12b.note === true, JSON.stringify(k12b));
+      await page.waitForTimeout(500);
+      const k12t = await page.evaluate(() => ({ opt: document.getElementById('team-orgchart-opt').hidden, note: document.getElementById('team-orgchart-msg').hidden }));
+      await page.click('#create-path-back');
+      await page.click('#cstep-kind [data-path="single"]');
+      await page.waitForTimeout(500);
+      const k12s = await page.evaluate(() => ({ list: !document.getElementById('pick-list').hidden, own: !document.getElementById('pick-own').hidden,
+        pm: (document.querySelector('#pick-pm .p2n') || {}).textContent || '', msg: document.getElementById('roles-msg').textContent }));
+      ROLES_SLOW_THEN_FAIL = 0;
+      ok(t + ' K12 after a slow first roles load, Team ends with the org chart offered and no failure note', k12t.opt === false && k12t.note === true, JSON.stringify(k12t));
+      ok(t + ' K12 and Single ends fully built (the menu, define-your-own, a named Project Manager, no Loading)', k12s.list && k12s.own && k12s.pm.trim() !== '' && k12s.msg === '', JSON.stringify(k12s));
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;
