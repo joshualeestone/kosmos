@@ -46876,7 +46876,10 @@ document.getElementById('orgchart-many-no').addEventListener('click', () => {
   ORGCHART_MANY_OK = false;
   document.getElementById('orgchart-create').disabled = false;
   const msg = document.getElementById('orgchart-msg');
-  msg.textContent = 'Nothing was created. Go back to the list to make it ' + ORGCHART_TEAM_DEFAULT + ' or fewer, or create again to start them all.';
+  // A file's people are not in the paste box, so "back to the list" cannot shorten them: say what can.
+  msg.textContent = ORGCHART_FILE_PEOPLE
+    ? 'Nothing was created. To make fewer, remove people from the file and upload it again, or create again to start them all.'
+    : 'Nothing was created. Go back to the list to make it ' + ORGCHART_TEAM_DEFAULT + ' or fewer, or create again to start them all.';
   msg.hidden = false;
 });
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {

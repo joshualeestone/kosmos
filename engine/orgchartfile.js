@@ -63,9 +63,17 @@ const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-
    quote) is a quoted field too. */
 function parseDelimited(text) {
   const src = String(text == null ? '' : text).replace(/^﻿/, '');
-  const firstLine = src.split(/\r?\n/).find((l) => l.trim() !== '') || '';   // the header, past any blank lines
+  // The header, past any blank lines, found with indexOf rather than by splitting the whole file into lines.
+  let firstLine = '';
+  for (let from = 0; from < src.length;) {
+    let end = src.indexOf('\n', from);
+    if (end < 0) end = src.length;
+    const line = src.slice(from, end).replace(/\r$/, '');
+    if (line.trim() !== '') { firstLine = line; break; }
+    from = end + 1;
+  }
   const bare = firstLine.replace(/"[^"]*"/g, '');   // a quoted header ("Name, Legal") does not vote
-  const count = (c) => bare.split(c).length - 1;
+  const count = (c) => { let n = 0; for (let i = bare.indexOf(c); i >= 0; i = bare.indexOf(c, i + 1)) n += 1; return n; };
   const delim = ['\t', ',', ';'].sort((a, b) => count(b) - count(a))[0];
   const out = [];
   let row = [];
@@ -78,16 +86,19 @@ function parseDelimited(text) {
         if (src[i + 1] === '"') { field += '"'; i += 1; } else quoted = false;
       } else field += c;
     } else if (c === '"' && field.trim() === '') { field = ''; quoted = true; }   // `a, "b, c"`: spaces before a quote still open it
-    else if (c === delim) { row.push(field); field = ''; }
+    // Past KEEP_COLS a field is dropped as it ends (the XLSX reader's cap): a header of ten million commas is not a
+    // table, and keeping every field would hold the board's thread and its memory for it.
+    else if (c === delim) { if (row.length < KEEP_COLS) row.push(field); field = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && src[i + 1] === '\n') i += 1;
-      row.push(field); field = '';
+      if (row.length < KEEP_COLS) row.push(field);
+      field = '';
       if (row.some((v) => v.trim() !== '')) out.push(row);   // a blank line does not count toward the cap
       row = [];
       if (out.length > MAX_ROWS + 1) break;
     } else field += c;
   }
-  if (field !== '' || row.length) { row.push(field); out.push(row); }
+  if (field !== '' || row.length) { if (row.length < KEEP_COLS) row.push(field); out.push(row); }
   return out.map((r) => r.map((v) => v.trim())).filter((r) => r.some((v) => v !== ''));
 }
 
@@ -348,7 +359,9 @@ const untitledSentence = (n) => n + (n === 1 ? ' person has' : ' people have')
 function resolve(people, truncated) {
   const byId = new Map();
   const byName = new Map();
+  const byTitle = new Map();   // a chart of titles alone (no names) names its managers by title
   people.forEach((p, i) => {
+    if (p.title) { const k = p.title.toLowerCase(); byTitle.set(k, byTitle.has(k) ? -1 : i); }   // -1: two rows hold it
     for (const id of p.ids || []) { const k = id.toLowerCase(); byId.set(k, byId.has(k) && byId.get(k) !== i ? -1 : i); }   // -1: two rows share this id
     if (p.person) {
       const k = p.person.toLowerCase();
@@ -360,7 +373,8 @@ function resolve(people, truncated) {
     const m = p.manager;
     if (!m) return;
     const k = m.toLowerCase();
-    let at = byId.has(k) ? byId.get(k) : (byName.has(k) ? byName.get(k) : null);
+    // An id, then a name, then a title: a title is tried only when no id or name matches, and only a unique one.
+    let at = byId.has(k) ? byId.get(k) : (byName.has(k) ? byName.get(k) : (byTitle.has(k) ? byTitle.get(k) : null));
     if (at === -1) { rows[i].why = `two people have ${m} in the file, so we cannot tell which one they report to`; return; }
     if (at == null) { rows[i].why = `their manager, ${m}, is not in the file`; return; }
     if (at === i) { rows[i].why = 'the file says they report to themselves'; return; }
@@ -376,17 +390,15 @@ function resolve(people, truncated) {
   return { rows, problems };
 }
 
-/* A reporting loop (A under B under A) marks every row on it. The preview blocks Create until it
-   is broken, because an agent cannot sit above its own manager. */
+/* A reporting loop (A under B under A) marks every row on it with `loop: true`, a field of its own rather than a
+   note in `why`: the page finds loops itself on every repaint (orgchartLoops) and names them, so a note from the
+   file would stay on a row after the person broke the loop by hand. An agent cannot sit above its own manager. */
 function markLoops(rows) {
   for (let i = 0; i < rows.length; i += 1) {
     const seen = new Set([i]);
     let at = rows[i].reportsTo;
     while (at != null && !seen.has(at)) { seen.add(at); at = rows[at].reportsTo; }
-    if (at === i) {
-      const loop = 'this is part of a reporting loop (someone ends up above their own manager)';
-      rows[i].why = rows[i].why ? rows[i].why + '; and ' + loop : loop;   // kept beside a shared-name note, not lost to it
-    }
+    if (at === i) rows[i].loop = true;
   }
   return rows;
 }

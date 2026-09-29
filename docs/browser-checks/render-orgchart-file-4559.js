@@ -277,6 +277,22 @@ async function run() {
     } else check('UNPAIRED: the panel offers a file', false);
     await pu.close();
 
+    // LOOP FROM A FILE: a file whose two people report to each other (read for real, not mocked) blocks Create; the
+    // person breaks the loop on one row and Create is ready, with no stale note left on the other row.
+    const plp = await page();
+    await openPanel(plp);
+    if (await plp.$('#orgchart-file-btn')) {
+      await plp.setInputFiles('#orgchart-file', { name: 'loop.csv', mimeType: 'text/csv', buffer: Buffer.from('Name,Title,Manager\nAvery Quill,Chief Executive,Bo Linden\nBo Linden,Head of Sales,Avery Quill\n') });
+      await plp.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      const before = await readPreview(plp);
+      await plp.selectOption('#orgchart-list li[data-i="0"] .oc-reports-to', '');
+      await plp.waitForTimeout(200);
+      const after = await readPreview(plp);
+      check('LOOP FROM A FILE: a loop in the file blocks Create; breaking it on one row leaves no stale note and Create is ready',
+        before.createDisabled && !after.createDisabled && after.rows.every((x) => !x.check), JSON.stringify([before.createDisabled, after.createDisabled, after.rows.map((x) => x.check)]));
+    } else check('LOOP FROM A FILE: the panel offers a file', false);
+    await plp.close();
+
     // MANY: past the usual team size (12), Create asks in words about the load and the bill; Not now sends nothing,
     // and only Start all sends #2972's raise, set to the chart's size (Liu Kang m3436).
     const pm = await page();
@@ -295,7 +311,7 @@ async function run() {
       await pm.click('#orgchart-many-no');
       await pm.waitForTimeout(300);
       const no = await readPreview(pm);
-      check('MANY: Not now creates nothing and says so', teamsM.length === 0 && /Nothing was created/.test(no.msg) && !no.createDisabled, JSON.stringify([teamsM.length, no.msg]));
+      check('MANY: Not now creates nothing and, for a file, says to shorten the file (the paste box does not hold its people)', teamsM.length === 0 && /Nothing was created\. To make fewer, remove people from the file and upload it again/.test(no.msg) && !no.createDisabled, JSON.stringify([teamsM.length, no.msg]));
       await pm.click('#orgchart-create');
       await pm.waitForSelector('#orgchart-many:not([hidden])', { timeout: 3000 }).catch(() => {});
       await pm.click('#orgchart-many-go');

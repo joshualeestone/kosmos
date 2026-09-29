@@ -44,8 +44,9 @@ test('lines that need a look say why: a missing manager, a shared name, a self-r
   const why = r.rows.map((x) => x.why || '');
   assert.match(why[1], /Nobody Here, is not in the file/);
   assert.match(why[2], /report to themselves/);
-  assert.match(why[3], /reporting loop/);
-  assert.match(why[4], /reporting loop/);
+  assert.equal(r.rows[3].loop, true, 'a loop is marked on its own field');
+  assert.equal(r.rows[4].loop, true);
+  assert.ok(!r.rows[1].loop && !r.rows[5].loop, 'CONTROL: rows off the loop are not marked');
   assert.match(why[5], /another row is also called Sam Park/);
   assert.match(why[7], /two people have Sam Park in the file/);
   assert.equal(r.rows[7].reportsTo, null, 'an ambiguous manager is not guessed');
@@ -452,7 +453,9 @@ test('#4559: a row on a loop that also shares its name keeps both notes', () => 
   // Managers by id, so the loop E1 <-> E2 resolves even though two rows are called Bo Linden.
   const r = o.tableToPeople([['Employee ID', 'Name', 'Title', 'Manager ID'], ['E1', 'Avery Quill', 'Chief Executive', 'E2'], ['E2', 'Bo Linden', 'Head of Sales', 'E1'], ['E3', 'Bo Linden', 'Head of Product', '']]);
   assert.equal(r.rows[1].reportsTo, 0, 'CONTROL: the loop resolved');
-  assert.match(r.rows[1].why || '', /also called Bo Linden.*reporting loop/, r.rows[1].why);
+  assert.match(r.rows[1].why || '', /also called Bo Linden/, r.rows[1].why);
+  assert.equal(r.rows[1].loop, true, 'and the loop is marked beside it, not lost to it');
+  assert.ok(!/reporting loop/.test(r.rows[1].why), 'the loop is not a note in why, which the page would keep after the loop is broken');
 });
 
 test('#4559: the heaviest workbook under the caps is read on the board thread in bounded time', () => {
@@ -540,3 +543,35 @@ for (const [what, make] of Object.entries(CRAFTED)) {
     assert.ok(b / a < 8, `4x the input took ${(b / a).toFixed(1)}x the time (${a.toFixed(2)} ms -> ${b.toFixed(2)} ms): the reader is not linear here`);
   });
 }
+
+test('#4559: a chart of titles alone resolves its managers by title (unique titles only)', () => {
+  const c = o.tableToPeople([['Title', 'Reports to'], ['CEO', ''], ['Head of Sales', 'CEO'], ['Rep', 'Head of Sales'], ['Rep', 'Head of Sales'], ['Trainee', 'Rep']]);
+  assert.deepEqual(c.rows.map((x) => x.reportsTo), [null, 0, 1, 1, null], JSON.stringify(c.rows));
+  assert.match(c.rows[4].why, /two people have Rep in the file/, 'a shared title is not guessed');
+  const m = o.fromModel({ people: [{ person: '', title: 'CEO', reportsTo: null, sure: true }, { person: '', title: 'Head of Sales', reportsTo: 'CEO', sure: true }] });
+  assert.equal(m.rows[1].reportsTo, 0, JSON.stringify(m.rows));
+  assert.ok(!m.rows[1].why, 'CEO is in the file, so no note says it is missing');
+  const named = o.tableToPeople([['Name', 'Title', 'Manager'], ['Avery Quill', 'CEO', ''], ['Bo Linden', 'Avery Quill', 'Avery Quill']]);
+  assert.equal(named.rows[1].reportsTo, 0, 'CONTROL: a name still wins over a title that happens to match');
+});
+
+test('#4559: a CSV keeps at most KEEP_COLS fields a row, and a header of commas is read in linear work', { timeout: 60000 }, (t) => {
+  const wide = o.parseDelimited('Name,Title,' + ','.repeat(100000) + '\nAvery Quill,CEO\n');
+  assert.equal(wide[0].length, o.KEEP_COLS, 'the header keeps KEEP_COLS fields');
+  assert.deepEqual(wide[1], ['Avery Quill', 'CEO'], 'CONTROL: a normal row is untouched');
+  const time = (n) => {
+    const text = 'Title,Manager' + ','.repeat(n) + '\nCEO,\n';
+    let best = Infinity;
+    for (let k = 0; k < 3; k += 1) {
+      let reps = 0; let ms = 0;
+      const t0 = process.hrtime.bigint();
+      do { o.readLocal('wide.csv', Buffer.from(text)); reps += 1; ms = Number(process.hrtime.bigint() - t0) / 1e6; } while (ms < 25);
+      best = Math.min(best, ms / reps);
+    }
+    return best;
+  };
+  const a = time(200000);
+  const b = time(800000);
+  t.diagnostic(`4x the commas: ${(b / a).toFixed(1)}x the time (${a.toFixed(2)} ms -> ${b.toFixed(2)} ms per parse)`);
+  assert.ok(b / a < 8, `4x the commas took ${(b / a).toFixed(1)}x the time`);
+});
