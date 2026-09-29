@@ -7918,6 +7918,17 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
+   says why and waits for "Looks right" before Create is allowed. */
+.orgchart-list .oc-reports { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px; }
+.orgchart-list .oc-reports select { font: var(--text-callout) var(--font-ui); max-width: 16rem; }
+.orgchart-list .oc-check { display: block; margin: 2px 0 2px; color: var(--warn-ink); }
+.orgchart-list .oc-check button { margin-left: 8px; }
+.orgchart-filerow { align-items: center; flex-wrap: wrap; gap: 10px; }
+.orgchart-consent { margin-top: var(--space-2); padding: 12px; border: 1px solid var(--warn-border);
+  background: var(--warn-bg); border-radius: var(--radius-control); }
+.orgchart-consent p { margin: 0 0 8px; font: var(--text-callout) var(--font-ui); color: var(--label); }
+#orgchart-text.oc-drop { outline: 2px dashed var(--label); outline-offset: 2px; }
 .orgchart-nameopt { display: flex; align-items: center; gap: 8px; margin-top: 8px;
   font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
@@ -13914,6 +13925,20 @@ window.kosmosMeasureScrollbarWidth();
         <label class="flabel" for="orgchart-text">Your people</label>
         <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
         <p class="rolehelp">One person per line. Put the title on its own, or write the name and title separated by a comma. We create one agent per line, named for the title.</p>
+        <!-- #4559: or the chart itself. A CSV or Excel export is read on this computer; a picture or a PDF is
+             read by the person's own AI provider, and only after they say yes to that (#orgchart-consent). -->
+        <div class="importrow orgchart-filerow">
+          <button class="btn" type="button" id="orgchart-file-btn">Choose a file</button>
+          <input type="file" id="orgchart-file" hidden accept=".csv,.tsv,.txt,.xlsx,.xls,.numbers,.png,.jpg,.jpeg,.webp,.gif,.pdf,.pptx,.key">
+          <span class="rolehelp" id="orgchart-file-note">Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.</span>
+        </div>
+        <div class="orgchart-consent" id="orgchart-consent" role="group" aria-labelledby="orgchart-consent-say" hidden>
+          <p id="orgchart-consent-say"></p>
+          <div class="importrow">
+            <button class="btn uprime" type="button" id="orgchart-consent-go">Read it</button>
+            <button class="btn" type="button" id="orgchart-consent-no">Cancel</button>
+          </div>
+        </div>
         <!-- ⚠️ The caution below is a PLAIN, always-visible help line, NOT a
              .pick2/.p2full card. .p2full is display:none until its input is
              :checked (it is a radio option's extended text), so used here the
@@ -46169,26 +46194,7 @@ function orgchartSlug(s) {
    rows would otherwise collide on one name and return as nineteen refusals); the
    engine still has the final say, this only spares the common case. */
 function parseOrgchart(text, useNames) {
-  const rows = [];
-  const used = Object.create(null);
-  const uniq = (base) => {
-    if (!used[base]) { used[base] = true; return base; }
-    /* Reserve room for the suffix by TRUNCATING the base, never by slicing the
-       suffix off after appending. A base already at ORGCHART_NAME_MAX with the
-       suffix sliced back off reproduces the base, so `used[s]` never clears and
-       the loop spins forever -- a real browser hang on a roster with two long
-       identical titles (found in review). Truncating the base first makes every
-       n produce a distinct, in-length string, so the loop always terminates. */
-    let n = 2;
-    let s;
-    do {
-      const suffix = '-' + n;
-      s = base.slice(0, ORGCHART_NAME_MAX - suffix.length).replace(/-+$/g, '') + suffix;
-      n += 1;
-    } while (used[s]);
-    used[s] = true;
-    return s;
-  };
+  const people = [];
   for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -46213,15 +46219,232 @@ function parseOrgchart(text, useNames) {
     // title -- the tolerant shape the plan asks for.
     if (!title && name) { title = name; name = ''; }
     if (!title) continue;
+    people.push({ person: name, title, reportsTo: null, why: null });
+  }
+  return orgchartRows(people, useNames, 'text');
+}
+
+/* #4559: people (from the paste box or a file: { person, title, reportsTo: row index | null, why }) into the
+   rows the preview edits and Create sends. The machine-name rules are the paste box's (#1280), unchanged. */
+function orgchartRows(people, useNames, source) {
+  const rows = [];
+  const used = Object.create(null);
+  const uniq = (base) => {
+    if (!used[base]) { used[base] = true; return base; }
+    /* Reserve room for the suffix by TRUNCATING the base, never by slicing the
+       suffix off after appending. A base already at ORGCHART_NAME_MAX with the
+       suffix sliced back off reproduces the base, so `used[s]` never clears and
+       the loop spins forever -- a real browser hang on a roster with two long
+       identical titles (found in review). Truncating the base first makes every
+       n produce a distinct, in-length string, so the loop always terminates. */
+    let n = 2;
+    let s;
+    do {
+      const suffix = '-' + n;
+      s = base.slice(0, ORGCHART_NAME_MAX - suffix.length).replace(/-+$/g, '') + suffix;
+      n += 1;
+    } while (used[s]);
+    used[s] = true;
+    return s;
+  };
+  for (const p of people) {
+    const title = String(p.title || '').trim();
+    if (!title) continue;
+    const name = String(p.person || '').trim();
     const person = (useNames && name) ? name : '';
     const machine = uniq(orgchartSlug(person || title));
-    rows.push({ name: machine, role: 'own', label: title, person });
+    rows.push({ name: machine, role: 'own', label: title, person, from: source === 'file' ? name : '',
+      reportsTo: Number.isInteger(p.reportsTo) ? p.reportsTo : null, why: p.why || null, confirmed: false });
   }
+  /* A reportsTo points at an index in `people`; rows skip untitled people, so re-point by identity. */
+  const at = new Map();
+  let k = 0;
+  people.forEach((p, i) => { if (String(p.title || '').trim()) at.set(i, k++); });
+  for (const r of rows) r.reportsTo = r.reportsTo == null ? null : (at.has(r.reportsTo) ? at.get(r.reportsTo) : null);
   return rows;
 }
 
+/* #4559: the rows a file produced, before names are derived, so turning "Name the agents after the people"
+   on or off re-derives from the file rather than from the paste box. Null when the preview came from text. */
+let ORGCHART_FILE_PEOPLE = null;
+
+/* A reporting loop (A under B under A) among the rows, as the set of row indexes on one. Create is blocked
+   while there is one: the profile route refuses a loop too, but only after agents already exist. */
+function orgchartLoops(rows) {
+  const on = new Set();
+  rows.forEach((r, i) => {
+    const seen = new Set([i]);
+    let at = r.reportsTo;
+    while (at != null && !seen.has(at)) { seen.add(at); at = rows[at] ? rows[at].reportsTo : null; }
+    if (at === i) on.add(i);
+  });
+  return on;
+}
+
+/* The preview: each row's title, who it came from (a file), who it reports to (editable), a "Check this"
+   line when the reader was not sure, and the agent name last (the #1280 check reads the text after the arrow). */
+function orgchartPaint() {
+  const rows = ORGCHART_PARSED || [];
+  const loops = orgchartLoops(rows);
+  const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
+  const count = document.getElementById('orgchart-count');
+  count.textContent = 'This will create ' + rows.length + (rows.length === 1 ? ' agent' : ' agents')
+    + (open ? '. ' + open + (open === 1 ? ' line needs' : ' lines need') + ' a look first:' : ':');
+  const list = document.getElementById('orgchart-list');
+  list.replaceChildren();
+  rows.forEach((r, i) => {
+    const li = document.createElement('li');
+    li.dataset.i = String(i);
+    li.append(document.createTextNode(r.label));
+    if (r.person) { const n = document.createElement('span'); n.className = 'dhint'; n.textContent = ' named ' + r.person; li.append(n); }
+    else if (r.from) { const n = document.createElement('span'); n.className = 'dhint'; n.textContent = ' from ' + r.from; li.append(n); }
+    const lab = document.createElement('label');
+    lab.className = 'oc-reports dhint';
+    lab.append(document.createTextNode('reports to'));
+    const sel = document.createElement('select');
+    sel.className = 'oc-reports-to';
+    sel.setAttribute('aria-label', r.label + ' reports to');
+    const top = document.createElement('option');
+    top.value = ''; top.textContent = 'You (top of the chart)';
+    sel.append(top);
+    rows.forEach((o, j) => {
+      if (j === i) return;
+      const opt = document.createElement('option');
+      opt.value = String(j);
+      opt.textContent = o.label + (o.from ? ' (' + o.from + ')' : o.person ? ' (' + o.person + ')' : '');
+      sel.append(opt);
+    });
+    sel.value = r.reportsTo == null ? '' : String(r.reportsTo);
+    sel.addEventListener('change', () => {
+      r.reportsTo = sel.value === '' ? null : Number(sel.value);
+      r.confirmed = true;   // choosing a manager IS the look the line needed
+      orgchartPaint();
+      const again = document.querySelector('#orgchart-list li[data-i="' + i + '"] .oc-reports-to');
+      if (again) again.focus();
+    });
+    lab.append(sel);
+    li.append(lab);
+    const why = loops.has(i) ? 'this is part of a reporting loop; choose someone else for one of them' : (r.why && !r.confirmed ? r.why : '');
+    if (why) {
+      const c = document.createElement('span');
+      c.className = 'oc-check';
+      c.append(document.createTextNode('Check this: ' + why));
+      if (!loops.has(i)) {
+        const ok = document.createElement('button');
+        ok.type = 'button'; ok.className = 'btn oc-ok'; ok.textContent = 'Looks right';
+        ok.setAttribute('aria-label', 'Looks right: ' + r.label);
+        ok.addEventListener('click', () => { r.confirmed = true; orgchartPaint(); document.getElementById('orgchart-count').focus(); });
+        c.append(ok);
+      }
+      li.append(c);
+    }
+    const nm = document.createElement('span');
+    nm.className = 'dhint';
+    nm.textContent = ' → ' + r.name;
+    li.append(nm);
+    list.append(li);
+  });
+  document.getElementById('orgchart-create').disabled = open > 0 || !rows.length;
+}
+
+/* A chosen or dropped file into the preview. A CSV or Excel file is read on this computer; a picture or a
+   PDF is read by the person's own AI provider, so the board first answers who that is and nothing is sent
+   until the person presses Read it (#orgchart-consent). */
+let ORGCHART_FILE_PENDING = null;
+async function orgchartSendFile(file, consent) {
+  const msg = document.getElementById('orgchart-msg');
+  const note = document.getElementById('orgchart-file-note');
+  const gen = ORGCHART_GEN;
+  msg.hidden = false;
+  msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
+  let out = null;
+  try {
+    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
+      body: await file.arrayBuffer(),
+    });
+    out = await res.json().catch(() => null);
+    if (!res.ok) { if (gen === ORGCHART_GEN) msg.textContent = (out && out.error) || 'We could not read that file.'; return; }
+  } catch {
+    if (gen === ORGCHART_GEN) msg.textContent = 'We could not reach Kosmos to read that file. Try again.';
+    return;
+  }
+  if (gen !== ORGCHART_GEN || !out) return;
+  if (out.needsConsent) {
+    ORGCHART_FILE_PENDING = file;
+    document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
+      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Nothing is kept afterwards.';
+    document.getElementById('orgchart-consent').hidden = false;
+    msg.textContent = ''; msg.hidden = true;
+    document.getElementById('orgchart-consent-go').focus();
+    return;
+  }
+  const rows = Array.isArray(out.rows) ? out.rows : [];
+  const problems = Array.isArray(out.problems) ? out.problems : [];
+  if (!rows.length) { msg.textContent = problems[0] || 'No people were found in that file.'; return; }
+  ORGCHART_FILE_PEOPLE = rows.map((r) => ({ person: r.person, title: r.title, reportsTo: r.reportsTo, why: r.why }));
+  note.textContent = 'Read from ' + file.name + (out.provider ? ' by ' + out.provider : '') + '. Check the list below before creating anything.';
+  ORGCHART_PARSED = orgchartRows(ORGCHART_FILE_PEOPLE, document.getElementById('orgchart-usenames').checked, 'file');
+  ORGCHART_GEN += 1;
+  ORGCHART_CREATED = [];
+  document.getElementById('orgchart-undo').hidden = true;
+  orgchartUndoAsking(false);
+  msg.textContent = problems.join(' '); msg.hidden = !problems.length;
+  orgchartPaint();
+  document.getElementById('orgchart-preview-box').hidden = false;
+  document.getElementById('orgchart-count').focus();
+}
+function orgchartTakeFile(file) {
+  if (!file || ORGCHART_CREATING) return;
+  document.getElementById('orgchart-consent').hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  orgchartSendFile(file, false);
+}
+document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
+document.getElementById('orgchart-file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';   // choosing the same file again still reads it
+  orgchartTakeFile(f);
+});
+document.getElementById('orgchart-consent-go').addEventListener('click', () => {
+  const f = ORGCHART_FILE_PENDING;
+  document.getElementById('orgchart-consent').hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  if (f) orgchartSendFile(f, true);
+});
+document.getElementById('orgchart-consent-no').addEventListener('click', () => {
+  document.getElementById('orgchart-consent').hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = 'Nothing was sent. You can upload a CSV or Excel export instead, or type the list.';
+  msg.hidden = false;
+  document.getElementById('orgchart-file-btn').focus();
+});
+{
+  const box = document.getElementById('orgchart-text');
+  box.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); box.classList.add('oc-drop'); } });
+  box.addEventListener('dragleave', () => box.classList.remove('oc-drop'));
+  box.addEventListener('drop', (e) => {
+    box.classList.remove('oc-drop');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;   // dropped text still lands in the box as it always did
+    e.preventDefault();
+    orgchartTakeFile(f);
+  });
+}
+/* Names on or off re-derives the agents' names from the file when the preview came from one. */
+document.getElementById('orgchart-usenames').addEventListener('change', (e) => {
+  if (!ORGCHART_FILE_PEOPLE || !ORGCHART_PARSED || document.getElementById('orgchart-preview-box').hidden) return;
+  const kept = ORGCHART_PARSED.map((r) => ({ reportsTo: r.reportsTo, confirmed: r.confirmed }));
+  ORGCHART_PARSED = orgchartRows(ORGCHART_FILE_PEOPLE, e.target.checked, 'file');
+  ORGCHART_PARSED.forEach((r, i) => { if (kept[i]) { r.reportsTo = kept[i].reportsTo; r.confirmed = kept[i].confirmed; } });
+  orgchartPaint();
+});
+
 document.getElementById('orgchart-preview').addEventListener('click', () => {
   if (ORGCHART_CREATING) return;
+  ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -46237,13 +46460,7 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
   }
   ORGCHART_PARSED = rows;
   msg.textContent = ''; msg.hidden = true;
-  document.getElementById('orgchart-count').textContent =
-    'This will create ' + rows.length + (rows.length === 1 ? ' agent:' : ' agents:');
-  document.getElementById('orgchart-list').innerHTML = rows.map((r) =>
-    '<li>' + esc(r.label)
-      + (r.person ? ' <span class="dhint">named ' + esc(r.person) + '</span>' : '')
-      + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
-  document.getElementById('orgchart-create').disabled = false;
+  orgchartPaint();
   // A new preview is a new batch: the last run's Undo no longer applies to this screen.
   ORGCHART_GEN += 1;
   ORGCHART_CREATED = [];
@@ -46273,7 +46490,23 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   msg.textContent = ''; msg.hidden = true;
   countEl.textContent = 'Creating ' + ORGCHART_PARSED.length
     + (ORGCHART_PARSED.length === 1 ? ' agent…' : ' agents…');
-  const members = ORGCHART_PARSED.map((r) => ({ name: r.name, role: 'own', label: r.label }));
+  /* #4559: managers before the people under them, each carrying its manager's agent name, so the team is
+     built with its reporting lines. Rows are never in a loop here (orgchartPaint blocks Create on one). */
+  const order = [];
+  const placed = new Set();
+  const place = (i, depth) => {
+    if (placed.has(i) || depth > ORGCHART_PARSED.length) return;
+    const up = ORGCHART_PARSED[i].reportsTo;
+    if (up != null) place(up, depth + 1);
+    placed.add(i); order.push(i);
+  };
+  ORGCHART_PARSED.forEach((r, i) => place(i, 0));
+  const members = order.map((i) => {
+    const r = ORGCHART_PARSED[i];
+    const m = { name: r.name, role: 'own', label: r.label };
+    if (r.reportsTo != null) m.reportsTo = ORGCHART_PARSED[r.reportsTo].name;
+    return m;
+  });
   let result = null;
   const previewBtn = document.getElementById('orgchart-preview');
   ORGCHART_CREATING = true;
@@ -46320,6 +46553,18 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and how the OPERATOR raises it -- shown verbatim, not reworded. */
   const created = Array.isArray(result.created) ? result.created : [];
   const refused = Array.isArray(result.refused) ? result.refused : [];
+  /* #4559: someone whose manager was NOT created would report to an agent that does not exist. Put them
+     under the person instead (an empty reportsTo is "reports to you", the org chart's top) and say so. */
+  const madeNames = new Set(created.map((c) => c && c.name).filter(Boolean));
+  const orphans = members.filter((m) => m.reportsTo && madeNames.has(m.name) && !madeNames.has(m.reportsTo));
+  for (const m of orphans) {
+    try {
+      await fetch('/api/agent/' + encodeURIComponent(m.name) + '/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reportsTo: '' }),
+      });
+    } catch { /* the line below still says what happened */ }
+  }
+  if (gen !== ORGCHART_GEN) return;
   if (created.length && !refused.length) {
     countEl.textContent = 'Created ' + created.length
       + (created.length === 1 ? ' agent. It will appear on your board in a moment.'
@@ -46329,6 +46574,10 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       + '. ' + refused.length + (refused.length === 1 ? ' was not created:' : ' were not created:');
   } else {
     countEl.textContent = result.because || 'No agents were created.';
+  }
+  if (orphans.length) {
+    countEl.textContent += ' ' + orphans.length + (orphans.length === 1 ? ' agent now reports' : ' agents now report')
+      + ' to you, because their manager was not created.';
   }
   listEl.innerHTML =
     created.map((c) => '<li>' + esc(c.shownAs || c.name) + ' <span class="dhint">created</span></li>').join('')
