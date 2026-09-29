@@ -139,6 +139,11 @@ BUSY_SINCE_RAW="$(state_get busy_since)"
 # in: the worst case is one redundant, idempotent kosmos start on the first post-boot
 # run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
+# #4636: an unreachable spell's marker from before this boot is stale: the first spell after a reboot is logged.
+if [ -n "$BOOT" ] && [ -f "$STATE_DIR/board-watchdog.unreachable" ] \
+   && [ "$(num "$(stat -f %m "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null)")" -lt "$BOOT" ]; then
+  rm -f "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null || true
+fi
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; BUSY_SINCE_RAW=""; LAST_KICK=0; FAILS=0
   # A reboot is a fresh chance, so a pre-reboot crash-loop alert should not survive

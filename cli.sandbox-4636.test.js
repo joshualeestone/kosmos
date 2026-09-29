@@ -195,16 +195,53 @@ test('a sandboxed shell, the board STOPPED: start launches it and says it starte
     "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n");
   fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
   fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
-  let pid = null;
   try {
     const t0 = Date.now();
     const r = await run(CLI, ['start'], e, true);
-    pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null;
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Kosmos started at .*\(process \d+\), but this shell cannot connect to it/);
     assert.doesNotMatch(r.out, /did not come up/);
     assert.ok(Date.now() - t0 < 12000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
-  } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } }
+  } finally {
+    // The launched stub is killed whatever happened above (its pid is the one start recorded).
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});
+
+/* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
+   stubbed (bash allows a function named /usr/bin/curl), so the arms decide the exact sequence of answers. */
+function probe(curlAnswers) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+# The probe calls curl inside $( ), a subshell, so the call count lives in a file, not a variable.
+_cf="$(mktemp)"; echo 0 > "$_cf"; trap 'rm -f "$_cf"' EXIT
+calls() { cat "$_cf"; }
+/usr/bin/curl() {   # the probe's curl: answers from the list, one per call
+  local _n; _n=$(( $(cat "$_cf") + 1 )); echo "$_n" > "$_cf"
+  case "$(echo "$ANSWERS" | cut -d, -f$_n)" in
+    refuse) return 7 ;;
+    *) printf '%s\\n%s\\n%s' '{"app":"kosmos","ok":true}' 0.01 200; return 0 ;;
+  esac
+}
+_ipv4_listener() { printf '%s' "4242 node"; }
+_health_probe 2; echo "first=$HEALTH_STATE flag=[$_HEALTH_REPROBE] pid=[$_UNREACH_PID] calls=$(calls)"
+_health_probe 2; echo "second=$HEALTH_STATE flag=[$_HEALTH_REPROBE] calls=$(calls)"
+`;
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(1), ANSWERS: curlAnswers } },
+    (err, so, se) => resolve({ code: err ? err.code : 0, out: (so + se).trim() })));
+}
+
+test('the one re-probe: a board that answers on the second try is up; one that never does is unreachable; the flag resets', async () => {
+  const late = await probe('refuse,answer,answer');
+  assert.match(late.out, /first=up flag=\[\] pid=\[\] calls=2/, late.out);
+  assert.match(late.out, /second=up flag=\[\] calls=3/, late.out);
+  const never = await probe('refuse,refuse,answer');
+  assert.match(never.out, /first=unreachable flag=\[\] pid=\[4242\] calls=2/, never.out);
+  // The flag was reset, so the next probe starts clean (and a board now answering reads up).
+  assert.match(never.out, /second=up flag=\[\] calls=3/, never.out);
 });
 
 test('CONTROL: without the guard, the sandboxed status says "not running" and start blames another app (the #4636 bug)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
