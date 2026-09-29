@@ -8682,12 +8682,22 @@ const server = http.createServer(async (req, res) => {
         let museSub = [];
         try {
           const muse = require('./engine/musestatus');
-          if (muse.enabled() && muse.installed().installed && muse.signedIn().signedIn) {
-            museSub = [{
+          /* #4569 (Josh, 10:47): green once Kosmos has SEEN it work (its own sign-in, or a completed turn), amber
+             when only Muse's own record says signed in, and a red Not connected when Meta refused the last turn
+             (it used to vanish, which read as never set up). */
+          if (muse.enabled() && muse.installed().installed) {
+            const row = (connection) => [{
               provider: 'meta', providerName: 'Meta', dir: null, label: null, name: null, isDefault: false,
-              email: null, authMode: 'muse', keyTail: null,
-              connection: { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' },
+              email: null, authMode: 'muse', keyTail: null, connection,
             }];
+            if (muse.signedIn().signedIn) {
+              const seen = muse.lastSeenWorking();
+              museSub = row(seen
+                ? { state: 'connected', checkedLive: false, badge: 'working', observedFrom: seen.from, observedAgeMs: Math.max(0, Date.now() - seen.at) }
+                : { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
+            } else if (muse.refused()) {
+              museSub = row({ state: 'none', checkedLive: false, badge: 'rejected' });
+            }
           }
         } catch { museSub = []; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });

@@ -155,3 +155,15 @@ test('#4428: the persisted control repaints both flat views and hides for the or
   assert.ok((SCRIPT.match(/agentNeedsAttention\(a\) \? ' data-attn'/g) || []).length >= 6,
     'grid and list cards no longer share the Issue predicate used by the sort');
 });
+
+test('#4569: an agent on Muse with no model yet sorts by the Meta Muse its card shows, not with the unnamed', () => {
+  const { sortAgents, modelLine } = api();
+  const rows = [
+    a('Missing', { runner: 'claude', modelName: null }),
+    a('Cam', { runner: 'muse', modelName: null }),
+    a('Zed', { runner: 'codex', modelName: null }),
+    a('Bea', { runner: 'claude', modelName: 'Sonnet', state: 'idle' }),
+  ];
+  assert.equal(modelLine(rows[1]), 'Meta Muse', 'the card does not say Meta Muse (Josh: Unknown Model)');
+  assert.deepEqual(sortAgents(rows, 'model', projects).map((x) => x.name), ['Bea', 'Cam', 'Zed', 'Missing'], 'the sort and the card disagree about a Muse agent');
+});

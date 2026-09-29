@@ -143,6 +143,11 @@ const chk = (ok, label, extra) => {
   await settle();
   chk(await q(() => window.__posts.length === 1 && window.__posts[0].path === '/'), 'Sign in with Meta POSTs one start');
   chk(!(await G('acct-muse-cancel-row')).hidden, 'Stop this sign-in is offered while it runs');
+  // #4569 (Josh): from the click on, the button stays in place, off, with Connecting and a spinner beside it.
+  const conn = await q(() => ({ go: !document.getElementById('acct-muse-go').hidden, off: document.getElementById('acct-muse-go').disabled,
+    spin: !document.getElementById('acct-muse-spin').hidden, words: document.getElementById('acct-muse-spin').textContent,
+    beside: document.getElementById('acct-muse-spin').parentElement === document.getElementById('acct-muse-go').parentElement }));
+  chk(conn.go && conn.off && conn.spin && /Connecting/.test(conn.words) && conn.beside, 'while it runs: the button is off and Connecting spins beside it (#4569)', JSON.stringify(conn));
   await q(() => { window.__status = { id: 'mine000000000001', state: 'code', url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' }; });
   await tick();
   const code = await q(() => {
@@ -159,6 +164,7 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { id: 'mine000000000001', state: 'expired', because: 'The code expired before it was approved' }; });
   await tick();
   chk(!(await G('acct-muse-retry-row')).hidden, 'an expired code offers Get a new code');
+  chk((await G('acct-muse-spin')).hidden, 'an expired code stops the spinner: it waits on the person now (#4569 review round 1)');
   chk((await G('acct-muse-code')).hidden, 'the expired code is no longer shown');
   await q(() => document.getElementById('acct-muse-retry').click());
   await settle();
@@ -168,9 +174,17 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { id: 'mine000000000001', state: 'done' }; });
   const before = await q(() => window.__accountsPainted);
   await tick();
-  chk(/Signed in to Meta Muse/.test((await G('acct-muse-say')).text), 'done says so', (await G('acct-muse-say')).text);
+  // #4569 (Josh): the success line REPLACES the button, and Close is the thing to press.
+  const done = await q(() => ({ line: document.getElementById('acct-muse-done').hidden ? '' : document.getElementById('acct-muse-done').textContent,
+    go: document.getElementById('acct-muse-go').hidden, spin: document.getElementById('acct-muse-spin').hidden,
+    say: document.getElementById('acct-muse-say').textContent, close: document.getElementById('acct-add-close').classList.contains('uprime'),
+    focus: document.activeElement && document.activeElement.id }));
+  chk(/Signed in to Meta Muse\. You can close this window\./.test(done.line), 'done says so, and that the window can be closed (#4569)', JSON.stringify(done));
+  chk(done.go && done.spin && done.say === '', 'done: the button and the spinner are gone, not left under the success line (#4569)', JSON.stringify(done));
+  chk(done.close && done.focus === 'acct-add-close', 'done: Close is the primary action and has focus (#4569)', JSON.stringify(done));
+  chk(await q(() => document.getElementById('acct-add-close').getAttribute('aria-describedby') === 'acct-muse-done'), 'done: Close is described by the success line, so a screen reader hears it (#4569 review round 1)');
   chk(await q((b) => window.__accountsPainted > b, before), 'done repaints the accounts');
-  chk(!(await G('acct-muse-go')).hidden && (await G('acct-muse-cancel-row')).hidden, 'after done, Stop goes and the button is back');
+  chk((await G('acct-muse-cancel-row')).hidden, 'after done, Stop goes');
 
   // Another tab's sign-in: this screen ends in words and drives nothing.
   await q(() => { window.__status = { id: 'other00000000002', state: 'code', url: 'https://auth.meta.com/device?user_code=QQQQ-9999', code: 'QQQQ-9999' }; document.getElementById('acct-muse-go').click(); });
@@ -188,6 +202,14 @@ const chk = (ok, label, extra) => {
   const failed = await G('acct-muse-say');
   chk(/could not save the sign-in/.test(failed.text) && /try again/.test(failed.text), 'a failure is said in words', failed.text);
   chk((await G('acct-muse-go')).disabled === false && !(await G('acct-muse-go')).hidden, 'the button re-arms after a failure');
+  const tryAgain = await q(() => ({ label: document.getElementById('acct-muse-go').textContent, spin: document.getElementById('acct-muse-spin').hidden,
+    done: document.getElementById('acct-muse-done').hidden, close: document.getElementById('acct-add-close').classList.contains('uprime') }));
+  chk(tryAgain.label === 'Try again' && tryAgain.spin && tryAgain.done && !tryAgain.close, 'a failure offers Try again, with no spinner, no success line and Close back to plain (#4569)', JSON.stringify(tryAgain));
+  // Review round 1: reopened after a failure, the step starts fresh (the label said Try again with no failure shown).
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Sign in with Meta' && !document.getElementById('acct-add-close').hasAttribute('aria-describedby')),
+    'reopened after a failure, the button reads Sign in with Meta again (#4569 review round 1)');
 
   // A refused start is said in words.
   await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; document.getElementById('acct-muse-go').click(); });
@@ -202,6 +224,7 @@ const chk = (ok, label, extra) => {
   await settle();
   chk(await q(() => { const p = window.__posts[window.__posts.length - 1]; return p.path === '/stop' && p.id === 'mine000000000001'; }), 'Stop stops the engine\'s sign-in by id');
   chk(/Sign-in stopped/.test((await G('acct-muse-say')).text), 'Stop says so');
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Sign in with Meta' && document.getElementById('acct-muse-spin').hidden), 'after Stop the button reads Sign in with Meta and the spinner is gone (#4569)');
   await q(() => document.getElementById('acct-muse-go').click());
   await settle();
   await q(() => closeAcctAdd());
@@ -367,6 +390,21 @@ const chk = (ok, label, extra) => {
   chk(row && row.buttons.length === 1 && row.buttons[0] === 'Sign in again', 'its only action is Sign in again', JSON.stringify(row && row.buttons));
   chk(row && row.claudeBits === 0, 'none of a Claude row\'s actions are on it', JSON.stringify(row));
   chk(row && row.group === 'Meta', 'it is grouped under its own Meta heading, not Claude\'s', JSON.stringify(row && row.group));
+  /* #4569 (Josh, 10:47: "After I signed in I didn't get a green Signed In. It was black"): the three states. */
+  const pillOf = async (connection) => {
+    await q((r) => { window.__accounts = [r]; }, { ...MUSE_ROW, connection });
+    await q(() => paintAccounts()); await settle();
+    return q(() => { const r = document.querySelector('#set-accounts [data-muse-row]'); const p = r && r.querySelector('.acct-box-top > span');
+      return p ? { cls: p.className, text: p.childNodes[1] ? p.textContent.replace(/\s*\(.*$/, '').trim() : '', color: getComputedStyle(p).color,
+        buttons: [...r.querySelectorAll('button')].map((b) => b.textContent.trim()) } : null; });
+  };
+  const green = await pillOf({ state: 'connected', checkedLive: false, badge: 'working', observedFrom: 'sign', observedAgeMs: 30000 });
+  chk(green && green.cls === 'acct-connected' && /^Signed in · confirmed /.test(green.text), 'after Kosmos\'s own sign-in the row is green, with when (#4569)', JSON.stringify(green));
+  const amber = await pillOf({ state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
+  chk(amber && amber.cls === 'acct-unverified' && amber.text === 'Signed in' && amber.color !== green.color, 'on Muse\'s own record alone it is amber, not green (#4569)', JSON.stringify(amber));
+  const red = await pillOf({ state: 'none', checkedLive: false, badge: 'rejected' });
+  chk(red && red.cls === 'acct-none' && red.text === 'Not connected' && red.buttons.join() === 'Sign in again', 'after Meta refused a turn it is red Not connected, with Sign in again (#4569)', JSON.stringify(red));
+  chk(await q(() => !document.querySelector('#set-accounts [data-muse-row] .acct-unknown')), 'no Meta row is the black unknown pill any more (#4569)');
   // Sign in again, Muse offered: Add a provider opens on Meta's step, focus on its Start.
   const rowPostsBefore = await q(() => window.__posts.length);
   await q(() => { window.__museOn = true; document.querySelector('#set-accounts [data-muse-reauth]').click(); });
@@ -545,6 +583,9 @@ const chk = (ok, label, extra) => {
   await q(() => paintConnLive()); await settle();
   const connOut = await q(() => document.getElementById('conn-live').textContent);
   chk(/Nothing is connected yet/.test(connOut), 'CONTROL: a signed-out Meta Muse is not counted', connOut);
+  await q((row) => { window.__accounts = [{ ...row, connection: { state: 'none', badge: 'rejected' } }]; }, MUSE_ROW);
+  await q(() => paintConnLive()); await settle();
+  chk(/Nothing is connected yet/.test(await q(() => document.getElementById('conn-live').textContent)), 'a Meta Muse Meta refused is not counted (#4569)');
   await q(() => { window.__accounts = []; });
   /* Round 2: the create-agent form, through its own functions and its own elements. With only Meta Muse
      and an OpenAI account, the form must start on OpenAI (Muse is not a Claude account), and its Claude
@@ -616,6 +657,10 @@ const chk = (ok, label, extra) => {
       modelOff: document.getElementById('d-model').disabled,
       accts: [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean),
       acctMsg: document.getElementById('d-account-msg').textContent,
+      // #4569 (Josh): no dead Move control, the provider named Meta Muse (never Meta / Llama), and no "Unknown Model".
+      moveRowHidden: document.getElementById('d-account').parentElement.hidden,
+      provShown: pTrig ? pTrig.textContent.replace(/\s+/g, ' ').trim() : '',
+      runsOn: modelLine(muse),
     };
     // CONTROL: a Claude agent on the same page is offered the Claude accounts.
     const claude = { sessionName: 'c1', runner: 'claude', provider: 'anthropic', account: { dir: c.dir } };
@@ -625,6 +670,7 @@ const chk = (ok, label, extra) => {
     out.claudeProvOff = document.getElementById('d-provider').disabled;
     out.claudeProvMsg = document.getElementById('d-provider-msg').textContent;
     out.claudeAccts = [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean);
+    out.claudeMoveRowHidden = document.getElementById('d-account').parentElement.hidden;
     CURRENT = null; ACCOUNTS = [];
     return out;
   }, [CLAUDE_ROW]);
@@ -633,6 +679,9 @@ const chk = (ok, label, extra) => {
   chk(musePage.accts.length === 0 && /Meta sign-in through Muse Code, so there is no account to move it to/.test(musePage.acctMsg),
     'agent page, Muse agent: no account to move it to, said', JSON.stringify(musePage));
   chk(musePage.claudeAccts.length >= 1, 'CONTROL: a Claude agent on the same page is offered Claude accounts', JSON.stringify(musePage));
+  chk(musePage.moveRowHidden === true && musePage.claudeMoveRowHidden === false, 'agent page, Muse agent: no empty Move menu is drawn (CONTROL: a Claude agent\'s is) (#4569)', JSON.stringify(musePage));
+  chk(/Meta Muse/.test(musePage.provShown) && !/Llama/.test(musePage.provShown), 'agent page, Muse agent: the provider reads Meta Muse, not Meta / Llama (#4569)', musePage.provShown);
+  chk(musePage.runsOn === 'Meta Muse', 'agent page, Muse agent: Runs on names Meta Muse, not Unknown Model (#4569)', musePage.runsOn);
   chk(musePage.provValue === 'meta' && musePage.provOff === true && musePage.provTrigOff === true && musePage.provGoOff === true
     && musePage.provMsg === 'Moving an agent on Meta Muse to another provider is not offered yet.',
     'agent page, Muse agent: shows Meta, offers no switch off it, and says so', JSON.stringify(musePage));
@@ -712,15 +761,18 @@ const chk = (ok, label, extra) => {
     const row = document.getElementById('fr-meta-row'); const btn = document.getElementById('fr-meta-connect');
     return { off: row.classList.contains('off'), on: row.classList.contains('on'), soon: !document.getElementById('fr-meta-soon').hidden,
       btn: !btn.hidden, btnText: btn.textContent.trim(), btnOff: btn.disabled, flow: !document.getElementById('fr-muse-flow').hidden,
-      msg: document.getElementById('fr-muse-msg').textContent.trim(), box: document.getElementById('fr-muse-msg').className };
+      msg: document.getElementById('fr-muse-msg').textContent.trim(), box: document.getElementById('fr-muse-msg').className,
+      name: row.querySelector('.llm-w b').textContent.trim() };
   });
   await q(() => { MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; window.__museInstalled = true; frOpen(); frGo(5); });
   await settle(); await settle();
   let fm = await frMeta();
   chk(fm.off && !fm.on && fm.soon && !fm.btn && !fm.flow, 'first run, switched off: the Meta row is today\'s Coming soon, no Connect, no panel', JSON.stringify(fm));
+  chk(fm.name === 'Llama', 'first run, switched off: the row keeps its coming-soon Llama (CONTROL for #4569)', fm.name);
   await q(() => { MUSE_CREATE = null; window.__museOn = true; }); await q(() => frPaintMeta()); await settle();
   fm = await frMeta();
   chk(fm.on && !fm.off && !fm.soon && fm.btn && fm.btnText === 'Connect' && !fm.btnOff && !fm.flow, 'first run, switched on and signed out: Connect, no pill, panel shut', JSON.stringify(fm));
+  chk(fm.name === 'Muse', 'first run, switched on: the row names Muse (from Meta), not Llama (#4569)', fm.name);
   const frOpenState = () => q(() => ({ flow: !document.getElementById('fr-muse-flow').hidden, focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), exp: document.getElementById('fr-meta-connect').getAttribute('aria-expanded') }));
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   const opened = await frOpenState();
