@@ -54,6 +54,12 @@ by asking the agent.
   until the agent restarts.
 - The stopped list reads plannedModelId only for codex rows, as the roster does (one launch-file read, not three).
 
+- Review iteration 6 (accepted, not changed): if a Codex model switch SAVES the job but the restart FAILS (server says
+  "still running the old one"), the job is newer than the rollout, so the card names the NEW model until the old
+  process's next turn rewrites the rollout. The switch response already says the old model is still running. No other
+  writer rewrites a running agent's job without restarting it (reviewer checked setters and create/adopt/boot).
+- readableModelId looks ids up in a plain object, so an id named like an inherited property ("constructor") would read
+  wrong. No model id has that shape; accepted.
 ## Weakest premise
 That each CLI's record names the model it runs NOW: Codex's last turn_context and Grok's current_model_id do; Gemini
 names it per message, so a /model switch shows after the next reply, not at the switch.
