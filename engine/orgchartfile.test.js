@@ -1,4 +1,7 @@
 'use strict';
+// First, for its side effect: the real read runner's working folder (os.tmpdir()/kosmos-orgchart-read) lands in
+// this process's own temp dir and is removed with it (#4273), not left in the real temp root.
+require('../test-support/tmpscope');
 /**
  * #4559: the org chart file reader's own edges. The route test (server.orgchart-read-4559.test.js) proves
  * the fixtures end to end; this file pins what a real export can throw at the reader. Synthetic names only.

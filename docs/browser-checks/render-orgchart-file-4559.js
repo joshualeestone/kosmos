@@ -291,7 +291,7 @@ async function run() {
       await pm.waitForSelector('#orgchart-many:not([hidden])', { timeout: 3000 }).catch(() => {});
       const ask = await pm.evaluate(() => ({ shown: !document.getElementById('orgchart-many').hidden, say: document.getElementById('orgchart-many-say').textContent, go: document.getElementById('orgchart-many-go').textContent }));
       check('MANY: Create on 13 people asks first, naming the subscription and the memory, and sends nothing yet',
-        ask.shown && ask.say === 'This starts 13 agents at once. Each one runs on your AI subscription and uses this Mac\'s memory. Start all 13?' && ask.go === 'Start all 13' && teamsM.length === 0, JSON.stringify([ask, teamsM.length]));
+        ask.shown && ask.say === 'This starts 13 agents at once. Each one runs on your AI subscription and uses this computer\'s memory. Start all 13?' && ask.go === 'Start all 13' && teamsM.length === 0, JSON.stringify([ask, teamsM.length]));
       await pm.click('#orgchart-many-no');
       await pm.waitForTimeout(300);
       const no = await readPreview(pm);
