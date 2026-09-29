@@ -537,13 +537,20 @@ _kosmos_suite_waiter_live() {
   # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
   # unsafe side. A start time cannot repeat on a recycled pid.
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
-  local began utc; began="$(sed -n '3p' "$f" 2>/dev/null)"; utc="$(sed -n '4p' "$f" 2>/dev/null)"
   # #4574: line 4 holds the start time in UTC and the C locale, so readers in different zones or locales agree. Line 3
-  # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) reads.
-  local want; want="$(_kosmos_pid_started "$pid")"
-  # An empty start time (ps could not say) matches nothing: stale, the safe side, before any comparison.
-  if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] \
-     || { local loc; loc="$(_kosmos_pid_started_local "$pid")"; [ "$utc" != "$want" ] && { [ -z "$loc" ] || [ "$began" != "$loc" ]; }; }; then
+  # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) compares:
+  # it matches only when that older reader runs in the writer's zone and locale (a reader elsewhere deletes the marker
+  # and counts the waiter as a running suite, the safe side, as before this change).
+  local began utc want loc
+  began="$(sed -n '3p' "$f" 2>/dev/null)"; utc="$(sed -n '4p' "$f" 2>/dev/null)"
+  want="$(_kosmos_pid_started "$pid")"; loc="$(_kosmos_pid_started_local "$pid")"
+  # Live only when the command matches AND a start time matches: line 4 against the UTC form, or line 3 against the
+  # local form. An empty reading (ps could not say) matches nothing, so it is stale: the safe side.
+  local same_start=0
+  if [ -n "$want" ] && [ "$utc" = "$want" ]; then same_start=1
+  elif [ -n "$loc" ] && [ "$began" = "$loc" ]; then same_start=1
+  fi
+  if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] || [ "$same_start" != 1 ]; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
@@ -646,7 +653,7 @@ kosmos_wait_until_clear() {
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   # #4574: a hard ceiling on a queued wait, so ending it never rests on the restart heuristic. By default it is four
-  # bounds PLUS one per waiter ahead at entry (set on the first pass below): a waiter k deep waits about k suites, well
+  # bounds PLUS one per live waiter at entry (the first pass, before this run is marked, counts them all): a waiter k deep waits about k suites, well
   # inside it, so it ends a hung or flapping wait without ending a healthy deep queue. KOSMOS_WAIT_QUEUE_CEIL_S sets it
   # outright (0 gives up on the first pass, as KOSMOS_WAIT_MAX_S=0 does).
   local ceil_auto=0
