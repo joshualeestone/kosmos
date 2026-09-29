@@ -381,7 +381,9 @@ _ipv4_listener() {
   local _l _o
   # -S 2: lsof gives up on a stalled kernel call after 2 s (its default is 15), so a loaded machine or a dead
   # mount cannot hold a hook's report past its budget on a board that is only down.
-  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>/dev/null)" || return 1
+  # Parsed whatever lsof's exit status: a timed-out call on some other file makes it exit 1 with our listener
+  # still in its output (port_listener_owner reads it the same way).
+  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>/dev/null)" || true
   _o="$(/usr/bin/awk -v port="$PORT" '
     /^p/ { p = substr($0, 2); next }
     /^c/ { c = substr($0, 2); next }
@@ -495,8 +497,11 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
 _unreachable_why() {
   printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
 }
-# #4636: positive evidence that this shell is sandboxed: ps of our own process is denied (the measured
-# macOS sandbox denies /bin/ps; an ordinary shell, even one with a broken network, runs it).
+# #4636: positive evidence that this shell runs under a macOS sandbox (seatbelt): /bin/ps is setuid root, and
+# ANY seatbelt profile refuses to run it, network rules or not (measured: exit 71 even under "(allow default)").
+# An ordinary shell runs it, even one whose network is broken (a firewall, the TIME_WAIT leak). So combined with
+# HEALTH_STATE unreachable it means "blocked by a sandbox", not "blocked by a network fault". (Under any seatbelt
+# profile running_pid, which uses ps, is blind too.)
 _shell_is_sandboxed() { ! /bin/ps -p "$$" >/dev/null 2>&1; }
 _unreachable_is_ours() {
   local _rec
@@ -1000,10 +1005,10 @@ _await_board_up() {
     # #4636: this shell cannot connect to the board it just brought up.
     #  - Under launchd (no pid passed) the board runs outside this shell, in launchd's own context, so it is
     #    a real board: it started, and waiting longer cannot change what this shell can reach.
-    #  - Launched from HERE (the nohup path passes its pid), the board inherits this shell's sandbox, which
-    #    cannot be removed afterwards: it could make no outside connection (no AI provider), nor could its
-    #    agents. That is not a board to leave running, and not a start to report as a success: it is
-    #    stopped again, its pidfile removed, and the start fails.
+    #  - Launched from HERE (the nohup path passes its pid), ON EVIDENCE OF A SANDBOX (see below), the board
+    #    inherits this shell's sandbox, which cannot be removed afterwards: it could make no outside connection
+    #    (no AI provider), nor could its agents. That is not a board to leave running, and not a start to
+    #    report as a success: it is stopped again, its pidfile removed, and the start fails.
     if [ "$HEALTH_STATE" = unreachable ]; then
       _unreach_seen=$((_unreach_seen + 1))
       # Under launchd: ours at once; any listener after two readings (board-run may not have written board.pid yet).

@@ -148,6 +148,8 @@ test('a sandboxed shell: stop, restart, open and board-run change nothing and ne
   const open = await withBoard('ok', (p) => run(CLI, ['open'], env(p), true));
   assert.equal(open.code, 5, open.out);
   assert.match(open.out, /this shell cannot connect to it/);
+  // NOT coverage of board-run's own branch: without it board-run still exits 0 here (lsof finds the listener).
+  // It only pins that board-run from a blocked shell launches nothing and says nothing wrong.
   const boardRun = await withBoard('ok', (p) => run(CLI, ['board-run'], env(p), true));
   assert.equal(boardRun.died, false, boardRun.out);
   assert.equal(boardRun.code, 0, boardRun.out);
@@ -269,6 +271,7 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
   fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
   try {
     const r = await run(CLI, ['start'], e, true);
+    assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /so it was stopped again/);
     assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
   } finally {
@@ -284,6 +287,37 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
   });
   assert.notEqual(r2.code, 0, r2.out);
   assert.equal(fs.existsSync(path.join(h2.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
+});
+
+/* The kill-or-keep decision after a launch, driven with the real _await_board_up and stubbed readings: healthy()
+   reports "unreachable" with the launched pid as the listener, and _shell_is_sandboxed says what the arm needs. The
+   "board" is a real sleep process, so a kill is a real kill. */
+function awaitWith(sandboxed, passPid) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+sleep 30 & SP=$!
+healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
+_shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
+_unreachable_is_ours() { return 1; }
+sleep() { :; }   # the loop's pauses, not the board
+rc=0; ( _await_board_up ${passPid ? '"$SP"' : '""'} ) || rc=$?
+if kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc"; kill "$SP"; else echo "board=gone rc=$rc"; fi
+`;
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: env(1), timeout: 60000 },
+    (err, so, se) => resolve((so + se).replace(/\s+/g, ' ').trim())));
+}
+
+test('after a launch the listener is unreachable: kept without sandbox evidence, stopped with it, and launchd ends the wait', async () => {
+  const keep = await awaitWith(false, true);
+  assert.match(keep, /Kosmos started at .*so this shell cannot use it/, keep);
+  assert.match(keep, /board=alive rc=0/, 'without sandbox evidence the board it launched must be left running: ' + keep);
+  const stop = await awaitWith(true, true);
+  assert.match(stop, /so it was stopped again/, stop);
+  assert.match(stop, /board=gone rc=1/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
+  const launchd = await awaitWith(true, false);
+  assert.match(launchd, /It was started under launchd/, launchd);
+  assert.match(launchd, /board=alive rc=0/, 'under launchd nothing is killed: ' + launchd);
 });
 
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
