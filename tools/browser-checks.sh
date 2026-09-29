@@ -1489,8 +1489,13 @@ fi
 # --- node count). render-org-reduced-motion asserts no two discs overlap after
 # --- the synchronous reduced-motion settle #1738 added; it reds on a revert of
 # --- that settle (measured on the PR: 7 overlapping pairs, 33px).
+# --- #4434: the board is now thirty FLAT agents (the check runs at 375px). A tree
+# --- is laid out without overlaps and painted without a settle, so the old
+# --- manager-and-eight tree no longer exercised it; a flat fleet always settles
+# --- (reverted: 12 pairs, 43px). The default tree of write_fleet_org is unused.
+ORG_FLAT_DENSE="$(node -e 'process.stdout.write(JSON.stringify(Array.from({ length: 30 }, (_, i) => ["f" + i, ""])))')"
 sbo="$(new_sandbox)"
-if boot_board_org "$sbo" "$P16"; then
+if boot_board_org "$sbo" "$P16" "$ORG_FLAT_DENSE"; then
   run_one "render-org-reduced-motion" env KOSMOS_URL="http://127.0.0.1:$P16" node docs/browser-checks/render-org-reduced-motion.js
 else
   FAILED+=("render-org-reduced-motion (dense org board did not boot)")
