@@ -290,7 +290,9 @@ function spawnFor(projectId, edge) {
   if (child.stdin && typeof child.stdin.on === 'function') child.stdin.on('error', () => {});
   // The same for a stream error on stdout: unlistened, it would crash the board.
   if (child.stdout && typeof child.stdout.on === 'function') child.stdout.on('error', () => {});
-  s.edge = edge;
+  // Only a real edge id is kept as the seat's edge (it is what a refusal adds to the
+  // refused set); an own-room seat has none.
+  s.edge = typeof edge === 'string' ? edge : null;
   setStatus(projectId, 'connecting');
   let buf = '';
   child.stdout.setEncoding && child.stdout.setEncoding('utf8');
@@ -653,6 +655,9 @@ async function ensure(projectId, edges) {
     if (link.role === 'owner' && !s.refused && Array.isArray(link.refused)) s.refused = new Set(link.refused);
     let edge;
     if (link.role === 'member') edge = link.edge_id;
+    /* kosmos#4649: another computer of the SAME account (a `self` link) sits in the
+       account's own room: `fed-room --own-project`, no edge. */
+    else if (link.role === 'self') edge = { own: link.ref };
     else {
       const got = await ownerEdge(link, s.refused, edges);
       if (got.failed) {
@@ -664,8 +669,13 @@ async function ensure(projectId, edges) {
         setStatus(projectId, 'reconnecting');
         return 'reconnecting';
       }
-      if (got.none) { setStatus(projectId, 'waiting'); return 'waiting'; }
-      edge = got.edge;
+      /* kosmos#4649: an owner the person has shared with their OTHER computers (an own
+         code was made: `selfShared`) sits in its own room even with no guest, so those
+         computers have it to talk to; the room is the one an edge would open. An owner
+         never shared that way keeps waiting for a guest, as before, so a post there
+         still says nobody has joined instead of going to an empty room. */
+      if (got.none && !link.selfShared) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      edge = got.none ? { own: link.ref } : got.edge;
     }
     if (s.stopped || s.child) return s.status;
     spawnFor(projectId, edge);

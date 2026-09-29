@@ -121,6 +121,33 @@ test('the owner seat uses an active edge of its own project, and waits when ther
   assert.strictEqual(h.spawned.length, 0, 'no seat without an active edge');
 });
 
+test('#4649 an owner SHARED with its other computers sits in its own room even with no guest', async () => {
+  federation.recordLink('proj-os', { role: 'owner', ref: 'ref-os', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-os');
+  assert.strictEqual(h.spawned.length, 1, 'an owner shared with its own computers must be seated');
+  assert.deepStrictEqual(h.spawned[0].edge, { own: 'ref-os' });
+  // With a guest's active edge it still takes the edge (the same room).
+  const h2 = harness({ edges: [{ id: 'edge-os', project_ref: 'ref-os', status: 'active' }] });
+  await fedseats.ensure('proj-os');
+  assert.strictEqual(h2.spawned[0].edge, 'edge-os');
+});
+
+test('#4649 a self link (another computer of the same account) sits in the account\'s own room', async () => {
+  federation.recordLink('proj-self', { role: 'self', ref: 'ref-self', project_name: 'Weekend' });
+  const h = harness();
+  await fedseats.ensure('proj-self');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.deepStrictEqual(h.spawned[0].edge, { own: 'ref-self' });
+  assert.strictEqual(h.asked, 0, 'a self link needs no edge lookup');
+  // A refusal retrying cannot fix (exit 3) ends it like a guest's, and files no fake edge.
+  h.spawned[0].emit('exit', 3);
+  await tick();
+  const link = federation.linkFor('proj-self');
+  assert.ok(link.ended, 'an own seat refused for good ends');
+  assert.ok(!Array.isArray(link.refused) || link.refused.length === 0, 'an own seat has no edge to refuse');
+});
+
 test('nothing starts on a Mac that is not connected to Kosmos+, or for a project with no link', async () => {
   federation.recordLink('proj-n', { role: 'member', edge_id: 'edge-n' });
   let h = harness({ enrolled: false });

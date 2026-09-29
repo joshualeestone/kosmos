@@ -150,8 +150,42 @@ const DESC_MAX = 1000;
 const NAME_MAX = 200;
 const HANDLE_MAX = 64;
 
+/* The coordinator caps a project_ref at 128 BYTES (invite and own-room-ticket alike,
+   kosmos#4649), so the same bound here: a ref this board would accept but the
+   coordinator refuse would make a project nobody can join. */
 function refOk(v) {
-  return typeof v === 'string' && v.length > 0 && v.length <= 200;
+  return typeof v === 'string' && v.length > 0 && Buffer.byteLength(v, 'utf8') <= 128;
+}
+
+/* kosmos#4649: a code that lets ANOTHER computer of the same account join this project's
+   shared room. It carries only the project's ref and name, and needs no secret: a seat in
+   an own room is only ever minted for the caller's OWN account, so this code pasted on
+   someone else's computer opens that account's own (empty) room, never this one. */
+const OWN_PREFIX = 'kosmos-own:';
+function ownCode(projectId, projectName) {
+  const link = linkFor(projectId);
+  let ref = link && (link.role === 'owner' || link.role === 'self') && refOk(link.ref) ? link.ref : null;
+  if (!ref) {
+    if (link) return null;   // a member of someone else's project: not ours to add computers to
+    ref = require('crypto').randomUUID();
+    recordLink(projectId, { role: 'owner', ref, selfShared: true });
+  } else if (link.role === 'owner' && link.selfShared !== true) {
+    // Shared with the person's other computers from now on: the owner seats its own room
+    // even before a guest joins (fedseats.ensure).
+    recordLink(projectId, Object.assign({}, link, { selfShared: true }));
+  }
+  const name = String(projectName || '').slice(0, NAME_MAX);
+  return OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name }), 'utf8').toString('base64url');
+}
+/** The {ref, name} an own-account code carries, or null for anything else. */
+function parseOwnCode(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (!t.startsWith(OWN_PREFIX) || t.length > 1024) return null;
+  let o;
+  try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
+  if (!o || o.v !== 1 || !refOk(o.ref) || typeof o.name !== 'string') return null;
+  const name = o.name.trim().slice(0, NAME_MAX);
+  return name ? { ref: o.ref, name } : null;
 }
 
 /** Mint an invite for a project the person is creating or owns. */
@@ -243,6 +277,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
+  ownCode, parseOwnCode, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,
