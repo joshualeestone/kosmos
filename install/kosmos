@@ -1564,8 +1564,13 @@ cmd_connect() {
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime, so nothing was connected."; exit 1; }
-  local route
-  if [ "$svc" = "cloudflare" ]; then route="/api/cloudflare/token"; else route="/api/svc/$svc/token"; fi
+  # A `case`, not `[ "$svc" = ... ]`: the service is not a subcommand, and the Windows parity test reads a
+  # literal compare on the first argument as one (tools.windows-kosmos-cli-verbs-parity.test.js).
+  local route shown="$svc"
+  case "$svc" in
+    cloudflare) route="/api/cloudflare/token"; shown="Cloudflare" ;;
+    *) route="/api/svc/$svc/token" ;;
+  esac
   local tmp; tmp="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect.XXXXXX")" || { say "We could not make a private file for the token, so nothing was sent."; exit 1; }
   # An interrupt must not leave the token on disk, and must not wait for the door (review rounds 1 and 2):
   # bash runs a trap only after a FOREGROUND command returns, so the request below runs in the background
@@ -1614,7 +1619,6 @@ cmd_connect() {
   body="$(cat "$_out" 2>/dev/null)"
   rm -f "$tmp" "$_out"; trap - INT TERM HUP
   if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos, so nothing was connected."; exit 1; fi
-  local shown="$svc"; [ "$svc" = "cloudflare" ] && shown="Cloudflare"
   printf '%s' "$body" | SVC="$shown" "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { console.log("Kosmos gave an answer we could not read, so we cannot say whether it connected."); process.exit(1); }
