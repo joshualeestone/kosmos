@@ -196,6 +196,21 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.click('#team-orgchart-open');
       ok(t + ' K5 Upload an org chart opens its panel on the Team screen', await visible(page, '#orgchart-text'));
 
+      // K5b (review round 4): a catalogue that answers with NO teams reads as coming soon, and is asked again next visit.
+      SEEDED = [];
+      await page.evaluate(() => { SEEDED_TEAMS = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(300);
+      const k5b = await page.evaluate(() => ({ pick: !document.getElementById('team-seeded-pick').hidden,
+        msg: document.getElementById('team-seeded-msg').textContent, cached: SEEDED_TEAMS }));
+      ok(t + ' K5b an empty catalogue reads as coming soon and is not kept', !k5b.pick && k5b.msg === 'Ready-made teams are coming soon.' && k5b.cached === null, JSON.stringify(k5b));
+      SEEDED = [{ key: 'solo', label: 'Solo team', blurb: 'One lead.', kind: 'business', rank: 1, members: ['a'] }];
+      await page.evaluate(() => openCreate());   // no cache reset: the empty answer must not have been kept
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForFunction(() => !document.getElementById('team-seeded-pick').hidden, null, { timeout: 3000 }).catch(() => {});
+      ok(t + ' K5b the next visit asks again and shows the teams that now exist', await page.evaluate(() => !document.getElementById('team-seeded-pick').hidden
+        && [...document.getElementById('team-seeded').options].some((o) => o.value === 'solo')));
+
       // K6: Team with a catalogue; Create hands the key to openTeamCreate.
       // #4555's shape: members, not a count (the count is derived from them).
       SEEDED = [{ key: 'marketing', label: 'Marketing team', blurb: 'A CMO and four reports.', kind: 'business', rank: 1, members: ['cmo', 'a', 'b', 'c', 'd'] },
@@ -207,9 +222,10 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       const k6 = await page.evaluate(() => ({ opts: [...document.getElementById('team-seeded').options].map((o) => o.value),
         desc: document.getElementById('team-seeded-desc').textContent, go: document.getElementById('team-seeded-go').disabled,
         pick: !document.getElementById('team-seeded-pick').hidden, gold: document.getElementById('team-orgchart-open').classList.contains('uprime'),
+        divider: getComputedStyle(document.getElementById('team-orgchart-opt')).borderTopWidth,
         label: document.getElementById('team-orgchart-label').hidden ? '' : document.getElementById('team-orgchart-label').textContent }));
       ok(t + ' K6 with teams: the dropdown is back and the org chart is the second, plain choice (CONTROL for K5)',
-        k6.pick && !k6.gold && k6.label === 'Or upload an org chart', JSON.stringify(k6));
+        k6.pick && !k6.gold && k6.label === 'Or upload an org chart' && k6.divider === '1px', JSON.stringify(k6));
       ok(t + ' K6 the seeded teams are listed, and choosing one describes it and enables Create',
         JSON.stringify(k6.opts) === JSON.stringify(['', 'marketing', 'home']) && /A CMO and four reports\. 5 agents\./.test(k6.desc) && !k6.go, JSON.stringify(k6));
       await page.click('#team-seeded-go');

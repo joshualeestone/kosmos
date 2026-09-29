@@ -46330,7 +46330,13 @@ async function loadSeededTeams() {
   teamSaySeeded('');
   /* Round 3: nothing of the dropdown until the answer is in, so a slow first load does not flash a control the
      no-teams layout then removes. */
-  if (!SEEDED_TEAMS) document.getElementById('team-seeded-pick').hidden = true;
+  if (!SEEDED_TEAMS) {
+    // Round 4: the loading layout is the no-teams one, so the answer arriving moves nothing.
+    document.getElementById('team-seeded-pick').hidden = true;
+    document.getElementById('team-orgchart-label').hidden = true;
+    document.getElementById('team-orgchart-opt').classList.add('nak-team-only');
+    document.getElementById('team-orgchart-open').classList.add('uprime');
+  }
   if (!SEEDED_TEAMS) {
     try {
       const res = await fetch('/api/teams/seeded', { cache: 'no-store' });
@@ -46508,7 +46514,7 @@ function paintRoleMenu() {
     g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
     '</optgroup>').join('');
   const sel = document.getElementById('rolesel');
-  const sig = rest.map((r) => r.key).join(',');   // round 3: the keys, not the whole menu, mark what is drawn
+  const sig = rest.map((r) => r.key + ':' + r.label).join(',');   // round 3/4: keys and names, not the whole menu
   if (sel.dataset.menu !== sig) { sel.innerHTML = html; sel.dataset.menu = sig; }
 }
 function paintPathOptions() {
