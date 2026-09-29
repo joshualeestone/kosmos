@@ -296,14 +296,16 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
 /* The kill-or-keep decision after a launch, driven with the real _await_board_up and stubbed readings: healthy()
    reports "unreachable" with the launched pid as the listener, and _shell_is_sandboxed says what the arm needs. The
    "board" is a real sleep process, so a kill is a real kill. */
-function awaitWith(sandboxed, passPid) {
+function awaitWith(sandboxed, passPid, ours = false, reclaim = false) {
   const script = `
 set -euo pipefail
 source "${CLI}"
 sleep 30 & SP=$!
+trap 'kill "$SP" 2>/dev/null || true' EXIT   # the stand-in board never outlives this script
 healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
 _shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
-_unreachable_is_ours() { return 1; }
+_unreachable_is_ours() { return ${ours ? 0 : 1}; }
+${reclaim ? 'export KOSMOS_RECLAIM_BUSY=1' : ''}
 sleep() { command sleep 0.05; }   # short pauses, but real ones: the kill path waits on the process between checks
 rc=0; ( _await_board_up ${passPid ? '"$SP"' : '""'} ) || rc=$?
 if kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc"; kill "$SP"; else echo "board=gone rc=$rc"; fi
@@ -323,6 +325,37 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   // Not this install's recorded board (stubbed): the words do not claim it started, only that launchd was asked.
   assert.match(launchd, /launchd was asked to start Kosmos, and this shell cannot confirm it did/, launchd);
   assert.match(launchd, /board=alive rc=0/, 'under launchd nothing is killed: ' + launchd);
+  // This install's recorded board: it started, at once.
+  const oursLaunchd = await awaitWith(true, false, true);
+  assert.match(oursLaunchd, /It was started under launchd/, oursLaunchd);
+  assert.match(oursLaunchd, /board=alive rc=0/, oursLaunchd);
+  // The watchdog's or the installer's start (KOSMOS_RECLAIM_BUSY=1) does not count an unconfirmed one as a success.
+  const reclaim = await awaitWith(true, false, false, true);
+  assert.match(reclaim, /does not count as a success/, reclaim);
+  assert.match(reclaim, /board=alive rc=1/, reclaim);
+});
+
+/* The listener lookup on its own, with /usr/sbin/lsof stubbed: several processes, a non-loopback address first, a
+   *:PORT match, and the IPv4 filter (the stub answers an IPv6-only listener unless it is asked for -i4TCP). */
+function listener(lsofOut) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+/usr/sbin/lsof() {
+  case " $* " in *" -i4TCP:"*) printf '%s' "$LSOF_OUT" ;; *) printf 'p999\\ncnode\\nn*:%s\\n' "$PORT" ;; esac
+}
+_lsof_present() { return 0; }
+if o="$(_ipv4_listener)"; then echo "found=[$o]"; else echo "none"; fi
+`;
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(4636), LSOF_OUT: lsofOut } },
+    (err, so, se) => resolve((so + se).trim())));
+}
+
+test('the listener lookup: finds the loopback or wildcard IPv4 listener among others, asks lsof for IPv4 only', async () => {
+  assert.equal(await listener('p100\ncpython3\nn192.168.1.5:4636\np200\ncnode\nn127.0.0.1:4636\n'), 'found=[200 node]');
+  assert.equal(await listener('p300\ncnode\nn*:4636\n'), 'found=[300 node]');
+  assert.equal(await listener('p100\ncnode\nn127.0.0.1:9999\n'), 'none');   // another port
+  assert.equal(await listener(''), 'none');
 });
 
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are

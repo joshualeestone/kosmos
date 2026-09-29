@@ -2751,7 +2751,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
             "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
             > "$_abortf"; } 2>/dev/null || true
-        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again. If this is an agent's or a sandboxed shell, do both from a normal Terminal."
+        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again. If this is an agent's shell, do both from a normal Terminal."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
         # port. "kosmos stop" would do nothing (ours is already stopped), so name the

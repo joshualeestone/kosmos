@@ -1022,6 +1022,10 @@ _await_board_up() {
         return 0
       fi
       if [ -z "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
+        # KOSMOS_RECLAIM_BUSY=1 (the watchdog, setup.sh's final start) must not report success it cannot confirm.
+        if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ]; then
+          die "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did, so this start does not count as a success; check from a shell that can reach it."
+        fi
         say "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did; check from a shell that can reach it."
         return 0
       fi
