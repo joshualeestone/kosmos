@@ -55,3 +55,5 @@ loudly in the send record, but nothing tells the owner in the page.
 - (N) a refused save's message is kept through a re-read that also fails; a refusal is forgotten once the choice
   moves on; a disk failure on save is a 500; the #4288 require comment is back on its own line.
 
+Control for the new browser arms: the review-1 check run on the pre-fix page (879fa8a0c) reds PENDING (only
+"accounting" saved) and UNREADABLE (2 options offered); on 436a1598f it is 27 PASS, 0 FAIL.
