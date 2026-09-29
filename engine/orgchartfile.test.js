@@ -337,3 +337,32 @@ test('a quoted header with a comma does not decide the delimiter', () => {
   assert.equal(r.rows.length, 2, JSON.stringify(r));
   assert.equal(r.rows[1].reportsTo, 0);
 });
+
+test('an answer that leaves out sure is treated as unsure (fails closed)', () => {
+  const r = o.fromModel({ people: [{ person: 'Avery Quill', title: 'CEO', reportsTo: null }] });
+  assert.match(r.rows[0].why || '', /not sure/);
+});
+
+test('the real runner reads a stream-json result from claude (a fake binary, no provider)', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-fake-'));
+  const fake = path.join(dir, 'claude');
+  const answer = JSON.stringify({ type: 'result', is_error: false, structured_output: { people: [
+    { person: 'Avery Quill', title: 'CEO', reportsTo: null, sure: true },
+    { person: 'Bo Linden', title: 'VP', reportsTo: 'Avery Quill', sure: true },
+  ] } });
+  // Reads its stdin to the end (as claude does), prints an init line and the result line.
+  fs.writeFileSync(fake, '#!/bin/sh\ncat > /dev/null\necho \'{"type":"system","subtype":"init"}\'\necho \'' + answer.replace(/'/g, "'\\''") + '\'\n', { mode: 0o755 });
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fake;
+  o.setModelRunner(null);
+  try {
+    const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.deepEqual(r.rows.map((x) => [x.person, x.reportsTo]), [['Avery Quill', null], ['Bo Linden', 0]], JSON.stringify(r));
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

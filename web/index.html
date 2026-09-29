@@ -46284,7 +46284,9 @@ function orgchartLoops(rows) {
 
 /* The preview: each row's title, who it came from (a file), who it reports to (editable), a "Check this"
    line when the reader was not sure, and the agent name last (the #1280 check reads the text after the arrow). */
+let ORGCHART_RESULT_SHOWN = false;   // the box shows a create's result, not a preview
 function orgchartPaint() {
+  ORGCHART_RESULT_SHOWN = false;
   const rows = ORGCHART_PARSED || [];
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
@@ -46415,8 +46417,17 @@ async function orgchartSendFile(file, consent, seq) {
   document.getElementById('orgchart-preview-box').hidden = false;
   document.getElementById('orgchart-count').focus();
 }
+/* The largest file the board will read (engine/orgchartfile.js MAX_BYTES; web.orgchart-parse-1280.test.js pins it).
+   Checked here because a body over it is cut off by the board mid-upload, which reads to the page as unreachable. */
+const ORGCHART_MAX_BYTES = 10 * 1024 * 1024;
 function orgchartTakeFile(file) {
-  if (!file || ORGCHART_CREATING) return;
+  if (!file || ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;
+  if (file.size > ORGCHART_MAX_BYTES) {
+    const msg = document.getElementById('orgchart-msg');
+    msg.hidden = false;
+    msg.textContent = 'That file is larger than ' + Math.round(ORGCHART_MAX_BYTES / 1048576) + ' MB. An org chart export is usually much smaller; try exporting just the people.';
+    return;
+  }
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
   orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
@@ -46429,7 +46440,7 @@ document.getElementById('orgchart-file').addEventListener('change', (e) => {
   orgchartTakeFile(f);
 });
 document.getElementById('orgchart-consent-go').addEventListener('click', () => {
-  if (ORGCHART_CREATING) return;   // as orgchartTakeFile: a read must not paint over a create in flight
+  if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;   // as orgchartTakeFile: a read must not paint over a create or an Undo
   const f = ORGCHART_FILE_PENDING;
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
@@ -46458,6 +46469,9 @@ document.getElementById('orgchart-consent-no').addEventListener('click', () => {
 /* Names on or off re-derives the agents' names from the file when the preview came from one. */
 document.getElementById('orgchart-usenames').addEventListener('change', (e) => {
   if (!ORGCHART_FILE_PEOPLE || !ORGCHART_PARSED || document.getElementById('orgchart-preview-box').hidden) return;
+  /* Only while the box shows the PREVIEW: after a create it shows the result (and its Undo), which a repaint of
+     the preview would overwrite, re-arming Create for a batch that already exists. */
+  if (ORGCHART_CREATING || ORGCHART_RESULT_SHOWN) return;
   const kept = ORGCHART_PARSED.map((r) => ({ reportsTo: r.reportsTo, confirmed: r.confirmed }));
   ORGCHART_PARSED = orgchartRows(ORGCHART_FILE_PEOPLE, e.target.checked, 'file');
   ORGCHART_PARSED.forEach((r, i) => { if (kept[i]) { r.reportsTo = kept[i].reportsTo; r.confirmed = kept[i].confirmed; } });
@@ -46641,6 +46655,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      arms a fresh parse. */
   btn.disabled = true;
   ORGCHART_CREATED = created.filter((c) => c && c.name).map((c) => ({ name: String(c.name), shownAs: c.shownAs || c.name }));
+  ORGCHART_RESULT_SHOWN = true;
   ORGCHART_RESULT = { count: countEl.textContent, list: listEl.innerHTML };
   showOrgchartUndo();
 });
@@ -46664,7 +46679,13 @@ function orgchartUndoAsking(on) {
   if (keep) keep.hidden = !on;
   if (back) back.hidden = on;
   if (preview) preview.disabled = on;
+  /* #4559: a file read landing mid-Undo would supersede the screen (a new GEN) and drop the removal answers, so
+     choosing or dropping a file waits too. */
+  ORGCHART_UNDO_BUSY = on;
+  const fileBtn = document.getElementById('orgchart-file-btn');
+  if (fileBtn) fileBtn.disabled = on;
 }
+let ORGCHART_UNDO_BUSY = false;
 
 // Each agent's removal plan from the engine (GET /api/agent/:name/removal), keyed by name.
 let ORGCHART_UNDO_PLANS = {};
@@ -46805,6 +46826,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
       + left.length + (left.length === 1 ? ' is still on your board:' : ' are still on your board:');
   listEl.innerHTML = rows.map((r) => '<li>' + esc(r.c.shownAs) + ' <span class="dhint">'
     + (r.done ? 'removed' + (r.said ? ', but ' + esc(r.said) : '') : 'not removed: ' + esc(r.said)) + '</span></li>').join('');
+  ORGCHART_RESULT_SHOWN = true;
   ORGCHART_RESULT = { count: countEl.textContent, list: listEl.innerHTML };
   showOrgchartUndo();
   const undo = document.getElementById('orgchart-undo');
