@@ -517,7 +517,8 @@ kosmos_refuse_if_suite_live() {
 # for one pass: one briefly unmarked by its second ask, or one whose marker a failed ps removed until it writes it again
 # (the loop re-marks a run whose own marker vanished). So the restart is a heuristic, not proof the queue moved. A
 # waiter is in its second ask only when its own check had just passed (the box was clear), so that false fall needs a
-# harness to take the box in that moment; the failed-ps one needs a ps to fail. A waiter BEHIND this run never counts,
+# harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
+# poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
 # the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
@@ -670,7 +671,7 @@ kosmos_wait_until_clear() {
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
       if [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
-        echo "gave up after waiting ${waited}s: no waiter ahead left for ${max}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+        echo "gave up after waiting ${waited}s (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       fi

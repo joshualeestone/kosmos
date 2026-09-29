@@ -51,7 +51,7 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   points at the #4574 note, and lists KOSMOS_WAIT_NOW as a seam.
 - (W) the two new helpers sat between kosmos_wait_until_clear's doc comment and the function: moved above it.
 - (N, taken) the waiters-ahead loop duplicated kosmos_refuse_if_earlier_suite_waiter's: ONE helper now lists the pids
-  ahead, and the refusal (head -1) and the bound (the count) both read it. Control: a helper that lists nobody reds the
+  ahead, and the refusal (first line, via a read loop) and the bound (the count) both read it. Control: a helper that lists nobody reds the
   #4498 queue-order arms AND the #4574 moving-queue arms.
 - (N, SELF, taken) "the count cannot flap" overclaimed: a waiter re-marked by the second ask raises it. The note now says
   a rise only arms the next fall, so each restart still needs a waiter ahead to leave.
@@ -119,3 +119,14 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
 - (N, taken) the re-mark arm's comment names calls 2, 3 and 4, and drops a redundant condition.
 - (N, left) the front waiter's give-up line ("no waiter ahead left") is true but empty for it; the line above names the
   real blocker.
+
+## Review iteration 8 (blind, sonnet)
+0 BLOCKER, 3 WARNING, all taken:
+- (W, SELF) the give-up line "no waiter ahead left for Ns" named a cause that is wrong for the front waiter (nothing was
+  ever ahead). Round 3 had moved it off "the queue did not move"; now it states the rule instead of a cause: "the bound
+  counts from the last time a waiter ahead left the queue". The line above still names the blocker.
+- (W) a fall and an old-time re-mark in the same poll net to zero: one sentence in the note (errs toward giving up).
+- (W) the re-mark arm could not tell an old queue time from a new one (no sleep, one second for every mark): wlose now
+  sleeps 1 s. Control: a re-mark that takes a NEW time reds it.
+- (N, taken) the plan no longer says the refusal uses head -1.
+- (N, left) bstart uses the wait clock and ts the real one: ts is only a queue position, never a duration.

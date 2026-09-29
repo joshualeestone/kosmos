@@ -681,8 +681,8 @@ out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_W
   || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "no waiter ahead left for 60s" && [ ! -e "$W/markers/suitewait.$$" ]; } \
-  && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says no waiter ahead left" \
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "counts from the last time a waiter ahead left the queue" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says how the bound is counted" \
   || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 # The wall-clock arm: 100 s pass per sleep but only 30 s is counted asleep, so only the clock can reach a 60 s bound.
@@ -700,7 +700,9 @@ q_clear
 wmark() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
   sed -n '1p' "$W/markers/suitewait.$$" 2>/dev/null | cut -d' ' -f1 >> "$W/marks"
   [ "$n" -gt 3 ] && return 0; echo "busy: stand-in run" >&2; return 1; }
-wlose() { [ "$(cat "$W/calls")" = 2 ] && rm -f "$W/markers/suitewait.$$"; return 0; }
+# Real one-second sleeps, as the #4498 second-ask arm uses: with no sleep every mark lands in the same second, and a
+# re-mark that took a NEW time would look the same as one that kept the old place.
+wlose() { sleep 1; [ "$(cat "$W/calls")" = 2 ] && rm -f "$W/markers/suitewait.$$"; return 0; }
 rm -f "$W/calls" "$W/marks"
 out="$(KOSMOS_WAIT_MAX_S=600 KOSMOS_WAIT_SLEEP=wlose kosmos_wait_until_clear "this test run" --suite-queue wmark 2>&1)"; rc=$?
 # Calls 2, 3 and 4 see the marker (3 because the loop re-marked it before asking), with ONE queue time throughout.
