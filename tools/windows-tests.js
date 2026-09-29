@@ -54,6 +54,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/groksettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
+  'server.engine-restart-4408.test.js': 'its win32 branch only skips the restart arm, whose stubs pin the Mac arms (launchctl, the installed CLI); the Windows arm is boardrestart-2238.test.js\'s',
 };
 
 // Selected files whose every test may skip on the runner, each with why. Any OTHER selected file

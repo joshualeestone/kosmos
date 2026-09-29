@@ -525,7 +525,8 @@ test('the board reports when its own engine is behind the disk, and says nothing
    * running across a merge answers with old code while looking current.
    * Measured 2026-08-23: six hours, three merged PRs, /api/roles serving the
    * morning's file. A version comparison cannot see it (nothing bumped), so
-   * the field compares loaded modules' mtimes to the process start. Always
+   * the field compares each loaded module's content with what the process
+   * loaded (#4408: an mtime alone called a byte-for-byte restore stale). Always
    * present, null when current, so the fixture's field list is stable.
    */
   const board = await req('/api/status');
@@ -536,20 +537,33 @@ test('the board reports when its own engine is behind the disk, and says nothing
   assert.ok('staleSince' in first, 'staleSince is absent rather than null');
   assert.equal(first.staleSince, null, 'a freshly started server reports itself stale');
 
-  /* POSITIVE CONTROL: a loaded module whose file moves on. The sweep is cached
-     for the poll's five seconds, so wait it out once; mtime is restored after,
-     and nothing in the file changes. */
-  const target = require.resolve('./engine/roles');
-  const before = fs.statSync(target);
-  const future = new Date(Date.now() + 10000);
-  fs.utimesSync(target, future, future);
+  /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
+     is, and the changed file is named. A throwaway module at the app root (never a real source file:
+     another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
+  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  const dir = nodePath.join(__dirname, `.probe-freshness-${process.pid}`);
+  const probe = nodePath.join(dir, 'x.js');
+  const rel = nodePath.basename(dir) + '/x.js';
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
+    require(probe);
+    await new Promise((r) => setTimeout(r, 5200));   // the sweep is cached for five seconds; this one remembers it
+    await req('/api/status');
+    const future = new Date(Date.now() + 10000);
+    fs.utimesSync(probe, future, future);
+    await new Promise((r) => setTimeout(r, 5200));
+    const touched = JSON.parse((await req('/api/status')).body).engine;
+    assert.equal(touched.staleSince, null, 'a file whose time moved but whose content did not was reported as stale (#4408)');
+    fs.writeFileSync(probe, 'module.exports = 2;\n');
     await new Promise((r) => setTimeout(r, 5200));
     const again = JSON.parse((await req('/api/status')).body).engine;
-    assert.ok(again.staleSince, 'a changed engine file went unreported');
+    assert.ok(again.staleSince, 'CONTROL: a file whose content changed went unreported');
+    assert.deepEqual(again.changed, [rel], 'the changed file is not named');
     assert.equal(again.startedAt, first.startedAt, 'startedAt moved, so it is not the process start');
   } finally {
-    fs.utimesSync(target, before.atime, before.mtime);
+    delete require.cache[probe];
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -1565,6 +1579,42 @@ test('a successful PUT rewrites the file and answers with the new stale state', 
   assert.equal(JSON.parse(back.body).text, text, 'a re-read did not see the write');
 });
 
+/* #4406: the version kept beside the file, for the Instructions tab to put back in the box. */
+test('#4406: GET instructions/previous answers the kept version, writes nothing, and refuses an unknown agent', async (t) => {
+  const unknown = await req('/api/agent/definitely-not-an-agent/instructions/previous');
+  assert.equal(unknown.status, 404);
+  const bad = await req('/api/agent/%zz/instructions/previous?t=1');
+  assert.equal(bad.status, 404, 'a malformed name is refused, not crashed on');
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'CLAUDE.md');
+  fs.writeFileSync(file, 'The instructions this agent had before the #4406 test ran.');
+  const text = 'Replaced by the #4406 test, so the old words are kept as the previous version.';
+  const put = await req(`/api/agent/${name}/instructions`,
+    { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+  assert.equal(put.status, 200, put.body);
+  const res = await req(`/api/agent/${name}/instructions/previous?t=1`);
+  assert.equal(res.status, 200, res.body);
+  assert.match(res.type, /application\/json/);
+  const body = JSON.parse(res.body);
+  assert.equal(body.exists, true);
+  assert.equal(body.text, 'The instructions this agent had before the #4406 test ran.');
+  assert.equal(fs.readFileSync(file, 'utf8'), text, 'reading the previous version must not write');
+  const offered = JSON.parse((await req(`/api/agent/${name}/instructions?t=2`)).body);
+  assert.equal(offered.hasPrevious, true, 'CONTROL: a kept version with words is offered');
+  // An empty kept file is not offered, so the offer and the button agree.
+  fs.writeFileSync(file + '.previous', '   \n');
+  const empty = JSON.parse((await req(`/api/agent/${name}/instructions?t=3`)).body);
+  assert.equal(empty.hasPrevious, false, 'an empty kept file must not be offered as a previous version');
+  // And nothing kept at all answers a plain no.
+  fs.rmSync(file + '.previous');
+  const none = await req(`/api/agent/${name}/instructions/previous`);
+  assert.equal(none.status, 200);
+  assert.equal(JSON.parse(none.body).exists, false);
+});
+
 test('both modules resolve worker files under the SAME sandboxed root', async (t) => {
   // ⚠️ Pins the one thing standing between `node --test` and the live CLAUDE.md
   // files that real agents boot from. `status.js` used to carry its own
@@ -2209,7 +2259,7 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // eslint-disable-next-line no-new-func
   const run = new Function('document', `let INSTR_READY = true; let INSTR_VERSION = 'v1';
     ${script.slice(start, end)}
-    return (a, tied) => { setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
+    return (a, tied, ready) => { if (ready !== undefined) INSTR_READY = ready; setWritesOffered(a, tied); return { INSTR_READY, INSTR_VERSION }; };`)(document);
 
   // ⚠️ REAL CARDS, from the route the page actually reads. These were object
   // literals, and an object literal is free to carry fields `/api/status` does
@@ -2303,10 +2353,18 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
     'the poll never re-applies the tie check, so an agent that dies while its '
     + 'panel is open keeps offering writes for a card that is now a stranger’s');
 
-  // And a tied card gets everything back.
-  run(tiedCard, tiedCard.isNamedOurs);
-  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+  // And a tied card gets everything back. #4406: the instructions box and Save only once their content has
+  // loaded (INSTR_READY); before that, a poll tick turning them on gave an empty, editable box mid-restart.
+  run(tiedCard, tiedCard.isNamedOurs, false);
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent`);
+  }
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, true, `${id} was turned on for a tied agent before its content loaded`);
+  }
+  run(tiedCard, tiedCard.isNamedOurs, true);
+  for (const id of ['d-instr', 'd-instr-save']) {
+    assert.equal(els[id].disabled, false, `${id} stayed withdrawn for a tied agent whose content has loaded`);
   }
   // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
   assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');

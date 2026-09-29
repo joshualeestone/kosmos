@@ -189,7 +189,8 @@ test('CONVENTION (review round 1): the Copy button, the folder button and every 
   assert.equal((handler.match(/windowsCopy\('openKosmosFolderFailure'\)/g) || []).length, 2);
   assert.doesNotMatch(handler, /We could not open your Kosmos folder/, 'the folder failure sentence is inline again');
   assert.match(page.lift(SCRIPT, 'paintUpdateAbort'), /\? windowsCopy\('updateAbortRemedy'\)/);
-  assert.match(page.lift(SCRIPT, 'renderUpdateToast'), /\? windowsCopy\('engineStaleRemedy'\)/);
+  // #4408: the stale-engine arm promises no platform remedy; it is the same true sentence everywhere.
+  assert.doesNotMatch(page.lift(SCRIPT, 'renderUpdateToast'), /engineStaleRemedy/);
 });
 
 test('SAFETY 1 UI (review round 1): every Documents open handler shows the sentence when Windows showed a file instead of opening it', () => {
@@ -428,7 +429,9 @@ test('the recovery toasts on Windows say to restart Kosmos by double-clicking Ko
   assert.ok(abort.includes('Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever'), abort);
   assert.doesNotMatch(abort, /Quit|Kosmos\.exe/, 'the stuck-update toast offers a relaunch that only says "already running"');
   const engine = engineToast('win32');
-  assert.ok(engine.includes('Only a restart picks it up: ' + restart + '</small>'), engine);
+  // #4408: no remedy is promised on any platform (none is true for every board that reaches this arm).
+  assert.ok(engine.includes('Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.</small>'), engine);
+  assert.doesNotMatch(engine, /Kosmos\.exe/);
   assert.doesNotMatch(engine, /kosmos restart/);
   const offline = offlineNote('win32');
   assert.match(offline, /Double-click Kosmos\.exe in your Kosmos folder and it will start again if it needs to\./);
@@ -447,8 +450,10 @@ test('MAC UNCHANGED: the three recovery toasts and the world-switch sentence', (
     + 'was holding the update, so the next one can finish. Your agents keep working, they do '
     + 'not live in this window.</small></div></div>');
   assert.equal(engineToast('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt"><b>Kosmos changed on disk</b><small>The board is running older code. '
-    + 'Only a restart picks it up: <code>kosmos restart</code></small></div></div>');
+    /* #4408: no Terminal command on the Mac either; a board that cannot restart itself promises no remedy.
+       (One that can gets a Restart Kosmos button: web.reload-toast.test.js.) */
+    + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed on this computer, '
+    + 'and Kosmos is still running the old copy. Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.</small></div></div>');
   assert.equal(offlineNote('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b><small>Nothing answered at 127.0.0.1:16180. '
     + 'Open Kosmos from your Applications folder and it will start again if it needs to.</small></div></div>');
@@ -586,4 +591,10 @@ test('#718 state 2: a Windows board reached remotely is never told "your Mac"', 
     { BOARD_SEEN: true, BOARD_LOOK_FAILED: 'no answer', BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false, ...remote });
   assert.doesNotMatch(card('win32'), /your Mac/, 'a Windows board was told its Mac did not answer');
   assert.match(card('darwin'), /Something on your Mac did not answer/, 'CONTROL: a Mac board reached remotely names the Mac');
+});
+
+test('#4408: a refused restart promises no remedy it cannot keep, on any platform', () => {
+  const fn = page.lift(SCRIPT, 'engineRestartClick');
+  assert.match(fn, /small\.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started\.';/);
+  assert.doesNotMatch(fn, /restart your computer|Restarting your computer|Kosmos\.exe|sign out/i);
 });

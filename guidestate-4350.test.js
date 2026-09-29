@@ -115,11 +115,12 @@ test('#4350 the auto-created guide is not counted as an agent the person created
   } finally { fs.rmSync(create.createdLogFile(), { force: true }); }
 });
 
-test('#4350 server.js records the outcome at BOTH ensureGuide call sites, and re-pings on a change', () => {
+test('#4350 server.js records the outcome at EVERY ensureGuide call site, and re-pings on a change', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const calls = [...src.matchAll(/setupAssistant\.ensureGuide\(\{[^}]*\}\)\s*\.then\(recordGuideOutcome\)/g)];
   const all = [...src.matchAll(/setupAssistant\.ensureGuide\(/g)];
-  assert.equal(all.length, 2, 'expected exactly two ensureGuide call sites; re-read this test if that changed');
+  // Giddy Up, the sweep, and (#4405) the person switching the assistant on in Settings.
+  assert.equal(all.length, 3, 'expected exactly three ensureGuide call sites; re-read this test if that changed');
   assert.equal(calls.length, all.length, 'an ensureGuide call site drops its outcome');
   assert.match(src, /const recordGuideOutcome = guidestate\.makeRecorder\(\{\s*ping: \(\) => createdbeacon\.pingInstall\(\),\s*delayMs: GUIDE_PING_DELAY_MS,\s*setTimer: createdbeacon\.underTest\(\) \? \(\) => null : setTimeout,/,
     'the board must record through makeRecorder, pinging after GUIDE_PING_DELAY_MS, with no timer under test');

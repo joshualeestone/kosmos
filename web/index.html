@@ -148,30 +148,6 @@
      flagged rather than silently taken. */
   --k-optline: #82878f;
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
-  /* #4059 (Josh picked study A, 09-27): the gold primary is POLISHED gold, a curved metal
-     gradient, darker at the ends and a bright band through the middle. The study's ends were
-     bronze #7a5410, which is 2.68:1 under the #14161a label, so the ends here are a bronze-leaning
-     gold that keeps the label at 4.5:1 or better on EVERY pixel of the fill. Computed (sRGB):
-       #b2841e 5.36:1 alone, 5.00:1 under the 6% bottom shade (the darkest point, a corner)
-       #f3d27a 12.34:1 (the band)
-     RENDERED, the floor is the pill's rim where the 1px bottom bevel curves round the caps: 4.61:1
-     (Chromium) and 4.76:1 (WebKit) on the big create-flow pill, which is why the shade is 6% and
-     the bevel 25%, not the study's 35% and 55%. The hover is darker through the middle (the band
-     drops to --gold-bright) and keeps the same ends, so its floor is the same.
-     render-gold-buttons-4059.js measures both by pixels. The theme does not change the fill, so
-     one pair serves light, dark and navy. */
-  --gold-end: #b2841e;
-  /* Each gradient ends in a solid colour layer, the gold the gradient is centred on. It is never seen
-     (the gradient covers the whole pill), but it is the button's computed background-color: a reader of
-     that value (the contrast check, anything laid over the button) finds gold, not transparent, which
-     made the label measure 1.03:1 against the dark page behind it. */
-  --gold-polished:
-    linear-gradient(180deg, rgba(255,246,214,.55) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
-    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 14%, var(--gold-bright) 38%, #f3d27a 50%, var(--gold) 64%, var(--gold-deep) 84%, var(--gold-end) 100%) var(--gold-bright);
-  --gold-polished-hover:
-    linear-gradient(180deg, rgba(255,246,214,.35) 0%, rgba(255,246,214,0) 38%, rgba(0,0,0,0) 62%, rgba(74,49,6,.06) 100%),
-    linear-gradient(100deg, var(--gold-end) 0%, var(--gold-deep) 18%, var(--gold) 40%, var(--gold-bright) 50%, #cf9f2a 64%, var(--gold-deep) 84%, var(--gold-end) 100%) var(--gold);
-  --gold-polished-shadow: inset 0 1px 0 rgba(255,246,214,.7), inset 0 -1px 0 rgba(74,49,6,.25), 0 1px 2px rgba(0,0,0,.25), 0 6px 18px -8px rgba(122,84,16,.55);
   /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
      PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
      its fill, and `--gold-bright` measures 1.95:1 against a white card and
@@ -514,8 +490,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
   .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
-  /* #4059: this primary is BLUE, not gold, so it keeps its own shape and never hosts the gold light. */
-  .askcard .btn.uprime { border-radius: var(--radius-control); box-shadow: none; --gold-light: 0; }
   /* A secondary button on the card never disappears into its ground (the #3796 rule): a visible stroke. */
   .askcard .btn:not(.uprime) { border: 1px solid rgba(127,140,170,.55); }
   .askrow { padding: 8px 0; border-top: 1px solid var(--k-rule); }
@@ -1236,28 +1210,10 @@ html { scroll-padding-top: 132px; }
    .btn:hover repainted the primary action --attn-bg and the gold vanished
    under the pointer. It now deepens to --gold, which is the pattern this file
    already uses for the first-run confirm rather than a new invention. */
-/* #4059 (Josh 09-27, study A): the gold primary is a fully rounded pill in polished gold, and a
-   liquid light follows the pointer across it (goldLight, in the script: ONE shared WebGL canvas
-   that moves to whichever gold button is under the pointer). The border stays its width and turns
-   transparent over the metal, so no button changes size. --gold-light: 1 is how the script tells
-   a GOLD .uprime from one a surface repaints (the blue ask card and Kosmos+ set it to 0). The hover
-   is the darker polished gold, which is ALL a hover does under reduced motion or without WebGL. */
 button.uprime, .btn.uprime, .utoast .uacts button.uprime,
-.dbox .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a;
-  border-radius: 999px; box-shadow: var(--gold-polished-shadow); --gold-light: 1; }
+.dbox .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
-.dbox .btn.uprime:hover { background: var(--gold-polished-hover); border-color: transparent; color: #14161a; }
-/* The keyboard ring on the pill: the browser's own ring follows the radius, but it is blue on some
-   engines and faint on gold. This is the ink ring the rest of the app uses, offset off the metal. */
-button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The light's canvas, while a gold button hosts it: behind the label (z-index -1 inside the
-   button's own stacking context, so it paints over the fill and under the text), exactly the
-   button's size, and CLIPPED to the pill by clip-path, because Safari does not clip a GPU canvas
-   to rounded corners with overflow alone (Josh 09-27: "the animation is going outside of the
-   button area"). Screen-blended, so it only ever lightens the gold under dark text. */
-.uprime.gold-lit { isolation: isolate; }
-.uprime > canvas.gold-light { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1;
-  clip-path: inset(0 round 999px); border-radius: 999px; pointer-events: none; mix-blend-mode: screen; opacity: .9; }
+.dbox .btn.uprime:hover { background: var(--gold); border-color: var(--gold); color: #14161a; }
 /* #3955: the update chip (Mona Lisa's mock A and B): one line and one gold action, beside the Kosmos
    switcher in the same slot the old boxes used. Small on purpose (Josh: "It looks terrible and it's
    gigantic"). */
@@ -1319,7 +1275,7 @@ button.uprime:focus-visible, .btn.uprime:focus-visible { outline: 2px solid var(
    .9em/1.75em padding, 10px radius). Scoped to `.big` rather than widened onto
    every `.uprime`, because this is the create flow's weight and not a change to
    every primary button in the product. */
-.btn.uprime.big { font-size: 1.0625rem; padding: .9em 1.75em; border-radius: 999px; }   /* #4059: a pill, like every gold primary */
+.btn.uprime.big { font-size: 1.0625rem; padding: .9em 1.75em; border-radius: 10px; }
 .sfoot { margin-top: var(--space-8); display: flex; justify-content: flex-end; }
 /* #2923: the project-settings save confirmation sits to the LEFT of Save
    changes (Josh 6.59 QA: "Saved." below the button was easy to miss). The
@@ -3269,6 +3225,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .setrow b { font-size: .9375rem; }
 .setrow.off { opacity: .6; }
 .setrow.off .toggle { pointer-events: none; }
+/* #4405 (Josh): his small round picture beside the Kosmos Guide switch, so the row stands out. */
+.setrow .asb-row-who { display: inline-flex; align-items: center; gap: 8px; }
+.setrow .asb-row-pic { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: none; }
 /* #3508: the Prompter's in-app check-in list. Minimal, in-lane; a fuller placement is
    Mona's polish. Reuses .dlab/.dhint tokens so it matches the rest of Settings. */
 .hb-nudges { margin-top: 6px; }
@@ -7878,11 +7837,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    so the colour never carries the state alone (kosmos#1346, same `--ok` as the found
    rows). `.added` is set by addImportedInPlace, not baked into the label. */
 #firstrun .fr-importrow .btn.uprime,
-#import-found .fr-importrow .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a; }   /* #4059: polished gold */
-#firstrun .fr-importrow .btn.uprime:not(.added):hover,
-#import-found .fr-importrow .btn.uprime:not(.added):hover { background: var(--gold-polished-hover); }
+#import-found .fr-importrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
 #firstrun .fr-importrow .fr-importgo.added,
-#import-found .fr-importrow .fr-importgo.added { opacity: 1; border-radius: var(--radius-control); color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
+#import-found .fr-importrow .fr-importgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
 .fr-importrow .fr-importgo.added::before { content: '\2713'; margin-right: 6px; font-weight: 700; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
@@ -8000,6 +7957,7 @@ svg { display: block; }
   border-radius: var(--radius-control);   /* `--radius-sm` does not exist; this is the defined one */
 }
 
+#d-instr-prev .linkish { font-size: inherit; }   /* #4406: the restore link reads at its sentence's size */
 #d-instr {
   width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px;
   font: var(--text-body) var(--font-ui); line-height: 1.5;
@@ -8707,8 +8665,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    📌 #3048: this used to cover the home board panel too (#found-list/#scan-list,
    which `foundRowsHtml` also painted); those were removed with the home discovery
    markup, so the rule is now #firstrun-scoped. */
-#firstrun .fr-foundrow .btn.uprime { background: var(--gold-polished); border-color: transparent; color: #14161a; }   /* #4059: polished gold */
-#firstrun .fr-foundrow .btn.uprime:not(.added):hover { background: var(--gold-polished-hover); }
+#firstrun .fr-foundrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
 /* #1938: a scan row stacks -- name/role, then the file preview full width, then the
    actions -- rather than the two-column found-row grid, because the preview needs the
    whole width and would be unreadable in a narrow left column. */
@@ -8729,7 +8686,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    `textContent` is exactly "Added" (render-found-undo.js, render-found-board.js);
    putting the glyph in the string would have forced both to be loosened, which is
    how a guard quietly stops guarding. The word is unchanged, the mark is added. */
-#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; border-radius: var(--radius-control); color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; box-shadow: none; --gold-light: 0; }
+#firstrun .fr-foundrow .fr-foundgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
 /* 🔑 GREEN WITH A CHECK (kosmos#1346), Josh: the Added state should read as clearly
    done. `--ok` rather than a new value, because this file already measured it at
    5.32:1 and its own note says "we already use this green" is not a measurement:
@@ -9274,7 +9231,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    rather than raising .uprime globally, which would repaint buttons on screens
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
-#firstrun .fr-confirm .btn.uprime { background: var(--gold-polished); color: #14161a; border-color: transparent; }   /* #4059: polished gold */
+#firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
 /* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
    finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
    and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
@@ -9286,7 +9243,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
    the key step are the same buttons and drew the same blue. */
 #acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-#firstrun .fr-confirm .btn.uprime:hover { background: var(--gold-polished-hover); }
+#firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
    as one more quiet line of body copy. The plain #firstrun .fr-msg colour is the
@@ -9827,7 +9784,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    leave no sign of focus or of the current box: give the current box a thick system-colour edge. */
 @media (forced-colors: active) { #plus-state2 .otp-cell.on { border: 3px solid Highlight; } }
 #plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-#plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; box-shadow: none; --gold-light: 0; }   /* #4059: blue, so no gold light */
+#plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
 #plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
 #plus-state2 .btn.uprime:disabled { opacity: .55; filter: none; }
 #plus-state2 .btn:not(.uprime) { background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; }
@@ -10212,280 +10169,6 @@ window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
   window.addEventListener('focus', window.kosmosMeasureScrollbarWidth);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) window.kosmosMeasureScrollbarWidth(); });
-})();
-</script>
-<!-- #4059: the liquid light on the gold buttons. Its own attributed block, like
-     push-client, so the page tests' bare-script extractor never sees it.
-     Self-contained: it reads nothing of the app's state, only the DOM, and at load it only
-     adds delegated listeners on document, so it runs the same from here as from the end of
-     the body. ⚠️ IT LIVES IN THE HEAD ON PURPOSE (and this note names no tags, because the
-     row counter finds the body by its opening tag's text): every direct child of the body costs one of the
-     consolidated layout's 39 pre-rail auto rows (web.consolidated-980.test.js counts scripts
-     too), main uses all 39 (the 39th is #4356's first screen), and one more child means widening that layout, a FIVE-site
-     renumbering. A script needs no row, so it goes where it takes none. -->
-<script id="gold-light">
-(function () {
-  'use strict';
-  /* THE SIZE OF THE LIGHT, in the study's own units (kosmos#4059): the light's radius is
-     .0035 x this, and its brightness per push scales by this to the power -0.15, so a bigger
-     light does not wash out to white. Josh's three sizes from the study: 2 ("Slightly larger"),
-     3.3 ("Larger", the one built) and 5.3 ("Boldest"). Change this one number to change it. */
-  var GOLD_LIGHT_SIZE = 3.3;
-  /* How long the light lingers after the last push before the loop stops and the canvas goes
-     (the dye fades by about 99% in this time, so nothing visible is cut off). A pointer resting
-     still on the button counts as no push, so a resting pointer runs no GPU work either; the
-     next move brings the light back. */
-  var LINGER_MS = 12000;
-  var WHITE_GOLD = [1.0, 0.86, 0.52];   // the bright streak in the reference frames
-  var FEEL = { curl: 26, velDiss: 0.2, dyeDiss: 0.36 };
-
-  /* A tiny stable-fluids simulation (advection, swirl, pressure), from the approved study.
-     ONE WebGL context for the whole app: browsers cap live contexts at about 16, and the app
-     shows far more gold buttons than that, so the one canvas moves to the button under the
-     pointer and resizes its buffers there. */
-  var VS = 'precision highp float; attribute vec2 aPos; varying vec2 vUv, vL, vR, vT, vB; uniform vec2 texel;'
-    + ' void main(){ vUv = aPos*.5+.5; vL = vUv-vec2(texel.x,0.); vR = vUv+vec2(texel.x,0.); vT = vUv+vec2(0.,texel.y); vB = vUv-vec2(0.,texel.y); gl_Position = vec4(aPos,0.,1.); }';
-  var FS = {
-    splat: 'precision highp float; varying vec2 vUv; uniform sampler2D target; uniform float aspect, radius; uniform vec3 color; uniform vec2 point;'
-      + ' void main(){ vec2 p = vUv-point; p.x *= aspect; vec3 s = exp(-dot(p,p)/radius)*color; gl_FragColor = vec4(texture2D(target,vUv).xyz+s,1.); }',
-    advect: 'precision highp float; varying vec2 vUv; uniform sampler2D vel, src; uniform vec2 texel; uniform float dt, diss, cap;'
-      + ' void main(){ vec2 c = vUv - dt*texture2D(vel,vUv).xy*texel; vec4 v = texture2D(src,c)/(1.+diss*dt); gl_FragColor = cap > 0. ? min(v, vec4(cap)) : v; }',
-    curl: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel;'
-      + ' void main(){ float L=texture2D(vel,vL).y, R=texture2D(vel,vR).y, T=texture2D(vel,vT).x, B=texture2D(vel,vB).x; gl_FragColor = vec4(.5*(R-L-T+B),0.,0.,1.); }',
-    /* Josh 09-27 ("after 15 seconds it freaks out"): the speed is capped at 80, so play can
-       never wind it up. The dye is capped too (advect's cap, 1.6, below). */
-    vort: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel, curl; uniform float amount, dt;'
-      + ' void main(){ float L=texture2D(curl,vL).x, R=texture2D(curl,vR).x, T=texture2D(curl,vT).x, B=texture2D(curl,vB).x, C=texture2D(curl,vUv).x;'
-      + ' vec2 f = .5*vec2(abs(T)-abs(B), abs(R)-abs(L)); f /= length(f)+.0001; f *= amount*C; f.y *= -1.;'
-      + ' vec2 v = texture2D(vel,vUv).xy + f*dt; float l = length(v); if (l > 80.) v *= 80./l;'
-      + ' gl_FragColor = vec4(v, 0., 1.); }',
-    div: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D vel;'
-      + ' void main(){ float L=texture2D(vel,vL).x, R=texture2D(vel,vR).x, T=texture2D(vel,vT).y, B=texture2D(vel,vB).y; gl_FragColor = vec4(.5*(R-L+T-B),0.,0.,1.); }',
-    fade: 'precision highp float; varying vec2 vUv; uniform sampler2D src; uniform float value; void main(){ gl_FragColor = value*texture2D(src,vUv); }',
-    pressure: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D pres, divg;'
-      + ' void main(){ float L=texture2D(pres,vL).x, R=texture2D(pres,vR).x, T=texture2D(pres,vT).x, B=texture2D(pres,vB).x, D=texture2D(divg,vUv).x; gl_FragColor = vec4((L+R+B+T-D)*.25,0.,0.,1.); }',
-    grad: 'precision highp float; varying vec2 vUv, vL, vR, vT, vB; uniform sampler2D pres, vel;'
-      + ' void main(){ float L=texture2D(pres,vL).x, R=texture2D(pres,vR).x, T=texture2D(pres,vT).x, B=texture2D(pres,vB).x; gl_FragColor = vec4(texture2D(vel,vUv).xy - vec2(R-L,T-B), 0., 1.); }',
-    show: 'precision highp float; varying vec2 vUv; uniform sampler2D dye;'
-      + ' void main(){ vec3 c = texture2D(dye,vUv).rgb; c = c/(1.+c*.6); float a = max(c.r,max(c.g,c.b)); gl_FragColor = vec4(c, a); }'
-  };
-
-  /* The simulation on one canvas. Programs compile once; size() rebuilds the buffers for the
-     button the canvas is on (its aspect is the button's). Returns null when WebGL, or a float
-     texture it needs, is missing, and the caller falls back to the CSS hover alone. */
-  function makeFluid(canvas) {
-    var gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: false });
-    if (!gl) return null;
-    var half = gl.getExtension('OES_texture_half_float'), halfLin = gl.getExtension('OES_texture_half_float_linear');
-    var flt = gl.getExtension('OES_texture_float'), fltLin = gl.getExtension('OES_texture_float_linear');
-    var TYPE = half ? half.HALF_FLOAT_OES : (flt ? gl.FLOAT : null);
-    if (!TYPE) return null;
-    var LIN = (half && halfLin) || (!half && flt && fltLin) ? gl.LINEAR : gl.NEAREST;
-    function prog(fs) {
-      var p = gl.createProgram(), pairs = [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, fs]];
-      for (var i = 0; i < pairs.length; i++) {
-        var s = gl.createShader(pairs[i][0]); gl.shaderSource(s, pairs[i][1]); gl.compileShader(s);
-        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) return null;
-        gl.attachShader(p, s);
-      }
-      gl.bindAttribLocation(p, 0, 'aPos'); gl.linkProgram(p);
-      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
-      var u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
-      for (var j = 0; j < n; j++) { var name = gl.getActiveUniform(p, j).name; u[name] = gl.getUniformLocation(p, name); }
-      return { p: p, u: u };
-    }
-    var P = {};
-    for (var k in FS) { P[k] = prog(FS[k]); if (!P[k]) return null; }
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, -1, 1, 1, 1, 1, -1]), gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), gl.STATIC_DRAW);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(0);
-    var made = [];   // this size's textures and framebuffers, freed on the next size()
-    function fbo(w, h) {
-      var tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, LIN); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, LIN);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, TYPE, null);
-      var f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-      gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-      made.push({ tex: tex, f: f });
-      return { tex: tex, f: f, w: w, h: h };
-    }
-    function dbl(w, h) {
-      var a = fbo(w, h), b = fbo(w, h);
-      return { get r() { return a; }, get w() { return b; }, swap: function () { var t = a; a = b; b = t; }, tw: 1 / w, th: 1 / h };
-    }
-    var aspect = 1, vel, dye, pres, divg, curl;
-    function size() {
-      for (var i = 0; i < made.length; i++) { gl.deleteTexture(made[i].tex); gl.deleteFramebuffer(made[i].f); }
-      made = [];
-      aspect = canvas.width / canvas.height;
-      var simH = 32, simW = Math.max(1, Math.round(simH * aspect)), dyeH = 128, dyeW = Math.max(1, Math.round(dyeH * aspect));
-      vel = dbl(simW, simH); dye = dbl(dyeW, dyeH); pres = dbl(simW, simH); divg = fbo(simW, simH); curl = fbo(simW, simH);
-      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
-    }
-    function bindTex(unit, t) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t.tex); return unit; }
-    function draw(target) {
-      if (target) { gl.viewport(0, 0, target.w, target.h); gl.bindFramebuffer(gl.FRAMEBUFFER, target.f); }
-      else { gl.viewport(0, 0, canvas.width, canvas.height); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
-      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
-    }
-    function use(key, tw, th) { gl.useProgram(P[key].p); if (P[key].u.texel) gl.uniform2f(P[key].u.texel, tw, th); return P[key].u; }
-    if (!size()) return null;
-    return {
-      size: size,
-      splat: function (x, y, dx, dy, color, radius) {
-        var u = use('splat', vel.tw, vel.th);
-        gl.uniform1i(u.target, bindTex(0, vel.r)); gl.uniform1f(u.aspect, aspect); gl.uniform2f(u.point, x, y);
-        gl.uniform3f(u.color, dx, dy, 0); gl.uniform1f(u.radius, radius); draw(vel.w); vel.swap();
-        u = use('splat', dye.tw, dye.th);
-        gl.uniform1i(u.target, bindTex(0, dye.r)); gl.uniform1f(u.aspect, aspect); gl.uniform2f(u.point, x, y);
-        gl.uniform3f(u.color, color[0], color[1], color[2]); gl.uniform1f(u.radius, radius); draw(dye.w); dye.swap();
-      },
-      step: function (dt, o) {
-        gl.disable(gl.BLEND);
-        var u = use('curl', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); draw(curl);
-        u = use('vort', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.curl, bindTex(1, curl)); gl.uniform1f(u.amount, o.curl); gl.uniform1f(u.dt, dt); draw(vel.w); vel.swap();
-        u = use('div', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); draw(divg);
-        u = use('fade', vel.tw, vel.th); gl.uniform1i(u.src, bindTex(0, pres.r)); gl.uniform1f(u.value, 0.8); draw(pres.w); pres.swap();
-        u = use('pressure', vel.tw, vel.th); gl.uniform1i(u.divg, bindTex(1, divg));
-        for (var i = 0; i < 16; i++) { gl.uniform1i(u.pres, bindTex(0, pres.r)); draw(pres.w); pres.swap(); }
-        u = use('grad', vel.tw, vel.th); gl.uniform1i(u.pres, bindTex(0, pres.r)); gl.uniform1i(u.vel, bindTex(1, vel.r)); draw(vel.w); vel.swap();
-        u = use('advect', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.src, bindTex(0, vel.r)); gl.uniform1f(u.dt, dt); gl.uniform1f(u.diss, o.velDiss); gl.uniform1f(u.cap, 0); draw(vel.w); vel.swap();
-        u = use('advect', vel.tw, vel.th); gl.uniform1i(u.vel, bindTex(0, vel.r)); gl.uniform1i(u.src, bindTex(1, dye.r)); gl.uniform1f(u.dt, dt); gl.uniform1f(u.diss, o.dyeDiss); gl.uniform1f(u.cap, 1.6); draw(dye.w); dye.swap();
-        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-        u = use('show', 0, 0); gl.uniform1i(u.dye, bindTex(0, dye.r)); gl.clearColor(0, 0, 0, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT); draw(null);
-      }
-    };
-  }
-
-  var canvas = null, sim = null, dead = false;   // dead: WebGL is unavailable here, so the CSS hover is all there is
-  var host = null, hostPos = null, last = null, pend = null, raf = 0, prev = 0, lastPush = 0;
-  var ptX = -1, ptY = -1;   // where the pointer last was, for a repaint that swaps the host out from under it
-  var reduceQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
-
-  /* A GOLD primary: .uprime, enabled, and not repainted by its surface (the blue ask card and
-     Kosmos+ set --gold-light to 0 in the CSS, and so does a found row's Added state). */
-  function goldOf(t) {
-    var b = t && t.closest ? t.closest('.uprime') : null;
-    if (!b || b.disabled) return null;
-    return getComputedStyle(b).getPropertyValue('--gold-light').trim() === '1' ? b : null;
-  }
-  function at(b, e) {
-    var r = b.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width, y: 1 - (e.clientY - r.top) / r.height };
-  }
-  function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; }
-  function detach() {
-    stop();
-    if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-    if (host) { host.classList.remove('gold-lit'); if (hostPos !== null) host.style.position = hostPos; }
-    host = null; hostPos = null; last = null; pend = null;
-  }
-  function attach(b) {
-    if (dead || (reduceQ && reduceQ.matches)) return false;
-    if (host === b) return true;
-    detach();
-    var r = b.getBoundingClientRect();
-    if (r.width < 4 || r.height < 4) return false;
-    try {
-      if (!canvas) {
-        canvas = document.createElement('canvas');
-        canvas.className = 'gold-light';
-        canvas.setAttribute('aria-hidden', 'true');
-        canvas.addEventListener('webglcontextlost', function () { dead = true; detach(); });
-      }
-      var dpr = Math.min(2, window.devicePixelRatio || 1);
-      canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
-      /* The canvas is placed against the button, so a static button becomes relative while it
-         hosts (a button already positioned keeps its own position; nothing moves either way). */
-      hostPos = getComputedStyle(b).position === 'static' ? b.style.position : null;
-      if (hostPos !== null) b.style.position = 'relative';
-      b.classList.add('gold-lit');
-      b.insertBefore(canvas, b.firstChild);
-      host = b;
-      if (!sim) { sim = makeFluid(canvas); if (!sim) { dead = true; detach(); return false; } }
-      else if (!sim.size()) { dead = true; detach(); return false; }
-    } catch (err) {
-      dead = true; detach(); return false;   // never throw from a hover
-    }
-    lastPush = performance.now();
-    return true;
-  }
-  /* A repaint rebuilt the lit button under a pointer that has not moved (the empty board's "Create your
-     first agent" is repainted on every poll): carry the light to the new copy instead of dropping it.
-     At the same size the canvas simply moves and the light goes on as it was; otherwise it restarts. */
-  function rehost() {
-    var nb = ptX < 0 ? null : goldOf(document.elementFromPoint(ptX, ptY));
-    if (!nb || nb === host || !nb.isConnected) return false;
-    var r = nb.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1), was = last, keep = lastPush;
-    if (Math.max(1, Math.round(r.width * dpr)) === canvas.width && Math.max(1, Math.round(r.height * dpr)) === canvas.height) {
-      /* The old host may still be on the page (only its canvas was taken): give it back what detach() would. */
-      host.classList.remove('gold-lit'); if (hostPos !== null) host.style.position = hostPos;
-      hostPos = getComputedStyle(nb).position === 'static' ? nb.style.position : null;
-      if (hostPos !== null) nb.style.position = 'relative';
-      nb.classList.add('gold-lit');
-      nb.insertBefore(canvas, nb.firstChild);
-      host = nb;
-      return true;
-    }
-    if (!attach(nb)) return false;
-    last = was; lastPush = keep;
-    return true;
-  }
-  function frame(now) {
-    raf = 0;
-    /* Nothing visible, nothing drawn: the host left the page or was hidden, the canvas was
-       taken out by a repaint of the button, or the light has faded with the pointer gone. */
-    if (host && last && (!host.isConnected || canvas.parentNode !== host)) rehost();
-    if (!host || !host.isConnected || !host.getClientRects().length || canvas.parentNode !== host
-        || (reduceQ && reduceQ.matches) || now - lastPush > LINGER_MS) { detach(); return; }
-    var dt = Math.min(0.033, Math.max(0, (now - prev) / 1000)); prev = now;
-    try {
-      if (pend) {
-        var x = pend.x, y = pend.y, dx = pend.dx, dy = pend.dy; pend = null;
-        var m = Math.hypot(dx, dy); if (m > 400) { dx *= 400 / m; dy *= 400 / m; }   // one push per frame, capped
-        var kk = Math.min(1, Math.hypot(dx, dy) / 60) * 0.55 + 0.12;
-        var sc = kk * Math.pow(GOLD_LIGHT_SIZE, -0.15);
-        sim.splat(x, y, dx, dy, [WHITE_GOLD[0] * sc, WHITE_GOLD[1] * sc, WHITE_GOLD[2] * sc], 0.0035 * GOLD_LIGHT_SIZE);
-        lastPush = now;
-      }
-      sim.step(dt, FEEL);
-    } catch (err) { dead = true; detach(); return; }
-    raf = requestAnimationFrame(frame);
-  }
-  function run() { if (!raf && host) { prev = performance.now(); raf = requestAnimationFrame(frame); } }
-
-  document.addEventListener('pointerover', function (e) {
-    ptX = e.clientX; ptY = e.clientY;
-    var b = goldOf(e.target);
-    if (!b || b === host) return;
-    if (attach(b)) { last = at(b, e); run(); }
-  }, true);
-  document.addEventListener('pointermove', function (e) {
-    ptX = e.clientX; ptY = e.clientY;
-    var b = goldOf(e.target);
-    if (!b) return;
-    if (b !== host) { if (!attach(b)) return; last = at(b, e); run(); return; }
-    var p = at(b, e);
-    /* Gathered and applied once per frame (a fast mouse sends several moves a frame). */
-    if (last) { var q = pend || { dx: 0, dy: 0 }; pend = { x: p.x, y: p.y, dx: q.dx + (p.x - last.x) * 1800, dy: q.dy + (p.y - last.y) * 900 }; }
-    last = p; lastPush = performance.now(); run();
-  }, true);
-  document.addEventListener('pointerout', function (e) {
-    if (host && (e.target === host || host.contains(e.target)) && !(e.relatedTarget && host.contains(e.relatedTarget))) last = null;   // leaves: the light lingers, then fades
-  }, true);
-  document.addEventListener('pointerdown', function (e) {
-    var b = goldOf(e.target);
-    if (!b || b !== host || !last || !sim) return;
-    var sc = 0.9 * Math.pow(GOLD_LIGHT_SIZE, -0.12);
-    try { sim.splat(last.x, last.y, 0, 0, [WHITE_GOLD[0] * sc, WHITE_GOLD[1] * sc, WHITE_GOLD[2] * sc], 0.012 * Math.sqrt(GOLD_LIGHT_SIZE)); } catch (err) { dead = true; detach(); return; }
-    lastPush = performance.now(); run();
-  }, true);
-  /* What render-gold-buttons-4059.js reads: whether the loop runs, and on which button. */
-  window.goldLightState = function () { return { size: GOLD_LIGHT_SIZE, running: raf !== 0, host: host, dead: dead }; };
 })();
 </script>
 </head>
@@ -11493,8 +11176,11 @@ window.kosmosMeasureScrollbarWidth();
          CLAUDE.md.previous", which is both jargon and, on a non-Claude agent,
          simply the wrong name. What the reader needs is that the old version
          still exists, not what it is called. -->
-    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost.</div>
+    <div class="fpath" id="d-instr-prev" hidden>The previous version is kept alongside it, so nothing you replace is lost. <button class="linkish" id="d-instr-prev-load" type="button">Put the previous version in the box</button></div>
     <div class="fmsg" id="d-instr-msg" role="status" aria-live="polite"></div>
+    <!-- #4406: while the box loads it says so with the loading mark, never an empty box; a failed load offers a retry. -->
+    <p class="dhint" id="d-instr-loading" role="status" aria-live="polite" hidden style="margin:6px 0 0;"><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Loading instructions…</p>
+    <div class="frow" id="d-instr-retry-row" hidden style="margin-top:6px;"><button class="btn" id="d-instr-retry" type="button">Try again</button></div>
   </div>
   </section>
   </section>
@@ -16021,8 +15707,9 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
-           so both ways of getting help live together. The assistant's first x points here. The row
-           shows only when a setup guide exists (asbPaintSetting). -->
+           so both ways of getting help live together. The assistant's first x points here. #4405: the row
+           shows whenever first run is over, guide or not: switching it on is how a person GETS a guide
+           (none was ever made, or it was removed). asbPaintSetting. -->
       <h3 class="dlab">Help</h3>
       <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
@@ -16030,11 +15717,13 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
       <div class="setrow" id="asb-row" hidden>
-        <div><b>Setup assistant</b>
-          <p class="dhint" style="margin:2px 0 0;">Josh's face in the corner. Click it for help setting up Kosmos on whatever page you're on.</p></div>
-        <button class="toggle" id="asb-toggle" role="switch" aria-label="Show the setup assistant"><i></i></button>
+        <div><span class="asb-row-who"><img class="asb-row-pic" src="/icons/setup-guide-avatar.jpg" alt=""><b>Kosmos Guide</b></span>
+          <p class="dhint" style="margin:2px 0 0;">Turn this on to be able to access the Kosmos Guide from any screen and get help with it.</p></div>
+        <button class="toggle" id="asb-toggle" role="switch" aria-label="Kosmos Guide: turn it on to get help from any screen"><i></i></button>
       </div>
       <p class="dhint" id="asb-row-msg" role="status" hidden></p>
+      <!-- #4405: switched ON (the default) with no guide on this computer yet: say so, and offer the one click. -->
+      <p class="dhint" id="asb-row-state" hidden>The Kosmos Guide is not set up on this computer yet. <button type="button" class="linkish" id="asb-row-setup">Set it up now</button></p>
     </section>
 
     <section class="dbox">
@@ -17425,7 +17114,6 @@ function windowsCopyTable() {
        the one remedy that is true is a fresh sign-in. */
     updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
-    engineStaleRemedy: 'Only a restart picks it up: ' + restartKosmos,
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
     worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
     /* The Copy button beside a command a person must paste (W-14). */
@@ -19429,9 +19117,9 @@ function updateLaterSuppresses(version) {
  * staleness would compare the page against something that is not installed.
  */
 let SERVED_VERSION = null;
-/* The engine's own staleness, from the poll (#338): `{ startedAt, staleSince }`
-   where staleSince is set when a loaded engine file on disk is newer than the
-   process. Read per request, `web/index.html` is never the stale part; the
+/* The engine's own staleness, from the poll (#338): `{ startedAt, staleSince, changed, canRestart }`.
+   staleSince is set when a loaded file's CONTENT differs from what the process loaded (#4408: not its
+   time), `changed` names those files, and canRestart says whether the Restart Kosmos button can work. Read per request, `web/index.html` is never the stale part; the
    process is, and nothing on screen said so while it answered with hours-old
    code. Null until a poll says otherwise. */
 let ENGINE_STALE = null;
@@ -19624,33 +19312,112 @@ function restartHold() {
 if (typeof window !== 'undefined') window.kosmosSafeToRestart = () => {
   try { return restartHold() ? 'hold' : updateNothingToLose(); } catch { return 'unknown'; }
 };
+/* #4408: the board is restarting itself onto the code on disk. While set, the stale toast stays as
+   "Restarting" and the did-not-answer screen stands down (the board is away on purpose, as in an update). */
+let ENGINE_RESTARTING = false;
+const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the restarted board before saying so
+/* A detached restart that fails to start (spawn's error is asynchronous) is only logged by the board, which
+   keeps answering with its old start time, so the page learns of it here, at the end of this wait. That is
+   the world-switch path's behaviour too (engine/boardrestart). */
+const ENGINE_RESTART_POLL_MS = 1000;         // how often it asks whether the restarted board is back
+const ENGINE_SAID_HOLD_MS = 15 * 1000;       // how long a failure stays in the toast before the next poll repaints it
+async function engineRestartClick() {
+  const btn = document.getElementById('ut-engine-restart');
+  const toast = btn && btn.closest('.utoast');
+  const small = toast ? toast.querySelector('small') : null;
+  /* The title too: at narrow widths the toast hides its small line, and an outcome must still be read. */
+  const title = toast ? toast.querySelector('b') : null;
+  /* A failure message stays readable for a while, then the next poll repaints the accurate toast (the re-render
+     guard would otherwise keep it, since nothing it keys on changed). */
+  const said = (head) => {
+    if (title) title.textContent = head;
+    setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, ENGINE_SAID_HOLD_MS);
+  };
+  if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  /* Set before the request, so a status poll that lands while it is in flight cannot repaint an enabled button. */
+  ENGINE_RESTARTING = true;
+  /* A press after a refused one must not keep saying it could not restart while it is restarting. */
+  if (title) title.textContent = 'Kosmos is restarting';
+  const before = ENGINE_STALE && ENGINE_STALE.startedAt;
+  try {
+    const r = await fetch('/api/engine/restart', { method: 'POST' });
+    const out = await r.json().catch(() => ({}));
+    /* An update is installing and restarts the board itself: wait for that restart like our own. */
+    const updating = r.status === 409 && out && out.updating === true;
+    if (!r.ok && !updating) {
+      /* Already current (another page, or a restart that just finished): nothing to restart, so show it. */
+      if (r.status === 409 && out && out.current === true) { location.reload(); return; }
+      try { console.info('Kosmos could not restart itself: ' + String((out && out.because) || r.status)); } catch { /* no console */ }
+      ENGINE_RESTARTING = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+      /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
+      said('Kosmos could not restart itself');
+      if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
+      return;
+    }
+  } catch (e) {
+    try { console.info('Kosmos restart request failed: ' + String((e && e.message) || e)); } catch { /* no console */ }
+    ENGINE_RESTARTING = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+    said('Kosmos could not be reached');
+    if (small) small.textContent = 'Kosmos could not be reached to restart it. Try again in a moment.';
+    return;
+  }
+  /* Back when a board with a different start time answers; then the page itself reloads onto it. */
+  const until = Date.now() + ENGINE_RESTART_WAIT_MS;
+  while (Date.now() < until) {
+    await new Promise((res) => setTimeout(res, ENGINE_RESTART_POLL_MS));
+    try {
+      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      if (st && st.engine && st.engine.startedAt && st.engine.startedAt !== before) { location.reload(); return; }
+    } catch { /* the board is away while it restarts */ }
+  }
+  ENGINE_RESTARTING = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
+  said('Kosmos is taking longer than it should');
+  if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again in a moment.';
+}
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
      on disk is the one condition that makes the page-stale state moot and the
      update offer premature: restarting is the act that settles all three, so
      it is the one to ask for first. Same slot, same class, not dismissible: a
-     state, not a notice. The mechanism that would make this a button has to
-     work on a machine whose plist has no KeepAlive (the shipped one), so until
-     the updater's own stop/start path is reachable from here the remedy is
-     said in words. No version number: the merges that caused this never moved
-     one, which is why this compares files to the process and not numbers. */
+     state, not a notice. #4408 (an external tester on prod, 2026-09-28): no Terminal wording (#996). When the board can
+     restart itself it offers one Restart Kosmos button, which runs the same path a world switch does
+     (POST /api/engine/restart). No version number: the merges that caused this never moved one, which is
+     why this compares files to the process and not numbers. */
   if (ENGINE_STALE && ENGINE_STALE.staleSince) {
-    if (slot.dataset.v === 'engine') return;
-    slot.dataset.v = 'engine';
-    const since = (() => {
-      const d = new Date(ENGINE_STALE.startedAt || '');
-      return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    })();
+    /* A Kosmos+ view (a phone) is not the computer that runs Kosmos: it says so, and offers no restart of it. */
+    const remote = typeof offlineRemoteView === 'function' && offlineRemoteView();
+    const can = ENGINE_STALE.canRestart === true && !remote;
+    const where = remote ? 'on your Kosmos computer' : 'on this computer';
+    /* #4408: say WHAT changed and that it changed on this computer. the tester's banner came from an agent editing
+       an installed file, not an update, so "finish updating" would have been false. */
+    const changed = Array.isArray(ENGINE_STALE.changed) ? ENGINE_STALE.changed.filter((f) => typeof f === 'string' && f) : [];
+    const what = changed.length
+      ? (changed.length > 1 ? 'Kosmos files were changed ' : 'A Kosmos file was changed ') + where + ' (' + esc(changed[0]) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '')
+        + '), and Kosmos is still running the old copy.'
+      : 'A Kosmos file was changed ' + where + ', and Kosmos is still running the old copy.';
+    const key = can ? 'engine-btn' : 'engine';
+    const names = changed.join('|');
+    if ((slot.dataset.v === key && slot.dataset.changed === names) || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) return;
+    slot.dataset.v = key;
+    slot.dataset.changed = names;
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>Kosmos changed on disk</b><small>'
-      + (since ? 'The board is running code from ' + esc(since) + '. ' : 'The board is running older code. ')
-      + (onWindows()
-        ? windowsCopy('engineStaleRemedy')
-        : 'Only a restart picks it up: <code>kosmos restart</code>')
+      + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>'
+      + what + ' '
+      + (can ? 'A restart picks it up. Your agents keep running.'
+        /* A phone looking at a board that can restart itself: true, and where to do it. */
+        : remote && ENGINE_STALE.canRestart === true ? 'Restart it from Kosmos on that computer to pick it up. Your agents keep running.'
+        /* No remedy promised: this is a board that cannot restart itself, and which step would work
+           (a sign-in, a login item, a hand start) depends on how it was started. */
+        : 'Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.')
       + '</small></div>'
+      + (can ? '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div>' : '')
       + '</div>';
+    if (can) document.getElementById('ut-engine-restart').addEventListener('click', () => engineRestartClick());
     return;
   }
   /* #3955 (Josh: "You're looking at the previous version. That doesn't make sense"; Mona Lisa's
@@ -20415,6 +20182,9 @@ function paintOfflineNote(down, deviceIsOffline) {
     delete slot.dataset.on;
     return;
   }
+  /* #4408: the board is away because the person asked it to restart; "not answering, open Kosmos" would ask
+     them for a step they must not take. Their own connection being down is still true, so that note stays. */
+  if (!deviceIsOffline && typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING) return;
   /* #718 state 1: the note says which end is offline, and a change of end is a change of
      message, so the key is which one it is saying rather than only that it is saying one. */
   const which = deviceIsOffline ? 'device' : 'mac';
@@ -20521,7 +20291,8 @@ function paintRestartScreen(down, deviceIsOffline) {
      down afterwards gets a fresh wait rather than the screen on the very next poll. */
   /* #4356: nor while Connect on the first screen stops this board on purpose (FR_CHOICE_CONNECTING). */
   if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING
-      || (typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING)) {
+    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)
+    || (typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING)) {
     BOARD_NO_ANSWER_SINCE = null;
     if (shown) {
       shown.remove();
@@ -21118,6 +20889,7 @@ async function tick() {
           document.getElementById('d-instr').disabled = true;
           document.getElementById('d-instr-save').disabled = true;
           document.getElementById('d-instr-foot').hidden = true;
+          document.getElementById('d-instr-prev').hidden = true;   // #4406: its restore could not finish either
         }
         // If the poll cannot see a version (the file became unreadable), say
         // nothing new rather than RETRACTING a notice that was true. Hiding it
@@ -32961,7 +32733,8 @@ function openDetail(sessionName, section, fromProject) {
   // agent…" (an aria-live region) on the new agent's panel until the superseded reload
   // settled. openDetail runs only on a real agent open, never on the poll, so this
   // cannot hide the loader during the update's own reload.
-  document.getElementById('d-instr-updating').hidden = true;
+  for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
+  document.getElementById('d-instr').placeholder = '';
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
@@ -35356,7 +35129,9 @@ function setWritesOffered(a, tied) {
   const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
-    if (el) el.disabled = !tied;
+    /* #4406: the instructions box and Save also wait for their content. This runs on every 5 s poll, and turning
+       them on mid-load left an empty, editable box whose typing the landing load then replaced. */
+    if (el) el.disabled = !tied || ((id === 'd-instr' || id === 'd-instr-save') && !INSTR_READY);
   }
   const fileBtn = document.getElementById('d-file-btn');
   if (fileBtn) { if (tied) fileBtn.removeAttribute('aria-describedby'); else fileBtn.setAttribute('aria-describedby', 'd-untied'); }
@@ -35364,11 +35139,11 @@ function setWritesOffered(a, tied) {
   if (!tied) {
     // Clear, don't just disable. A disabled textarea still SHOWS the text.
     const box = document.getElementById('d-instr');
-    if (box) box.value = '';
+    if (box) { box.value = ''; box.placeholder = ''; }   // #4406: no "Loading" for a load this card will not make
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -35431,6 +35206,9 @@ let INSTR_LOAD = 0;
  * for the text it is showing.
  */
 let INSTR_VERSION = null;
+/* #4406: the text the box last loaded or saved, so putting the previous version back never replaces unsaved
+   typing. */
+let INSTR_LOADED_TEXT = '';
 
 /**
  * Bumped whenever the panel's idea of the file changes: a load, or a save.
@@ -35528,6 +35306,17 @@ async function loadInstructions(sessionName) {
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
   renderStale(null);
+  /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
+     hold the answer for a while). It says it is loading until the answer lands, whichever way. */
+  box.placeholder = 'Loading instructions…';
+  /* Update's reload (#3050) already shows its own loader in #d-instr-updating; one is enough. */
+  document.getElementById('d-instr-loading').hidden = !document.getElementById('d-instr-updating').hidden;
+  { const rr = document.getElementById('d-instr-retry-row');
+    if (rr.contains(document.activeElement)) {
+      // Not the box: it is disabled for the load and cannot take focus. The status line can.
+      const m = document.getElementById('d-instr-msg'); m.tabIndex = -1; m.focus();
+    }
+    rr.hidden = true; }
 
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/instructions?t=' + Date.now(),
@@ -35540,10 +35329,13 @@ async function loadInstructions(sessionName) {
     // on B's panel. A new sibling does not inherit the guard; this one
     // now guards the whole family below it.
     if (mine !== INSTR_LOAD) return; // a newer agent is open; this answer is for the old one
-    if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    if (!CURRENT || CURRENT.sessionName !== sessionName) { document.getElementById('d-instr-loading').hidden = true; box.placeholder = ''; return; }
     if (!res.ok) throw new Error(data.error || 'that did not work');
 
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
     box.value = data.text || '';
+    INSTR_LOADED_TEXT = box.value;   // #4406: what an unsaved edit is measured against
     // Remember which version this is, so Save can refuse to clobber an edit
     // made after this load.
     INSTR_VERSION = data.version || null;
@@ -35583,7 +35375,9 @@ async function loadInstructions(sessionName) {
     // the engine was restructured to remove, moved into the browser.
     if (!data.exists) {
       if (data.editable) {
-        msg.textContent = 'There is no instruction file for this one yet.';
+        msg.textContent = data.hasPrevious   // #4406: the file is gone but its previous version is kept
+          ? 'There is no instruction file for this one right now. The previous version is kept, and can go back in the box.'
+          : 'There is no instruction file for this one yet.';
       } else {
         msg.textContent = 'This cannot be edited from this screen: '
           + (data.because || 'we cannot read it') + '.';
@@ -35598,9 +35392,17 @@ async function loadInstructions(sessionName) {
       }
     }
     renderStale(data.staleness);
+    /* #4406: Try again moved focus to the status line, which this load rewrites: the box when it ended editable,
+       else the line stays (never the page). */
+    if (document.activeElement === msg && !box.disabled) box.focus();
     loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
+    box.placeholder = '';
+    document.getElementById('d-instr-loading').hidden = true;
+    // #4406: another agent opened (an untied one bumps no load token): its card gets nothing from this load.
+    if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+    document.getElementById('d-instr-retry-row').hidden = false;   // a way to ask again, beside the sentence
     // The load is finished and broken, which is a different state from "still
     // in flight" and gets a different sentence. It leaves INSTR_READY false, so
     // Save stays refused: we have no version, and saving without one would be
@@ -35992,6 +35794,45 @@ function renderStale(s) {
   return;
 }
 
+/* #4406: a failed load is asked again for the agent on screen. */
+document.getElementById('d-instr-retry').addEventListener('click', () => {
+  if (CURRENT && CURRENT.sessionName && CURRENT.isNamedOurs) loadInstructions(CURRENT.sessionName);
+});
+/* #4406: put the kept previous version in the box. Writes nothing: the person's Save keeps it, with the version
+   this box loaded, and that Save keeps today's text as the new previous version, so this can be undone the same
+   way. A read that answers after another agent was opened is dropped. */
+document.getElementById('d-instr-prev-load').addEventListener('click', async () => {
+  const box = document.getElementById('d-instr');
+  const msg = document.getElementById('d-instr-msg');
+  const who = CURRENT && CURRENT.sessionName;
+  if (!who) return;
+  if (!INSTR_READY || box.disabled) { msg.textContent = 'These instructions cannot be edited right now, so the previous version cannot be put in the box.'; return; }
+  // Never over the person's unsaved typing: a script-set value cannot be undone with the keyboard.
+  if (box.value !== INSTR_LOADED_TEXT) {
+    msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';
+    return;
+  }
+  const forLoad = INSTR_LOAD;
+  let data = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/instructions/previous?t=' + Date.now(), { cache: 'no-store' });
+    data = await res.json().catch(() => null);
+    if (!res.ok) data = null;
+  } catch { data = null; }
+  if (!CURRENT || CURRENT.sessionName !== who || INSTR_LOAD !== forLoad || !INSTR_READY || box.disabled) return;   // the box moved on
+  // Asked again after the wait: the person may have typed while the previous version was being read.
+  if (box.value !== INSTR_LOADED_TEXT) {
+    msg.textContent = 'The box has changes that are not saved. Save them, or reopen this agent to drop them, before putting the previous version back.';
+    return;
+  }
+  if (!data || !data.exists) {
+    msg.textContent = 'The previous version could not be read' + (data && data.because ? ': ' + data.because : '') + '.';
+    return;
+  }
+  box.value = data.text || '';
+  msg.textContent = 'This is the kept previous version. Nothing is saved until you press Save.';
+  box.focus();
+});
 document.getElementById('d-instr-save').addEventListener('click', async () => {
   if (!CURRENT) return;
   const msg = document.getElementById('d-instr-msg');
@@ -36048,6 +35889,7 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || 'that did not work');
     msg.textContent = 'Saved.';
     INSTR_VERSION = data.version || null;
+    INSTR_LOADED_TEXT = text;   // #4406: the box now holds what is saved
     INSTR_EPOCH += 1;
     // ⚠️ Updating INSTR_VERSION above is what stops the very next poll deciding
     // the file has "changed since you opened it" and telling the person to
@@ -64134,7 +63976,11 @@ async function asbSaveSetting(patch) {
   try {
     const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
     const body = await r.json();
-    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+    if (r.ok && body && body.setupAssistant) {
+      ASB.setting = body.setupAssistant;
+      ASB.lastGuide = body.guide || null;   // #4405: what switching on did about a missing guide
+      return true;
+    }
   } catch { /* said below */ }
   return false;
 }
@@ -64283,40 +64129,131 @@ async function asbHostedSend(text) {
   asbPaint();
 }
 
-/* Settings > Computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
-function asbPaintSetting() {
-  const row = document.getElementById('asb-row');
-  if (!row) return;
-  /* Also whenever it is switched OFF: "You can turn it back on in Settings" must stay true with no assistant showing. */
-  row.hidden = !ASB.setting || !(ASB.guide || asbIsHosted() || ASB.setting.on === false);
-  if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
-  paintTipsToggle();   // the Help box shows while either of its rows does
+/* #4405: the switch shows the SETTING, ON by default for everyone (Josh 2026-09-28: "default that on so everybody
+   gets it and has to turn it off"), so a person can always record a real OFF. ON with no assistant to show yet is
+   said on its own line (#asb-row-state) with a "Set it up now" button. */
+function asbSwitchShowsOn() {
+  return !!ASB.setting && ASB.setting.on === true;
 }
-document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
-  const sw = e.currentTarget;
-  if (!ASB.setting || sw.disabled) return;
-  sw.disabled = true;
-  let ok = false;
-  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
-  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } catch { ok = false; }
+/* Look the guide up NOW, waiting out a lookup a tick already started (it may have begun before the guide existed). */
+async function asbFindNow() {
+  for (let i = 0; i < 40 && ASB.finding; i += 1) await new Promise((res) => setTimeout(res, 100));
+  ASB.nextFind = 0;
+  await asbFind();
+}
+/* #4405: switching on asked the board to make the guide and it could not: say why in one line. */
+function asbSayNotMade(made) {
   const m = document.getElementById('asb-row-msg');
-  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
-  asbPaintSetting();
-  /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
+  if (!m) return;
+  const noModel = made.state === 'no-model';
+  const deadModel = made.state === 'no-usable-model';
+  /* names-taken is final until the board restarts (engine/setup-assistant.js namesTaken), so "in a moment" would be false. */
+  const taken = made.state === 'names-taken';
+  /* 'unclear' (the board could not be sure there is no guide, so it made none) and 'seeded' (a guide was already
+     made this session) do not clear with a moment's wait either. */
+  const unclear = made.state === 'unclear';
+  const madeEarlier = made.state === 'seeded';
+  m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
+    : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
+    : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
+    : madeEarlier ? 'A Kosmos Guide was already set up on this computer. Look for it in Agents.'
+    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh, look at it in Agents.'
+    : made.because ? made.because
+    : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
+  m.hidden = false;
+  m.dataset.notMade = '1';   // cleared by asbPaintSetting once a guide is here
+  if (noModel || deadModel) {
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'linkish';
+    go.id = 'asb-row-models';
+    go.textContent = 'Open AI Models';
+    go.addEventListener('click', () => settingsGo('accounts'));
+    m.append(' ', go);
+  }
+}
+/* #4405: switch the assistant ON (the switch, or "Set it up now"). With no guide on this computer the board tries
+   to make one (/api/settings) and says what happened. Each try is a real attempt: a dead sign-in costs one live
+   check per click (ensureGuide's explicit path skips the retry wait on purpose). */
+async function asbTurnOn() {
+  /* One latch for BOTH controls (the switch and Set it up now): a click on one while the other is mid-save would
+     race it (an OFF landing on an in-flight create). */
+  if (ASB.turning) return;
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
+  const release = () => { ASB.turning = false; ctls.forEach((c) => { c.disabled = false; }); };
+  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
+  ASB.lastGuide = null;
+  let ok = false;
+  try { ok = await asbSaveSetting({ on: true }); } catch { ok = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; delete m.dataset.notMade; }
+  const made = ASB.lastGuide;
+  if (ok && made && !made.seeded && !asbIsHosted()) {
+    /* A guide this page remembers may be gone (another agent took its name while it was off): confirm it first, so
+       the bubble is not drawn for an agent that is no longer there. */
+    if (ASB.guide) await asbConfirmGuide();
+    ASB.holding = false;
+    release();
+    asbSayNotMade(made);
+    asbPaintSetting();
+    return;
+  }
+  /* Ask the board who the guide is before drawing it. With no guide known to this page (one just made, or one the
+     sweep made after the page loaded) FIND it; otherwise confirm the known one, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || asbIsHosted() || await asbConfirmGuide();
+  if (ok && !ASB.guide && !asbIsHosted()) await asbFindNow();
+  const confirmed = !ok || asbIsHosted() || (ASB.guide ? await asbConfirmGuide() : false);
   ASB.holding = false;
-  sw.disabled = false;   // only now: a second click mid-check would start a second hold
-  if (!confirmed && asbIsHosted()) { asbPaint(); asbPaintSetting(); return; }   // the guide went, and the hosted assistant stands in
+  release();   // only now: a second click mid-check would start a second hold
+  asbPaintSetting();
+  if (!confirmed && asbIsHosted()) { asbPaint(); return; }   // the guide went, and the hosted assistant stands in
   if (!confirmed) {
-    /* The row goes with the guide; say why, and keep the keyboard on the page. */
-    if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
+    if (m) { m.textContent = 'The Kosmos Guide is not on this computer right now.'; m.hidden = false; }
     document.getElementById('tips-toggle')?.focus();
     return;
   }
   asbPaint();
   if (asbShows()) asbPoll(true);
+}
+/* Settings > Computer > Help: the switch shows once first run is over, whether or not a guide exists
+   (#4405: it used to need one, so a person whose guide was never made, or was removed, had no way to
+   get the assistant at all). Switching it ON with no guide makes one (the board, /api/settings). */
+function asbPaintSetting() {
+  const row = document.getElementById('asb-row');
+  if (!row) return;
+  const fr = document.getElementById('firstrun');
+  row.hidden = !ASB.setting || !!(fr && !fr.hidden);
+  if (!row.hidden) paintSwitch('asb-toggle', asbSwitchShowsOn());
+  /* #4405: ON with nothing to show yet: say so, with the one click. Gone once a guide (or the hosted one) is here. */
+  const none = !row.hidden && asbSwitchShowsOn() && !ASB.guide && !asbIsHosted();
+  const st = document.getElementById('asb-row-state');
+  if (st) st.hidden = !none || !!ASB.holding;
+  /* Any "could not set it up" line is stale once there IS a guide (made by this click or later by the sweep). */
+  const m = document.getElementById('asb-row-msg');
+  if (m && !none && m.dataset.notMade) { m.textContent = ''; m.hidden = true; delete m.dataset.notMade; }
+  paintTipsToggle();   // the Help box shows while either of its rows does
+}
+document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!ASB.setting || sw.disabled || ASB.turning) return;
+  if (!asbSwitchShowsOn()) { await asbTurnOn(); return; }
+  /* Switching OFF: recorded as the person's choice; nothing is made or removed. The same latch as asbTurnOn, so a
+     Set it up now clicked meanwhile cannot race it. */
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
+  let ok = false;
+  try { ok = await asbSaveSetting({ on: false }); } catch { ok = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  ctls.forEach((c) => { c.disabled = false; });
+  ASB.turning = false;
+  asbPaintSetting();
+  asbPaint();
 });
+document.getElementById('asb-row-setup')?.addEventListener('click', () => { asbTurnOn(); });
 
 function asbTick() {
   /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */
@@ -64325,8 +64262,12 @@ function asbTick() {
   if (ASB.frWas && !frNow) { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }
   ASB.frWas = frNow;
   if (!ASB.guide && Date.now() >= ASB.nextFind) asbFind();
-  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) { asbPaint(); asbPaintSetting(); } return; }   // stepping aside ends on a tick
-  if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
+  /* #4405: read the setting even with no guide, so the Settings switch (the way to GET one) can show. */
+  if (!ASB.setting && Date.now() >= ASB.nextSetting) asbReadSetting();
+  /* #4405: the Settings row is repainted on every tick with no guide too: the setting is usually read while first
+     run is still showing (row hidden), and nothing else repaints it once first run closes. */
+  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) asbPaint(); asbPaintSetting(); return; }   // stepping aside ends on a tick
+  if (!ASB.setting) return;
   asbPaint();
   if (!asbShows()) return;
   if (ASB.open) asbTellScreen(false);

@@ -81,6 +81,8 @@ function chk(ok, label, extra) {
     page.on('pageerror', (e) => errs.push(e.message));
     await page.goto(URL, { waitUntil: 'networkidle' });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    // The Escape can race the overlay (seen: #firstrun still took the click); close it for sure before clicking.
+    await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr && !fr.hidden && typeof frClose === 'function') frClose(); });
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
@@ -362,6 +364,157 @@ function chk(ok, label, extra) {
     await page.click('#d-nav button[data-go="instr"]');
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT, 'detail-header-1841.png'), fullPage: false });
+
+    /* ── #4406: the Instructions box while it loads, when the load fails, and the kept previous version ──
+       The page's side, with its requests answered here: this sandbox's stand-in agent is not one the server
+       treats as known, so its real route answers 404 (the route itself is tested in server.test.js, "#4406: GET instructions/previous"). */
+    /* The sandbox cannot tie its stand-in agent (isNamedOurs reads false, so openDetail never loads its box and
+       Try again refuses it, as for any untied agent). The card is marked tied here, the state a real agent's
+       Instructions tab is in; the untied case is its own arm below. */
+    const SN = await page.evaluate(() => { CURRENT.isNamedOurs = true; return CURRENT.sessionName; });   // the session name the page loads by
+    /* The board's own poll must agree, or its 5 s tick reads the stand-in as not ours and takes the editor away
+       mid-arm (measured: the arms went red depending on where a tick landed). */
+    const CARD = await page.evaluate(() => JSON.parse(JSON.stringify(CURRENT)));
+    let pollSaysNotEditable = false;   // flipped by one arm below to feed the poll's editable===false branch
+    await page.route('**/api/status*', async (route) => {
+      const r = await route.fetch(); let j = null;
+      try { j = await r.json(); } catch { return route.fulfill({ response: r }); }
+      /* Tied, and no instructions summary for the poll to act on: the real one reads the stand-in's missing file
+         as not editable and would take the editor away. And present: the sandbox board drops the stand-in between
+         ticks, which reads to the page as "this agent is no longer under Agents". A real tied agent is neither. */
+      if (j && Array.isArray(j.agents)) {
+        const at = j.agents.findIndex((a) => a && a.sessionName === SN);
+        const card = { ...(at >= 0 ? j.agents[at] : CARD), isNamedOurs: true };
+        delete card.instructions;
+        if (pollSaysNotEditable) card.instructions = { editable: false };
+        if (at >= 0) j.agents[at] = card; else j.agents.push(card);
+      }
+      return route.fulfill({ response: r, json: j });
+    });
+    const INSTR_URL = '**/api/agent/' + SN + '/instructions?*';
+    const PREV_URL = '**/api/agent/' + SN + '/instructions/previous?*';
+    const MINE = { exists: true, editable: true, text: '# Beatrix\n\nYou coordinate collections for the team.\n', version: 'v1', hasPrevious: true, staleness: null };
+    const answer = (route, body, status) => route.fulfill({ status: status || 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const held = [];
+    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { held.push(r); }); await answer(route, MINE); });
+    const release = () => { while (held.length) held.shift()(); };
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); });
+    await page.waitForTimeout(150);
+    const loading = await page.evaluate(() => {
+      const box = document.getElementById('d-instr');
+      return { line: !document.getElementById('d-instr-loading').hidden, spin: !!document.querySelector('#d-instr-loading .spin'),
+        live: document.getElementById('d-instr-loading').getAttribute('role') === 'status',
+        ph: box.placeholder, value: box.value, boxOff: box.disabled, saveOff: document.getElementById('d-instr-save').disabled };
+    });
+    await page.locator('#d-sec-instr').screenshot({ path: path.join(OUT, 'instr-loading-4406.png') });
+    chk(loading.line && loading.spin && loading.live && loading.ph === 'Loading instructions\u2026' && loading.value === '' && loading.boxOff && loading.saveOff,
+      '#4406: while the box loads it says so with the loading mark, and neither the box nor Save can be used', JSON.stringify(loading));
+    // Still so after the board's 5 s poll has run (it re-offers the card's writes on every tick).
+    await page.waitForTimeout(6000);
+    const stillLoading = await page.evaluate(() => ({ line: !document.getElementById('d-instr-loading').hidden,
+      boxOff: document.getElementById('d-instr').disabled, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(stillLoading.line && stillLoading.boxOff && stillLoading.saveOff, '#4406: and a poll tick during the load does not turn the box or Save on', JSON.stringify(stillLoading));
+    release(); await page.waitForTimeout(300); await page.unroute(INSTR_URL);
+    const landed = await page.evaluate(() => ({ line: !document.getElementById('d-instr-loading').hidden, ph: document.getElementById('d-instr').placeholder,
+      value: document.getElementById('d-instr').value, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!landed.line && landed.ph === '' && landed.value === MINE.text && !landed.saveOff, 'CONTROL: once the load lands the text shows, the loading line goes and Save is usable', JSON.stringify(landed));
+    // A load that fails says so and offers Try again, which loads again.
+    await page.route(INSTR_URL, (route) => answer(route, { error: 'x' }, 500));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    const failed = await page.evaluate(() => ({ line: !document.getElementById('d-instr-loading').hidden, retry: !document.getElementById('d-instr-retry-row').hidden,
+      msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!failed.line && failed.retry && /could not be loaded/.test(failed.msg) && failed.saveOff, '#4406: a failed load says so, offers Try again, and Save stays off', JSON.stringify(failed));
+    await page.waitForTimeout(6000);
+    const stillFailed = await page.evaluate(() => ({ boxOff: document.getElementById('d-instr').disabled, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(stillFailed.boxOff && stillFailed.saveOff, '#4406: and a poll tick after a failed load does not turn the box or Save on', JSON.stringify(stillFailed));
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.focus('#d-instr-retry'); await page.keyboard.press('Enter'); await page.waitForTimeout(400);
+    const retried = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, value: document.getElementById('d-instr').value, saveOff: document.getElementById('d-instr-save').disabled,
+      focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName) }));
+    chk(!retried.retry && retried.value === MINE.text && !retried.saveOff, '#4406: Try again loads the instructions and the retry goes away', JSON.stringify(retried));
+    chk(retried.focus === 'd-instr', '#4406: and focus lands in the box once it loads, not on the page or an emptied line', String(retried.focus));
+    // The kept previous version goes back in the box, and nothing is written until Save.
+    const PREV = '# Beatrix before\n\nThe words from before the last change.\n';
+    await page.route(PREV_URL, (route) => answer(route, { exists: true, text: PREV, because: null }));
+    const puts = [];
+    const onWrite = (r) => { if (r.method() !== 'GET' && r.method() !== 'HEAD' && /\/instructions(\/|$|\?)/.test(r.url())) puts.push(r.method() + ' ' + r.url()); };
+    page.on('request', onWrite);
+    chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), '#4406: with a previous version kept, the tab offers to put it back');
+    // CONTROL: nothing kept, nothing offered.
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, { ...MINE, hasPrevious: false }));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    chk(await page.evaluate(() => document.getElementById('d-instr-prev').hidden), 'CONTROL: with nothing kept, the tab offers nothing');
+    await page.unroute(INSTR_URL);
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    // Unsaved typing is never replaced: the button says so and leaves the box alone.
+    await page.evaluate(() => { document.getElementById('d-instr').value = 'something typed and not saved yet, by the person'; });
+    await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
+    const kept = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent }));
+    chk(kept.value === 'something typed and not saved yet, by the person' && /changes that are not saved/.test(kept.msg), '#4406: unsaved typing in the box is never replaced by the previous version', JSON.stringify(kept));
+    await page.evaluate((t) => { document.getElementById('d-instr').value = t; }, MINE.text);
+    // Typing while the previous version is being read is kept too (the guard is asked again after the wait).
+    await page.unroute(PREV_URL);
+    const heldPrev = [];
+    await page.route(PREV_URL, async (route) => { await new Promise((r) => { heldPrev.push(r); }); await answer(route, { exists: true, text: PREV, because: null }); });
+    await page.click('#d-instr-prev-load'); await page.waitForTimeout(150);
+    await page.evaluate(() => { document.getElementById('d-instr').value = 'typed while it was being read'; });
+    while (heldPrev.length) heldPrev.shift()();
+    await page.waitForTimeout(300);
+    const during = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent }));
+    chk(during.value === 'typed while it was being read' && /changes that are not saved/.test(during.msg), '#4406: typing while the previous version is being read is not replaced either', JSON.stringify(during));
+    await page.unroute(PREV_URL);
+    await page.route(PREV_URL, (route) => answer(route, { exists: true, text: PREV, because: null }));
+    await page.evaluate((t) => { document.getElementById('d-instr').value = t; }, MINE.text);
+    await page.click('#d-instr-prev-load'); await page.waitForTimeout(300);
+    const restored = await page.evaluate(() => ({ value: document.getElementById('d-instr').value, msg: document.getElementById('d-instr-msg').textContent, saveOff: document.getElementById('d-instr-save').disabled }));
+    await page.locator('#d-sec-instr').screenshot({ path: path.join(OUT, 'instr-previous-4406.png') });
+    chk(restored.value === PREV && /kept previous version\. Nothing is saved until you press Save/.test(restored.msg) && !restored.saveOff,
+      '#4406: the button puts the previous version in the box, says nothing is saved yet, and Save can keep it', JSON.stringify(restored));
+    chk(puts.length === 0, '#4406: and nothing was written (no request but reads)', JSON.stringify(puts));
+    page.off('request', onWrite);
+    // Save then keeps it: it sends the restored text with the version this box loaded (the version check).
+    let sent = null;
+    await page.route('**/api/agent/' + SN + '/instructions', (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      sent = JSON.parse(route.request().postData() || '{}');
+      return answer(route, { ...MINE, text: sent.text, version: 'v2', keptPrevious: true });
+    });
+    chk(await page.evaluate(() => !document.getElementById('d-instr-save').disabled), '#4406: Save is usable after the restore', '');
+    await page.click('#d-instr-save', { timeout: 5000 }); await page.waitForTimeout(400);
+    chk(!!sent && sent.text === PREV && sent.version === 'v1', '#4406: Save sends the restored text with the loaded version', JSON.stringify(sent));
+    await page.unroute('**/api/agent/' + SN + '/instructions');
+    await page.unroute(INSTR_URL); await page.unroute(PREV_URL);
+    // The poll finding the file no longer editable withdraws the editor and the restore link with it.
+    await page.route(INSTR_URL, (route) => answer(route, MINE));
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(300);
+    chk(await page.evaluate(() => !document.getElementById('d-instr-prev').hidden), 'CONTROL: before the poll says so, the restore is offered');
+    pollSaysNotEditable = true; await page.waitForTimeout(6000); pollSaysNotEditable = false;
+    const gone = await page.evaluate(() => ({ prev: !document.getElementById('d-instr-prev').hidden, boxOff: document.getElementById('d-instr').disabled, saveOff: document.getElementById('d-instr-save').disabled }));
+    chk(!gone.prev && gone.boxOff && gone.saveOff, '#4406: a poll finding the file not editable takes the restore away with the editor', JSON.stringify(gone));
+    await page.unroute(INSTR_URL);
+    // Last, because they take the card's writes away.
+    // A failed load that lands after an untied card opened leaves that card no Try again (the catch's own check).
+    const heldFail = [];
+    await page.route(INSTR_URL, async (route) => { await new Promise((r) => { heldFail.push(r); }); await answer(route, { error: 'x' }, 500); });
+    await page.evaluate(() => { loadInstructions(CURRENT.sessionName); }); await page.waitForTimeout(150);
+    await page.evaluate(() => { CURRENT = { ...CURRENT, sessionName: 'someone-untied', isNamedOurs: false }; setWritesOffered(CURRENT, false); });
+    while (heldFail.length) heldFail.shift()();
+    await page.waitForTimeout(300);
+    const raced = await page.evaluate(() => ({ retry: !document.getElementById('d-instr-retry-row').hidden, line: !document.getElementById('d-instr-loading').hidden, ph: document.getElementById('d-instr').placeholder }));
+    chk(!raced.retry && !raced.line && raced.ph === '', '#4406: a failed load that lands after an untied card opened leaves it no Try again and no loading line', JSON.stringify(raced));
+    // Try again on an untied card asks for nothing (openDetail never loads an untied card).
+    const asked = [];
+    const onAsk = (r) => { if (/\/instructions\?/.test(r.url())) asked.push(r.url()); };
+    page.on('request', onAsk);
+    await page.evaluate(() => { document.getElementById('d-instr-retry-row').hidden = false; document.getElementById('d-instr-retry').click(); });
+    await page.waitForTimeout(300);
+    chk(asked.length === 0, '#4406: Try again on an untied card sends no load', String(asked.length));
+    page.off('request', onAsk);
+    await page.evaluate(() => { document.getElementById('d-instr-retry-row').hidden = true; });
+    await page.unroute(INSTR_URL); await page.unroute('**/api/status*');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

@@ -424,10 +424,11 @@ function armSetupAssistant() {
  * is armed once, at board start after the update, exactly as Giddy Up arms a new one. Everything after
  * arming is the new-user path unchanged: ensureGuide still creates at most one guide ever (the seeded flag),
  * never while the person has turned setup assistance off, and never without a model.
- * - Only a FINISHED first run arms here. A fresh install still in onboarding is left to Giddy Up, so it is
- *   unchanged. `firstRunSeen` is firstrun.seen(); a flag we could not read (known: false) does NOT arm:
- *   first run treats it as done so onboarding is not shown over a working board, but creating an agent
- *   on a guess is the other direction.
+ * - A fresh install KNOWN to be still in onboarding is left to Giddy Up, so it is unchanged.
+ *   `firstRunSeen` is firstrun.seen(). #4405 (Josh 2026-09-28 14:53: "default that on so everybody gets
+ *   it and has to turn it off"): a first-run flag we could not read (known: false) now ARMS too, as first
+ *   run itself treats it as done; it used to leave such an install without a guide for good (a real user's state on 0.7.05).
+ *   The person's switch still decides (ON by default, OFF only when they turned it off).
  * - Already armed is a no-op, so this runs once per install, and a guide someone removed is not re-created
  *   (the seeded flag is once-ever; the arm file never grants a second).
  * Returns { armed: true } when it armed now, else { armed: false, reason }. Never throws.
@@ -436,7 +437,7 @@ function armExistingInstall({ firstRunSeen } = {}) {
   try {
     if (isArmed()) return { armed: false, reason: 'already armed' };
     const seen = typeof firstRunSeen === 'function' ? firstRunSeen() : null;
-    if (!seen || seen.known !== true || seen.done !== true) return { armed: false, reason: 'first run not finished' };
+    if (!seen || (seen.known === true && seen.done !== true)) return { armed: false, reason: 'first run not finished' };
     fs.writeFileSync(armPath(), JSON.stringify({ at: new Date().toISOString(), via: 'update' }) + '\n', 'utf8');
     return { armed: true };
   } catch (err) {
@@ -607,15 +608,19 @@ function retryWaitMs() {
 
 /**
  * Create the guide if, and only if: the automatic path is on, this install is armed,
- * it has never been seeded, and a model is connected. Tries each connected model in
+ * it has never been seeded, and a model is connected (`explicit`, below, only arms and skips the retry wait). Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
  * create at most one. Never throws. Resolves { seeded, state?, name?, reason? }: `state` is one
  * of guidestate.STATES, absent only for a retry wait (which says nothing new; #4350).
+ * `explicit` (#4405) is the PERSON switching the assistant on in Settings > Help on an install that has never
+ * had a guide: it arms the install and skips the retry wait (a click deserves a real try; a dead sign-in costs
+ * one live check per click). Every other gate stands, the never-seeded one included: a guide that was made and
+ * then removed is RESTORED by the caller (/api/settings), never made a second time.
  * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
  * enabled / settings (the switches) and avatarDir. Production passes none.
  */
-function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {} } = {}) {
+function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {}, explicit = false } = {}) {
   if (inFlight) return inFlight;
   /* Test servers run with AGENT_WORKFORCE_DRY_RUN=1, and with a signed-in sandbox account
      they would each create a guide nobody asserts (review round 2, measured). So under dry
@@ -627,18 +632,20 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!enabled) return Promise.resolve({ seeded: false, state: 'disabled', reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
-  if (!isArmed()) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
+  if (!isArmed() && !explicit) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, state: 'names-taken', reason: 'both guide names are taken by other agents' });
   /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
   if (!wanted) return Promise.resolve({ seeded: false, state: 'off', reason: 'the person turned setup assistance off' });
+  /* #4405: the person asking for it (and not switched off) arms the install, so a model connected later still makes one. */
+  if (explicit) armSetupAssistant();
   const listed = listedModels(deps);
   if (!listed.rows.length) return Promise.resolve({ seeded: false, state: 'no-model', reason: 'no model connected yet' });
   const changed = failedFingerprint !== null && listed.fingerprint !== failedFingerprint;
   if (changed) { lastFailedAt = 0; failures = 0; }
-  if (via !== 'first-run' && lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
+  if (!explicit && via !== 'first-run' && lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
     const fail = (reason, state = 'refused') => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, state, reason }; };
     try {

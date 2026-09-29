@@ -59,3 +59,5 @@ dist/
 # #3660: the connector is staged only by the bundle build. A copy here would make a checkout offer the hosted setup
 # assistant (remote.hostedAvailable), sending a developer's chat to the production coordinator.
 /bin/kosmos-tunnel
+# #4408: throwaway modules the freshness tests load at the app root (removed after; this catches a killed run)
+/.probe-*/

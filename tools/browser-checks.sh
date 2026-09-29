@@ -1216,6 +1216,8 @@ if boot_board "$sb7" "$P8"; then
   # check's header says why. Runs on the first-run-complete $B8 board.
   run_one "render-push-718"     node docs/browser-checks/render-push-718.js "$B8"
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
+  # #4408: the stale-engine toast in plain words and its one Restart Kosmos button (both routes answered at the browser).
+  run_one "render-engine-restart-4408" env KOSMOS_URL="$B8" node docs/browser-checks/render-engine-restart-4408.js "$sb7/shots-engine-restart"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   # win32-update-check: the Windows manual offer, the staging tag and the could-not-check states on
   # the same Settings card. It stubs every update answer at the network edge, so any board serves.

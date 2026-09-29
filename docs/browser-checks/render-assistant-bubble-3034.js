@@ -1,4 +1,4 @@
-// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no
+// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle asb-row-who asb-row-pic asb-row-msg asb-row-models asb-row-state asb-row-setup setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no
 'use strict';
 
 /**
@@ -104,7 +104,35 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(3800);
     const none = await bubble(page);
     chk(!none.layer && !none.bubble, 'B1 with no setup guide, no bubble and no layer', JSON.stringify(none));
-    chk(await page.evaluate(() => document.getElementById('asb-row').hidden === true), 'B1 and no Setup assistant row in Settings');
+    /* #4405: with no guide the Settings switch is STILL there (it is how a person gets one). It shows the setting,
+       ON by default (Josh: "has to turn it off"), with a line saying none is set up yet and the one click. It used
+       to hide, which left a person with no guide no way to the assistant. */
+    await page.evaluate(() => { showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
+    chk(await waitFor(page, () => !!document.getElementById('asb-row') && !document.getElementById('asb-row').hidden, 4000),
+      'B1 and the Setup assistant switch IS in Settings > Help (#4405: the way to get one)',
+      JSON.stringify(await page.evaluate(() => ({ setting: ASB.setting, fr: document.getElementById('firstrun') ? document.getElementById('firstrun').hidden : 'none', box: document.getElementById('tips-box').hidden, row: document.getElementById('asb-row').hidden }))));
+    // Josh's picture beside his title, so the row stands out (#4405): a real, loaded image, and his words.
+    const who = await page.evaluate(() => { const i = document.querySelector('#asb-row .asb-row-pic'); const b = document.querySelector('#asb-row b');
+      return { src: i && i.getAttribute('src'), loaded: !!i && i.complete && i.naturalWidth > 0, w: i && i.getBoundingClientRect().width, title: b && b.textContent }; });
+    chk(who.loaded && who.w > 0 && who.w <= 32 && who.title === 'Kosmos Guide', 'B1 the row shows Josh\'s small picture beside "Kosmos Guide"', JSON.stringify(who));
+    chk(await page.evaluate(() => document.getElementById('asb-toggle').getAttribute('aria-checked') === 'true'),
+      'B1 and it reads ON, the default', await page.evaluate(() => document.getElementById('asb-toggle').getAttribute('aria-checked')));
+    chk(await page.evaluate(() => !document.getElementById('asb-row-state').hidden && /not set up on this computer yet/.test(document.getElementById('asb-row-state').textContent)),
+      'B1 and it says the Kosmos Guide is not set up yet, with Set it up now');
+    // B1b (never had a guide, no model connected): Set it up now tries to make the guide and says why it could not.
+    await page.click('#asb-row-setup');
+    chk(await waitFor(page, () => /needs a connected AI model/.test(document.getElementById('asb-row-msg').textContent) && !document.getElementById('asb-row-msg').hidden, 6000),
+      'B1b with no model: it says a connected model is needed', await page.evaluate(() => document.getElementById('asb-row-msg').textContent));
+    chk(await page.evaluate(() => !!document.getElementById('asb-row-models')), 'B1b and it offers the way there (Open AI Models)');
+    chk(await page.evaluate(() => document.getElementById('asb-row-setup').disabled === false && document.getElementById('asb-toggle').getAttribute('aria-checked') === 'true'),
+      'B1b and the button is usable again, the switch still ON');
+    // B1c: switching OFF is a real choice even with no guide (recorded, and the not-set-up line goes).
+    await page.click('#asb-toggle');
+    chk(await waitFor(page, () => document.getElementById('asb-toggle').getAttribute('aria-checked') === 'false' && document.getElementById('asb-row-state').hidden, 4000),
+      'B1c switching OFF with no guide is recorded, and the not-set-up line goes');
+    await page.click('#asb-toggle');   // back ON (the default) for the arms below
+    await waitFor(page, () => document.getElementById('asb-toggle').getAttribute('aria-checked') === 'true', 6000);
+    await page.evaluate(() => showTab('agents'));
     /* Asking for the guide on an install without one must not put a failed resource (a 404) in the console:
        every other browser check counts console errors as page errors (it went red in CI once). */
     chk(!consoleErrs.some((t) => /404|Failed to load resource/.test(t)), 'B1 asking for a guide that does not exist logs no failed resource', consoleErrs.join(' | '));
@@ -611,7 +639,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.unroute('**/api/settings');
 
     // B16: the tips cannot be read. The Setup assistant switch lives in the same Help box and must still be
-    // there ("Close forever" promises it is), while the tips row hides (CONTROL: B1, no guide, no row).
+    // there ("Close forever" promises it is), while the tips row hides (B1: since #4405 the row shows with no
+    // guide too).
     /* The page retries a failed tips read every second (tipsCheck), and a retry that succeeds repaints the
        row before this arm reads it: hold the retry off for the arm, then let it run again. */
     await page.evaluate(() => { TIPS_LOAD_NEXT = Date.now() + 1e9; TIPS_STATE = { ok: false, seen: [], off: true }; paintTipsToggle(); showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
