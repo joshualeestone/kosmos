@@ -20,7 +20,7 @@ only the first sentence.
   confirm it)." (never claimed either way); could_not -> "Not told: X (<reason>)." or, when the reason already starts
   with the name, "Not told: <reason>."; a blank reason -> "Not told: X could not be reached."; no assignees ->
   "Nobody is assigned to it, so no agent was told."; only the sender assigned -> "Nobody else is assigned to it, so no
-  agent was told." Names are said once each. The sender is already left off `delivered`, so it is never listed.
+  agent was told." Names are said once each: an agent with several outcomes gets one, the worst (not told, then may have been told, then told), and a name that cleans to nothing is still said, as "an agent". The sender is already left off `delivered`, so it is never listed.
 - Rejected: parsing `delivered` in bash (fragile over agent names and reasons), and keeping a vaguer fixed
   sentence ("assignees may have been notified"), which is true but tells the person nothing.
 
