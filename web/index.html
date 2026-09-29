@@ -34297,7 +34297,11 @@ function openDetail(sessionName, section, fromProject) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
-  { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = ''; }   // #4550: never the last agent's rows
+  /* #4550: never the last agent's rows. The clear, AND a new ticket, so a load still in flight for the
+     agent just left paints nothing even when this open lands on Talk (no load of its own to supersede it). */
+  { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = '';
+    const sm = document.getElementById('d-skills-msg'); if (sm) sm.textContent = '';
+    if (typeof SKILLS_LOAD_TICKET === 'object') SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
     // Clear the previous agent's rows now, not when the fetch returns: a click in between would
@@ -35754,7 +35758,7 @@ async function loadSkills(url, listId, msgId) {
   try {
     const got = await (await fetch(url, { cache: 'no-store' })).json();
     if (stale()) return;
-    if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); return; }
+    if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); skillsRetryLater(listId); return; }
     box.textContent = '';
     const skills = got.skills || [];
     if (!skills.length) { msg.textContent = 'No skills here yet.'; return; }
@@ -35781,8 +35785,10 @@ async function loadSkills(url, listId, msgId) {
       row.append(n, rm);
       box.append(row);
     }
-  } catch { if (stale()) return; box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
+  } catch { if (stale()) return; box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; skillsRetryLater(listId); }
 }
+/* A failed agent Skills load is not "loaded": the next visit to Profile tries again (#4550 review). */
+function skillsRetryLater(listId) { if (listId === 'd-skills-list') SKILLS_LOADED_FOR = null; }
 function wireSkillAdd(btnId, nameId, bodyId, msgId, urlFor, saidFor) {
   document.getElementById(btnId).addEventListener('click', async () => {
     const msg = document.getElementById(msgId);

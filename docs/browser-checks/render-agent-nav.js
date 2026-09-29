@@ -249,6 +249,20 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(500);
         const late = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent }));
         chk(late.who === 'casey' && !late.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Skills answer for April paints nothing on Casey's page`, JSON.stringify(late));
+        /* The same, when the switch lands on Talk: nothing loads for Casey then, so only the open itself
+           can retire April's pending answer. It must paint nothing into the hidden list either. */
+        let release2; const gate2 = new Promise((res) => { release2 = res; });
+        await page.unroute(aprilSkills);
+        await page.route(aprilSkills, async (route) => { await gate2; await route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) }); });
+        await page.evaluate(() => openDetail('april', 'profile'));
+        await page.waitForTimeout(150);
+        await page.evaluate(() => openDetail('casey'));
+        await page.waitForTimeout(200);
+        release2();
+        await page.waitForTimeout(500);
+        const late2 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent }));
+        chk(late2.who === 'casey' && !late2.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Skills answer for April paints nothing on Casey's page when it opens on Talk`, JSON.stringify(late2));
         await page.unroute(aprilSkills);
         await page.evaluate(() => openDetail('april'));
         await page.waitForTimeout(300);
