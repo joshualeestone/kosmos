@@ -93,6 +93,8 @@ const server = http.createServer((req, res) => {
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
   // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
   // with the board's duplicate receipt; 'cutalways' cuts every send. Sends are counted in firstFile + '.sends'.
+  // #4580 'cutthendie': cuts the first send, then the board goes away (a restart), so the retry is refused.
+  if (health === 'cutthendie' && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) { req.resume(); req.socket.destroy(); setTimeout(() => process.exit(0), 50); return; }
   // #4580 'posthang': a board still fanning a post out; it takes the post and never answers in the budget.
   if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
   if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
@@ -460,6 +462,18 @@ test('#4580 the retry carries the agent\'s own token, as the first send did (#44
   const sent = fs.readFileSync(firstFile + '.tokens', 'utf8').trim().split('\n');
   assert.deepEqual(sent, [tok, tok], 'the retry went out without the agent token: ' + JSON.stringify(sent));
 }));
+
+test('#4580 cut, then refused (the board restarted): still "may have happened", never "not sent" (msg and post)', async () => {
+  for (const args of [['msg', 'mara', 'signed'], ['post', 'proj', 'signed']]) {
+    await withBoard('cutthendie', async (port) => {
+      const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+      assert.notEqual(out.code, 0, args[0]);
+      assert.match(out.stderr, /asking once more/, args[0]);
+      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.doesNotMatch(out.stdout, /Is it running|not running/, args[0]);
+    });
+  }
+});
 
 test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', () => withBoard('posthang', async (port, firstFile) => {
   const out = await runCli(['post', 'proj', 'long fan-out'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_POST_TIMEOUT_S: '2' }));

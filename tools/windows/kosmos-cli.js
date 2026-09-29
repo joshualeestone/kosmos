@@ -246,7 +246,7 @@ const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text
 /* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
    pipes `gh issue list` into it, which can sit silent for many seconds on a slow
    network before its first line. So that read waits for the input to END, through
-   up to five minutes of silence: long past a slow listing, and still a sentence
+   up to two minutes of silence: long past a slow listing, and still a sentence
    rather than a hang when the pipe never closes. The usage text states it (the
    parity test pins the number there). */
 const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909): both read piped commands that can be slow to start */
@@ -325,7 +325,10 @@ async function verbMsg(ctx, args) {
   if (!r.reached && !r.refused) {
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
+    const first = r;
     r = await ctx.call('POST', '/api/msg', body);
+    // A refused retry proves nothing about the first attempt, which may have landed: keep ITS answer (its timeout).
+    if (!r.reached && r.refused) r = first;
   }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
@@ -433,7 +436,10 @@ async function verbPost(ctx, args) {
   if (!r.reached && !r.refused && !r.timedOut) {
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
+    const first = r;
     r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+    // A refused retry proves nothing about the first attempt, which may have landed: keep ITS answer (its timeout).
+    if (!r.reached && r.refused) r = first;
   }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');

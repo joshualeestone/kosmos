@@ -47,7 +47,7 @@ test('#4466 Windows CONTROL: a refused connection still asks whether Kosmos is r
 });
 
 /* #4580: a send whose reply is cut may have been kept by the board; the CLI asks ONCE more (the board keeps one
-   copy of the same send inside two minutes) and reports the receipt instead of a failure. */
+   copy of the same send inside five minutes) and reports the receipt instead of a failure. */
 function sequence(steps) {
   const lines = { out: [], err: [] };
   let calls = 0;
@@ -88,4 +88,12 @@ test('#4580 Windows CONTROL: a refused connection is not retried (nothing arrive
   const t = sequence([Object.assign(new Error('aborted'), { name: 'TimeoutError' }), kept]);
   assert.notEqual(await cli.main(['post', 'proj', 'hi'], t.io), 0);
   assert.equal(t.calls(), 1, 'a post that timed out is still being delivered: no second ask');
+});
+
+test('#4580 Windows: a timed-out msg whose retry is REFUSED keeps "may have been delivered" (the first may have landed)', async () => {
+  const h = sequence([Object.assign(new Error('aborted'), { name: 'TimeoutError' }), refusedErr()]);
+  assert.notEqual(await cli.main(['msg', 'mara', 'signed'], h.io), 0);
+  assert.equal(h.calls(), 2);
+  assert.match(h.err(), /may have been delivered/, h.err());
+  assert.doesNotMatch(h.err(), /Is it running/);
 });
