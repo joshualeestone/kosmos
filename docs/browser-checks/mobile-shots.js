@@ -177,6 +177,7 @@ const SCREENS = [
        being off screen, fails the shot. */
     const hit = await page.evaluate((sel) => {
       const b = document.querySelector(sel);
+      if (!b) return 'nothing (the button was redrawn away)';
       const r = b.getBoundingClientRect();
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return top && b.contains(top) ? '' : (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing (off screen)');
@@ -774,6 +775,8 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
+                // The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control green.
+                if (COVER_CONTROL === 'cmnotice') await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -794,10 +797,9 @@ async function run() {
                   throw err;
                 }
                 /* #4524: a one-time window the screen did not open (the Community notice, What's New) sits over
-                   whatever the shot was for, and nothing else here would notice. Read after the shot: both stay
-                   until they are closed, so one there now was there when the shot was taken. */
+                   whatever the shot was for. Read after the shot, so it can also catch one opened just after it. */
                 const cover = await page.evaluate(() => ['cmnotice', 'whatsnew'].filter((id) => document.getElementById(id)));
-                if (cover.length) throw new Error('COVERED: #' + cover.join(', #') + ' is open over this screen');
+                if (cover.length) throw new Error('COVERED: #' + cover.join(', #') + ' is open over this screen (its shot is kept, to show it)');
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;

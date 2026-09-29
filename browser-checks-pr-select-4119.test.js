@@ -110,7 +110,7 @@ test('the driver runs each check under its own file name, so selecting by file s
   // runnable() reads literal labels only. A label built at run time is invisible to it, so a new
   // one must be seen here: add it to runnable() (or gated.txt), then to this list.
   const built = [...driver.matchAll(/run_one\s+"([^"]*\$[^"]*)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(built, ['$n', 'mobile-shots-leak-${_arm%%:*}']);
+  assert.deepEqual(built, ['$n', 'mobile-shots-cover-${_arm%%:*}', 'mobile-shots-leak-${_arm%%:*}']);
 });
 
 test('editing a shared lib-*.js helper selects every check that requires it', () => {
