@@ -3,9 +3,13 @@
  * #4474 on Windows, at parity with install/kosmos: `kosmos agent role-draft` prints the default text a new role
  * starts from, and `kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]` sends the `own`
  * role with that label and the file's text, verbatim. Driven through main() with its seams; nothing leaves the
- * process and no file is read from disk (readFile is injected).
+ * process. readFile is injected, except in the one test that reads a real UTF-16 file through the default reader.
  */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const assert = require('node:assert/strict');
 const cli = require('./tools/windows/kosmos-cli');
 
@@ -64,4 +68,23 @@ test('#4474 Windows CONTROL: the existing form still sends only a name and a rol
   const h = harness({ answer: MADE });
   assert.equal(await cli.main(['agent', 'create', 'Ann', 'pm', 'why'], h.io), 0);
   assert.deepEqual(h.sent[0].body, { purpose: 'why', members: [{ name: 'Ann', role: 'pm' }] });
+});
+
+test('#4474 Windows reads a role file PowerShell 5.1 wrote (UTF-16LE with a BOM) as the text, through the real reader', async () => {
+  const text = 'You are **{{NAME}}**, a grant writer.\n\n- Writes grants, ünïcödé included.\n';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win-role-'));
+  const file = path.join(dir, 'role-grants.md');
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(text, 'utf16le')]));
+  const h = harness({ answer: MADE });
+  delete h.io.readFile;   // the default reader, not the seam
+  assert.equal(await cli.main(['agent', 'create', 'Ann', '--new-role', 'Grant writer', '--from', file], h.io), 0, h.lines.err.join('\n'));
+  assert.equal(h.sent[0].body.members[0].instructions, text, 'the UTF-16 file was not read as its text');
+});
+
+test('#4474 textFileDecoded: UTF-16LE, UTF-16BE and UTF-8 with or without a BOM all give the text', () => {
+  const t = 'Grant writer ü\n';
+  assert.equal(cli.textFileDecoded(Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(t, 'utf16le')])), t);
+  assert.equal(cli.textFileDecoded(Buffer.concat([Buffer.from([0xFE, 0xFF]), Buffer.from(t, 'utf16le').swap16()])), t);
+  assert.equal(cli.textFileDecoded(Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(t, 'utf8')])), t);
+  assert.equal(cli.textFileDecoded(Buffer.from(t, 'utf8')), t, 'CONTROL: plain UTF-8 changed');
 });

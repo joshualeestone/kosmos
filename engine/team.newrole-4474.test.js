@@ -100,3 +100,9 @@ test('#4474: a name carrying $ patterns is written as typed in the identity line
   const { got } = build([{ name: "X$'", role: 'own', label: 'Editor', instructions: 'You are **Bob**, the editor.\n\n' + tail }]);
   assert.equal(got[0].instructions, "You are **X$'**, the editor.\n\n" + tail);
 });
+
+test('#4474: text with NUL in it (a UTF-16 file read as UTF-8) is refused before create', () => {
+  const { out, got } = build([{ name: 'Wu', role: 'own', label: 'Writer', instructions: 'Y\u0000o\u0000u\u0000 are a writer who writes.' }]);
+  assert.equal(got.length, 0, 'text that is not text reached create');
+  assert.match(out.refused[0].because, /not text, as a file saved in UTF-16 does/);
+});

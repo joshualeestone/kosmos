@@ -162,6 +162,15 @@ function argvFrom(argv, readFile) {
    a literal U+FEFF in this source is invisible, and an editor that strips it
    would turn the pattern into /^/ and break every Windows command (review round 1). */
 const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
+/* #4474: a text file an agent wrote, decoded by its byte order mark. Windows PowerShell 5.1's `>` writes UTF-16LE
+   with a BOM, so `kosmos agent role-draft > role.md` on Windows makes such a file; read as UTF-8 it is NULs
+   between the letters, which would pass every length check. UTF-16LE, UTF-16BE and UTF-8 (BOM dropped). */
+function textFileDecoded(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf), 'utf8');
+  if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return b.subarray(2).toString('utf16le');
+  if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) return Buffer.from(b.subarray(2)).swap16().toString('utf16le');
+  return b.toString('utf8').replace(BYTE_ORDER_MARK_AT_START, '');
+}
 
 /* cmd_room's and cmd_task's sanitizer, exactly: a project id keeps only
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
@@ -1035,7 +1044,7 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
-    readFile: o.readFile || ((f) => fs.readFileSync(f, 'utf8')),   // #4474: agent create --from
+    readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
@@ -1065,7 +1074,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, readStandardInput, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

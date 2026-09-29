@@ -114,9 +114,9 @@ test('#4474: when no role fits, the PM and the guide write one from the default 
   const roles = require('./roles');
   for (const [key, who] of [['pm', 'the operator'], ['setup', 'them']]) {
     const flat = roles.instructionsFor(key, 'X').replace(/\s+/g, ' ');
-    assert.match(flat, /If no role on that list fits, write one: run `kosmos agent role-draft > role\.md`/, `${key} is not told to start from the default text`);
+    assert.match(flat, /If no role on that list fits, write one, in a file named for it: run `kosmos agent role-draft > role-<short-name>\.md`/, `${key} is not told to start from the default text, in a file per role`);
     assert.match(flat, new RegExp('then tell ' + who + ' the role\'s name and what it does, and only after they say yes run'), `${key} is not told to confirm before it makes an agent with a new role`);
-    assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role\.md "<why>"/, `${key} is not told the new-role verb`);
+    assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role-<short-name>\.md "<why>"/, `${key} is not told the new-role verb`);
     assert.match(flat, /To make another agent with that role later, use the same file\./);
   }
 });

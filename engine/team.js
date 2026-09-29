@@ -141,6 +141,11 @@ function vetAgentMember(member) {
   const out = {};
   if (typeof member.label === 'string') out.label = label;
   if (typeof member.instructions !== 'string') return { member: Object.assign({}, member, out) };
+  /* NUL is never text: a file saved as UTF-16 and read as UTF-8 has one between every letter, and would pass
+     every length check (the Windows CLI decodes by BOM; this is the backstop for any caller). */
+  if (member.instructions.includes('\u0000')) {
+    return { because: 'this role\'s text has characters that are not text, as a file saved in UTF-16 does; save it as plain text (UTF-8) and try again' };
+  }
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
   let text = member.instructions.split('{{NAME}}').join(name);
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry

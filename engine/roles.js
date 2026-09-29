@@ -39,11 +39,12 @@ const HANDS_OFF_LINES = [
    agent from it after the same one-line confirmation. `who` is whom they confirm with. The same file makes more
    agents with that role; Kosmos keeps no list of made-up roles. */
 const NEW_ROLE_LINES_FOR = (who) => [
-  '  If no role on that list fits, write one: run `kosmos agent role-draft > role.md`,',
-  '  make it say what this agent is for and how it works (its first line too), then tell ' + who,
-  '  the role\'s name and what it does, and only after they say yes run',
-  '  `kosmos agent create "<name>" --new-role "<role name>" --from role.md "<why>"`.',
-  '  To make another agent with that role later, use the same file.',
+  '  If no role on that list fits, write one, in a file named for it: run',
+  '  `kosmos agent role-draft > role-<short-name>.md`, make it say what this agent',
+  '  is for and how it works (its first line too), then tell ' + who + ' the role\'s',
+  '  name and what it does, and only after they say yes run `kosmos agent create',
+  '  "<name>" --new-role "<role name>" --from role-<short-name>.md "<why>"`. To make',
+  '  another agent with that role later, use the same file.',
 ];
 /* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
    for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
