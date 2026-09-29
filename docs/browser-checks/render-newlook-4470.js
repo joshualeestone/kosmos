@@ -204,7 +204,22 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       const partOf = await page.evaluate(PART_OF);
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
-      chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
+      chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
+      chk(!(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)), `${tag} On: the project page has no sideways scroll`);
+      if (width >= 1088) {
+        /* The consolidated layout with the look on keeps today's ARRANGEMENT: placeLook puts Tasks back
+           at the end of .pj3 and the crumb row out of the conversation header, which the consolidated
+           grid places by position. Then back to tabs, where both move in again. */
+        await page.evaluate((id) => { applyLayout('consolidated', true); showTab('projects'); openProject(id); }, proj.id);
+        await page.waitForTimeout(800);
+        const cons = { cons: await page.evaluate(`document.body.classList.contains('consolidated')`), ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
+        chk(cons.cons && cons.tasksLast && !cons.inMid && !(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)),
+          `${tag} On + consolidated layout: Tasks at the end of the columns and the crumb out of the header, as today`, JSON.stringify(cons));
+        await page.evaluate((id) => { applyLayout('tabs', true); showTab('projects'); openProject(id); }, proj.id);
+        await page.waitForTimeout(800);
+        const tabsAgain = { cons: await page.evaluate(`document.body.classList.contains('consolidated')`), ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
+        chk(!tabsAgain.cons && tabsAgain.order === 'members,tasks,files' && tabsAgain.inMid, `${tag} On, back to tabs: Tasks and the header move in again`, JSON.stringify(tabsAgain));
+      }
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
       const cb = await page.evaluate(COMPOSER_BG);
       chk(cb === GREY[theme], `${tag} On: the composer is the drawing's grey`, cb);

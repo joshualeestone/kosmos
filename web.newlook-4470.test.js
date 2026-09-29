@@ -3,11 +3,11 @@
 /**
  * #4470: the new look, behind a hidden switch.
  *
- * 🔑 WHAT THIS GUARDS. With the switch off, the app must be today's app byte for byte, so
- * every new-look rule has to be unreachable without html[data-look="new"], and only a stored
- * 'new' may set that attribute. With it on, every token the light set changes has to be
- * changed again in dark (system dark AND chosen dark), or a dark Mac gets the white page's
- * values on a black ground.
+ * 🔑 WHAT THIS GUARDS, and only this (the rendered page, both states, is the browser check
+ * docs/browser-checks/render-newlook-4470.js): only a stored 'new' sets html[data-look="new"];
+ * no --nl-* token exists without it; the two pieces of markup the look adds are display:none
+ * by default; the light, system-dark and chosen-dark token sets name the same tokens; the
+ * switch toggles and forgets; and the forced-dark generator joins a compound :root.
  */
 
 const test = require('node:test');
@@ -135,4 +135,11 @@ test('the forced-dark generator joins a compound :root to the prefix, and nests 
   // CONTROL: a plain selector is still nested under the prefix, and a root with a descendant keeps it.
   assert.equal(prefixed('.foo', P), P + ' .foo');
   assert.equal(prefixed(':root .foo', P), P + ' .foo');
+});
+
+test('the markup the new look adds is hidden by default, so the page with the switch off does not change', () => {
+  /* The "Projects /" crumb root and the member state word are always in the markup; outside the
+     new look these two rules are what keep them off today's page (#3212 for the state word). */
+  assert.match(PAGE, /\n\.pj-crumb-rootwrap \{ display: none; \}/, 'the crumb root would show in today\'s look');
+  assert.match(PAGE, /\n\.pj-member-st \{ display: none; \}/, 'the member state word would print in today\'s room column');
 });

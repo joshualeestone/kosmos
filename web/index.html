@@ -9480,7 +9480,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:hover { background: var(--nl-face); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard > * { grid-column: 2 / -1; margin: 0; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { grid-column: 1; grid-row: 1; font-size: 0; letter-spacing: 0; text-transform: none; color: var(--nl-ink-3); }
-:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n::before { content: "#" attr(data-n) / ""; font: 400 .875rem var(--font-ui); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n::before { content: "#" attr(data-n); content: "#" attr(data-n) / ""; font: 400 .875rem var(--font-ui); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed .tkcard-t { color: var(--label-2); }
 /* A subtask whose parent is not shown says "Part of #N" FIRST in the markup, so it takes the top row
