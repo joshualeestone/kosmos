@@ -42,6 +42,7 @@ never paints blue a mention the engine would not deliver.
 - web.mention-parity-4642.test.js: one fixture set through the engine's mentionedMembers and the page's
   highlighter, asserting they name the same agents, in a plain room and a room with a normalised-name clash.
 - docs/browser-checks/render-mention-blue-2922.js: the live == posted differential gains a Map arm.
+- docs/browser-checks/render-room-reply-3745.js: `thanks @ROOMER` counts as named, so Reply adds nothing.
 - Mutations, run by hand (each restored after): ambiguity -> first match, dropping the roster room filter,
   dropping the two-character floor, prefix matching and an optional @ each turn a control red on the engine;
   ambiguity, the charset limit, the floor and prefix matching each turn a control red on the page; ambiguity and
@@ -52,8 +53,12 @@ never paints blue a mention the engine would not deliver.
   ("Liu Kang") is reachable only as `@LiuKang`. First words are deliberately not aliases (prefix matching is the
   dangerous direction). Of the 10 measured misses, 8 are fixed by this (@Kano 3, @Sub-Zero 3, @Scorpion 1, and
   @Sonya only if the display name is "Sonya").
-- The page's display name comes from /api/projects (`a.name`), the engine's from the roster card (`card.name`).
-  If those two sources ever disagree, the blue and the delivery disagree for that agent.
+- The page's display name is /api/projects' `name` and the engine's is the room post's roster `card.name`. Both
+  are the server's `safeRoster()` card (engine/projects.js sets `name: card.name`), so they agree today; the
+  coupling is named at both sites, and no test ties them end to end.
+- An ambiguous mention addresses nobody and the sending agent is not told. The page shows it plain (not blue),
+  and the post's log row carries `ambiguousMentions`, so it is findable, not announced. No two display names on
+  this fleet normalise alike today.
 - Known, unchanged tokenizer gap (#2922 review): `@mona's` addresses mona in the engine but is not painted on
   the page. Safe direction; the parity test's fixtures stay inside whitespace-separated tokens for that reason.
 

@@ -54538,9 +54538,9 @@ function pjRichSpans(seg, names, agentNames) {
      unlinked rather than built into an attribute. */
   const hasNames = !!(names && names.size);
   /* #2922 (Josh 6.59): in the project room, an @name that names an agent ON THIS PROJECT is
-     highlighted bright blue so the reader sees it will flag that agent. `agentNames` is the Set of
-     that project's agent keys (a Map of sessionName -> display name, from pjMentionKeys),
-     supplied only by pjRoomBody; the dialogue surfaces
+     highlighted bright blue so the reader sees it will flag that agent. `agentNames` is the Map of
+     that project's agents (sessionName -> display name, from pjMentionKeys; a Set of keys also
+     works), supplied only by pjRoomBody; the dialogue surfaces
      pass none, so this is scoped to the project room. An @name that matches nobody stays plain. */
   const hasAgents = !!(agentNames && agentNames.size);
   s = s.split(/(\s+)/).map((tok) => {
@@ -56941,7 +56941,9 @@ function pjMentionResolve(word, keys) {
 
 /* The project's own agents -- exactly what the @ picker offers and what the
    matcher accepts (mentionCandidates), as a Map of key -> display name for
-   pjMentionResolve (#4642: a display name addresses its agent too). */
+   pjMentionResolve (#4642: a display name addresses its agent too). The display
+   name is /api/projects' `name`, the server's safeRoster() card name, which is
+   the same card the engine reads display names from when it routes a post. */
 function pjMentionKeys(project) {
   return new Map(mentionCandidates(project).map((c) => [c.key, c.shown]));
 }

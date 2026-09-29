@@ -55,7 +55,7 @@ for (const [room, pairs] of Object.entries(ROOMS)) {
     const recipients = pairs.map(([k]) => k);
     let named = 0;
     for (const text of FIXTURES) {
-      const engine = [...mentionedMembers(text, recipients, roster)].sort();
+      const engine = [...mentionedMembers(text, recipients, roster).mentioned].sort();
       const page = [...pjMentionHighlightHTML(text, keys).matchAll(/<span class="pj-live-mention">@([^<]*)<\/span>/g)]
         .map((m) => pjMentionResolve(m[1], keys).key).sort();
       assert.deepEqual([...new Set(page)], engine, `page and engine disagree on ${JSON.stringify(text)}`);

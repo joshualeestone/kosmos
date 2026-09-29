@@ -70,6 +70,7 @@ function post(text, agents = FLEET(), members = MEMBERS) {
     return {
       addressed: envelopes.filter((s) => s.text.startsWith('[message from your colleague')).map(who).sort(),
       background: envelopes.filter((s) => s.text.startsWith('[background from your colleague')).map(who).sort(),
+      row: messages.readLog().filter((m) => m && m.kind === 'post').pop(),
     };
   } finally { board.restore(); }
 }
@@ -122,8 +123,13 @@ test('#4642 control: two members sharing a normalised name are addressed by neit
   const r = post('@Sub-Zero please', agents, room);
   assert.deepEqual(r.addressed, [], 'an ambiguous mention was promoted to a request');
   assert.deepEqual(r.background, ['frost', 'mara', 'subzero']);
+  assert.deepEqual(r.row.ambiguousMentions, ['Sub-Zero'], 'the dropped request is not findable on the post row');
+  assert.equal(r.row.mentioned, undefined);
   // the exact session name still wins over the ambiguity
-  assert.deepEqual(post('@subzero please', agents, room).addressed, ['subzero']);
+  const exact = post('@subzero please', agents, room);
+  assert.deepEqual(exact.addressed, ['subzero']);
+  assert.equal(exact.row.ambiguousMentions, undefined, 'an exact name is not ambiguous');
+  assert.deepEqual(exact.row.mentioned, ['subzero']);
 });
 
 test('#4642 control: a display name of an agent NOT in the room adds no alias', () => {

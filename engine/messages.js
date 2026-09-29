@@ -1308,8 +1308,12 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-/* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery).
-   Exported so web.mention-parity-4642.test.js can hold the page's pjMentionResolve to it. */
+/* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
+   and the @-words that named more than one member and so addressed none (`ambiguous`, logged on the post
+   so a dropped request can be found). Display names come from the roster card's `name`, the same
+   safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
+   agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
+   pjMentionResolve to it. */
 function mentionedMembers(cleaned, recipients, roster) {
   const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map();   // normalised name -> the members it could mean
@@ -1323,19 +1327,18 @@ function mentionedMembers(cleaned, recipients, roster) {
   for (const card of Array.isArray(roster) ? roster : []) {
     if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
   }
-  const resolveMention = (token) => {
-    if (recipients.includes(token)) return token;
-    const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && stripped !== token && recipients.includes(stripped)) return stripped;
-    const hit = byKey.get(mentionKey(token));
-    return hit && hit.size === 1 ? [...hit][0] : null;
-  };
   const mentioned = new Set();
+  const ambiguous = new Set();
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    const member = resolveMention(m[2]);
-    if (member) mentioned.add(member);
+    const token = m[2];
+    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const stripped = token.replace(/[._-]+$/, '');
+    if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
+    const hit = byKey.get(mentionKey(token));
+    if (hit && hit.size === 1) mentioned.add([...hit][0]);
+    else if (hit) ambiguous.add(token);
   }
-  return mentioned;
+  return { mentioned, ambiguous };
 }
 
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
@@ -1630,7 +1633,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const mentioned = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous } = mentionedMembers(cleaned, recipients, roster);
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -1864,6 +1867,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        render time would be a second tokenizer that can drift from this
        one. */
     ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+    /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
+    ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
     ...(operator === true ? { operator: true } : {}),
     /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
        "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
