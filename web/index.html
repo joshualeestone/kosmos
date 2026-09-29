@@ -30219,17 +30219,23 @@ function orgPlace(nodes) {
 
      - Each first-ring agent owns a slice of the circle sized by its LEAF count (the people at the ends of
        its branch, who are what fill the outer rings), and sits at the slice's centre.
-     - A manager's reports share a window centred on the manager: its slice, capped. For a manager that has
-       a manager, the cap is the tangent angle acos(r_manager / r_report), so each line runs steadily AWAY
-       from the hub. A first-ring manager's reports stay within ~85 degrees either side of it, so no line
+     - A manager's reports share a window around the manager: its slice, capped on each side. For a manager
+       that has a manager, the cap is the tangent angle acos(r_manager / r_report), so each line runs steadily
+       AWAY from the hub. A first-ring manager's reports stay within ~85 degrees either side of it, so no line
        folds back past the hub (their lines can still come within ~107px of it; the manager sits at 120).
        Each report gets a sub-slice by its own leaf count and sits at its centre, so a lone report is
-       straight out and a pair is centred on its manager (#352).
+       straight out and a pair is centred on its manager (#352). Since #4472 the window may reach further on
+       one side than the other (as far as the slice allows), the reports are ordered heaviest and lightest
+       alternating, the first and last report's slice runs on to the manager's slice edges, and a big team
+       with no managers in it may take two staggered rings.
      - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap), and
        below the first ring the tangent cap keeps each line's distance from the hub rising, so a manager's
        own line and its reports' lines meet only at the manager. web.org-sectors-4434.test.js counts
        crossings.
-     - Each ring's radius grows from its base until no two nodes on it are closer than ORG_MIN_ARC.
+     - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
+       until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
+       branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
+       ring out.) The first ring is still one ring, spilling to a second lane when crowded.
      Same input, same positions: nothing here is random or order-dependent beyond the input order. */
   const kids = new Map();
   for (const n of nodes) {
@@ -30247,6 +30253,46 @@ function orgPlace(nodes) {
     leaves.set(name, w);
     return w;
   };
+  /* #4472's constants live here, not beside ORG_R0 at the top: the node tests lift orgPlace with only the top-level
+     constants they name, so a new top-level one would break every test that lifts it. */
+  /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
+     sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
+  const ORG_LANE = ORG_MIN_ARC;
+  /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
+     is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
+  const ORG_LINE_CLEAR = 12;
+  const ORG_BRANCH_ROOM = 0.85;  // #4472: the share of its leaves' room a branch's slice must have (best of 0.5-1.2)
+  const ORG_CLEAR_REACH = 1.25;  // #4472: how far past the spacing radius a team may go for that clearance
+  const ORG_LANE_SLOT = 31;   // #4472: a two-ring team's line past a face's CENTRE, at least: half ORG_MIN_ARC (9px past its edge)
+  /* #4472: a manager's reports in the order they are laid out: heaviest and lightest alternating, by leaf count,
+     instead of input order. Each report's share of the window is its leaf count, so a light report gets a sliver:
+     two light ones side by side then set the whole ring's radius, and every ring below stacked on it (measured: the
+     closest pair on nearly every ring of the deep 100-agent trees). Beside a heavy one it borrows half the heavy
+     one's share as room instead. "Light" is the leaf count, not having no reports: a manager of one is as light as
+     a leaf. Ties keep input order. Any order of disjoint sub-slices keeps the sectors, so this cannot cause a
+     crossing. (Giving each report a minimum share instead squeezed the heavy ones, whose windows do not grow
+     with the radius: one tree grew to 548,000px.) */
+  function orgSpread(ks, weightOf) {
+    const byWeight = ks.map((k, i) => ({ k, i, w: weightOf(k) })).sort((a, b) => b.w - a.w || a.i - b.i);
+    const out = [];
+    for (let lo = 0, hi = byWeight.length - 1; lo <= hi; lo += 1, hi -= 1) {
+      out.push(byWeight[lo].k);
+      if (hi > lo) out.push(byWeight[hi].k);
+    }
+    return out;
+  }
+  /* #4472: how many rings a branch reaches below this agent (a leaf: 0). */
+  const heights = new Map();
+  const heightOf = (n) => {
+    const name = n.agent.sessionName;
+    if (heights.has(name)) return heights.get(name);
+    heights.set(name, 0);   // the same guard as weigh
+    const h = (kids.get(name) || []).reduce((most, k) => Math.max(most, 1 + heightOf(k)), 0);
+    heights.set(name, h);
+    return h;
+  };
+  // #4472: every manager's reports in layout order (orgSpread); the first ring keeps the input order.
+  for (const [name, ks] of kids) if (name) kids.set(name, orgSpread(ks, weigh));
   const TAU = Math.PI * 2;
   const norm = (a) => ((a % TAU) + TAU) % TAU;
   /* The closest two angles in a set, as a chord at radius r: what "do they touch" means on a ring. */
@@ -30276,17 +30322,15 @@ function orgPlace(nodes) {
     maxR = Math.max(maxR, r);
     at += span;
   }
-  // The rings beyond: each manager's reports inside its window, the ring pushed out until nothing touches.
-  let depth = 1;
+  // The rings beyond, a generation at a time: each manager's reports inside its window, at the team's own radius.
   let prev = roots;
   while (true) {
     const ring = [];
     for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
     if (!ring.length) break;
-    const inner = Math.max(...prev.map((n) => placed.get(n.agent.sessionName).r));
-    const lay = (r) => {
+    const lay = (r, team) => {
       const out = new Map();
-      for (const p of prev) {
+      for (const p of team) {
         const ks = kids.get(p.agent.sessionName) || [];
         if (!ks.length) continue;
         const ps = placed.get(p.agent.sessionName);
@@ -30299,29 +30343,208 @@ function orgPlace(nodes) {
            with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
            pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
-        const half = Math.min((ps.hi - ps.lo) / 2, cap);
+        /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
+           no longer always centred on the manager. A lone report keeps a centred window (#352: straight out). A pair
+           is still either side of the manager when its slice is even on both sides (#352), but may lean into the
+           roomier side when the manager sits near one edge of its slice: a centred window there was a sliver, and
+           one pair was pushed 2428px out for it (review it5). A crowded pair of leaves may take two rings. */
+        const left = ks.length > 1 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
+        const right = ks.length > 1 ? Math.min(ps.hi - ps.ang, cap) : left;
+        const half = (left + right) / 2;
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
-        let from = ps.ang - half;
-        for (const k of ks) {
-          const span = (2 * half * weigh(k)) / w;
-          out.set(k.agent.sessionName, { ang: from + span / 2, r, node: k, lo: from, hi: from + span });
-          from += span;
+        /* #4472: a team with no managers in it (every report a leaf) that would crowd one ring takes two
+           staggered ones, alternating, the way the flat layout's first ring spills. Its lines all start at the
+           manager, so they cannot cross each other, and no other line enters its window (the team has no
+           reports below it), so the second ring cannot cause a crossing. A team with a manager in it keeps one
+           ring AS A PRECAUTION, not a measured need: an outer line there runs into that manager's window, beside
+           the lines to its reports, and the argument above no longer covers it. Review it3 lifted the guard and
+           found no crossing in 300 random trees, with the deep median 4% smaller (2810 to 2688px); a constructed
+           counter-example was not attempted, so the guard stays until one is (or a proof replaces it). */
+        const oneRing = (2 * half) / ks.length;
+        const laned = ks.length > 1 && !ks.some((k) => (kids.get(k.agent.sessionName) || []).length)
+          && 2 * r * Math.sin(oneRing / 2) < ORG_MIN_ARC
+          // and only when the second ring still sits inside the radius one ring would need: a lead with 10 reports took
+          // two rings at 668px where one ring fitted at 576 (post-rebase review 3).
+          && r + ORG_LANE < ORG_MIN_ARC / (2 * Math.sin(Math.min(oneRing, Math.PI) / 2));
+        if (laned) {
+          /* Every face at an even half-step across the window, inner faces on the even steps and outer faces on the
+             odd ones. An odd step is the midpoint of its two neighbours, so each outer face goes on the line from
+             the manager through that midpoint: the line crosses the inner ring halfway between two inner faces. It
+             runs slantwise (it starts at the manager, not the hub), so it can still pass nearer one of them than the
+             other, which is why clear() measures each such line against its own team's faces. The last odd step of
+             an even team has one inner neighbour and sits half a step past it, still inside the window. An outer
+             face whose line would leave the manager's slice (outside it, a line could enter a neighbour's slice) is
+             brought back to the slice's edge instead. */
+          const h = (2 * half) / ks.length;
+          const start = ps.ang - left;
+          const mx = Math.cos(ps.ang) * ps.r; const my = Math.sin(ps.ang) * ps.r;
+          const R = r + ORG_LANE;
+          ks.forEach((k, i) => {
+            const q = start + h * (i + 0.5);
+            let ang = q;
+            let rr = r;
+            if (i % 2) {
+              const ux0 = Math.cos(q) * r - mx; const uy0 = Math.sin(q) * r - my; const len = Math.hypot(ux0, uy0);
+              const ux = ux0 / len; const uy = uy0 / len;
+              const b = mx * ux + my * uy;   // |m + t u| = R: t^2 + 2bt + |m|^2 - R^2 = 0
+              const t = -b + Math.sqrt(b * b - (mx * mx + my * my - R * R));
+              const far = Math.atan2(my + t * uy, mx + t * ux);
+              ang = Math.min(ps.hi, Math.max(ps.lo, ps.ang + Math.atan2(Math.sin(far - ps.ang), Math.cos(far - ps.ang))));
+              rr = R;
+            }
+            out.set(k.agent.sessionName, { ang, r: rr, node: k, span: h, lane: i % 2, laned });
+          });
+          /* Their slices: cut at the midpoints between neighbouring faces by angle, the ends at the window's edges
+             or the outermost face, whichever is further out, so each face sits inside its own slice. Unlike a
+             one-ring team's, the end slices do not run on to the manager's slice edges: these reports are all
+             leaves, so nothing is ever placed in their slices. */
+          const team = ks.map((k) => out.get(k.agent.sessionName)).sort((a, b) => a.ang - b.ang);
+          team.forEach((sp, i) => {
+            sp.lo = i ? (team[i - 1].ang + sp.ang) / 2 : Math.max(ps.lo, Math.min(start, sp.ang));
+            sp.hi = i < team.length - 1 ? (sp.ang + team[i + 1].ang) / 2 : Math.min(ps.hi, Math.max(start + 2 * half, sp.ang));
+          });
+          continue;
         }
+        let from = ps.ang - left;
+        ks.forEach((k, i) => {
+          const span = (2 * half * weigh(k)) / w;
+          /* #4472: the first and last report's slice runs on to the edge of the manager's slice: room the window
+             did not use, which their own reports may then spread into. The slices still split the manager's
+             slice without overlapping, and each report still sits inside its own, so nothing can cross. */
+          const lo = i === 0 ? Math.min(from, ps.lo) : from;
+          const hi = i === ks.length - 1 ? Math.max(from + span, ps.hi) : from + span;
+          out.set(k.agent.sessionName, { ang: from + span / 2, r, node: k, lo, hi, span, lane: 0, laned: false });
+          from += span;
+        });
       }
       return out;
     };
-    let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
-    let spots = lay(r);
-    /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
-       room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
-    for (let tries = 0; tries < 400 && tightest([...spots.values()].map((s) => s.ang), r) < ORG_MIN_ARC; tries += 1) {
-      r = Math.max(r + 8, r * 1.03);
-      spots = lay(r);
+    /* Whether a ring's spots are clear: no two faces nearer than ORG_MIN_ARC, and in a laned team the slots
+       at least ORG_LANE_SLOT apart (the gap a line to the outer ring passes through). */
+    /* Accepted cost (review of the rebased branch): this visits every pair of a team on each try, so one very big team
+       lays out 5-7x slower than before #4472 (a lead with 1000 reports: ~83ms against ~12ms). Normal fleets stay well
+       under 10ms. #4499 visits only angular neighbours here (that lead: ~48ms). */
+    const clear = (spots) => {
+      const all = [...spots.values()];
+      const xy = all.map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
+      for (let i = 0; i < all.length; i += 1) {
+        for (let j = i + 1; j < all.length; j += 1) {
+          if (Math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]) < ORG_MIN_ARC) return false;
+        }
+        // A two-ring slot's arc at the INNER ring (its angle times the inner radius) is its room, in px.
+        if (all[i].laned && all[i].span * (all[i].r - all[i].lane * ORG_LANE) < ORG_LANE_SLOT) return false;
+      }
+      /* A line to the outer of two rings starts at the manager, not the hub, so it runs slantwise across the inner
+         ring: measured, a lead with 18 reports had one pass 0.2px from an inner face's centre. So each such line
+         is measured against every other face in its OWN team, and must clear it by ORG_LANE_SLOT. Faces of other
+         teams get only apart()'s ORG_LINE_CLEAR, and only when that fits (review it2 found 10.55px; #4499). */
+      for (let i = 0; i < all.length; i += 1) {
+        if (!all[i].lane) continue;
+        const m = placed.get(all[i].node.parent);
+        const ax = Math.cos(m.ang) * m.r; const ay = Math.sin(m.ang) * m.r;
+        const dx = xy[i][0] - ax; const dy = xy[i][1] - ay;
+        for (let j = 0; j < all.length; j += 1) {
+          if (j === i) continue;
+          const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy || 1)));
+          if (Math.hypot(xy[j][0] - ax - t * dx, xy[j][1] - ay - t * dy) < ORG_LANE_SLOT) return false;
+        }
+      }
+      return true;
+    };
+    /* #4472: each team at its own radius, just outside its manager, pushed out only until its own faces and
+       every face already placed clear each other. One shared radius per ring let a single crowded team push the
+       whole ring out, and every ring below stacked on it. Teams keep their own slices and every line still runs
+       away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
+    /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
+       added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
+       its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within its ends' radii
+       give or take ORG_LINE_CLEAR. That holds below the first ring, where the cap makes every line run steadily
+       outward. A first-ring manager's lines have no tangent cap (~85 degrees) and dip below the manager's radius
+       (review it5 measured 12.9px, more than ORG_LINE_CLEAR), so a line from the first ring (or the hub) is
+       never skipped: its band starts at 0. The checks below skip the distance for the rest (every pair is still
+       visited), which took a 1000-agent chart from 97ms to 18ms. */
+    const faceOf = (name, s) => ({ name, r: s.r, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
+    const lineOf = (f, parent) => {
+      const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
+      const firstRing = !parent || !placed.get(parent).node.parent;
+      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: firstRing ? 0 : Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
+    };
+    const segDist = (q, g) => {
+      const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
+      const t = Math.max(0, Math.min(1, ((q[0] - g.a[0]) * dx + (q[1] - g.a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(q[0] - g.a[0] - t * dx, q[1] - g.a[1] - t * dy);
+    };
+    /* The band is sound for an outer face pulled back to its manager's slice edge too (post-rebase review 2): a line M->P
+       runs steadily outward exactly when r_P cos(d) >= r_M (d = P's angle from M). The unpulled P lies on the extension
+       of M through the midpoint Q, a line that already satisfies it; the pull keeps r_P and only shrinks d, so cos(d),
+       and the inequality, only grow. */
+    const near = (f, g) => f.r > g.lo - ORG_LINE_CLEAR && f.r < g.hi + ORG_LINE_CLEAR;
+    const faces = [...placed].map(([name, s]) => faceOf(name, s));
+    const lines = faces.map((f) => lineOf(f, placed.get(f.name).node.parent));
+    for (const p of prev) {
+      if (!(kids.get(p.agent.sessionName) || []).length) continue;
+      const ps = placed.get(p.agent.sessionName);
+      const apart = (spots, strict) => {
+        if (!clear(spots)) return false;
+        /* Room for what comes after: a report's slice, at the depth its branch's leaves will reach (its height in
+           ring steps past this radius), must hold those leaves side by side. A team placed closer in has a narrower
+           window, and its branches were then confined to a sliver for good: measured, a 1268px jump three rings
+           down, and single trees up to 2.4x #4473's size (review it1). */
+        for (const s of spots.values()) {
+          const w = weigh(s.node);
+          const h = heightOf(s.node);
+          /* An all-leaf team can take two rings, so its reports need half the room each. Only one generation down:
+             a branch whose leaves sit two or more rings further out reserves the full ORG_MIN_ARC each even if
+             their team will take two rings. That over-reserves (never a crossing), part of the gap on #4499. */
+          const each = h === 1 ? ORG_LANE_SLOT : ORG_MIN_ARC;
+          if (w > 1 && (s.hi - s.lo) * (s.r + h * ORG_STEP) < w * each * ORG_BRANCH_ROOM) return false;
+        }
+        const mine = [...spots].map(([name, s]) => faceOf(name, s));
+        for (const f of mine) {
+          for (const o of faces) {
+            if (Math.abs(o.r - f.r) < ORG_MIN_ARC && Math.hypot(f.xy[0] - o.xy[0], f.xy[1] - o.xy[1]) < ORG_MIN_ARC) return false;
+          }
+        }
+        /* No line passes nearer than ORG_LINE_CLEAR to a face that is not one of its ends: this team's lines past
+           every face, and every line already drawn past this team's faces. Teams at different radii made this a
+           real case (measured: a line 9.8px from an unrelated face's centre). */
+        if (!strict) return true;
+        const mineLines = mine.map((f) => lineOf(f, p.agent.sessionName));
+        for (const g of mineLines) {
+          for (const f of faces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          for (const f of mine) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+        }
+        for (const g of lines) for (const f of mine) if (near(f, g) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+        return true;
+      };
+      /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
+         room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2).
+         First the radius the face spacing alone needs; then the line clearance is tried from there, but only up
+         to ORG_CLEAR_REACH times that radius. A lone report goes straight out, so if a face sits on that ray no
+         radius clears it (one team grew to 46,656,912px unbounded), and chasing clearance far out made single
+         trees much bigger than #4473 (review it1: a 1000-agent tree 2.4x). Past the reach, the team keeps the
+         spacing radius, as #4473 places it. */
+      const grow = (from, ok, limit) => {
+        let r = from;
+        let spots = lay(r, [p]);
+        for (let tries = 0; tries < 400 && r <= limit && !ok(spots); tries += 1) {
+          r = Math.max(r + 8, r * 1.03);
+          spots = lay(r, [p]);
+        }
+        return { r, spots, ok: r <= limit && ok(spots) };
+      };
+      const loose = grow(Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP), (sp) => apart(sp, false), Infinity);
+      const strict = grow(loose.r, (sp) => apart(sp, true), loose.r * ORG_CLEAR_REACH);
+      const spots = strict.ok ? strict.spots : loose.spots;
+      for (const [name, spot] of spots) {
+        placed.set(name, spot);
+        maxR = Math.max(maxR, spot.r);
+        const f = faceOf(name, spot);
+        faces.push(f);
+        lines.push(lineOf(f, p.agent.sessionName));
+      }
     }
-    for (const [name, spot] of spots) placed.set(name, spot);
-    maxR = Math.max(maxR, r);
     prev = ring.map((x) => x.n);
-    depth += 1;
   }
   /* Anything orgTreeOf returned that the walk above did not reach (it never happens for a tree, but an
      agent missing from the picture is the one failure a picture cannot admit to): the first ring. */
