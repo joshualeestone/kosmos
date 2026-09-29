@@ -678,6 +678,48 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // survives every wording of it: the PM does not attempt work outside
     // its skill -- it briefs the agent who has it.
     pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
+    // #4555: the seeded catalogue's cautioned roles (engine/catalogue-roles.js, generated
+    // from tools/catalogue/roles-source.js). Each states its boundary once in its own
+    // instructions; the patterns allow the line wrap between words.
+    cos: /draft,\s+never\s+send\s+or\s+accept/i,
+    officemgr: /draft,\s+never\s+send/i,
+    newsletter: /draft,\s+never\s+send/i,
+    emailmkt: /draft,\s+never\s+send/i,
+    ppc: /you\s+never\s+launch,\s+change\s+or\s+pay\s+for\s+ads/i,
+    pr: /draft,\s+never\s+send/i,
+    sociallead: /draft,\s+never\s+post/i,
+    community: /draft,\s+never\s+post/i,
+    salesdir: /sends\s+every\s+offer,\s+always/i,
+    sdr: /draft,\s+never\s+send/i,
+    cxlead: /draft,\s+never\s+send/i,
+    csm: /draft,\s+never\s+send/i,
+    orders: /never\s+issue\s+refunds/i,
+    reviews: /draft,\s+never\s+post/i,
+    booking: /never\s+book,\s+cancel\s+or\s+charge\s+anyone/i,
+    cfo: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    controller: /you\s+do\s+not\s+give\s+financial\s+or\s+tax\s+advice/i,
+    payables: /never\s+pay\s+a\s+bill/i,
+    payroll: /you\s+never\s+run\s+payroll/i,
+    taxprep: /this\s+is\s+not\s+tax\s+advice/i,
+    investor: /never\s+send\s+anything\s+to\s+investors/i,
+    hrlead: /every\s+hiring\s+and\s+people\s+decision\s+is\s+theirs/i,
+    policy: /you\s+are\s+not\s+a\s+lawyer/i,
+    donors: /draft,\s+never\s+send/i,
+    events: /never\s+book\s+or\s+pay\s+for\s+anything/i,
+    wellness: /this\s+is\s+not\s+medical\s+advice/i,
+    fitness: /this\s+is\s+not\s+medical\s+advice/i,
+    nutrition: /this\s+is\s+not\s+medical\s+advice/i,
+    habits: /this\s+is\s+not\s+medical\s+advice/i,
+    healthadmin: /this\s+is\s+not\s+medical\s+advice/i,
+    pcfo: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    budget: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    subscriptions: /never\s+cancel\s+or\s+switch\s+anything/i,
+    investing: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    brand: /draft,\s+never\s+post/i,
+    school: /draft,\s+never\s+send/i,
+    shopper: /never\s+buy\s+anything\s+yourself/i,
+    partnerships: /draft,\s+never\s+send/i,
+    grants: /never\s+submit\s+an\s+application/i,
   };
   for (const role of roles.ROLES.filter((r) => r.caution)) {
     const mustSay = BOUNDARY[role.key];
@@ -712,7 +754,7 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
   // agent-to-agent messaging (#51) exists that claim needs the same
   // caution the other overstating blurbs carry.
   // The rule this loop holds is unchanged: most roles carry none, so the
-  // ones that do still mean something. 9 of 26 have one.
+  // ones that do still mean something. The assertion below holds that line.
   for (const key of ['writer', 'researcher', 'engineer', 'data', 'design']) {
     assert.ok(!roles.byKey(key).caution,
       `${key} carries a caution, and a warning on everything warns about nothing`);
@@ -2573,7 +2615,8 @@ test('own and setup are the only hidden entries; every other role is in the menu
   // already gives it).
   // 35 since the #3034 setup-assistant role -- the SECOND hidden entry
   // (menu:false), auto-created once on first-run and never offered in the picker.
-  assert.equal(roles.ROLES.length, 35, 'the catalogue grew or shrank; say so here on purpose');
+  // #4555: 35 (33 on the menu plus own and setup) + the 69 seeded catalogue roles.
+  assert.equal(roles.ROLES.length, 104, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   // TWO facts, kept as separate axes: exactly which roles are hidden, and that
   // none of them reaches the picker. The hidden SET is pinned by key so a new
