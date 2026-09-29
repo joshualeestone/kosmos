@@ -3336,14 +3336,69 @@ function withUnread(list) {
    chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
    agents list that failed because a badge could not be computed would be the
    wrong thing to lose. A per-agent null in the map passes through as null. */
-function withDmUnread(list) {
-  let counts = null;
-  try { counts = chat.dmUnreadAll(); } catch { counts = null; }
+function withAgentSortFields(list, supplied) {
+  let direct = null; let roomRows = null; let births = null;
+  if (supplied) {
+    direct = supplied.direct;
+    roomRows = supplied.roomRows;
+    births = supplied.births;
+  } else {
+    try { direct = chat.dmSummaryAll(); } catch { direct = null; }
+    try { const rec = messages.record(); roomRows = rec && rec.ok === true && Array.isArray(rec.rows) ? rec.rows : null; } catch { roomRows = null; }
+    try { births = create.createdLog(); } catch { births = null; }
+  }
+  const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
+  const latest = (values) => {
+    const known = values.filter(Number.isFinite);
+    return known.length ? new Date(Math.max(...known)).toISOString() : null;
+  };
   return (list || []).map((a) => {
-    if (counts === null) return { ...a, dmUnread: null };
     const key = a && (a.sessionName || a.name);
-    const v = key != null && Object.prototype.hasOwnProperty.call(counts, key) ? counts[key] : 0;
-    return { ...a, dmUnread: v };
+    const dm = direct === null ? null
+      : key != null && Object.prototype.hasOwnProperty.call(direct, key) ? direct[key]
+        : { unread: 0, lastAt: null, lastAgentAt: null };
+    let mentionAt = null; let postAt = null;
+    if (roomRows !== null && key != null) {
+      for (const row of roomRows) {
+        const when = at(row && row.at);
+        if (when === null) continue;
+        if (row.kind === 'post' && row.operator === true && Array.isArray(row.mentioned) && row.mentioned.includes(key)) {
+          if (mentionAt === null || when > mentionAt) mentionAt = when;
+        }
+        if ((row.kind === 'post' || row.kind === 'message') && row.operator !== true && row.from === key) {
+          if (postAt === null || when > postAt) postAt = when;
+        }
+      }
+    }
+    let workAt = null; let workReadable = true;
+    if (key != null) {
+      try {
+        const work = supplied && typeof supplied.workFor === 'function'
+          ? supplied.workFor(key) : activity.read(key, 'working');
+        workAt = work && work.found === true ? at(work.at) : null;
+        if (work && work.found === false && work.because
+            && work.because !== 'no activity sample has been recorded for this agent and pattern') workReadable = false;
+      }
+      catch { workAt = null; workReadable = false; }
+    }
+    let createdAt = null;
+    if (births !== null && a) {
+      const id = a.profile && a.profile.id;
+      const names = new Set([a.name, a.sessionName].filter(Boolean).map((v) => String(v).toLowerCase()));
+      const matches = births.filter((b) => b && (b.outcome === create.OUTCOME.CREATED || b.outcome === create.OUTCOME.PARTIAL)
+        && ((id && b.id === id) || (!id && names.has(String(b.name || '').toLowerCase()))))
+        .map((b) => at(b.at)).filter(Number.isFinite);
+      if (matches.length) createdAt = new Date(Math.min(...matches)).toISOString();
+    }
+    const readableTalk = dm !== null && roomRows !== null;
+    const readableActive = dm !== null && roomRows !== null && workReadable;
+    return {
+      ...a,
+      dmUnread: dm === null ? null : dm.unread,
+      lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
+      lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
+      createdAt,
+    };
   });
 }
 
@@ -4795,7 +4850,7 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withDmUnread(agents.concat(offline));
+      const rows = withAgentSortFields(agents.concat(offline));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
@@ -18399,6 +18454,7 @@ module.exports = {
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
   someAgentNeedsClaude,
+  withAgentSortFields,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
      not run anywhere, and the precedence is the part worth pinning.

@@ -2311,6 +2311,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #pj-list-view .statsrow > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   #pj-list-view .sortctl { flex: 0 0 auto; }
   #pj-list-view .viewctl > .viewtoggle { flex: 0 0 auto; }
+  /* #4428: the Agents row gained the same Sort + view pair. Give the action its
+     narrow column and let the controls wrap inside the remaining width, exactly
+     as the Projects precedent above. */
+  #boardbar { grid-template-columns: min-content minmax(0, 1fr); }
+  #boardbar > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  #boardbar .sortctl, #boardbar .viewctl > .viewtoggle { flex: 0 0 auto; }
 }
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
@@ -3768,7 +3774,8 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 .cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
 .cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
-.cons-agents-lay { display: inline-flex; gap: 6px; margin: 0 0 var(--space-5) 0; }
+.cons-agents-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 0 0 var(--space-5) 0; }
+.cons-agents-lay { display: inline-flex; gap: 6px; }
 .cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
@@ -16824,6 +16831,20 @@ window.kosmosMeasureScrollbarWidth();
       <b id="st-dm" data-count="dm">0</b><span class="slab">Messages</span>
     </div>
   </div>
+  <div class="viewctl">
+    <label class="sortctl agent-sortctl" for="agent-sort">
+      <select id="agent-sort" data-agent-sort aria-label="Sort agents">
+        <option value="talked">Last talked to</option>
+        <option value="model">By model</option>
+        <option value="name">Name A to Z</option>
+        <option value="needs">Needs you first</option>
+        <option value="active">Recently active</option>
+        <option value="newest">Newest first</option>
+        <option value="project">By project</option>
+        <option value="role">By role</option>
+      </select>
+      <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </label>
   <div class="viewtoggle" role="group" aria-label="How to show agents" data-scope="agents">
     <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show agents as a grid" title="Show agents as a grid">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor"/></svg>
@@ -16836,7 +16857,7 @@ window.kosmosMeasureScrollbarWidth();
     <button class="vt" type="button" data-layout="org" aria-pressed="false" aria-label="Show agents as an org chart" title="Show agents as an org chart">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.6"/><circle cx="2.4" cy="3.2" r="1.5"/><circle cx="13.6" cy="3.6" r="1.5"/><circle cx="12.8" cy="13" r="1.5"/><path d="M6.1 6.4 3.6 4.3M9.9 6.5l2.5-2M9.6 9.7l2.3 2.2"/></svg>
     </button>
-  </div>
+  </div></div>
   <!-- the exit affordance, shown while ANY board filter is on (CSS keys on
        body.filter-msgs, filter-attn or filter-noproj). Josh's words: a "View all agents"
        text link. Clicking it clears whichever board filter is active. -->
@@ -18106,6 +18127,17 @@ function roleLine(a, titles) {
   if (known) return known;
   return parsed.charAt(0).toUpperCase() + parsed.slice(1);
 }
+
+/* #3410/#3718/#4428: the exact Issue contract shared by the chip filter and
+   Needs-you-first. This deliberately differs from cardStOf: an agent-raised
+   question has a calm visual and still needs the person, while needs_trust is
+   an Issue even though it has no ordinary card state. Keep this byte-for-byte
+   aligned with engine/status.js needsPerson. */
+function agentNeedsAttention(a) {
+  return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+}
+
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
    ring band, the list bar band, the membadge and the heat wash each wrote
    80 (and 60) out by hand, and only the membadge boundary was pinned --
@@ -18670,7 +18702,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18685,7 +18717,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -18731,7 +18763,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18876,7 +18908,7 @@ function lrow(a) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18889,7 +18921,7 @@ function lrow(a) {
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18948,7 +18980,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -20474,7 +20506,7 @@ function paintAgentList() {
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
-  const shown = lim ? src.slice(0, Number(lim)) : src;
+  const shown = sortAgents(lim ? src.slice(0, Number(lim)) : src, AGENT_SORT, PROJECTS);
   /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
      same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
@@ -20907,7 +20939,8 @@ async function tick() {
        agents", which lands here having created nothing. So does skipping
        first-run, and so does removing the last agent. (Mona Lisa, #? on the
        agents-page package, 2026-08-22.) */
-    document.getElementById('grid').innerHTML = shown.length ? shown.map(card).join('') : boardEmpty();
+    const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS);
+    document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty();
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
     // hand the toggle a stale copy of whichever view was resting.
@@ -29393,12 +29426,10 @@ function paintOrg() {
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar || isSwarm ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + (Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : '')
-      /* #3423: the chip-filter markers, keyed on the SERVER state to match the
-         "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
-         exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in the same cases data-attn does but splits off agent questions, so it would not match the
-         count). Kept inline/self-contained like data-has-msgs. */
-      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
+      /* #3423: read the same Issue predicate used by the flat views and sort.
+         The Issue contract is wider than this node's visual badge: an agent's
+         question stays calm-looking but still needs the person. */
+      + (agentNeedsAttention(a) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -29722,6 +29753,100 @@ document.getElementById('orgview').addEventListener('scroll', (e) => {
 }, { passive: true });
 
 let BOARD_LAYOUT = 'grid';
+/* #4428: one flat-list order for the grid and list. The org chart is a hierarchy,
+   so neither the control nor this order applies there. Every comparator ends in
+   the same name key, then original position, so ties are predictable without
+   mutating the status payload. */
+const AGENT_SORTS = ['talked', 'model', 'name', 'needs', 'active', 'newest', 'project', 'role'];
+const AGENT_SORT_DEFAULT = 'talked';
+function agentSortMode(saved) {
+  return AGENT_SORTS.includes(saved) ? saved : AGENT_SORT_DEFAULT;
+}
+function agentFirstProject(agent, projects) {
+  const key = agent && agent.sessionName;
+  if (!key) return null;
+  const names = (projects || []).filter((p) => Array.isArray(p && p.agents)
+    && p.agents.some((m) => m && m.sessionName === key))
+    .map((p) => String((p && p.name) || '').trim()).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return names[0] || null;
+}
+function sortAgents(list, mode, projects) {
+  const rows = (list || []).map((agent, index) => ({ agent, index }));
+  const text = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
+  const time = (v) => { const n = Date.parse(v || ''); return Number.isFinite(n) ? n : null; };
+  const name = (r) => text(r.agent && (r.agent.name || r.agent.sessionName));
+  const cmpText = (a, b) => {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+  };
+  const cmpTime = (a, b) => {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return b - a;
+  };
+  const byName = (a, b) => cmpText(name(a), name(b)) || a.index - b.index;
+  const needsRank = (a) => {
+    if (agentNeedsAttention(a)) return 0;
+    const state = a && a.state;
+    if (state === 'blocked') return 1;
+    if (state === 'working' || state === 'restarting') return 2;
+    if (state === 'idle') return 3;
+    return 4;
+  };
+  const cmp = mode === 'name' ? byName
+    : mode === 'model' ? (a, b) => {
+      const aa = a.agent || {}, bb = b.agent || {};
+      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity'
+        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
+      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity'
+        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
+      return cmpText(ak, bk) || byName(a, b);
+    }
+    : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
+    : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
+    : mode === 'role' ? (a, b) => cmpText(text(roleLine(a.agent || {}, ROLE_TITLES)), text(roleLine(b.agent || {}, ROLE_TITLES))) || byName(a, b)
+    : (a, b) => {
+      const field = mode === 'active' ? 'lastActiveAt' : mode === 'newest' ? 'createdAt' : 'lastTalkedAt';
+      return cmpTime(time(a.agent && a.agent[field]), time(b.agent && b.agent[field])) || byName(a, b);
+    };
+  return rows.sort(cmp).map((r) => r.agent);
+}
+let AGENT_SORT = (() => {
+  let saved = null;
+  try { saved = localStorage.getItem('kosmos.sort.agents'); } catch { saved = null; }
+  return agentSortMode(saved);
+})();
+function agentSortControlHtml(id) {
+  const opts = [
+    ['talked', 'Last talked to'], ['model', 'By model'], ['name', 'Name A to Z'],
+    ['needs', 'Needs you first'], ['active', 'Recently active'], ['newest', 'Newest first'],
+    ['project', 'By project'], ['role', 'By role'],
+  ];
+  return '<label class="sortctl agent-sortctl" for="' + id + '"><select id="' + id + '" data-agent-sort aria-label="Sort agents">'
+    + opts.map((o) => '<option value="' + o[0] + '">' + o[1] + '</option>').join('')
+    + '</select><svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></label>';
+}
+function agentSortVisibility() {
+  for (const label of document.querySelectorAll('.agent-sortctl')) label.hidden = BOARD_LAYOUT === 'org';
+  for (const select of document.querySelectorAll('[data-agent-sort]')) select.value = AGENT_SORT;
+}
+document.addEventListener('change', (e) => {
+  const select = e.target.closest && e.target.closest('[data-agent-sort]');
+  if (!select) return;
+  AGENT_SORT = agentSortMode(select.value);
+  try { localStorage.setItem('kosmos.sort.agents', AGENT_SORT); } catch { /* display preference only */ }
+  agentSortVisibility();
+  const lim = new URLSearchParams(location.search).get('limit');
+  const listed = (LAST || []).filter((a) => !(a && a.isGuide === true));
+  const shown = lim ? listed.slice(0, Number(lim)) : listed;
+  const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
+  document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
+  paintAgentList();
+});
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
 let CONS_AGENTS_OPEN = false;
@@ -29741,6 +29866,7 @@ function boardApplyVisibility(onAgents) {
      shows there for a person whose Agents layout is org, and the card grid for anyone else (the
      list is already the rail beside it, so a second list would say nothing new). */
   const consAgents = CONS_AGENTS_OPEN && document.body.classList.contains('consolidated');
+  agentSortVisibility();
   if (consAgents) {
     document.getElementById('grid').hidden = BOARD_LAYOUT === 'org';
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
@@ -39523,9 +39649,10 @@ function placeAgentsPanel(consolidated) {
       /* Review round 1: the board's own view toggle stays behind in the tab view's bar, so without
          this a person on the grid could never reach the org chart Josh named. It saves to the same
          key as that toggle, so the choice is one choice. List is not offered: the list is the rail. */
-      wrap.innerHTML = '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
+      wrap.innerHTML = '<div class="cons-agents-head">' + agentSortControlHtml('agent-sort-cons')
+        + '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
         + '<button type="button" data-conslay="grid" aria-pressed="false">Grid</button>'
-        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div>';
+        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div></div>';
       wrap.addEventListener('click', (e) => {
         const b = e.target.closest('[data-conslay]');
         if (!b) return;
@@ -39539,6 +39666,7 @@ function placeAgentsPanel(consolidated) {
       for (const id of ids) { const el = document.getElementById(id); if (el) CONS_AGENTS_HOME[id] = { parent: el.parentElement, next: el.nextElementSibling }; }
     }
     for (const id of ids) { const el = document.getElementById(id); if (el && el.parentElement !== wrap) wrap.appendChild(el); }
+    agentSortVisibility();
   } else {
     CONS_AGENTS_OPEN = false;
     if (wrap) wrap.hidden = true;
