@@ -687,7 +687,7 @@ q_clear; q_ahead
 # The wall-clock arm: 100 s pass per sleep but only 30 s is counted asleep, so only the clock can reach a 60 s bound.
 out="$(QSTEP=100 QLEAVE=1 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 6 ]; } \
-  && pass "#4574 the wall-clock arm restarts too: a waiter leaving every 100 s keeps a 60 s bound from firing" \
+  && pass "#4574 the wall-clock arm restarts too: three waiters leaving 100 s apart keep a 60 s bound from firing" \
   || fail "#4574 the wall clock gave up on a moving queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?

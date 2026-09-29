@@ -490,8 +490,9 @@ kosmos_refuse_if_suite_live() {
 # --- #4498: wait for a quiet box instead of refusing at once ------------------
 # The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
 # agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every
-# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes), then refuses with
-# the check's own message. KOSMOS_NO_WAIT=1 asks once, as before. KOSMOS_WAIT_SLEEP is a test seam.
+# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes; in the suite queue 2700 s,
+# counted as the #4574 note below says), then refuses with the check's own message. KOSMOS_NO_WAIT=1 asks once, as
+# before. KOSMOS_WAIT_SLEEP and KOSMOS_WAIT_NOW are test seams.
 #
 # 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
 #   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
@@ -507,10 +508,11 @@ kosmos_refuse_if_suite_live() {
 #
 # #4574: the queue's bound. A full suite takes 14 to 26 minutes, so a bound on the TOTAL wait gave up on every waiter
 # second in line or later. In the queue the bound (default 2700 s) runs from the last time a waiter AHEAD of this run
-# left (_kosmos_suite_waiters_ahead fell): a queue that keeps moving is waited through, and the waiter at the front
-# gives up only when the run in front of it has held the box for the whole bound. Waiters ahead only ever leave, so the
-# count cannot flap; a harness or a suite's own subshells do not count. The cost: behind a HUNG suite each waiter in
-# turn spends one bound at the front before giving up.
+# left (the count from _kosmos_suite_waiters_ahead fell): a queue that keeps moving is waited through, and the waiter at
+# the front gives up only when the run in front of it has held the box for the whole bound. A harness or a suite's own
+# subshells are not waiters, so they never restart it. A rise (a waiter re-marked by the second ask) only arms the next
+# fall, so each restart still needs a waiter ahead to leave. The cost: behind a HUNG suite each waiter in turn spends
+# one bound at the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -571,8 +573,10 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" 2>/dev
 
 # kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
 # (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter.
-kosmos_refuse_if_earlier_suite_waiter() {
-  local what="${1:-this run}" dir f pid mine_ts mine_pid ts wpid
+# _kosmos_suite_waiters_ahead: the pids of the live waiters ahead of this run in the suite queue, one per line (all of
+# them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
+_kosmos_suite_waiters_ahead() {
+  local dir f pid mine_ts mine_pid ts
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
   for f in "$dir"/suitewait.*; do
@@ -581,42 +585,29 @@ kosmos_refuse_if_earlier_suite_waiter() {
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     [ "$pid" = "$$" ] && continue
     _kosmos_suite_waiter_live "$pid" || continue
-    read -r ts wpid 2>/dev/null < "$f" || continue
+    read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
     if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
-      echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
-      return 1
+      echo "$pid"
     fi
   done
   return 0
 }
 
-# kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
-# command that returns 0 for "go" and prints its refusal on stderr) until it passes or the bound runs
-# out. --suite-queue joins the suite queue above (run-tests.sh). Returns 0 to go, 1 to refuse.
-# _kosmos_suite_waiters_ahead: how many live waiters are ahead of this run in the suite queue (all of them before this
-# run holds a marker). New arrivals queue behind, so the count only falls, and it falls when one ahead leaves.
-_kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts wpid n=0
-  dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || { echo 0; return 0; }
-  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
-  for f in "$dir"/suitewait.*; do
-    [ -e "$f" ] || continue
-    pid="${f##*.}"
-    case "$pid" in ''|*[!0-9]*) continue ;; esac
-    [ "$pid" = "$$" ] && continue
-    _kosmos_suite_waiter_live "$pid" || continue
-    read -r ts wpid 2>/dev/null < "$f" || continue
-    case "$ts" in ''|*[!0-9]*) continue ;; esac
-    if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
-      n=$((n + 1))
-    fi
-  done
-  echo "$n"
+kosmos_refuse_if_earlier_suite_waiter() {
+  local what="${1:-this run}" pid
+  pid="$(_kosmos_suite_waiters_ahead | head -1)"
+  [ -n "$pid" ] || return 0
+  echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
+  return 1
 }
+
 # The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP.
 _kosmos_wait_now() { if [ -n "${KOSMOS_WAIT_NOW:-}" ]; then "$KOSMOS_WAIT_NOW"; else date +%s; fi; }
 
+# kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
+# command that returns 0 for "go" and prints its refusal on stderr) until it passes or the bound runs
+# out. --suite-queue joins the suite queue above (run-tests.sh). Returns 0 to go, 1 to refuse.
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
@@ -646,7 +637,7 @@ kosmos_wait_until_clear() {
     fi
     # #4574: in the queue, one fewer waiter ahead is the queue moving, so the bound starts again.
     if [ "$queue" = 1 ]; then
-      ahead="$(_kosmos_suite_waiters_ahead)"
+      ahead="$(_kosmos_suite_waiters_ahead | grep -c .)"
       if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
       prev="$ahead"
     else
