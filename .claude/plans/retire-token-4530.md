@@ -44,3 +44,10 @@ Rejected: a blanket sweep on every start (it would cut off an adopted live run a
 
 The twin check relies on the -discord naming convention; a third session sharing a token file some other
 way would not be seen. And KOSMOS_WORLD is not tested end to end.
+
+A run whose session dies before the claim skips the sweep (it retires its own token at loop end), so an
+agent that crash-loops on start never clears its backlog of old tokens; nothing new accumulates. Adoption
+tokens (engine/adopt.js mints untagged) are swept by the next launch: they are never handed to a running
+process (apply keeps only the instance), so that is harmless. A remote agent's token minted BEFORE #4530
+is untagged and would be swept only if a Mac supervisor ran under the same name, which the naming
+convention rules out.

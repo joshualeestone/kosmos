@@ -249,8 +249,8 @@ function retire(sessionName, instance) {
  * The Mac supervisor calls it once its own run's session exists and is claimed: a
  * session of that name is unique, so every other run that launcher started there has
  * ended, and until now each stayed a valid credential (up to MAX_LIVE; Scorpion had 18).
- * Tokens with another launcher or none (a remote agent's, an adoption's, anything
- * minted before #4530) are untouched, so this is not the rotation #1000 had: runs from
+ * Without `opts.untagged`, tokens with another launcher or none (a remote agent's, an adoption's,
+ * anything minted before #4530) are untouched, so this is not the rotation #1000 had: runs from
  * different launchers still coexist and `live()` still shows them.
  *
  * `opts.untagged` (#4530, Scorpion with Kano): also drop tokens with NO launcher. Every Mac

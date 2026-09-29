@@ -302,7 +302,7 @@ token_roster_name() {
 }
 
 # #4530: the sender-token store, from the shell. `retire` drops THIS run's token
-# (RUN_INSTANCE); `sweep` drops every other token this session's launches were minted,
+# (RUN_INSTANCE); `sweep` drops every other token this session's launches were minted for,
 # keeping this run's. Best effort and silent, like the mint: it must never be the
 # reason a supervisor fails. The world's roots are applied here only when the launch
 # block did not already export them (the adopt path): applying them twice would nest
@@ -325,18 +325,16 @@ token_store() {
   ' "$_eng" "$1" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" "$SESSION" "${2:-0}" 2>/dev/null || true
 }
 
-# #4530: 0 when this agent's -discord twin (`sam` beside `sam-discord`, or the other way) has no
-# session, by EXACT name, and 1 when it has one OR tmux could not say. The twin shares this
-# agent's token file (token_roster_name strips -discord), so its live run may hold an untagged
-# pre-#4530 token that a sweep of untagged tokens must not touch.
+# #4530: the -discord twin (`sam` beside `sam-discord`) shares this agent's token file
+# (token_roster_name strips -discord), so a sweep of untagged tokens must not run while it may be live.
 twin_session_may_live() {
   _tb="$(token_roster_name)"; _tw=""
   if [ -n "${KOSMOS_WORLD:-}" ]; then _tw="+$KOSMOS_WORLD"; fi
   _tt="$_tb$_tw"; [ "$SESSION" = "$_tt" ] && _tt="$_tb-discord$_tw"
   _tl="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)" || { unset _tb _tw _tt _tl; return 0; }
-  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _tr=$?
+  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _twrc=$?
   unset _tb _tw _tt _tl
-  return $_tr
+  return $_twrc
 }
 retire_run_token() {
   [ -n "${RUN_INSTANCE:-}" ] || return 0

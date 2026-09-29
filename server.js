@@ -12791,7 +12791,7 @@ const server = http.createServer(async (req, res) => {
         // validate keyability up front and return 400 -- consistent with the
         // empty-name 400 above. safeKey throws on an unkeyable name.
         try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
-        // #4530: tagged, so a Mac supervisor's sweep of untagged (pre-#4530) tokens never reaches it.
+        // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
         const minted = sendertoken.mint(name, { launcher: 'remote' });
         // Past the keyability check, an ok:false from mint can only be a genuine
         // server-side failure (the token file could not be written), so it is a 500.
