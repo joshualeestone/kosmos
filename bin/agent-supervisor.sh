@@ -547,9 +547,13 @@ if [ -z "$adopt" ]; then
 
   launch_pane() {
     prepare_secret_entry
+    # #4530: marked started BEFORE new-session and unmarked if it fails. bash holds a trapped
+    # SIGTERM until new-session returns, so marking after it would let a stop during the call
+    # (long when it starts the tmux server) retire a run that now exists. Marked early, the
+    # worst case is a token kept for a run that never started, which the next launch sweeps.
+    RUN_STARTED=1
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@" || return
-    RUN_STARTED=1   # #4530: from here the minted token belongs to a run that exists
+      ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@" || { _nrc=$?; RUN_STARTED=0; return "$_nrc"; }
   }
 
   # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
@@ -1006,13 +1010,14 @@ if [ -z "$adopt" ]; then
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
     # #4417: -P -F prints the new pane's id, taken at creation rather than looked up by session name afterwards.
     prepare_secret_entry
-    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} \
-      "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     # #4530: this arm makes its session itself rather than through launch_pane (it needs the pane
     # id), so it marks the run started itself: left at 0, the EXIT trap would retire this LIVE
     # run's token on any exit, a SIGTERM or a tmux that failed to answer once (review of #4530,
-    # iteration 2). Here, not inside the $(...): that runs in a subshell.
+    # iteration 2). Before the call and unmarked on failure, as launch_pane does, and outside the
+    # $(...), which runs in a subshell.
     RUN_STARTED=1
+    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} \
+      "$CLAUDE" "${_AGY_ARGS[@]}")" || { RUN_STARTED=0; exit 1; }
     unset _AGY_ARGS
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
@@ -1184,6 +1189,6 @@ fi
 if [ "$_gone" = 1 ]; then
   retire_run_token
 elif [ -n "${RUN_INSTANCE:-}" ]; then
-  say "$SESSION: tmux did not confirm the session ended (exit $_rc), so its sender token is kept; the next launch retires it"
+  say "$SESSION: the session was not confirmed gone (has-session answered $_rc), so its run's sender token is kept; the next launch retires it"
 fi
 unset _gone _rc

@@ -58,8 +58,9 @@ function fixture(runnerKind = 'claude') {
     '      *) if [ -f "$S/alive" ]; then printf "%s" "$2" > "$S/opt-${1#@}"; else printf "%s" "$2" > "$S/twin-opt-${1#@}"; fi ;; esac; exit 0 ;;',
     /* list-sessions: this agent's session (when alive) plus a -discord twin that always lives. */
     '  list-sessions) fmt="$3";',
-    '    if [ -f "$S/alive" ]; then case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME" "\\$1" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME" "$(cat "$S/opt-kosmos_token_instance" 2>/dev/null)" ;; esac; fi',
+    /* The twin is listed FIRST, so a read that takes the first row or matches by prefix gets the twin's run. */
     '    case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME-discord" "\\$2" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME-discord" "abcabcabcabc" ;; esac',
+    '    if [ -f "$S/alive" ]; then case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME" "\\$1" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME" "$(cat "$S/opt-kosmos_token_instance" 2>/dev/null)" ;; esac; fi',
     '    exit 0 ;;',
     '  list-panes) printf "claude\\n"; exit 0 ;;',
     '  new-session)',
@@ -182,6 +183,9 @@ test('#4530 ADOPT: a supervisor restarted mid-run retires the adopted run\'s tok
     const one = f.start();
     await f.until(() => f.tokens().length === 1, 'the run to receive its token');
     const [t1] = f.tokens();
+    /* The runner gets its token inside new-session, before the supervisor stamps the run on the
+       session: kill before the stamp and there is nothing for an adopter to read (flaky, iteration 3). */
+    await f.until(() => fs.existsSync(path.join(f.root, 'state', 'opt-kosmos_token_instance')), 'the run to be recorded on its session');
     one.kill('SIGKILL');   // the supervisor restarts (an update, a launchd reload) while the run lives on
     await f.ends(one);
     assert.equal(f.resolves(t1), true, 'CONTROL: the live run kept its token when its supervisor died');
@@ -268,17 +272,17 @@ test('#4530 LOSER: a launch that mints and then loses the session name retires o
   } finally { f.cleanup(); }
 });
 
-test('#4530 TWIN: the -discord twin\'s run is never read as this session\'s (exact names, not prefixes)', async () => {
+test('#4530 TWIN, adopt: the adopter reads THIS session\'s run, not the -discord twin listed before it (exact name, not first row or prefix)', async () => {
   const f = fixture();
   try {
     const one = f.start();
     await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    const opt = path.join(f.root, 'state', 'opt-kosmos_token_instance');
+    await f.until(() => fs.existsSync(opt), 'the run to be recorded on its session');
     one.kill('SIGKILL');
     await f.ends(one);
-    const opt = path.join(f.root, 'state', 'opt-kosmos_token_instance');
     const recorded = fs.readFileSync(opt, 'utf8');
     assert.match(recorded, /^[0-9a-f]{12}$/, 'the run did not record its instance on its session');
-    assert.notEqual(recorded, 'abcabcabcabc', 'the record landed on the twin');
     const two = f.start();   // adopts, and must read THIS session's record, not the twin's
     await new Promise((r) => setTimeout(r, 1500));
     f.endSession();
