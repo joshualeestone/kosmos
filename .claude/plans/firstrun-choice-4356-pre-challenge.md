@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: firstrun-choice-4356
-diff_hash: 66eccb2f6dd11985a5214c74dfe0746473d98121b17314ff667ec5adc97780ef
+diff_hash: d213c5b6d067ee77261d9181b4e0fea226938e5ec714d7d837fd434724af691d
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-29T04:52:56Z
-iterations: 34
+iterations: 35
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 34
-**Converged:** Yes (iteration 31 found nothing; 32 found NITs only; 33 and 34, on the third and fourth merges of main, found nothing new)
+**Iterations:** 35
+**Converged:** Yes (iteration 31 found nothing; 32 found NITs only; 33 and 34, on the third and fourth merges of main, found nothing new; 35, on the fix for what CI caught after the PR opened, found NITs only)
 **Total findings:** 2 BLOCKERs, 56 WARNINGs, 7 CONVENTIONs, 64+ NITs (iteration 17's NIT count was not recorded)
 **Fixed:** all BLOCKERs, CONVENTIONs and WARNINGs except those DEFERRED below | **Deferred:** 3 | **Asked (awaiting user):** 0
 
@@ -208,6 +208,15 @@ Main moved 29 more during the 0.7.07 cut hold; merged cleanly (3c956a0).
 **Converged** - no new actionable findings.
 
 Validation at the final head e980274: PASSED (11647 tests, 0 fail; run while another agent's full suite overlapped it). Two earlier reds at merged heads were flaky tests on main, filed as #4478 (a folder race between two test files) and #4483 (a 1ms clock race); each passes alone. test-install at c55ae28: 374 passed, 0 failed, #4356 section 53/53; main has not changed install/setup.sh or tools/test-install.sh since. Browser checks at 3c956a0: render-firstrun-choice-4356 33/33, render-restart-screen-4343 62, render-engine-restart-4408 all passed.
+
+#### Iteration 35
+**Reviewer model:** fable (commits 3d866b1 and 2dfdcd5, after the PR opened)
+**Context:** CI's browser-checks on #4489 (a macOS runner with classic scrollbars) failed "C1 nothing of the board or the wizard shows around the screen". The tab layout's scrollbar-gutter:stable on <html> left a strip of the page beside the fixed first screen; this machine's overlay scrollbars give the gutter no width, so it passed here. Fixed in 2dfdcd5 (the restart screen's pattern via html:has(#fr-choice:not([hidden]))), asserted directly in the check (red with the rule removed).
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [NIT] docs/browser-checks/render-firstrun-choice-4356.js:139 - C2 pins the tab layout's 'stable', which a future fix of the wizard's own gutter would redden with a misleading label
+- [NIT] docs/browser-checks/render-firstrun-choice-4356.js:120 - the hits detail prints on PASS too ([])
+The same strip on the first-run wizard and the update overlay (pre-existing, outside this PR) is filed as #4494.
+**Converged** - no new actionable findings.
 
 ### NITs (non-blocking, recorded, not changed)
 - [NIT] server.js /api/engine/restart - a browser tab's Restart pressed at the same moment as Connect can restart the board until the next app launch (iteration 33)
