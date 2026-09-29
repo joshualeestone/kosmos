@@ -1039,7 +1039,7 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
-  allowWatch = null;
+  dropAllowWatch();
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1624,7 +1624,7 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
-  allowWatch = null;
+  dropAllowWatch();
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -1641,32 +1641,55 @@ let signinEpoch = 0;
    (the page gets device_status and nothing else), and it is dropped by Sign out, a new sign-in, Forget, and the
    first final answer. Past the window the page keeps its Done button, which is how it worked before. */
 const ALLOW_WATCH_MS = 15 * 60 * 1000;
-let allowWatch = null;          // { token, until } while a second computer waits to be allowed
-let allowWatchInFlight = null;  // one status call at a time; a second caller shares its answer
+const allowWatchMs = () => {
+  const v = Number(process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS);
+  return Number.isFinite(v) && v > 0 ? v : ALLOW_WATCH_MS;   // tests shorten it; never "no bound"
+};
+let allowWatch = null;          // { token, until, timer } while a second computer waits to be allowed
+let allowWatchInFlight = null;  // { w, p }: one status call per watch; a caller for the same watch shares it
 const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
 /* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop. */
 const OLD_TUNNEL = /unrecognized subcommand|unexpected argument|invalid subcommand/i;
+/* The coordinator refused the session itself (the tunnel prints "Kosmos+ said no (401): ..."): as final as denied. */
+const SESSION_REFUSED = /said no \((401|403)\)/;
+function keepAllowWatch(token) {
+  dropAllowWatch();
+  const w = { token, until: Date.now() + allowWatchMs(), timer: null };
+  // The window is enforced by the clock, not only by the next ask: a page that is closed, or a Done pressed
+  // while pending, must not leave the token here.
+  w.timer = setTimeout(() => { if (allowWatch === w) allowWatch = null; }, allowWatchMs());
+  if (w.timer && typeof w.timer.unref === 'function') w.timer.unref();
+  allowWatch = w;
+}
+function dropAllowWatch() {
+  if (allowWatch && allowWatch.timer) clearTimeout(allowWatch.timer);
+  allowWatch = null;
+}
 async function signinAllowStatus() {
   const w = allowWatch;
   if (!w || Date.now() > w.until) {
-    allowWatch = null;
+    dropAllowWatch();
     return { ok: false, because: 'nothing to wait for', data: { stop: true } };
   }
-  if (allowWatchInFlight) return allowWatchInFlight;
-  allowWatchInFlight = (async () => {
+  if (allowWatchInFlight && allowWatchInFlight.w === w) return allowWatchInFlight.p;
+  const p = (async () => {
     const r = parseSaid(await setupRun(['signin', 'status', '--coordinator', COORDINATOR()], w.token, 20000));
-    // A Sign out, a new sign-in or Forget while this was out: its answer is about a wait that has ended.
-    if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: true } };
+    // The watch this answer is about has ended (Sign out, a new sign-in, Forget, the window). If a NEW watch
+    // exists, its page must ask again rather than be told to stop by an old answer.
+    if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: !allowWatch } };
     if (!r.ok) {
-      if (OLD_TUNNEL.test(String(r.because || ''))) { allowWatch = null; return { ok: false, because: r.because, data: { stop: true } }; }
+      const why = String(r.because || '');
+      if (OLD_TUNNEL.test(why) || SESSION_REFUSED.test(why)) { dropAllowWatch(); return { ok: false, because: r.because, data: { stop: true } }; }
       return { ok: false, because: r.because, data: { stop: false } };
     }
-    const s = r.data && typeof r.data.device_status === 'string' ? r.data.device_status : '';
-    if (!ALLOW_STATUSES.has(s)) return { ok: false, because: 'the tunnel program answered in a shape we could not read', data: { stop: false } };
-    if (s !== 'pending') allowWatch = null;   // a final answer: the token has done its job
-    return { ok: true, because: null, data: { device_status: s } };
+    const status = r.data && typeof r.data.device_status === 'string' ? r.data.device_status : '';
+    if (!ALLOW_STATUSES.has(status)) return { ok: false, because: 'the tunnel program answered in a shape we could not read', data: { stop: false } };
+    // A final answer: the token has done its job. It is answered once; a lost answer leaves the page on its Done.
+    if (status !== 'pending') dropAllowWatch();
+    return { ok: true, because: null, data: { device_status: status } };
   })();
-  try { return await allowWatchInFlight; } finally { allowWatchInFlight = null; }
+  allowWatchInFlight = { w, p };
+  try { return await p; } finally { if (allowWatchInFlight && allowWatchInFlight.p === p) allowWatchInFlight = null; }
 }
 const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 /* A Sign out or Forget that landed while a register was out. If the register
@@ -1723,7 +1746,7 @@ async function signinStart(email, deviceName) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   signinSession = null;
-  allowWatch = null;
+  dropAllowWatch();
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId()];
   pushDeviceName(args, deviceName);
@@ -2040,6 +2063,9 @@ async function signinRegister(name) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
       turnOnAfterSignin();
       ensure(localPort);
+      // #4640: a second computer signing in again (after its first computer said no, a fresh knock) waits for the
+      // answer the same way a first register does. The token was not spent here, so it is the one to ask with.
+      if (signinSession && signinSession.second === true && typeof signinSession.token === 'string') keepAllowWatch(signinSession.token);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
@@ -2094,7 +2120,7 @@ async function signinRegister(name) {
   }
   signinSession = null;   // the token is spent; it must not linger in this process...
   // ...except on a second computer, which keeps it to learn when it is allowed (#4640, signinAllowStatus).
-  allowWatch = second ? { token, until: Date.now() + ALLOW_WATCH_MS } : null;
+  if (second) keepAllowWatch(token); else dropAllowWatch();
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
@@ -2152,6 +2178,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
   signinRegister,
   signinCancel,
   signinAllowStatus,
+  allowWatchHeldForTests: () => allowWatch !== null,
   pendingDevices,
   devicesList,
   deviceAllow,
@@ -2182,7 +2209,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; allowWatch = null; allowWatchInFlight = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; dropAllowWatch(); allowWatchInFlight = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

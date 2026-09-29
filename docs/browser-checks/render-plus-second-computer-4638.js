@@ -127,7 +127,8 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       pg.on('pageerror', (e) => errors.push(String(e)));
       await openWizard(pg, URL);
       await pg.route('**/api/remote/signin-register', (route, req) => { const name = req.postDataJSON().name; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) }); });
-      const asked = { n: 0 };
+      const asked = { n: 0, cancels: 0 };
+      await pg.route('**/api/remote/signin-cancel', (route) => { asked.cancels += 1; route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"stage":"cancelled"}' }); });
       await pg.route('**/api/remote/signin-allowed', (route) => { const a = answers[Math.min(asked.n, answers.length - 1)]; asked.n += 1; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(a) }); });
       await pg.evaluate((a) => plusSiStage('session', a), SECOND);
       await pg.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
@@ -146,6 +147,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       // What Done does is end the landing (PLUS_SI_LANDED) and repaint; what the repaint then shows depends on this check's
       // stubbed status, so the landing flag is the assertion, not the panel.
       ok('#4640 acked: it moves on by itself, as Done does', moved.landed === false && asked.n === 2, JSON.stringify({ ...moved, asked: asked.n }));
+      ok('#4640 moving on tells the engine to drop the token it kept for the asking (signin-cancel)', asked.cancels === 1, JSON.stringify(asked));
       ok('#4640 no page errors (acked)', errors.length === 0, errors.join(' | '));
       await pg.close();
     }
@@ -155,7 +157,11 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       const n = asked.n;
       await pg.waitForTimeout(5000);
       const st = await state(pg);
+      const line = await pg.evaluate(() => document.getElementById('plus-si-done-line').textContent);
       ok('#4640 denied: it says so, drops the code, keeps Done, and stops asking', /said no to letting this one in/.test(st.lead) && !st.code && st.done && st.landed && n === 1 && asked.n === 1, JSON.stringify({ ...st, n, after: asked.n }));
+      ok('#4640 denied: the landing no longer says it is connected, and says how to ask again', line === 'PizzaRama was not let in.' && /To ask again, sign out here, sign in again/.test(st.lead), JSON.stringify({ line, lead: st.lead }));
+      const live = await pg.evaluate(() => document.getElementById('plus-si-match-lead').getAttribute('aria-live'));
+      ok('#4640 the changing line is announced (aria-live)', live === 'polite', String(live));
       await pg.close();
     }
     {

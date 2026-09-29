@@ -17152,7 +17152,7 @@ window.kosmosMeasureScrollbarWidth();
         <!-- #4638 (Josh, 15:17): a second computer on the account. The other computer is asked to let this one in,
              with a code; this shows the same code so the person allows the right one. Filled by plusSiSecondDone. -->
         <div id="plus-si-match" hidden>
-          <p class="plus-si-lead" id="plus-si-match-lead"></p>
+          <p class="plus-si-lead" id="plus-si-match-lead" aria-live="polite"></p>
           <p class="plus-si-code" id="plus-si-match-code" aria-label="The code"></p>
         </div>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
@@ -43735,8 +43735,12 @@ function plusSiAllowed() {
     document.getElementById('plus-si-done-go').click();
   }, 1500);
 }
+/* Denied: this computer is registered but not let in. Signing in again is a fresh request (the coordinator turns a
+   denied device back to pending on its next sign-in, kosmos-relay db.rs upsert_device), so say that. */
 function plusSiRefused() {
-  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in.';
+  const sec = PLUS_SI_SECOND;
+  document.getElementById('plus-si-done-line').textContent = (sec.computer || 'This computer') + ' was not let in.';
+  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in. To ask again, sign out here, sign in again, and allow it on the other computer.';
   document.getElementById('plus-si-match-code').hidden = true;
 }
 
@@ -43849,7 +43853,8 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
   plusSiDoRegister(name, '');
 });
 document.getElementById('plus-si-done-go').addEventListener('click', () => {
-  plusSiWatchStop();   // #4640
+  plusSiWatchStop();   // #4640: stop asking here, and have the engine drop the token it kept for the asking
+  if (PLUS_SI_SECOND) plusSiPostRaw('/api/remote/signin-cancel', {});
   PLUS_SI_LANDED = false;
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();

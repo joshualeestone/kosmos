@@ -161,6 +161,8 @@ if (args[0] === 'signin') {
     // #4640: the token on stdin, never argv; the answer is whatever the test planted in <record>.allow (default pending).
     if (mode.includes('old-tunnel')) { process.stderr.write("error: unrecognized subcommand 'status'\\n"); process.exit(2); }
     if (mode.includes('status-down')) { process.stderr.write('Kosmos+ is unreachable: connect refused\\n'); process.exit(1); }
+    if (mode.includes('status-401')) { process.stderr.write('Error: Kosmos+ said no (401): session token invalid or expired\\n'); process.exit(1); }
+    if (mode.includes('status-slow')) { const until = Date.now() + 1200; while (Date.now() < until) { /* a slow coordinator */ } }
     const token = fs.readFileSync(0, 'utf8').trim();
     fs.writeFileSync(${JSON.stringify(RECORD)} + '.status-token', token);
     let allow = 'pending';
@@ -1293,13 +1295,20 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'a first computer asked the coordinator');
 });
 test('#4640 Sign out, a new sign-in and Forget each drop the kept token', async () => {
+  fs.rmSync(ALLOW, { force: true });
+  // Each arm first proves the watch is LIVE, so a drop is the drop's doing. The second and third sign-ins take
+  // register's already-set-up shortcut (same name), which must keep the watch too (a retry after a no).
+  const live = async (what) => assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'pending' }, what + ': no live watch to drop');
   await signedInSecond();
+  await live('first register');
   remote.signinCancel();
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Sign out left the token');
   await signedInSecond();
+  await live('the already-set-up shortcut');
   await remote.signinStart('someone@example.com');
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'a new sign-in left the token');
   await signedInSecond();
+  await live('the already-set-up shortcut, again');
   await remote.forget();
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Forget left the token');
 });
@@ -1314,6 +1323,44 @@ test('#4640 an old tunnel without the verb stops the wait; a coordinator that is
   assert.equal(old.data.stop, true, 'a tunnel that cannot answer is asked forever');
   delete process.env.FAKE_TUNNEL_MODE;
   assert.equal((await remote.signinAllowStatus()).data.stop, true);
+});
+
+test('#4640 review: the window drops the token on its own clock, and a refused session is final', async () => {
+  process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS = '300';
+  try {
+    await signedInSecond();
+    assert.equal(remote.allowWatchHeldForTests(), true, 'CONTROL: the watch is held after register');
+    await new Promise((r) => setTimeout(r, 450));
+    // Nobody asked: only the clock can have dropped it (a closed page, or Done pressed while pending).
+    assert.equal(remote.allowWatchHeldForTests(), false, 'the token stayed in memory past its window');
+    fs.rmSync(RECORD, { force: true });
+    const late = await remote.signinAllowStatus();
+    assert.equal(late.data.stop, true, 'the token outlived its window');
+    assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'an expired watch still asked the coordinator');
+  } finally { delete process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS; }
+  await signedInSecond();
+  process.env.FAKE_TUNNEL_MODE = 'status-401';
+  const refused = await remote.signinAllowStatus();
+  assert.match(String(refused.because), /401/, 'the 401 arm did not reach the coordinator refusal');
+  assert.equal(refused.data.stop, true, 'a refused session is asked again for 15 minutes');
+  delete process.env.FAKE_TUNNEL_MODE;
+  fs.rmSync(RECORD, { force: true });
+  assert.equal((await remote.signinAllowStatus()).data.stop, true);
+  assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'the refused token was sent again');
+});
+test('#4640 review: an old answer for an ended watch never tells a NEW watch to stop', async () => {
+  fs.rmSync(ALLOW, { force: true });
+  await signedInSecond();
+  process.env.FAKE_TUNNEL_MODE = 'status-slow';
+  const old = remote.signinAllowStatus();            // out for about a second
+  await new Promise((r) => setTimeout(r, 150));      // the slow child is spawned with the slow mode
+  delete process.env.FAKE_TUNNEL_MODE;
+  remote.signinCancel();
+  await signedInSecond();                            // a new watch while the old answer is still out
+  const fresh = await remote.signinAllowStatus();    // must not share the old call
+  assert.deepEqual(fresh.data, { device_status: 'pending' }, 'the new watch was not asked for itself');
+  const stale = await old;
+  assert.equal(stale.data.stop, false, 'an old answer told the new watch to stop');
 });
 
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {
