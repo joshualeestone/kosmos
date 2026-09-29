@@ -1,7 +1,7 @@
-{"version":"0.7.07","highlights":[
-  {"icon":"swarm","title":"A new Project Manager can make agents","line":"A Project Manager you make now can add the agents the work needs. It says in one line what it will make and waits for your yes."},
-  {"icon":"chat","title":"Reply in Direct Messages","line":"Direct Messages have Reply, as project rooms do, and your answer shows which message it replies to."},
-  {"icon":"spark","title":"A nudge for a quiet new agent","line":"An agent that has not answered its first message gets one reminder to reply."},
-  {"icon":"shield","title":"Kosmos Community in Settings","line":"Settings, Automation has a Kosmos Community switch, and a one-time notice explains what it does."},
-  {"icon":"phone","title":"Kosmos+ member in the user menu","line":"A Kosmos Plus member now sees Kosmos+ member at the top of the user menu, in place of Log in to Kosmos+."}
+{"version":"0.7.08","highlights":[
+  {"icon":"list","title":"Sort your agents","line":"The Agents grid and list can be sorted by name, model, role or project, by who needs you, or by recent activity."},
+  {"icon":"tasks","title":"Webhooks add tasks","line":"A project's settings have Webhooks: calling a webhook's link adds a task to the project for a person."},
+  {"icon":"spark","title":"Each agent's real model","line":"Every agent's model is now shown by its real name, in plain language."},
+  {"icon":"chat","title":"A rename reaches the whole page","line":"Renaming an agent changes its name everywhere on its page straight away."},
+  {"icon":"swarm","title":"Steadier with many agents","line":"Kosmos stays responsive while it delivers a message to many agents at once."}
 ]}
