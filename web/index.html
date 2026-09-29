@@ -30414,6 +30414,10 @@ function orgPlace(nodes) {
       const t = Math.max(0, Math.min(1, ((q[0] - g.a[0]) * dx + (q[1] - g.a[1]) * dy) / (dx * dx + dy * dy || 1)));
       return Math.hypot(q[0] - g.a[0] - t * dx, q[1] - g.a[1] - t * dy);
     };
+    /* The band is sound for an outer face pulled back to its manager's slice edge too (post-rebase review 2): a line M->P
+       runs steadily outward exactly when r_P cos(d) >= r_M (d = P's angle from M). The unpulled P lies on the extension
+       of M through the midpoint Q, a line that already satisfies it; the pull keeps r_P and only shrinks d, so cos(d),
+       and the inequality, only grow. */
     const near = (f, g) => f.r > g.lo - ORG_LINE_CLEAR && f.r < g.hi + ORG_LINE_CLEAR;
     const faces = [...placed].map(([name, s]) => faceOf(name, s));
     const lines = faces.map((f) => lineOf(f, placed.get(f.name).node.parent));
