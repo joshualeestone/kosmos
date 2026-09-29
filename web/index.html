@@ -9518,7 +9518,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    where the drawing shows none. The avatar gives way to a dot: filled for an assigned agent,
    hollow for "Nobody yet". Subtasks keep today's indent. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcards { gap: 0; }
-:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 1px; align-items: baseline; border: 0; border-radius: 10px; background: none; box-shadow: none; padding: 7px 8px; margin: 0 -8px; width: auto; text-align: left; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 1px; align-items: baseline; border: 0; border-radius: 10px; background: none; box-shadow: none; padding: 7px 36px 7px 8px; margin: 0 -8px; width: auto; text-align: left; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub1 { margin-left: 10px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub2 { margin-left: 28px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:hover { background: var(--k-bg); }
@@ -9578,14 +9578,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st { display: block; margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-size: .8125rem; color: var(--nl-ink-3); white-space: nowrap; }
-/* The remove minus (hover/focus only) sits OVER the word's place instead of holding a gap at the
-   row's end, and the word steps aside while it shows, so the word lines up with the box's edge. */
+/* The remove minus (hover/focus only) has its own 28px lane at the row's end, reserved always, so it
+   never covers the state word and nothing shifts when it appears. Task rows reserve the same lane
+   below, so member states and task assignees share one right edge. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { position: relative; }
 /* Not on a swarm member's row: its On/Off toggle sits at the row's end, and an overlaid minus would
    cover "Off" (a click meant for Off would open the remove confirm). There the minus stays in flow. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents > .pj-member:not(:has(.swmini)) { padding-right: 36px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)) .pj-minus { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); margin: 0; }
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)):has(.pj-minus:hover) .pj-member-st,
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)):has(.pj-minus:focus-visible) .pj-member-st { visibility: hidden; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:has(.swmini) .swmini { margin-left: 8px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st::before { content: ""; display: inline-block; vertical-align: 1px; margin-right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--nl-ink-4); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="working"]::before { background: var(--nl-green); }
@@ -49266,7 +49266,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        from the same stateCopyOf/cardStOf the rest of the app uses. Always in the markup, and
        display:none unless the new look is on, so today's room column still prints no status
        text (#3212, Josh 6.72) and a toggle needs no repaint. */
-    + (hideState && present ? '<span class="pj-member-st" data-st="' + esc(cardStOf(liveM).st) + '">' + esc(stateCopyOf(liveM).label) + '</span>' : '')
+    + (hideState && present ? '<span class="pj-member-st" data-st="' + esc(cardStOf(liveM).st) + '" title="' + esc(stateCopyOf(liveM).label) + '">' + esc(stateCopyOf(liveM).label) + '</span>' : '')
     /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
        on hover or keyboard focus wherever it is drawn. Project settings
        asks for it too now, the same button and the same confirm modal,
