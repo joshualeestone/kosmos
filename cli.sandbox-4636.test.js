@@ -150,7 +150,7 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
   assert.doesNotMatch(post.out, START_ADVICE);
 });
 
-test('a sandboxed shell: stop, restart and open change nothing, board-run launches nothing, none says "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+test('a sandboxed shell: stop and open change nothing, board-run launches nothing, none says "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const h = {};
   // No board.pid: this arm is stop's no-pidfile branch (with one, see the board.pid arm below).
   const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
@@ -158,13 +158,6 @@ test('a sandboxed shell: stop, restart and open change nothing, board-run launch
   assert.notEqual(stop.code, 0, stop.out);
   assert.match(stop.out, /this shell cannot connect to it/);
   assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker for a running board');
-  // restart refuses in a sandbox (ps denied); where ps works it goes ahead by the pid, which is right there.
-  const restart = PS_DENIED_IN_SANDBOX ? await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true)) : null;
-  if (restart) {
-    assert.equal(restart.died, false, restart.out);
-    assert.notEqual(restart.code, 0, restart.out);
-    assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
-  }
   const open = await withBoard('ok', (p) => run(CLI, ['open'], env(p), true));
   assert.equal(open.code, 5, open.out);
   assert.match(open.out, /this shell cannot connect to it/);
@@ -173,7 +166,15 @@ test('a sandboxed shell: stop, restart and open change nothing, board-run launch
   const boardRun = await withBoard('ok', (p) => run(CLI, ['board-run'], env(p), true));
   assert.equal(boardRun.died, false, boardRun.out);
   assert.equal(boardRun.code, 0, boardRun.out);
-  for (const r of [stop, restart, open, boardRun].filter(Boolean)) assert.doesNotMatch(r.out, /not running|another app/i);
+  for (const r of [stop, open, boardRun]) assert.doesNotMatch(r.out, /not running|another app/i);
+});
+
+test('a sandboxed shell: restart refuses before stopping anything', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it (restart then goes ahead by the pid, which is right there)' }, async () => {
+  const restart = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true));
+  assert.equal(restart.died, false, restart.out);
+  assert.notEqual(restart.code, 0, restart.out);
+  assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
+  assert.doesNotMatch(restart.out, /not running|another app/i);
 });
 
 test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly, and kills nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
@@ -279,7 +280,7 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
 /* The kill-or-keep decision after a launch, driven with the real _await_board_up and stubbed readings: healthy()
    reports "unreachable" with the launched pid as the listener, and _shell_is_sandboxed says what the arm needs. The
    "board" is a real sleep process, so a kill is a real kill. */
-function awaitWith(sandboxed, passPid, ours = false, reclaim = false) {
+function awaitWith(sandboxed, passPid, ours = false, reclaim = false, killFails = false) {
   const script = `
 set -euo pipefail
 source "${CLI}"
@@ -289,9 +290,12 @@ healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; ret
 _shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
 _unreachable_is_ours() { return ${ours ? 0 : 1}; }
 ${reclaim ? 'export KOSMOS_RECLAIM_BUSY=1' : ''}
+${killFails ? 'kill() { case "$1" in -0) builtin kill "$@" ;; *) return 0 ;; esac; }   # signals do nothing' : ''}
+echo "$SP" > "$PIDFILE"
 sleep() { command sleep 0.05; }   # short pauses, but real ones: the kill path waits on the process between checks
 rc=0; ( _await_board_up ${passPid ? '"$SP"' : '""'} ) || rc=$?
-if kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc"; kill "$SP"; else echo "board=gone rc=$rc"; fi
+if [ -f "$PIDFILE" ]; then pf=kept; else pf=removed; fi
+if builtin kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc pidfile=$pf"; builtin kill "$SP"; else echo "board=gone rc=$rc pidfile=$pf"; fi
 `;
   return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: env(1), timeout: 60000 },
     (err, so, se) => resolve((so + se).replace(/\s+/g, ' ').trim())));
@@ -303,7 +307,11 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   assert.match(keep, /board=alive rc=0/, 'without sandbox evidence the board it launched must be left running: ' + keep);
   const stop = await awaitWith(true, true);
   assert.match(stop, /so it was stopped again/, stop);
-  assert.match(stop, /board=gone rc=1/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
+  assert.match(stop, /board=gone rc=1 pidfile=removed/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
+  // The stop does not take: the board lives, so its pidfile (the only handle on it) must stay.
+  const stuck = await awaitWith(true, true, false, false, true);
+  assert.match(stuck, /could not be stopped again/, stuck);
+  assert.match(stuck, /board=alive rc=1 pidfile=kept/, 'a board that survived the stop lost its pidfile: ' + stuck);
   const launchd = await awaitWith(true, false);
   // Not this install's recorded board (stubbed): the words do not claim it started, only that launchd was asked.
   assert.match(launchd, /launchd was asked to start Kosmos, and this shell cannot confirm it did/, launchd);

@@ -306,6 +306,7 @@ HEALTH_STATE=down
 _HEALTH_OWNER=""
 _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   local _out _rc _code _body _took _left_s
+  _UNREACH_PID=""; _UNREACH_CMD=""   # #4636: set only by an unreachable reading, never left over from an earlier one
   # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
   # would end the script whenever a caller is outside an if/&&/|| (errexit is only off inside those).
   _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?

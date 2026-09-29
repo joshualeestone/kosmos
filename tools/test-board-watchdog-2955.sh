@@ -104,13 +104,16 @@ rm -rf "$H"
 #     already past GRACE: no start, no kickstart, the down streak ended, and ONE log line for two ticks.
 #     Arm 6 above is the control: the same seeded state with status exit 1 does start.
 H="$(new_home)"; : > "$H/.stub-unreachable"
-printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
+printf 'down_since=%s\nlast_kickstart=0\nfail_count=2\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
 run_wd "$H"; run_wd "$H"
 [ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "unreachable (exit 5): no start, no kickstart" || bad "unreachable: $(starts "$H") starts, $(kicks "$H") kicks"
 grep -q '^down_since=$' "$H/logs/board-watchdog.state" && ok "unreachable: the down streak is ended" || bad "unreachable: down streak kept: $(grep down_since "$H/logs/board-watchdog.state")"
+grep -q '^fail_count=2$' "$H/logs/board-watchdog.state" && ok "unreachable: the fail count is carried through" || bad "unreachable: fail count changed: $(grep fail_count "$H/logs/board-watchdog.state")"
 _n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: logged once for two ticks" || bad "unreachable: logged ${_n:-0} times for two ticks"
 rm -f "$H/.stub-unreachable"; run_wd "$H"
 [ ! -f "$H/logs/board-watchdog.unreachable" ] && ok "unreachable: the spell ends when status says something else" || bad "unreachable: its marker outlived the spell"
+# ...and that first down reading after the spell starts a fresh GRACE: no start yet.
+[ "$(starts "$H")" = 0 ] && ok "unreachable: a down reading after the spell starts a fresh grace, no start" || bad "unreachable: restarted at once after the spell ($(starts "$H") starts)"
 rm -rf "$H"
 # 6w. #4636: a spell older than 6 hours is logged again (so a long one is not silent), once.
 H="$(new_home)"; : > "$H/.stub-unreachable"; : > "$H/logs/board-watchdog.unreachable"

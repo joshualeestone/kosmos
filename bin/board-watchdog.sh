@@ -165,9 +165,9 @@ fi
 # it would not help, so it kicks nothing and ends any down streak (a later down reading starts a fresh
 # GRACE). Logged once per spell, not every tick: a marker file ($UNREACH_MARK) holds the spell.
 if [ "$STATUS_RC" -eq 5 ]; then
-  # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent (a spell
-  # that starts again within 6 hours of the last line, across a reboot too, is not logged again; accepted). If
-  # the marker cannot be written, this logs on every tick instead.
+  # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent. Any other
+  # status reading ends the spell (its marker is removed), so only an unbroken run of exit-5 readings, across a
+  # reboot too, stays quiet between lines. If the marker cannot be written, this logs on every tick instead.
   if [ ! -f "$UNREACH_MARK" ] || [ "$(( $(now) - $(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)") ))" -ge 21600 ]; then
     log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"
     : > "$UNREACH_MARK" 2>/dev/null || true
