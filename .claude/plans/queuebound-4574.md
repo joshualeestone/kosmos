@@ -24,8 +24,8 @@ waits) nothing changes: 1200 s from the start.
 - Counting node --test children: fixes a mechanism the measurement shows is not there.
 
 ## Weakest premise
-(A hard ceiling, review 9, now bounds every queued wait at four bounds, 3 hours, so this premise can only delay a
-give-up, never prevent it.) That "a waiter ahead left" means the queue moved. A waiter ahead that GIVES UP also leaves, so behind a hung suite each
+(A hard ceiling bounds every queued wait: four bounds plus one per waiter ahead at entry (review 13), so this premise
+can only delay a give-up, never prevent it, and a healthy queue k deep, about k suites long, stays inside it.) That "a waiter ahead left" means the queue moved. A waiter ahead that GIVES UP also leaves, so behind a hung suite each
 waiter in turn spends one full bound (45 min) at the front before giving up. That is slower than the old 20 minutes
 for the waiters behind a hung suite, and it is the price of not giving up on a healthy long queue.
 
@@ -176,3 +176,16 @@ Its CONVENTION line only confirms the plan exists and matches the code (not a fi
 #4498 queue note now describes all four marker lines; ts says why it uses the real clock. NITs left: the first-pass
 early restart (documented, bounded by the ceiling); q_ready can fail under heavy load (by name, as intended).
 Because the two comment edits changed the diff, one more blind round follows.
+
+## Review iteration 13 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) the fixed 3-hour ceiling (four bounds from entry) would END A HEALTHY QUEUE about 7 to 9 deep (k suites of 14 to
+  26 min), the card's own symptom one level down, and nothing said so. The default is now four bounds PLUS ONE PER
+  WAITER AHEAD AT ENTRY; KOSMOS_WAIT_QUEUE_CEIL_S still sets it outright. Arms: six ahead leaving every 60 s (360 s on
+  a 60 s bound) start (a fixed ceiling cuts them at call 9); a waiter ahead whose marker flaps forever is ended at
+  (4+1) x 60 = 300 s (no ceiling: 1001 calls).
+- (W) the test fixtures wrote a shape no writer produces (UTC on line 3, three lines) and passed only through a reader
+  clause that matched nothing in production. All eight now write the real four-line marker (local line 3, UTC line 4)
+  and the dead clause is gone.
+- (N, taken) the give-up line reports the wall time since the last fall when that arm fired (was slept seconds).
+- (N, left) KOSMOS_WAIT_QUEUE_CEIL_S=0 gives up at once (documented; as KOSMOS_WAIT_MAX_S=0); ps calls per poll.
