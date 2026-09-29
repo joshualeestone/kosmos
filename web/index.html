@@ -8699,7 +8699,7 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
   .nak-btn { flex-basis: 100%; max-width: none; min-height: 0; flex-direction: row; text-align: left;
              padding: 14px 16px; gap: 14px; flex-wrap: wrap; }
   .nak-art { width: 124px; height: 40px; margin: 0; align-self: center; }   /* Mona's review: the art about 40px tall */
-  .nak-name { flex: 1 1 60%; }
+  .nak-name { flex: 1 1 0; min-width: 0; }   /* beside the art, wrapping to two lines (Mona's review), never below it */
   .nak-desc { flex-basis: 100%; }
 }
 .fr-back { position: fixed; inset: 0; z-index: 60;

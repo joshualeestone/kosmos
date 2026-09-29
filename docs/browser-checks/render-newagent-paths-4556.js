@@ -119,6 +119,10 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       ok(t + ' K1 New Agent opens on the three-way choice, not the role screen', k1.onKind && !k1.onRole, JSON.stringify(k1));
       ok(t + ' K1 the three choices, in Josh\'s order, each with line art', JSON.stringify(k1.names) === JSON.stringify(['Create a Single Agent', 'Create a Team of Agents', 'Create a Swarm of Autonomous Agents']) && k1.art, JSON.stringify(k1.names));
       if (width <= 600) ok(t + ' K1 the phone art is about 40px tall (Mona\'s review)', k1.artH >= 32, String(k1.artH));
+      if (width <= 600) ok(t + ' K1 on a phone each title sits beside its art, not below it (Mona\'s review)', await page.evaluate(() =>
+        [...document.querySelectorAll('#cstep-kind .nak-btn')].filter((b) => !b.hidden).every((b) => {
+          const a = b.querySelector('.nak-art').getBoundingClientRect(); const n = b.querySelector('.nak-name').getBoundingClientRect();
+          return n.left >= a.right - 1 && n.top < a.bottom; })));
       ok(t + (width > 600 ? ' K1 side by side in one row' : ' K1 stacked, with no sideways scroll'),
         width > 600 ? k1.rows === 1 : (k1.rows === 3 && !k1.overflow), JSON.stringify(k1));
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: nodePath.join(SHOTS, 'newagent-' + theme + '-' + label + '.png'), fullPage: true }); }
