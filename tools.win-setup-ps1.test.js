@@ -204,6 +204,13 @@ test('a missing pointer is refused before anything is downloaded', WINDOWS_ONLY,
   } finally { await host.close(); }
 });
 
+test('an empty pointer ({}) is refused in a sentence, not an error', WINDOWS_ONLY, async () => {
+  const host = await startHost({ ...goodFiles(signedZip()), 'latest-win.json': Buffer.from('{}') });
+  try {
+    assertRefused(await runSetup(host), /Kosmos was not installed: the release information is missing its version\./);
+  } finally { await host.close(); }
+});
+
 test('a pointer naming a download outside the published shape is refused', WINDOWS_ONLY, async () => {
   const zip = signedZip();
   const bad = Buffer.from(JSON.stringify({ version: VERSION, sha256: sha256(zip), versioned: '..\\..\\evil.zip', arch: 'x64' }));

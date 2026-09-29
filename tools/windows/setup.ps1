@@ -59,6 +59,9 @@
   # (InstallLockWaitMs) and the updater up to 10 for its swap; past this, the extracted copy is
   # left in place in case it is still needed.
   $LAUNCHER_WAIT_SECONDS = 30 * 60
+  # How often, while waiting, to look for the launcher having settled on running from the extracted
+  # copy. Reading one small file; quick enough that the window answers within a moment.
+  $LAUNCHER_POLL_MILLISECONDS = 2000
 
   function Say([string] $Text) { Write-Host "  $Text" }
 
@@ -111,15 +114,18 @@
     return ($c -ieq $p) -or $c.StartsWith($p + '\', [System.StringComparison]::OrdinalIgnoreCase)
   }
 
-  # Is anything still using the extracted copy? True when a process runs from it, or when Kosmos's
-  # engine pointer (%LOCALAPPDATA%\Kosmos\runtime\engine-path, engine/win32anchor.js) names it,
-  # which is what happens when the launcher could not install itself and runs Kosmos from here.
-  function Test-ExtractedCopyInUse([string] $Folder) {
+  # Does Kosmos's engine pointer (%LOCALAPPDATA%\Kosmos\runtime\engine-path, engine/win32anchor.js)
+  # name the extracted copy? That is what happens when the launcher could not install itself and
+  # runs Kosmos from here instead.
+  function Test-PointerNamesFolder([string] $Folder) {
     $pointer = Join-Path $env:LOCALAPPDATA 'Kosmos\runtime\engine-path'
-    if (Test-Path -LiteralPath $pointer -PathType Leaf) {
-      $named = (Read-TextFile $pointer).Trim()
-      if (Test-IsInside $named $Folder) { return $true }
-    }
+    if (-not (Test-Path -LiteralPath $pointer -PathType Leaf)) { return $false }
+    return Test-IsInside (Read-TextFile $pointer).Trim() $Folder
+  }
+
+  # Is anything still using the extracted copy? The pointer names it, or a process runs from it.
+  function Test-ExtractedCopyInUse([string] $Folder) {
+    if (Test-PointerNamesFolder $Folder) { return $true }
     foreach ($process in @(Get-Process -ErrorAction SilentlyContinue)) {
       $path = $null
       try { $path = $process.Path } catch { }
@@ -130,8 +136,10 @@
 
   # A property of a parsed JSON object, or $null when it has none (StrictMode throws on a missing one).
   function Get-Field($Object, [string] $Name) {
-    if ($null -eq $Object -or -not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
-    return $Object.$Name
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]   # indexing, not .Name: an empty {} has no .Name to read
+    if ($null -eq $property) { return $null }
+    return $property.Value
   }
 
   # What the steps below share with the cleanup at the end. A hashtable, because a function
@@ -238,10 +246,21 @@
     $state.Launched = $true
     $launcher = Start-Process -FilePath $exe -WorkingDirectory $extracted -PassThru
     $null = $launcher.Handle   # 5.1 reports no exit code for a Start-Process child unless its handle was taken
-    if (-not $launcher.WaitForExit($LAUNCHER_WAIT_SECONDS * 1000)) {
-      $state.KeepWork = $true
-      Say "Kosmos is still starting. The copy it started from is left in $extracted in case it still needs it; Windows clears that folder in time."
-      return
+    # A launcher that could not install itself runs the board from here and stays running for as
+    # long as the board does, so waiting for it to exit would hang this window. The engine pointer
+    # naming this folder is the sign of that, and ends the wait at once.
+    $deadline = (Get-Date).AddSeconds($LAUNCHER_WAIT_SECONDS)
+    while (-not $launcher.WaitForExit($LAUNCHER_POLL_MILLISECONDS)) {
+      if (Test-PointerNamesFolder $extracted) {
+        $state.KeepWork = $true
+        Say "Kosmos is running from $extracted for now; please leave that folder alone. It tries to install itself properly the next time you open it."
+        return
+      }
+      if ((Get-Date) -gt $deadline) {
+        $state.KeepWork = $true
+        Say "Kosmos is still starting. The copy it started from is left in $extracted in case it still needs it; Windows clears that folder in time."
+        return
+      }
     }
     # Whatever the launcher decided, the extracted copy stays while anything uses it.
     if (Test-ExtractedCopyInUse $extracted) {
