@@ -22,8 +22,8 @@ runs them; and a break of one of them goes red in the shell suite (a control pro
   each of the four groups exactly once (so the cut keeps running them).
 - `tools/test-install-static-control-4641.sh` (new): the runner passes on setup.sh; fails, on the exact check, on a
   copy whose launchd restart no longer reads the choice first (a regression, where 0.7.11's was a check made stale
-  by a correct change: either way a setup.sh change now meets the check on the PR); and fails the count on a lib
-  with one check removed.
+  by a correct change: either way a setup.sh change now meets the check on the PR); fails the count on a lib
+  with one check removed; and fails the group-call guard on a test-install.sh with one group call removed.
 - `package.json` `test:shell`: `bash -n` the lib, then the runner, then the control, beside `bash -n tools/test-install.sh`.
 
 ## Rejected
