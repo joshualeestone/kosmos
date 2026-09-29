@@ -249,8 +249,8 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(500);
         const late = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent }));
         chk(late.who === 'casey' && !late.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Skills answer for April paints nothing on Casey's page`, JSON.stringify(late));
-        /* The same, when the switch lands on Talk: nothing loads for Casey then, so only the open itself
-           can retire April's pending answer. It must paint nothing into the hidden list either. */
+        /* The same, when the switch lands on Talk: nothing loads for Casey then. Two guards each refuse
+           April's pending answer (the open's new ticket, and skillsListIsFor); this fails only if both go. */
         let release2; const gate2 = new Promise((res) => { release2 = res; });
         await page.unroute(aprilSkills);
         await page.route(aprilSkills, async (route) => { await gate2; await route.fulfill({ status: 200, contentType: 'application/json',
@@ -269,7 +269,8 @@ function chk(ok, label, extra) {
         let release3; const gate3 = new Promise((res) => { release3 = res; });
         const oneSkill = JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] });
         await page.route(aprilSkills, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill }));
-        await page.route(aprilSkills + '/*', async (route) => { await gate3; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+        // The DELETE FAILS: the error branch is the one that writes into the page (its message, the button).
+        await page.route(aprilSkills + '/*', async (route) => { await gate3; await route.fulfill({ status: 500, contentType: 'application/json', body: '{"ok":false,"because":"APRIL-REMOVE-FAILED"}' }); });
         await page.evaluate(() => openDetail('april', 'profile'));
         await page.waitForSelector('#d-skills-list .skillrm', { timeout: 5000 });
         await page.click('#d-skills-list .skillrm');
@@ -281,7 +282,8 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(700);
         const late3 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent,
           msg: document.getElementById('d-skills-msg').textContent }));
-        chk(late3.who === 'casey' && !late3.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Remove on April's page reloads nothing onto Casey's page`, JSON.stringify(late3));
+        chk(late3.who === 'casey' && !late3.list.includes('APRIL-ONLY-SKILL') && !/APRIL-REMOVE-FAILED/i.test(late3.msg),
+          `[${theme}] a slow, failed Remove on April's page writes nothing onto Casey's page`, JSON.stringify(late3));
         await page.unroute(aprilSkills + '/*');
         /* And a slow Add: April's POST answers after the person has moved to Casey's Profile. Nothing it
            writes (its "Adding…", its "Added. April…") may be left on Casey's page, nor April's draft. */
