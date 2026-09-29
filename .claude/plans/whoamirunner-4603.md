@@ -13,11 +13,15 @@ the session is Grok 4.6 on a connected xAI subscription."
 - runnerDisplayName: Grok, Gemini.
 - whoamiFor model: after the transcript (Claude only) and the live read, a non-Claude agent takes card.model, source
   'session', only when card.runner equals the resolved runner (after a provider switch the job names the new runner
-  while the card still describes the old pane and its model). This also applies to Codex when the live read misses
-  (review round 1): a Codex agent whose card agrees now names its card model instead of "we cannot tell".
-- The route's account list adds grokaccounts and geminiaccounts rows (accountForAgent matches a keyed row only for an
-  agent of that provider, so Claude and Codex answers cannot change).
-- keyTail carried in all three account constructions (parity test) and a sentence rung: "the API key ending in ABCD".
+  while the card still describes the old pane and its model). Confidence `structured` (a purpose-written session file).
+  This also changes Codex: a Codex agent whose live read failed, or answered without a model (the common case, since
+  Codex is launched without --model), now names its card model instead of "we cannot tell".
+- The route's account list adds grokaccounts and geminiaccounts rows. accountForAgent's default (dir-less) arm matches a
+  keyed row only for an agent of that provider; its dir-match arm is ungated, so a Claude or Codex answer is unchanged
+  because the account folders differ (~/.claude*, ~/.codex*, ~/.grok*, ~/.gemini*), not by code. A route-level control
+  pins a Claude agent's answer with both keyed accounts on disk.
+- keyTail carried in all three account constructions (parity test) and a sentence rung below name, email and label:
+  "the API key ending in ABCD". accountForAgent is also /api/status's, so board cards gain `keyTail: null` (unread).
 
 ## Decided
 - Reuse the card's model rather than a new session read in whoami: one reader, and the words match the board.
@@ -30,4 +34,5 @@ card.model is from the Grok session file, which follows a mid-session /model swi
 summary.json; if it lags, whoami says the older model, as the board does.
 
 ## Tests
-server.whoami-grok-4603.test.js (4): three fail on main (measured), the Claude control passes on both. server.test.js 344/344.
+server.whoami-grok-4603.test.js (10), including a Grok model read end to end from a real summary.json through the route.
+Mutations: dropping the runner-agreement guard, the Gemini lister, or the card-model rung each fail tests. server.test.js 344/344.

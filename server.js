@@ -1696,19 +1696,12 @@ function whoamiFor(card, known, live) {
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
-    /* #4603 (#4580 item 12): a non-Claude agent the live reader did not answer for takes the model on its card,
-       which is what the board shows for it. Only when the card's own runner IS the resolved runner: after a provider
-       switch the launch job already names the new runner while the running pane (and so the card and its model)
-       is still the old one, and pairing the two would name the old model under the new runner. */
+    /* #4603: the card's own model for a non-Claude agent, only when the card's runner is the resolved runner
+       (server.whoami-grok-4603.test.js pins the provider-switch case). */
     if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
-      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.SCRAPED }, from: 'session' };
+      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.STRUCTURED }, from: 'session' };
     }
-    /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
-       `source` means "who answered" everywhere else, and here nobody did. The
-       alternative is a third value, which every consumer would have to learn in
-       order to render the same "we cannot tell" sentence. Kept as `record`
-       because the record is the fallback and therefore the last reader
-       consulted; revisit if a caller ever needs to distinguish them. */
+    /* 📌 `record` when NEITHER answered: `source` means "who answered" everywhere else, and here nobody did. */
     return { value: null, from: 'record' };
   })();
 
@@ -1771,8 +1764,8 @@ function sentenceForWhoami(account, model, runner) {
      `.kosmos-name` sidecar -- is what made the gap visible. */
   const acct = account && account.name ? account.name
     : account && account.email ? account.email
-      : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
       : account && account.label ? account.label
+      : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
         : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
           : null;
   const parts = [];

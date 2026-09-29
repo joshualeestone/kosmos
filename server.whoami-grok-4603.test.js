@@ -53,6 +53,9 @@ test('#4603 the sentence names Grok and Gemini by their product names', () => {
   assert.match(sentenceForWhoami(null, null, 'grok'), /^This is a Grok agent, and /);
   assert.match(sentenceForWhoami(null, null, 'gemini'), /^This is a Gemini agent, and /);
   assert.match(sentenceForWhoami(null, null, 'codex'), /^This is a Codex agent, and /, 'CONTROL: Codex as before');
+  const key = { email: null, name: null, label: null, keyTail: 'ABCD', dir: '/x' };
+  assert.match(sentenceForWhoami(key, null, 'grok'), /runs on the API key ending in ABCD/);
+  assert.match(sentenceForWhoami(Object.assign({}, key, { label: 'work' }), null, 'grok'), /runs on work\b/, 'a person-chosen label outranks the key tail');
 });
 
 test('#4603 a Grok agent\'s model comes from its card (its session file), not "we cannot tell"', (t) => {
@@ -127,4 +130,47 @@ test('#4603 through the route: a default-account Gemini agent on a key is named 
   assert.ok(tok.ok, tok.because);
   const got = await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json();
   assert.match(got.because, /This is a Gemini agent, and it runs on the API key ending in WXYZ/, got.because);
+});
+
+test('#4603 CONTROL through the route: a Claude agent\'s answer is the same with an xAI and a Google key on disk', async (t) => {
+  const board = fleet.install([fleet.agent('clem', { state: 'idle' })]);
+  const grokKey = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, '.kosmos-grok-apikey');
+  const gemKey = path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME, '.kosmos-gemini-apikey');
+  t.after(() => { board.restore(); for (const f of [grokKey, gemKey]) { try { fs.unlinkSync(f); } catch { /* */ } } });
+  const tok = sendertoken.mint('clem');
+  assert.ok(tok.ok, tok.because);
+  const ask = async () => (await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json());
+  const before = await ask();
+  fs.writeFileSync(grokKey, 'xai-test-key-ABCD', { mode: 0o600 });
+  fs.writeFileSync(gemKey, 'gemini-test-key-WXYZ', { mode: 0o600 });
+  const after = await ask();
+  assert.equal(after.because, before.because, 'a Claude agent\'s answer changed when keyed accounts appeared');
+  assert.deepEqual(after.account, before.account);
+});
+
+test('#4603 a Codex agent whose live read answers with no model also takes its card model', (t) => {
+  const board = fleet.install([fleet.agent('cody2', { state: 'idle', runner: 'codex', command: 'node', screen: '› Ask Codex to do anything' })]);
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody2')); } catch { /* */ } });
+  job('cody2', 'codex', '/opt/homebrew/bin/codex');
+  const real = board.agents.find((a) => a.name === 'cody2');
+  const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], { ok: true, runner: 'codex', account: null, model: null, configDir: null });
+  assert.equal(out.model && out.model.id, 'gpt-5.6-sol', JSON.stringify(out.model));
+  assert.equal(out.source.model, 'session');
+});
+
+test('#4603 through the route: the model Grok Build wrote to its session file reaches the sentence', async (t) => {
+  const board = fleet.install([fleet.agent('rexs', { state: 'idle', runner: 'grok', command: 'grok' })]);
+  const sess = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, 'sessions', 'rexs-cwd', 'sess-1');
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('rexs')); } catch { /* */ } fs.rmSync(path.join(process.env.AGENT_WORKFORCE_GROK_HOME, 'sessions'), { recursive: true, force: true }); });
+  grokJob('rexs');
+  const work = create.workerDir('rexs');
+  fs.mkdirSync(work, { recursive: true });
+  fs.mkdirSync(sess, { recursive: true });
+  const now = new Date().toISOString();
+  fs.writeFileSync(path.join(sess, 'summary.json'), JSON.stringify({ info: { id: 'sess-1', cwd: work }, created_at: now, updated_at: now, last_active_at: now, num_messages: 2, current_model_id: 'grok-4.6' }));
+  const tok = sendertoken.mint('rexs');
+  assert.ok(tok.ok, tok.because);
+  const got = await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json();
+  assert.equal(got.model && got.model.id, 'grok-4.6', JSON.stringify(got));
+  assert.match(got.because, /This is a Grok agent, .*its model is /, got.because);
 });
