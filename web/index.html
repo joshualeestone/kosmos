@@ -9441,7 +9441,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   --k-ink-2: #424245; --label-2: #424245;
   --k-rule: #e8e8ed;
   --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2; --nl-face: #e8e8ed;
-  --nl-green: #2e9a5a; --nl-gold: #e3b341; --nl-amber: #c98a12;
+  --nl-green: #2e9a5a;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"])[data-look="new"] {
@@ -9451,7 +9451,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
-    --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
+    --nl-green: #30d158;
   }
 }
 /* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
@@ -9525,6 +9525,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { grid-column: 1; grid-row: 1; font-size: 0; letter-spacing: 0; text-transform: none; color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n::before { content: "#" attr(data-n) / ""; font: 400 .875rem var(--font-ui); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed .tkcard-t { color: var(--label-2); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part-of { grid-row: auto; grid-column: 1 / -1; font-size: .75rem; color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b), :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b) > .tkcard-who-b { display: contents; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who .lav { display: none; }
@@ -9754,7 +9755,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
-    --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
+    --nl-green: #30d158;
   }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -40364,6 +40365,10 @@ function placeProjectHead() {
   const crumb = oneView && oneView.querySelector('.pj-crumbrow');
   const pj3 = oneView && oneView.querySelector('.pj3');
   if (crumb && pj3 && crumb.parentElement !== oneView) oneView.insertBefore(crumb, pj3);
+  /* #4470: the new look puts the crumb row in the conversation header. applyLayout calls this
+     from an async paint that can land AFTER the boot showTab's placeLook, so re-apply it here
+     or a reload with the look on leaves the crumb above the columns. */
+  placeLook(document.body.classList.contains('consolidated'));
 }
 /* #3103 (Josh, 6.68): placeSubProjects removed with the sub-projects section it
    positioned. The #2848 consolidated-vs-tab relocation it did no longer applies. */
@@ -50622,9 +50627,9 @@ function paintProjectTasks(p) {
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
       + partOf
-      /* #4470: data-n lets the new look DRAW the drawing's "#4" (as generated content with empty alt
+      /* #4470: data-n (with any " (done)") lets the new look DRAW the drawing's "#4" (as generated content with empty alt
          text, so a screen reader still hears "Task 4"); the text itself is unchanged. */
-      + '<span class="tkcard-n" data-n="' + n + '">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
+      + '<span class="tkcard-n" data-n="' + n + (t.closedAt ? ' (done)' : '') + '">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this
@@ -52714,12 +52719,13 @@ function paintSettingsFacts(p) {
    goes back to the projects list. The target is read at click time from the
    then-current project, so a poll repaint between paint and click cannot stale it.
    The list-return mirrors openProject's own missing-id return shape. */
-document.getElementById('pj-crumb-root').addEventListener('click', () => {
-  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
-});
 document.getElementById('pj-back').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }
+  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
+});
+/* #4470: the new look's "Projects" crumb root returns to the list from any depth. */
+document.getElementById('pj-crumb-root').addEventListener('click', () => {
   PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
 });
 /* #3125 (Josh, 6.68): ancestor breadcrumb crumbs jump straight to that project.
@@ -64392,7 +64398,8 @@ const TIPS = [
       { at: ['#panel-projects .pj3 .pjcard-members'], title: 'Members', body: 'Members are the agents on it. Add more any time.' },
       { at: ['#panel-projects .pj3 > .pjmid'], title: 'Conversation', body: 'Conversation is where you talk to all of them at once.' },
       { at: ['#panel-projects .pj3 .pjcard-files'], title: 'Files', body: 'Files collects everything they make.' },
-      { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
+      /* #4470: with the new look on, placeLook has moved Tasks into the left box. */
+      { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)', '#panel-projects .pj3 > .pjsplit > aside.pjcol'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
     ],
     show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated') },
   /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then five small tips, one on

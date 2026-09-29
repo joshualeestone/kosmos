@@ -11,7 +11,8 @@
   Files in one grey box; the conversation unboxed on the page; a round back button and "Projects / name"
   as the header; member rows with the state word; compact task rows; your messages grey, an agent's with
   no bubble; the composer a grey pill; the top bar's tabs marked by ink, not an underline.
-- The consolidated layout is unchanged in both states.
+- The consolidated layout keeps today's ARRANGEMENT in both states; with the look on, its colours follow the new
+  tokens and the top bar's tab styling, like every other page.
 
 ## How
 - Head script beside the theme one; `lookPaint` / `lookToggleClick` beside the engineering-mode switch.
@@ -36,5 +37,6 @@
 
 ## Verification
 - `web.newlook-4470.test.js` (head script, token sets, switch), `docs/browser-checks/render-newlook-4470.js`
-  (75 checks, light / dark / 390, both states, chosen Dark arms, seeded tasks and a working agent), wired
+  (light / dark / 390, both states, a direct load onto the project, chosen Dark arms, seeded tasks and a
+  working agent; its own output prints the count), wired
   in gated.txt and the README. Negative controls run for the composer and the working-row pulse.
