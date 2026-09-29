@@ -343,3 +343,8 @@ test('a catalogue key already defined in roles.js is skipped, the original kept 
   const ok = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(__dirname, 'roles.js'))})`], { encoding: 'utf8', env: CHILD_ENV });
   assert.doesNotMatch(ok.stderr, /were skipped/);
 });
+
+test('the picker still opens on the same first role: the merge keeps Project Manager first', () => {
+  // The page recommends the first menu role; the catalogue must not move the default.
+  assert.equal(roles.ROLES.filter((r) => r.menu !== false)[0].key, 'pm');
+});

@@ -6,7 +6,11 @@
    Each role: key, group, label, blurb, first (the first action), desc (what it does, one or
    two sentences), who (its character, three to six sentences), how (three working rules; one
    says what it will not do), and caution (only where the role's main job acts outward for the
-   person or advises in a regulated area; the same limit is stated in `how`). */
+   person or advises in a regulated area; the same limit is stated in `how`).
+
+   Cautions have a budget: fewer than half of ALL roles may carry one (engine/create.test.js), and
+   the catalogue uses it up. Adding a cautioned role here means removing another caution or adding
+   uncautioned roles; each caution also needs its boundary pattern in create.test.js. */
 module.exports = {
   GROUP_ORDER: [
     "Running the work",
