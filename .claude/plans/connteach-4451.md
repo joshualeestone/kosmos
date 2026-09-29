@@ -102,3 +102,8 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
 - cli.exit-code-mapping-3628: cli.connections-4451.test.js had 3 spawn sites that did not check the exit code was a number. The harness now rejects a close with no code. The two interrupt tests carry the marker with the reason: a close with no code resolves the signal's name, which can never equal the 143 they assert.
 - LEAK: 8 kosmos-cli4451 temp dirs left in the suite root. The file now requires test-support/tmpscope first.
 - The failing arm for each of these is the validation log itself. All three files pass now (16 tests).
+
+## The third validation run: 0 node failures, 1 shell failure, mine
+- tools/test-kosmos-help-exit0-3036.sh pins the --help cases in install/kosmos by their exact verb lists, so adding `connect` to the exit-0 case and `connections` to the read-only case broke both greps.
+- Fixed by matching the lists as prefixes. It is also stronger than before: the guard now asserts directly that no read-only verb (adopt, whoami, connections) is on the exit-0 line, which the old exact match only implied.
+- Controls, six line shapes: main's lines and the branch's lines pass; whoami folded into the exit-0 case, connections folded in, and a missing read-only case each fail; connect is not mistaken for connections.
