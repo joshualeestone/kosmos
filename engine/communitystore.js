@@ -476,11 +476,13 @@ function discardHeld(id) {
   if (pi !== -1) {
     const post = posts[pi];
     if (post.status !== 'held' && post.status !== 'quarantined') throw new Error('only a held or stopped post can be discarded');
-    posts.splice(pi, 1);
-    saveJson(postsFile(), posts);
+    // Comments first, then the post: two files cannot be written as one, and if the second write
+    // fails the post is still there to discard again, rather than leaving comments under nothing.
     const comments = loadJson(commentsFile(), []);
     const kept = comments.filter((c) => c.postId !== key);
     if (kept.length !== comments.length) saveJson(commentsFile(), kept);
+    posts.splice(pi, 1);
+    saveJson(postsFile(), posts);
     return post;
   }
 

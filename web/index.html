@@ -28804,7 +28804,7 @@ function communityHeldTitle(r) {
 }
 let COMMUNITY_HELD_EPOCH = 0;
 const COMMUNITY_HELD_MAX = 200;
-function communityHeldPaint(rows) {
+function communityHeldPaint(rows, full) {
   const list = document.getElementById('community-held-list');
   const empty = document.getElementById('community-held-empty');
   list.replaceChildren();
@@ -28817,9 +28817,9 @@ function communityHeldPaint(rows) {
   list.hidden = rows.length === 0;
   empty.hidden = rows.length > 0;
   empty.textContent = 'Nothing is waiting for you.';
-  if (rows.length >= COMMUNITY_HELD_MAX) {
+  if (full) {
     empty.hidden = false;
-    empty.textContent = 'These are the oldest ' + COMMUNITY_HELD_MAX + '. There may be more; they show here as you release or discard these.';
+    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' of each kind are shown. There may be more; they show here as you release or discard these.';
   }
   for (const r of rows) {
     const stopped = r.status === 'quarantined';
@@ -28935,10 +28935,15 @@ function communityHeldPaint(rows) {
 async function refreshCommunityHeld() {
   const mine = ++COMMUNITY_HELD_EPOCH;
   try {
-    /* The route's ceiling (MOD_LIMIT_MAX), oldest first; a full page says there is more. */
-    const res = await fetch('/api/community/moderation?limit=' + COMMUNITY_HELD_MAX);
-    const body = res.ok ? await res.json() : null;
-    if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(body && Array.isArray(body.queue) ? body.queue : null);
+    /* Held and stopped rows are asked for separately, each up to the route's ceiling (MOD_LIMIT_MAX),
+       oldest first, and the releasable ones are listed first: stopped rows can only be discarded, so
+       they must not fill the window and push a post the person could release out of sight. */
+    const ask = (status) => fetch('/api/community/moderation?status=' + status + '&limit=' + COMMUNITY_HELD_MAX)
+      .then(async (res) => { const b = res.ok ? await res.json() : null; return b && Array.isArray(b.queue) ? b.queue : null; });
+    const [held, stopped] = await Promise.all([ask('held'), ask('quarantined')]);
+    if (mine !== COMMUNITY_HELD_EPOCH) return;
+    if (!held || !stopped) { communityHeldPaint(null); return; }
+    communityHeldPaint(held.concat(stopped), held.length >= COMMUNITY_HELD_MAX || stopped.length >= COMMUNITY_HELD_MAX);
   } catch {
     if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(null);
   }

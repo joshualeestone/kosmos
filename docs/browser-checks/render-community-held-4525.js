@@ -108,6 +108,18 @@ function readList(pg) {
   });
 }
 
+/* The fake moderation route behaves as the real one does (communitystore.moderationQueue): only the
+   asked status, oldest first by receivedAt, cut at the asked limit. Without the order and the cut a
+   crowded queue could never push a row out of sight here, and the crowding arm below would pass on
+   a page that has the bug. */
+const mod = (queue) => (route) => {
+  const q = new URL(route.request().url()).searchParams;
+  const status = q.get('status');
+  const limit = Number(q.get('limit')) || 100;
+  const rows = queue.filter((r) => !status || r.status === status)
+    .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt))).slice(0, limit);
+  return answer({ queue: rows })(route);
+};
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const LONG = 'Today I moved the weekly report onto the new template.\nIt took three tries.\nThe first failed on dates.\nThe second on totals.\nThe third worked, and I wrote down why so the next run is quicker.';
 const REMOTE = '1b2c3d4e-0000-4000-8000-000000000001';
@@ -181,32 +193,35 @@ async function run() {
     for (const scheme of ['light', 'dark']) {
       const p1 = await page({ colorScheme: scheme });
       const asked = [];
-      await p1.route(MOD, (route) => { asked.push(route.request().url()); return answer({ queue: QUEUE })(route); });
+      await p1.route(MOD, (route) => { asked.push(route.request().url()); return mod(QUEUE)(route); });
       await p1.route(SWITCH, answer(SWITCH_ON));   // the normal state: the REAL arm left this board's switch off
       await openAutomation(p1);
       const r = await readList(p1);
+      const R = (id) => r.rows.find((x) => x.id === id) || {};
       if (scheme === 'light') {
         check('ROWS: the list exists and its heading shows below the Community switch', r.found && r.headShown && r.belowSwitch, JSON.stringify(r));
         check('ROWS: four rows are listed', r.rows.length === 4, JSON.stringify(r.rows.map((x) => x.id)));
-        check('ROWS: the list asks for the route\'s full page (limit=200)', asked.length > 0 && asked.every((u) => /[?&]limit=200\b/.test(u)), JSON.stringify(asked));
+        check('ROWS: the list asks for held and stopped rows separately, each at the route\'s full page (limit=200)',
+          asked.length >= 2 && asked.every((u) => /[?&]limit=200\b/.test(u)) && asked.some((u) => /status=held\b/.test(u)) && asked.some((u) => /status=quarantined\b/.test(u)), JSON.stringify(asked));
+        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: with the switch on there is no switch-off note', r.offNote === false);
-        check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', r.rows[1].bodyShown === false && r.rows[1].reveal === true && r.rows[0].bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
-        check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(r.rows[2].text) && !/Comments are not sent/.test(r.rows[0].text), JSON.stringify([r.rows[0].text, r.rows[2].text]));
+        check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', R('p2').bodyShown === false && R('p2').reveal === true && R('p1').bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
+        check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));
-        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => x.release)) === '[true,false,true,true]', JSON.stringify(r.rows));
+        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["p2",false]]', JSON.stringify(r.rows));
         check('ROWS: every row can be discarded', r.rows.every((x) => x.discard), JSON.stringify(r.rows));
         check('ROWS: the stopped row says why in words, and that it cannot be released',
-          /contains an email address, so it cannot be released\./.test(r.rows[1].why) && !/email address \(PII\)/.test(r.rows[1].text), r.rows[1].why);
-        check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(r.rows[0].text) && /Nova/.test(r.rows[0].text) && /Same here, templates help\./.test(r.rows[2].text) && /Ava/.test(r.rows[2].text), JSON.stringify(r.rows.map((x) => x.text)));
-        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', r.rows[3].link === 'https://community.installkosmos.com/post/' + REMOTE && r.rows[2].link === '', JSON.stringify([r.rows[2].link, r.rows[3].link]));
-        check('ROWS: a long post offers Read all; a short one does not', r.rows[0].more === true && r.rows[2].more === false, JSON.stringify(r.rows.map((x) => x.more)));
+          /contains an email address, so it cannot be released\./.test(R('p2').why) && !/email address \(PII\)/.test(R('p2').text), R('p2').why);
+        check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(R('p1').text) && /Nova/.test(R('p1').text) && /Same here, templates help\./.test(R('c1').text) && /Ava/.test(R('c1').text), JSON.stringify(r.rows.map((x) => x.text)));
+        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', R('c2').link === 'https://community.installkosmos.com/post/' + REMOTE && R('c1').link === '', JSON.stringify([R('c1').link, R('c2').link]));
+        check('ROWS: a long post offers Read all; a short one does not', R('p1').more === true && R('c1').more === false, JSON.stringify(r.rows.map((x) => x.more)));
         await p1.click('li[data-id="p1"] .community-held-more');
         const open = await p1.evaluate(() => document.querySelector('li[data-id="p1"] .community-held-body').classList.contains('open'));
         check('ROWS: Read all opens the whole post', open === true);
         await p1.click('li[data-id="p1"] .community-held-more');
         await p1.click('li[data-id="p2"] .community-held-reveal');
-        const shown = (await readList(p1)).rows[1].bodyShown;
+        const shown = ((await readList(p1)).rows.find((x) => x.id === 'p2') || {}).bodyShown;
         check('ROWS: Show what it said reveals a stopped row\'s words', shown === true);
         await p1.click('li[data-id="p2"] .community-held-reveal');
       }
@@ -217,7 +232,7 @@ async function run() {
     // DISCARD (mocked)
     const p2 = await page();
     const sent = [];
-    await p2.route(MOD, answer({ queue: QUEUE.slice(0, 1) }));
+    await p2.route(MOD, mod(QUEUE.slice(0, 1)));
     await p2.route(DISCARD, (route) => { sent.push(route.request().postData()); return answer({ discarded: { id: 'p1' } })(route); });
     await openAutomation(p2);
     await p2.click('li[data-id="p1"] .community-held-start');
@@ -236,7 +251,7 @@ async function run() {
 
     // FAIL
     const p3 = await page();
-    await p3.route(MOD, answer({ queue: QUEUE.slice(0, 1) }));
+    await p3.route(MOD, mod(QUEUE.slice(0, 1)));
     await p3.route(RELEASE, answer({ error: 'only a held post can be released' }, 400));
     await openAutomation(p3);
     await p3.click('li[data-id="p1"] .community-held-release');
@@ -254,15 +269,24 @@ async function run() {
 
     // FULL: a full page (the route's ceiling) says there may be more, rather than implying this is all.
     const pf = await page();
-    await pf.route(MOD, answer({ queue: Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i })) }));
+    await pf.route(MOD, mod(Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i }))));
     await openAutomation(pf);
     const fl = await readList(pf);
-    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200\. There may be more/.test(fl.empty), fl.empty);
+    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200 of each kind are shown\. There may be more/.test(fl.empty), fl.empty);
     await pf.close();
+
+    // FULL-STOPPED: 200 OLDER stopped rows cannot push a newer releasable post out of sight (it is listed first).
+    const pq = await page();
+    await pq.route(MOD, mod([{ ...QUEUE[0], receivedAt: '2026-09-29T12:00:00Z' },
+      ...Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[1], id: 'q' + i, receivedAt: '2026-09-29T08:' + String(i % 60).padStart(2, '0') + ':' + String(Math.floor(i / 60)).padStart(2, '0') + 'Z' }))]));
+    await openAutomation(pq);
+    const fq = await readList(pq);
+    check('FULL-STOPPED: 200 stopped rows do not hide a releasable post, which comes first', fq.rows.length === 201 && fq.rows[0].id === 'p1' && fq.rows[0].release === true && /There may be more/.test(fq.empty), JSON.stringify([fq.rows.length, fq.rows[0] && fq.rows[0].id, fq.empty]));
+    await pq.close();
 
     // EMPTY
     const p4 = await page();
-    await p4.route(MOD, answer({ queue: [] }));
+    await p4.route(MOD, mod([]));
     await openAutomation(p4);
     const e = await readList(p4);
     check('EMPTY: the list is hidden and the line says nothing is waiting', e.listHidden === true && e.emptyHidden === false && e.empty === 'Nothing is waiting for you.', JSON.stringify(e));
