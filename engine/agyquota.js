@@ -24,21 +24,22 @@ const GRACE_MS = 30 * 1000;
 /* A little under the server's 60 s tick, so jitter between ticks cannot turn one minute's spacing into two (review 1). */
 const STAGGER_MS = 55 * 1000;
 /* A reset older than this is left alone: the book lives in memory, so without it every board restart would type the
-   carry-on line again into an agent whose last report is still an old quota stop (review 1). Google's allowance
-   refreshes every five hours. */
-const MAX_AGE_MS = 6 * 60 * 60 * 1000;
+   carry-on line again into an agent whose last report is still an old quota stop (review 1). The one constant the card's
+   wording also uses (status.js QUOTA_RESUME_WINDOW_MS, review 3). */
+const MAX_AGE_MS = require('./status').QUOTA_RESUME_WINDOW_MS;
 const MAX_TRIES = 3;
 const NUDGE_TEXT = 'The Google quota for this account has reset. Please carry on with what you were doing.';
 /* The stagger stamp, kept in the same book under a key no session name can equal (review 2). */
 const LAST = Symbol('lastNudgeAt');
 
-/* The reset an agent is paused until, from its latest report, in epoch ms; null when it is not paused on the
-   quota. The same shape status.quotaPauseUntil reads, without its "still ahead" condition. */
+/* The reset an agent is paused until, from its latest report, in epoch ms; null when it is not paused on the quota.
+   status.js's own reading, not a copy of it (review 3). */
 function pausedUntil(report) {
-  if (!report || report.found !== true || report.state !== 'idle' || report.by !== 'auto') return null;
-  const at = typeof report.until === 'string' ? Date.parse(report.until) : NaN;
-  return Number.isFinite(at) ? at : null;
+  return require('./status').quotaResetOf(report);
 }
+/* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
+   connection, which the board's screen reading ranks above the quota report (review 3). */
+const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
 
 /* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
 function plan(report, entry, now) {
@@ -47,6 +48,11 @@ function plan(report, entry, now) {
   if (entry && entry.until === report.until) {
     if (entry.nudgedAt != null) return { act: 'none', because: 'already resumed once for this reset' };
     if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+    /* A refusal backs off, STAGGER_MS per try so far, so a short-lived one (another message still being placed) cannot
+       spend the whole budget on consecutive ticks (review 3). */
+    if (Number.isFinite(entry.lastTryAt) && now - entry.lastTryAt < STAGGER_MS * (entry.tries || 1)) {
+      return { act: 'wait', because: 'the last try reached nothing; backing off' };
+    }
   }
   if (now < at + GRACE_MS) return { act: 'wait', because: 'its quota resets at ' + new Date(at).toISOString() };
   if (now > at + MAX_AGE_MS) return { act: 'none', because: 'its quota reset more than six hours ago; left alone' };
@@ -71,6 +77,7 @@ function sweepOnce(o) {
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session || card.runner !== 'antigravity') continue;
+      if (!NUDGE_OVER.includes(card.state)) continue;
       let report = null;
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
@@ -87,12 +94,12 @@ function sweepOnce(o) {
     const delivered = D.PLACED != null && state === D.PLACED;
     const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
     const tries = (d.entry && d.entry.until === d.report.until && Number.isInteger(d.entry.tries) ? d.entry.tries : 0) + 1;
-    book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, delivery: state });
+    book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
     if (mayHaveReached) book.set(LAST, now);
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
-      because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left paused for a person' : d.because, waiting: due.length - 1 };
+      because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };
     results.push(r);
     if (log) { try { log(r); } catch { /* never breaks a sweep */ } }
   } catch { /* never throws: a sweep is best-effort */ }
@@ -116,4 +123,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };

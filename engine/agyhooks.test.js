@@ -514,3 +514,9 @@ test('#4588: the report body sends until only when there is one', () => {
   assert.equal(bridge.buildBody('idle', 'x', {}).until, '');
 });
 
+test('#4588: the bridge writes the exact sentence the board keys on (status.QUOTA_REPORT_PREFIX)', () => {
+  const r = bridge.reportFor('Stop', { error: QUOTA }, Date.parse('2026-09-28T21:47:00Z'));
+  assert.ok(r.text.startsWith(require('./status').QUOTA_REPORT_PREFIX), r.text);
+  assert.match(r.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the strict ISO form status.js requires');
+});
+

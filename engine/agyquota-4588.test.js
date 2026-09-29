@@ -7,15 +7,17 @@ const q = require('./agyquota');
 const RESET = '2026-09-28T22:11:54.000Z';
 const AT = Date.parse(RESET);
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
-const paused = (until) => ({ found: true, state: 'idle', by: 'auto', until: until || RESET });
+const status = require('./status');
+// The shape the bridge really writes (status.js keys on its first sentence).
+const paused = (until) => ({ found: true, state: 'idle', by: 'auto', until: until || RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' });
 
 function world(reports) {
   const roster = [
-    { sessionName: 'agy-a', name: 'A', runner: 'antigravity' },
-    { sessionName: 'agy-b', name: 'B', runner: 'antigravity' },
-    { sessionName: 'agy-c', name: 'C', runner: 'antigravity' },
-    { sessionName: 'agy-free', name: 'Free', runner: 'antigravity' },
-    { sessionName: 'claude-x', name: 'X', runner: 'claude' },
+    { sessionName: 'agy-a', name: 'A', runner: 'antigravity', state: 'rate_limited' },
+    { sessionName: 'agy-b', name: 'B', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'agy-c', name: 'C', runner: 'antigravity', state: 'unknown' },
+    { sessionName: 'agy-free', name: 'Free', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'claude-x', name: 'X', runner: 'claude', state: 'idle' },
   ];
   const sent = [];
   return {
@@ -53,6 +55,24 @@ test('#4588: three agents paused on one reset are resumed one at a time, STAGGER
   assert.deepEqual(w.sent.map((x) => x.s), ['agy-a', 'agy-b', 'agy-c'], 'each once, in order; never the unpaused agy agent or the claude one');
 });
 
+test('#4588: a card showing a question, work or a lost connection is never typed into (review 3)', () => {
+  const w = world({ 'agy-a': paused() });
+  for (const state of ['needs_you', 'working', 'connection_lost']) {
+    w.roster[0].state = state;
+    sweep(w, AT + q.GRACE_MS);
+    assert.equal(w.sent.length, 0, state);
+  }
+  w.roster[0].state = 'rate_limited';
+  sweep(w, AT + q.GRACE_MS);
+  assert.equal(w.sent.length, 1, 'CONTROL: over a paused card it resumes');
+});
+
+test('#4588: the sweep and the card share one reading and one six-hour window (review 3)', () => {
+  assert.equal(q.MAX_AGE_MS, status.QUOTA_RESUME_WINDOW_MS);
+  assert.equal(q.pausedUntil(paused()), status.quotaResetOf(paused()));
+  assert.equal(q.pausedUntil({ found: true, state: 'idle', by: 'auto', until: RESET, because: 'finished' }), null);
+});
+
 test('#4588: the oldest reset goes first', () => {
   const early = new Date(AT - 600e3).toISOString();
   const w = world({ 'agy-a': paused(), 'agy-c': paused(early) });
@@ -64,11 +84,17 @@ test('#4588: a delivery that reaches nothing is tried again, and given up after 
   const w = world({ 'agy-a': paused() });
   const refuse = (s, text) => { w.sent.push({ s, text }); return { state: D.COULD_NOT }; };
   const logged = [];
-  for (let i = 0; i < q.MAX_TRIES + 2; i++) {
-    q.sweepOnce({ roster: w.roster, book: w.book, now: AT + q.GRACE_MS + i * 1000, readReport: w.readReport, deliver: refuse, DELIVERY: D, log: (r) => logged.push(r) });
+  const at = [];
+  for (let s = 0; s <= 20 * 60; s += 30) {   // a sweep every 30 s for 20 minutes
+    const now = AT + q.GRACE_MS + s * 1000;
+    const before = w.sent.length;
+    q.sweepOnce({ roster: w.roster, book: w.book, now, readReport: w.readReport, deliver: refuse, DELIVERY: D, log: (r) => logged.push(r) });
+    if (w.sent.length > before) at.push(s);
   }
-  assert.equal(w.sent.length, q.MAX_TRIES, 'a refusal does not start the spacing, so the tries come a second apart, and stop at MAX_TRIES');
+  assert.equal(w.sent.length, q.MAX_TRIES, 'it stops at MAX_TRIES');
+  assert.ok(at[1] - at[0] >= q.STAGGER_MS / 1000 && at[2] - at[1] >= 2 * q.STAGGER_MS / 1000, 'refusals back off (review 3), tries at ' + at.join(', ') + ' s');
   assert.equal(logged[logged.length - 1].act, 'gave-up', 'giving up is logged, not silent');
+  assert.match(logged[logged.length - 1].because, /left idle with its turn unfinished/);
 });
 
 test('#4588: an agent that hits the quota again after resuming is a new pause, resumed again', () => {

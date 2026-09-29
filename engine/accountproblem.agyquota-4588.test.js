@@ -12,7 +12,7 @@ test('#4588: a quota-paused agy card is told plainly, with the shared account an
   const p = accountProblemOf({ name: 'Ada', runner: 'antigravity', state: 'rate_limited', quotaUntil: UNTIL });
   assert.equal(p.kind, 'usage');
   assert.equal(p.notify, false, 'it clears by itself at the reset, so the manager is not interrupted to have it fixed');
-  assert.match(p.text, /Ada has used up its Google account's Antigravity quota, which every Antigravity agent on this computer shares/);
+  assert.match(p.text, /Ada has used up its Google account's Antigravity quota, which any other Antigravity agent signed in to the same Google account shares/);
   assert.match(p.text, new RegExp('resets at ' + HHMM.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(p.text, /credits|looks like/i);
 });
@@ -20,5 +20,5 @@ test('#4588: a quota-paused agy card is told plainly, with the shared account an
 test('#4588: CONTROL: an agy card without a reset keeps the generic wording', () => {
   const p = accountProblemOf({ name: 'Ada', runner: 'antigravity', state: 'rate_limited' });
   assert.ok(p);
-  assert.doesNotMatch(p.text, /every Antigravity agent on this computer shares/);
+  assert.doesNotMatch(p.text, /signed in to the same Google account shares/);
 });

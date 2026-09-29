@@ -198,6 +198,7 @@ function reportFor(eventName, payload, nowMs) {
         state,
         /* Google's own words are kept for whoever reads the record; the board says its own sentence instead
            (status.js quotaPauseUntil's branch), and promises nothing about a resume that may be switched off. */
+        // The first sentence is status.js QUOTA_REPORT_PREFIX, which the board keys on: keep them identical.
         text: "Paused: this Google account's shared Antigravity quota ran out. Google said: " + payload.error.trim(),
         until: new Date(now + wait).toISOString(),
       };

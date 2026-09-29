@@ -18197,7 +18197,7 @@ function stateReason(a, opts) {
      comes a little after the reset. */
   const resetAt = typeof a.quotaUntil === 'string' ? Date.parse(a.quotaUntil) : NaN;
   if (Number.isFinite(resetAt)) {
-    return 'Usage limit reached. The Google quota resets at ' + new Date(resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+    return 'Usage limit reached. The Google quota resets at ' + new Date(resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) + '.';
   }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks

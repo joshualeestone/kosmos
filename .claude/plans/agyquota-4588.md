@@ -27,7 +27,8 @@ the card (comments 5895338362 and 5895357615).
 ## Weakest premise
 That agy's "Resets in" counts from when the error is printed, and that a line typed after the reset resumes agy's
 turn (agy has no screen reader here; the resume is unmeasured on a real agy). A wrong reset only makes the nudge early
-(it fails again, and a new pause starts) or late.
+(it fails again, and a new pause starts) or late. Neither Windows path is measured either: agy's quota text on
+Windows, and a carry-on line delivered into a win32 agy pane (the bridge ships in the Windows bundle).
 
 ## Measured
 - engine/agyhooks.test.js 33/33 (4 new), engine/status.agyquota-4588.test.js 3/3, engine/agyquota-4588.test.js 6/6,

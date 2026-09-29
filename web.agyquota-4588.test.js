@@ -12,7 +12,7 @@ const reasonOf = (a, opts) => new Function('a', 'opts', `${page.lift(SCRIPT, 'st
 
 test('#4588: a quota-paused card names when the quota resets (the grid path), and the detail path quotes no raw API text', () => {
   const until = '2026-09-28T22:11:54.000Z';
-  const hhmm = new Date(Date.parse(until)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const hhmm = new Date(Date.parse(until)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   // The shape a real card has: reported, with the engine's own sentence as its because (status.js).
   const card = { state: 'rate_limited', stateConfidence: 'structured', stateReported: true, quotaUntil: until,
     because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm };

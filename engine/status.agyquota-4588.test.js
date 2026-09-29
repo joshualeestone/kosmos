@@ -19,6 +19,10 @@ test('#4588: quotaPauseUntil is the reset while it is ahead, and null for everyt
   assert.equal(status.quotaPauseUntil(quota({ until: 'Friday' }), NOW), null, 'not a time');
   assert.equal(status.quotaPauseUntil(quota({ until: null }), NOW), null, 'no until');
   assert.equal(status.quotaPauseUntil({ found: false }, NOW), null, 'never reported');
+  // Review 3: only the BRIDGE's report is a pause. Any hook can pass an until through, and Date.parse reads "5" as May 2001.
+  assert.equal(status.quotaPauseUntil(quota({ because: 'finished responding' }), NOW), null, "another agent's automatic idle with a time is not a quota pause");
+  assert.equal(status.quotaPauseUntil(quota({ until: '5' }), Date.parse('1990-01-01T00:00:00Z')), null, 'a loose date is not the reset');
+  assert.equal(status.quotaPauseUntil(quota({ until: 'Mon Sep 28 2026 22:11:54 GMT-0500' }), NOW), null, 'only the strict ISO form the bridge writes');
 });
 
 test('#4588: while paused the card reads rate_limited (Paused) with the reset in its reason', () => {
@@ -46,7 +50,7 @@ test('#4588: past the reset it says so for six hours, then plainly at rest, neve
 });
 
 test('#4588: after the reset the same report reads as the ordinary idle again (CONTROL)', () => {
-  const r = status.reconcileReport(quota({ because: "Paused: ... Google said: API error: RESOURCE_EXHAUSTED ... Resets in 24m54s." }), UNKNOWN, Date.parse(RESET) + 60 * 1000);
+  const r = status.reconcileReport(quota({ because: status.QUOTA_REPORT_PREFIX + ' Google said: API error: RESOURCE_EXHAUSTED ... Resets in 24m54s.' }), UNKNOWN, Date.parse(RESET) + 60 * 1000);
   assert.equal(r.state, status.STATE.IDLE);
   assert.equal(r.quotaUntil, undefined);
   assert.match(r.because, /quota reset at /, 'after the reset it says so, not "Paused"');

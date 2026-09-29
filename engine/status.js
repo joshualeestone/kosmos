@@ -6299,13 +6299,18 @@ function saidWords(reported, nowMs) {
 }
 
 /* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
-   ended) whose `until` is the reset as an ISO time. quotaResetOf returns that reset in epoch ms for any such report,
-   quotaPauseUntil only while it is still ahead of nowMs. An agent's own `kosmos report idle --until Friday` is not
-   automatic and is not a time, so it never reads as a pause; the Windows CLI's `--auto --until <time>` could write
-   one by hand, and would read the same. */
+   ended) whose `because` starts with QUOTA_REPORT_PREFIX and whose `until` is the reset as a strict ISO time. All three
+   are required (review 3): any agent's hook can pass an `until` through, and Date.parse reads "5" as a date, so the
+   bridge's own sentence is what makes it this. quotaResetOf returns the reset in epoch ms for such a report,
+   quotaPauseUntil only while it is still ahead of nowMs. QUOTA_RESUME_WINDOW_MS is how long after the reset the resume
+   sweep (engine/agyquota.js) acts and the card says the quota reset, one constant for both. */
+const QUOTA_REPORT_PREFIX = "Paused: this Google account's shared Antigravity quota ran out.";
+const QUOTA_RESUME_WINDOW_MS = 6 * 60 * 60 * 1000;
 function quotaResetOf(reported) {
   if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
-  const at = typeof reported.until === 'string' ? Date.parse(reported.until) : NaN;
+  if (typeof reported.because !== 'string' || !reported.because.startsWith(QUOTA_REPORT_PREFIX)) return null;
+  if (typeof reported.until !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(reported.until)) return null;
+  const at = Date.parse(reported.until);
   return Number.isFinite(at) ? at : null;
 }
 function quotaPauseUntil(reported, nowMs) {
@@ -6515,12 +6520,12 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const now = Number.isFinite(nowMs) ? nowMs : Date.now();
     // With its zone: this sentence is formatted on the board's machine and can be read from another (review 2).
     const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-    if (quotaAt > now) {
+    if (quotaPauseUntil(reported, now) !== null) {
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
     }
     /* Past the reset: said as such for the resume sweep's six hours, then plainly at rest (the time carries no date).
        Never the report's own text either way. */
-    const recent = now - quotaAt <= 6 * 60 * 60 * 1000;
+    const recent = now - quotaAt <= QUOTA_RESUME_WINDOW_MS;
     return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: recent ? "its Google account's shared Antigravity quota reset at " + hhmm : 'it is at rest and nothing is needed', reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
@@ -7999,7 +8004,7 @@ module.exports = {
   setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, quotaPauseUntil, quotaResetOf, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
