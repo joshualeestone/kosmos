@@ -11749,6 +11749,8 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     // A final answer is given once, so another website cannot fetch it (the same refusal the other read routes use).
     const crossSite = await req('/api/remote/signin-allowed', { headers: { 'sec-fetch-site': 'cross-site' } });
     assert.equal(crossSite.status, 403, crossSite.body);
+    const allowDone = await postJson('/api/remote/signin-allowed-done', {});
+    assert.equal(allowDone.status, 200, allowDone.body);
   } finally {
     for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_RELAY', prev.relay], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;

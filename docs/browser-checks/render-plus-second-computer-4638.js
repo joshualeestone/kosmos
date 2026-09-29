@@ -131,7 +131,8 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       await openWizard(pg, URL);
       await pg.route('**/api/remote/signin-register', (route, req) => { const name = req.postDataJSON().name; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) }); });
       const asked = { n: 0, cancels: 0 };
-      await pg.route('**/api/remote/signin-cancel', (route) => { asked.cancels += 1; route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"stage":"cancelled"}' }); });
+      await pg.route('**/api/remote/signin-allowed-done', (route) => { asked.cancels += 1; route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+      await pg.route('**/api/remote/signin-cancel', (route) => { asked.signouts = (asked.signouts || 0) + 1; route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"stage":"cancelled"}' }); });
       await pg.route('**/api/remote/signin-allowed', (route) => { const a = answers[Math.min(asked.n, answers.length - 1)]; asked.n += 1; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(a) }); });
       await pg.evaluate((a) => plusSiStage('session', a), SECOND);
       await pg.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
@@ -150,7 +151,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       // What Done does is end the landing (PLUS_SI_LANDED) and repaint; what the repaint then shows depends on this check's
       // stubbed status, so the landing flag is the assertion, not the panel.
       ok('#4640 acked: it moves on by itself, as Done does', moved.landed === false && asked.n === 2, JSON.stringify({ ...moved, asked: asked.n }));
-      ok('#4640 moving on tells the engine to drop the token it kept for the asking (signin-cancel)', asked.cancels === 1, JSON.stringify(asked));
+      ok('#4640 moving on tells the engine to drop the token it kept for the asking (signin-allowed-done), and is not a Sign out', asked.cancels === 1 && !asked.signouts, JSON.stringify(asked));
       ok('#4640 no page errors (acked)', errors.length === 0, errors.join(' | '));
       await pg.close();
     }
@@ -191,7 +192,8 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       await openWizard(pg, URL);
       await pg.route('**/api/remote/signin-register', (route, req) => { const name = req.postDataJSON().name; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) }); });
       let tries = 0;
-      await pg.route('**/api/remote/signin-allowed', (route) => { tries += 1; route.abort(); });
+      // Half the asks fail outright, half get the board's own JSON 403 (its token gate): neither is an answer.
+      await pg.route('**/api/remote/signin-allowed', (route) => { tries += 1; if (tries % 2) route.abort(); else route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"that request needs the board token"}' }); });
       await pg.evaluate((a) => plusSiStage('session', a), SECOND);
       await pg.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
       await pg.waitForTimeout(15 * 4000 + 6000);

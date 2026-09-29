@@ -1648,7 +1648,7 @@ let allowWatchInFlight = null;  // { w, p }: one status call per watch; a caller
 const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
 /* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop.
    Read against the WHOLE stderr: clap's error is its first line, and `because` is only the last one (setupRun). */
-const OLD_TUNNEL = /unrecognized subcommand|unexpected argument|invalid subcommand/i;
+const OLD_TUNNEL = /^error: .*(unrecognized subcommand|unexpected argument|invalid subcommand)/m;   // clap's own line only
 /* The coordinator refused the session itself ("Kosmos+ said no (401): ..."): as final as denied. 401 only: the
    session reader answers 401 for a bad or expired session; nothing on this route is known to answer 403. */
 const SESSION_REFUSED = /said no \(401\)/;
@@ -1668,6 +1668,12 @@ function dropAllowWatch() {
 /* The final answer, once given, WITHOUT the token: kept to the end of the same window so a second tab, a reload or a
    lost response is told the same thing instead of "stop" on a question that was answered (possibly with a no). */
 let allowFinal = null;   // { status, until }
+/* The page is done waiting (Done, or moving on after "Allowed"): drop the token and nothing else. Not a Sign out: a
+   sign-in in progress elsewhere is untouched, and the final answer stays for a second tab or a lost response. */
+function signinAllowDone() {
+  dropAllowWatch();
+  return { ok: true, because: null, data: {} };
+}
 function endAllowWait() {
   dropAllowWatch();
   allowFinal = null;
@@ -2190,6 +2196,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
   signinRegister,
   signinCancel,
   signinAllowStatus,
+  signinAllowDone,
   allowWatchHeldForTests: () => allowWatch !== null,
   setAllowWatchMsForTests: (ms) => { allowWatchMsForTests = Number(ms) > 0 ? Number(ms) : 0; },
   pendingDevices,

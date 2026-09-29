@@ -162,6 +162,7 @@ if (args[0] === 'signin') {
     // The whole block a real clap prints (measured from a shipped kosmos-tunnel): the error is the FIRST line.
     if (mode.includes('old-tunnel')) { process.stderr.write("error: unrecognized subcommand 'status'\\n\\nUsage: kosmos-tunnel <COMMAND>\\n\\nFor more information, try '--help'.\\n"); process.exit(2); }
     if (mode.includes('status-down')) { process.stderr.write('Kosmos+ is unreachable: connect refused\\n'); process.exit(1); }
+    if (mode.includes('status-words')) { process.stderr.write('Error: Kosmos+ said no (400): unexpected argument in that request\\n'); process.exit(1); }
     if (mode.includes('status-403')) { process.stderr.write('Error: Kosmos+ said no (403): not allowed\\n'); process.exit(1); }
     if (mode.includes('status-401')) { process.stderr.write('Error: Kosmos+ said no (401): session token invalid or expired\\n'); process.exit(1); }
     if (mode.includes('status-slow')) { const until = Date.now() + 1200; while (Date.now() < until) { /* a slow coordinator */ } }
@@ -1379,6 +1380,34 @@ test('#4640 review: the window drops the token on its own clock, and a refused s
   fs.rmSync(RECORD, { force: true });
   assert.equal((await remote.signinAllowStatus()).data.stop, true);
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'the refused token was sent again');
+});
+test('#4640 review: Done drops only the token (not a Sign out), and the final answer outlives it', async () => {
+  fs.rmSync(ALLOW, { force: true });
+  await signedInSecond();
+  assert.equal(remote.allowWatchHeldForTests(), true, 'CONTROL: the watch is held');
+  remote.signinAllowDone();
+  assert.equal(remote.allowWatchHeldForTests(), false, 'Done left the token');
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'nothing to ask after Done while pending');
+  await signedInSecond();
+  fs.writeFileSync(ALLOW, 'acked');
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'acked' });
+  remote.signinAllowDone();
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'acked' }, 'Done threw away the answer a second tab needs');
+  fs.rmSync(ALLOW, { force: true });
+  // Not a Sign out: a sign-in already under way keeps its session (a register after Done still works).
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '111111')).ok, true);
+  remote.signinAllowDone();
+  assert.equal((await remote.signinRegister('solo')).ok, true, 'Done cancelled a sign-in in progress');
+});
+test('#4640 review: a coordinator sentence that happens to say "unexpected argument" is not an old tunnel', async () => {
+  await signedInSecond();
+  process.env.FAKE_TUNNEL_MODE = 'status-words';
+  const r = await remote.signinAllowStatus();
+  assert.equal(r.ok, false);
+  assert.equal(r.data.stop, false, 'a coordinator refusal was read as an old tunnel');
+  assert.equal(remote.allowWatchHeldForTests(), true);
+  delete process.env.FAKE_TUNNEL_MODE;
 });
 test('#4640 review: an old answer for an ended watch never tells a NEW watch to stop', async () => {
   fs.rmSync(ALLOW, { force: true });

@@ -44,10 +44,15 @@ match could never fire).
   computer that takes the chooser keeps nothing. The denied copy points at a control that exists: Remove this computer
   retires the address (the account lists live addresses only), so the next sign-in is a second computer again and a
   fresh request. GET /api/remote/signin-allowed refuses a cross-site read.
-- Iteration 5: the final answer is kept WITHOUT the token until the window ends (allowFinal), so a second tab, a
-  reload or a lost response is told the same answer instead of "stop"; Sign out, a new sign-in and Forget clear it.
+- Iteration 5: the final answer is kept WITHOUT the token until the window ends (allowFinal), so a second tab or a
+  lost response is told the same answer instead of "stop" (a reload does not restart the asking); Sign out, a new
+  sign-in and Forget clear it.
   Controls pin the engine's own gate on both register paths: a first computer whose page sends awaitAllow keeps
   nothing. With several other computers the denied line says "One of your other computers".
+- Iteration 7: Done and the move on after "Allowed" post POST /api/remote/signin-allowed-done (drops the token
+  only), not signin-cancel (a full Sign out, which could cancel a sign-in elsewhere and dropped the final answer).
+  The page counts an HTTP error answer (the board's 403, a 5xx) toward the 15-unanswered cap. The old-tunnel
+  match is anchored on clap's own "error:" line.
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,

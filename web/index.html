@@ -43717,7 +43717,8 @@ function plusSiWatchAllow() {
     const timer = setTimeout(() => ctl.abort(), 25000);
     try {
       const res = await fetch('/api/remote/signin-allowed', { signal: ctl.signal });
-      got = await res.json().catch(() => null);
+      // An HTTP error (the board's own 403, a 5xx) is not an answer, so it counts toward the cap below.
+      got = res.ok ? await res.json().catch(() => null) : null;
     } catch { got = null; } finally { clearTimeout(timer); }
     if (!still()) return;
     if (got && got.ok && got.device_status === 'acked') { plusSiAllowed(); return; }
@@ -43860,8 +43861,8 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
   plusSiDoRegister(name, '');
 });
 document.getElementById('plus-si-done-go').addEventListener('click', () => {
-  plusSiWatchStop();   // #4640: stop asking here, and have the engine drop the token it kept for the asking
-  if (PLUS_SI_SECOND) plusSiPostRaw('/api/remote/signin-cancel', {});
+  plusSiWatchStop();   // #4640: stop asking here, and have the engine drop the token it kept for the asking (not a Sign out)
+  if (PLUS_SI_SECOND) plusSiPostRaw('/api/remote/signin-allowed-done', {});
   PLUS_SI_LANDED = false;
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();

@@ -8241,6 +8241,12 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { ok: false, stop: false }));
     return;
   }
+  /* #4640: the landing is done waiting: drop the token the engine kept for the asking, and nothing else. */
+  if (pathname === '/api/remote/signin-allowed-done' && req.method === 'POST') {
+    remote.signinAllowDone();
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
