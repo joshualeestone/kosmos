@@ -30365,6 +30365,7 @@ function orgPlace(nodes) {
         for (let j = i + 1; j < all.length; j += 1) {
           if (Math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]) < ORG_MIN_ARC) return false;
         }
+        // A two-ring slot's arc at the INNER ring (its angle times the inner radius) is its room, in px.
         if (all[i].laned && all[i].span * (all[i].r - all[i].lane * ORG_LANE) < ORG_LANE_SLOT) return false;
       }
       /* A line to the outer of two rings starts at the manager, not the hub, so it runs slantwise across the inner
@@ -30378,7 +30379,7 @@ function orgPlace(nodes) {
         const dx = xy[i][0] - ax; const dy = xy[i][1] - ay;
         for (let j = 0; j < all.length; j += 1) {
           if (j === i) continue;
-          const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy)));
+          const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy || 1)));
           if (Math.hypot(xy[j][0] - ax - t * dx, xy[j][1] - ay - t * dy) < ORG_LANE_SLOT) return false;
         }
       }
