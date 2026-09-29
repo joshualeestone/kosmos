@@ -55,6 +55,10 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   found: only "any / anything / no" means absent. NIT: every "could not" in a clause is examined. ACCEPTED: a run hung
   past the hour, taken over, then waking to post, can move the watermark back and repost a window (at least once, as
   stated); the same-instant takeover race can skip one day, which the next run recovers (iteration-4 residual).
+- Review iteration 6 (Sonnet, about 100 sentences compared with origin/main's classify): converged, no regression.
+  ACCEPTED NITs: bare failures with no action word ("Nothing happens when I click", "did not work as expected") rank
+  0 as they ranked 1 on main, below any useful rank either way, and they stay in the inbox; "Couldn't find any
+  errors" still counts through `couldnt` (as on main); "is not working well", "didn't save my changes" rank 0 on both.
 ## Rejected
 - Opening cards from the digest: a person decides (#2246).
 - A digest over all reports every day: the same wall each morning. Only what arrived since the last post.
