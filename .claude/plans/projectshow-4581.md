@@ -33,3 +33,14 @@ Card: joshualeestone/kosmos#4581 (#4580 items 2 and 7; four of five model famili
 ## Limits
 - A member's model name comes from the card when the board knows it; test-support/fleet cannot set it, so it is
   not pinned by a test.
+
+## Separate blind reviews (2026-09-29 13:21 Opus, 13:25 Sonnet)
+Note: the earlier "rounds" recorded for this branch were the loop's own review; these are the first separate reviewers.
+Round 1: an unknown folder or a symlinked summaries/ read as "none yet" (now `nofolder` / `unreadable`); quotes inside
+the brief could fake the quotation's end (now single); a non-JSON answer exited 0 (now 1 on both CLIs).
+Round 2: a stopped member was wrongly kept off its folder (now only a live stranger holding the name is); `show` said
+"not running" for everyone when the board could not read its agents (now "state unknown" with a caveat); a wrong-shaped
+JSON answer read as empty (the renderers now refuse it and both CLIs exit 1); the scrubber now drops every format
+character (\p{Cf}: the tag block, soft hyphen, ALM); the summaries scan checks the 20 newest names, not 5000.
+Kept, stated: freshness is the newest summary's WRITE time (a touched old file reads as current); with no node found
+the Mac prints the raw answer and exits 0 (it cannot validate without one).

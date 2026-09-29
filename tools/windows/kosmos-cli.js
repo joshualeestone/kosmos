@@ -680,7 +680,7 @@ async function projectRead(ctx, route, render) {
   /* An answer that is not JSON (a proxy's error page, a cut-off body) is not a success (round 1): exit 1. */
   if (!r.json) { ctx.err('Kosmos gave an answer we could not read, so nothing is shown.'); return 1; }
   let lines;
-  try { lines = ctx.engine('projectview')[render](r.json); } catch (_) { ctx.out(String(r.text || '')); return 0; }
+  try { lines = ctx.engine('projectview')[render](r.json); } catch (_) { ctx.err('Kosmos gave an answer we could not read, so nothing is shown.'); return 1; }
   for (const line of lines) ctx.out(line);
   return 0;
 }

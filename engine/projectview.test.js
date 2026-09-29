@@ -124,7 +124,11 @@ test('renderShow: no brief, a stale and a missing summary, a member not running,
   assert.match(text, /^Brief: there is no readable BRIEF\.md in the folder, so no goal or "done" is written down\.$/m);
   assert.match(text, /^  sam  \| OpenAI  \| needs you  \| summary: older than the 4-hour rhythm \(summaries\/2026-09-29-06\.md, 10h 0m ago\)$/m);
   assert.match(text, /^  ghost  \| family unknown  \| not running  \| summary: we do not know where its folder is$/m);
-  assert.deepEqual(v.renderShow({}), ['there is no project by that name']);
+  /* Round 2: an answer that is not this shape is unreadable (the CLIs exit 1), never "no such project". */
+  assert.throws(() => v.renderShow({}));
+  assert.throws(() => v.renderShow({ project: { name: 'x' } }));
+  assert.throws(() => v.renderList({}));
+  assert.throws(() => v.renderList({ ok: true }));
 });
 
 test('renderList: one line per project with families and tasks; empty says how to make one', () => {
@@ -167,4 +171,26 @@ test('round 1: in a folder over the scan cap, the newest summary is still found'
   }
   const s = v.summaryFreshness(path.join(DIR, 'big'), NOW);
   assert.equal(s.state, 'current', JSON.stringify(s));
+});
+
+test('round 2: an unreadable roster says the state is unknown, never "not running"', () => {
+  const view = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true }));
+  const text = v.renderShow({ project: view, agentsUnreadable: true }).join('\n');
+  assert.match(text, /^Members \(3\):  \(we could not read the agents on this computer just now, so their state is unknown\)$/m);
+  assert.doesNotMatch(text, /not running/);
+  assert.match(text, /^  ghost  \| family unknown  \| state unknown  \|/m);
+});
+
+test('round 2: invisible format characters (the Unicode tag block, soft hyphen, ALM) never reach the agent', () => {
+  const tagged = 'Done' + String.fromCodePoint(0xE0049, 0xE0067, 0xE006E) + '\u00AD\u061C well';
+  const view = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: tagged, done: null, found: true }));
+  const text = v.renderShow({ project: view }).join('\n');
+  assert.match(text, /^Goal \(as written in BRIEF\.md\): "Done well"$/m, JSON.stringify(text.split('\n')[2]));
+  assert.ok(![...text].some((c) => /\p{Cf}/u.test(c)), 'a format character survived');
+});
+
+test('round 2: a member that is not running is still this member, so its folder IS read', () => {
+  const stopped = Object.assign({}, DESCRIBED.agents[0], { present: false, tied: false });
+  const view = v.overviewOf(Object.assign({}, DESCRIBED, { agents: [stopped] }), ROSTER, opts({ goal: null, done: null, found: true }));
+  assert.equal(view.members[0].summary.state, 'current', 'a stopped member\'s folder was not read');
 });

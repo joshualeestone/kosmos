@@ -20,7 +20,10 @@ const path = require('node:path');
 const SUMMARY_RHYTHM_HOURS = 4;
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
 /* A summaries folder is a few files a day; far more is not one, and it is not read whole. */
-const SUMMARY_SCAN_MAX = 5000;
+/* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
+   stat'ed per member per request, on the single-threaded board). The names are dated, so the newest file is among the
+   newest names unless an old one was rewritten later, which this reports by its write time anyway. */
+const SUMMARY_SCAN_MAX = 20;
 /* How far ahead of this computer's clock a write time may be before it is not believed. */
 const FUTURE_SLACK_MINUTES = 5;
 
@@ -116,7 +119,9 @@ function overviewOf(p, roster, o) {
       model: (card && (card.modelName || card.model)) || null,
       /* Only for a member tied to its pane (round 1): a stranger's pane holding the name must not have a folder
          derived from that name reported as this member's summary. */
-      summary: m.tied ? summaryFreshness(folderOf(m.sessionName), opts.now) : { state: 'nofolder', file: null, at: null, ageMinutes: null },
+      /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
+         member that is not running is still this member, and its last summary is exactly what a PM checks. */
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : summaryFreshness(folderOf(m.sessionName), opts.now),
     };
   });
   return {
@@ -162,6 +167,10 @@ function one(v) {
     /* Bidi overrides and isolates, and zero-width characters: they print nothing themselves but can make the
        rest of a line display reversed or hidden, so a name or a brief could look like something it is not. */
     .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+    /* Round 2: every other format character too (\p{Cf}): the soft hyphen, the Arabic letter mark, and the Unicode tag
+       block, which prints nothing to a person and is still read by a model, so a brief could carry an invisible
+       instruction to the agent reading this. */
+    .replace(/\p{Cf}/gu, '')
     .replace(/\s+/g, ' ').trim();
 }
 function ago(minutes) {
@@ -178,8 +187,11 @@ function taskLine(t) {
 }
 
 /** `kosmos project list`, as lines of text. */
+/* An answer that is not this shape is not "no projects": it is an answer we cannot read (round 2: an older board or a
+   proxy's JSON error read as "No projects yet", exit 0). Both CLIs treat a throw here as unreadable and exit 1. */
 function renderList(payload) {
-  const rows = payload && Array.isArray(payload.projects) ? payload.projects : [];
+  if (!payload || !Array.isArray(payload.projects)) throw new Error('not a project list');
+  const rows = payload.projects;
   if (!rows.length) return ['No projects yet. Make one: kosmos project create "<name>" <folder>'];
   const out = [];
   for (const r of rows) {
@@ -206,7 +218,7 @@ const SUMMARY_WORDS = {
 /** `kosmos project show <id>`, as lines of text. */
 function renderShow(payload) {
   const p = payload && payload.project;
-  if (!p) return ['there is no project by that name'];
+  if (!p || typeof p !== 'object' || typeof p.id !== 'string') throw new Error('not a project');
   const out = [];
   out.push(one(p.name) + '  (id: ' + one(p.id) + ')' + (p.archived ? '  [archived]' : ''));
   out.push('Folder: ' + (p.folder ? one(p.folder) : 'none recorded'));
@@ -223,12 +235,14 @@ function renderShow(payload) {
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
   const members = Array.isArray(p.members) ? p.members : [];
-  out.push('Members (' + members.length + '):');
+  out.push('Members (' + members.length + '):' + (payload.agentsUnreadable ? '  (we could not read the agents on this computer just now, so their state is unknown)' : ''));
   if (!members.length) out.push('  nobody yet');
   for (const m of members) {
     const fam = m.family ? one(m.family) + (m.model ? ', ' + one(m.model) : '') : 'family unknown';
     const sum = (SUMMARY_WORDS[m.summary && m.summary.state] || SUMMARY_WORDS.unreadable)(m.summary || {});
-    out.push('  ' + one(m.name) + (m.role ? ', ' + one(m.role) : '') + '  | ' + fam + '  | ' + (m.present ? one(m.state).replace(/_/g, ' ') : 'not running')
+    /* Round 2: when the board could not read its agents, "not running" would be a claim nobody checked. */
+    const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
+    out.push('  ' + one(m.name) + (m.role ? ', ' + one(m.role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }
   return out;
