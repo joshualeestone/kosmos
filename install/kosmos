@@ -1515,22 +1515,6 @@ cmd_post() {
   esac
 }
 
-# ---- kosmos whoami
-# Which account and model THIS agent is running on.
-#
-# Josh, 2026-08-28: "I asked the models to tell me what account they were on.
-# One of them could not tell me this. One of them could and then another one
-# told me that they couldn't." Two of three could not answer, and the
-# INCONSISTENCY was the worse half: a person who gets an answer from one agent
-# reasonably concludes the others are broken.
-#
-# 🔑 NO ARGUMENT, and that is deliberate rather than minimal. The sender is
-# derived from the pane or the launch token, exactly as `report` derives it, so
-# an agent cannot ask who SOMEBODY ELSE is by naming them.
-#
-# 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
-# every agent phrases this itself, three agents give three answers, which is
-# the defect this verb exists to remove.
 # ---- kosmos connections      (#4451)
 # What is connected in Settings > Connections, read CHEAPLY: the board answers from its disk (is a
 # token stored?), never by checking with each service. The page's own read checks every service
@@ -1552,7 +1536,7 @@ cmd_connections() {
       if (!j || !Array.isArray(j.services)) process.exit(1);
       for (const x of j.services) {
         if (!x || typeof x.name !== "string") continue;
-        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened)" : " (signed in through Kosmos)"));
+        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened" + (x.connect ? "; replace it with: kosmos connect " + x.connect : "") + ")" : " (signed in through Kosmos)"));
         else if (x.held === false) console.log(x.name + ": not connected" + (x.connect ? " (store the token the person gives you with: kosmos connect " + x.connect + ")" : ""));
         else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
       }
@@ -1583,31 +1567,53 @@ cmd_connect() {
   local route
   if [ "$svc" = "cloudflare" ]; then route="/api/cloudflare/token"; else route="/api/svc/$svc/token"; fi
   local tmp; tmp="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect.XXXXXX")" || { say "We could not make a private file for the token, so nothing was sent."; exit 1; }
+  # An interrupt while the door checks the token must not leave the token on disk (the pattern cmd_* above uses).
+  trap 'rm -f "$tmp"; exit 130' INT TERM HUP
   # The token goes stdin -> node -> the private file as JSON; it is never an argument or an environment variable.
-  if ! "$_node" -e '
+  local wrc=0
+  "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       const t = s.trim(); if (!t) process.exit(3);
       require("fs").writeFileSync(process.argv[1], JSON.stringify({ token: t }), { mode: 0o600 });
-    });' "$tmp"; then
-    rm -f "$tmp"
-    say "Nothing to connect: the token on stdin was empty."
-    exit 2
+    });' "$tmp" || wrc=$?
+  if [ "$wrc" -ne 0 ]; then
+    rm -f "$tmp"; trap - INT TERM HUP
+    if [ "$wrc" -eq 3 ]; then say "Nothing to connect: the token on stdin was empty."; exit 2; fi
+    say "We could not hold the token in a private file, so nothing was sent."
+    exit 1
   fi
   local _bt; _bt="$(board_token || true)"
   local body rc=0
   body=$(kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL$route" -H 'content-type: application/json' --data-binary "@$tmp" 2>/dev/null) || rc=$?
-  rm -f "$tmp"
+  rm -f "$tmp"; trap - INT TERM HUP
   if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos, so nothing was connected."; exit 1; fi
-  printf '%s' "$body" | SVC="$svc" "$_node" -e '
+  local shown="$svc"; [ "$svc" = "cloudflare" ] && shown="Cloudflare"
+  printf '%s' "$body" | SVC="$shown" "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { console.log("Kosmos gave an answer we could not read, so we cannot say whether it connected."); process.exit(1); }
       if (j && j.error) { console.log(j.error === "no such door" ? "Kosmos has no door for " + process.env.SVC + ". kosmos connections lists the ones it has." : j.error); process.exit(1); }
-      if (j && j.refused) { console.log((j.service || process.env.SVC) + " did not connect: " + j.refused); process.exit(1); }
+      if (j && j.refused) { console.log("Not connected: " + j.refused); process.exit(1); }
       if (j && j.connected) { console.log("Connected " + (j.service || process.env.SVC) + (j.who ? " as " + j.who : "") + ". Its row in Settings > Connections shows it."); return; }
       console.log((j && j.because) || "It did not connect."); process.exit(1);
     });'
 }
 
+# ---- kosmos whoami
+# Which account and model THIS agent is running on.
+#
+# Josh, 2026-08-28: "I asked the models to tell me what account they were on.
+# One of them could not tell me this. One of them could and then another one
+# told me that they couldn't." Two of three could not answer, and the
+# INCONSISTENCY was the worse half: a person who gets an answer from one agent
+# reasonably concludes the others are broken.
+#
+# 🔑 NO ARGUMENT, and that is deliberate rather than minimal. The sender is
+# derived from the pane or the launch token, exactly as `report` derives it, so
+# an agent cannot ask who SOMEBODY ELSE is by naming them.
+#
+# 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
+# every agent phrases this itself, three agents give three answers, which is
+# the defect this verb exists to remove.
 cmd_whoami() {
   if ! healthy; then
     say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"

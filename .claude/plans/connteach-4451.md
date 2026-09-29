@@ -46,3 +46,17 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
 - engine/connections.test.js: the block names the tab, the cheap read, the ban, stdin, and the no-door rule.
 - docs/browser-checks/render-conn-ask-4451.js (gated): the callout in light and dark, desktop and phone (36 arms). Contrast measured at 7.54:1 light and 5.61:1 dark.
 - Mutants, each red: the cheap read verifies, connect verifies twice, the CLI reads the sweep.
+
+## Review round 1 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 6 NITs
+- **WARNING** No signal trap: a Ctrl-C or SIGTERM while the door checks the token (up to 30s) left the real token in the temp file. Fixed: a trap removes it (the pattern this file already uses), cleared after the normal rm.
+  - New test: SIGTERM mid-request, the file gone after (with controls that the request reached the door and the file existed then).
+  - Mutant without the trap: red.
+- **WARNING** "Not on argv" checked the test's OWN spawn arguments, so it could not fail. Fixed: a `curl` shim on PATH records curl's real arguments and each `@file`'s mode. The test asserts the token is absent from them and the data file is mode 600.
+  - Mutant passing the token on curl's command line: red.
+- **NIT** My verbs sat under whoami's header comment. Moved above it.
+- **NIT** The block says `kosmos connections` shows each service's word, but held rows lacked it. Now every token row carries it ("replace it with: kosmos connect <word>", so a revoked-but-stored token can be replaced).
+- **NIT** Cloudflare printed lowercase. It is shown as Cloudflare now.
+- **NIT** A refusal repeated the service name. It now reads "Not connected: <the door's reason>".
+- **NIT** Any failure writing the token file said "empty". It now says so only for an empty token, and a write failure says what happened.
+- **NIT** The browser control looked for #conn-ask, which can only exist in one place. It now looks for any `.ask-agent` in AI Models.
+- KEPT: a refused connect over an already-stored token still costs two checks (the new one, then `state()` on the old). That is pre-existing, and "one" is claimed for a successful connect only.

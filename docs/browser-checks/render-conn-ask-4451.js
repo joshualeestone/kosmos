@@ -86,7 +86,7 @@ function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) +
         } else chk(false, `${t} colours readable`, JSON.stringify({ bg: m.bg, ink: m.ink, under: m.under }));
         // CONTROL: the AI Models section (it exists, and it is on screen) carries no such callout.
         const ctl = await page.evaluate(() => { settingsGo('accounts'); const s = document.getElementById('s-sec-accounts');
-          return s && !s.hidden ? !!s.querySelector('#conn-ask') : 'no section'; }).catch(() => null);
+          return s && !s.hidden ? !!s.querySelector('.ask-agent') : 'no section'; }).catch(() => null);
         chk(ctl === false, `${t} CONTROL: the AI Models section is on screen and has no callout`, String(ctl));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await ctx.close();
