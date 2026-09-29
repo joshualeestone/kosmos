@@ -16586,8 +16586,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
           return;
         }
-        const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
-        const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
+        const targetCard = !viaScreen && !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
+        const byPane = !viaScreen && !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;   // the screen is never held to membership, so its pane is not looked up
         const senderCard = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
         const byKey = !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
         /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded,

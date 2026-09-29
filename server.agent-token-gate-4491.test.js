@@ -187,9 +187,14 @@ test('task message and task built pass the gate with only an agent token; close 
     const r = await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
     assert.ok(!refusedAtGate(r), `POST ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
   }
-  for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built']) {
+  for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
     assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: {} })), `POST ${p} was reachable with only an agent token`);
   }
+  /* An encoded slash passes the gate (the pattern is judged before the handler decodes), and the handler records
+     nothing for it (refused, or no project by that name). */
+  const enc = await call('POST', '/api/project/a%2Fb/task/1/message', { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
+  assert.ok(!refusedAtGate(enc), 'control: an encoded slash was refused at the gate, so this proves nothing about the handler');
+  assert.ok(enc.code === 403 || enc.code === 404, 'an encoded slash reached a task: ' + enc.code + ' ' + enc.text.slice(0, 120));
 });
 
 test('task message refuses an agent that is not on the project, before recording anything (#4491 slice 3)', async (t) => {
