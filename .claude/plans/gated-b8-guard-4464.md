@@ -23,6 +23,8 @@ passes on main today.
   re-launched on $B8 is reported.
 
 ## Weakest premise
-That every launch outside the gated loop matches `invokedNames`' patterns (a literal `run_one "x"`,
-a `for n in ...; do run_one` list, or `node docs/browser-checks/x.js`). A launch through some new
-wrapper would be invisible to it, the same limit the file's other tests already carry.
+That every launch outside the gated loop matches `invokedNames`' patterns: a literal `run_one "x"`,
+a loop whose variable is literally `n` (`for n in ...; do run_one`), or an unquoted, un-prefixed
+`node docs/browser-checks/x.js`. A loop over another variable name, a quoted or `./`-prefixed path
+with no `run_one`, or a new wrapper is invisible to it, the same limit the file's other tests carry.
+Each of the three recognised forms has its own control.
