@@ -5016,6 +5016,9 @@ test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a
     // The "where your files go" doctrine reached the file the agent actually reads.
     assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Where the files you make go/,
       'the doctrine did not reach the codex brief -- the whole #2245 point');
+    // #4467: the tab rule reaches a Codex agent's AGENTS.md too, not only a Claude CLAUDE.md.
+    assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Close every browser tab or window you open/,
+      'the close-your-tabs rule did not reach the codex brief');
     // The runner->filename mapping and both resolvers agree.
     assert.equal(create.briefFilename('codex'), 'AGENTS.md');
     assert.equal(create.briefFilename('claude'), 'CLAUDE.md');

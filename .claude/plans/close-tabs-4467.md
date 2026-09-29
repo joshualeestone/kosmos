@@ -20,7 +20,8 @@ the words. The behaviour (an agent actually closing a tab) is measured after the
 - DOCTRINE_VERSION 15 -> 16 with a log entry; fingerprint pinned in defaults.test.js.
 - Provider coverage (REASONED from the code, not measured per provider): the block is one text
   appended to every runner's instruction file (CLAUDE.md, AGENTS.md, GEMINI.md) by create.js /
-  discover.js / roles.js, and appendTo has no provider branch. The tests read a Claude boot file.
+  discover.js / roles.js, and appendTo has no provider branch. MEASURED for Claude (CLAUDE.md) and
+  Codex (AGENTS.md) in create.test.js; Gemini (GEMINI.md) is reasoned: no create test builds one.
 - Windows parity: there is no separate Windows copy (create.js appends the same block on win32).
   Pinned by one line in engine/create.test.js's "taught how to work" test, which reads a real
   created agent's boot file and is on the Windows CI list. Rejected: the same line in
