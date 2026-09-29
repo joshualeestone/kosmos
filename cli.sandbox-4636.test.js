@@ -41,21 +41,23 @@ http.createServer((req, res) => {
 `);
 // The control: the same CLI with the #4636 guard taken out (a refused connect reads as down again).
 const SRC = fs.readFileSync(CLI, 'utf8');
-const GUARD = 'if [ -n "$_UNREACH_CMD" ]; then HEALTH_STATE=unreachable; else HEALTH_STATE=down; fi';
+const GUARD = 'if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi';
 if (!SRC.includes(GUARD)) throw new Error('install/kosmos no longer has the #4636 guard the control takes out');
 const UNFIXED = path.join(ROOT, 'kosmos-unfixed');
-fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down'), { mode: 0o755 });
+fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mode: 0o755 });
 
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec');
 
-function env(port, extra = {}, homeOut) {
+function env(port, extra = {}, homeOut, pid) {
   const e = { ...process.env };
   for (const k of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_SESSION', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY', 'http_proxy', 'HTTP_PROXY',
     'https_proxy', 'HTTPS_PROXY', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']) delete e[k];
   const home = fs.mkdtempSync(path.join(ROOT, 'home-'));
   if (homeOut) homeOut.home = home;
+  // A real board's pid is in board.pid (board-run writes it); the unreachable words say "Kosmos" only for it.
+  if (pid) fs.writeFileSync(path.join(home, 'board.pid'), String(pid));
   return { ...e, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: home,
     AGENT_WORKFORCE_DATA: path.join(home, 'data'), AGENT_WORKFORCE_WORKERS: path.join(home, 'workers'),
     AGENT_WORKFORCE_LAUNCH: path.join(home, 'launch'), AGENT_WORKFORCE_PROJECTS: path.join(home, 'projects'),
@@ -78,7 +80,7 @@ async function withBoard(mode, fn) {
       child.stdout.once('data', (d) => resolve(Number(String(d).trim())));
       child.once('exit', (c) => reject(new Error('the stub board exited before listening: ' + c)));
     });
-    const r = await fn(port);
+    const r = await fn(port, child.pid);
     await new Promise((ok) => setTimeout(ok, 300));   // a kill lands before we look
     return { ...r, died };
   } finally { if (!died) child.kill('SIGKILL'); }
@@ -99,15 +101,15 @@ test('a person\'s start on a hung board still says busy and leaves it alone (the
   assert.match(r.out, /busy/);
 });
 
-test('a sandboxed shell: status exits 5 and says running but unreachable; start changes nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
-  const s = await withBoard('ok', (p) => run(CLI, ['status'], env(p), true));
+test('a sandboxed shell: status exits 5 and says running but unreachable; start starts and stops nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), true));
   assert.equal(s.code, 5, s.out);
   assert.match(s.out, /Kosmos is running at .*this shell cannot connect to it/);
   const plain = await withBoard('ok', (p) => run(CLI, ['status'], env(p)));   // the same board, not sandboxed
   assert.equal(plain.code, 0, plain.out);
   assert.doesNotMatch(s.out, START_ADVICE);
   for (const extra of [{}, { KOSMOS_AGENT_SESSION: 'test-agent' }]) {
-    const r = await withBoard('ok', (p) => run(CLI, ['start'], env(p, extra), true));
+    const r = await withBoard('ok', (p, pid) => run(CLI, ['start'], env(p, extra, null, pid), true));
     assert.equal(r.died, false, r.out);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /this shell cannot connect to it/);
@@ -121,12 +123,12 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
 
 test('a sandboxed shell: stop, restart, open and board-run change nothing and never say "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const h = {};
-  const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
+  const stop = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), true));
   assert.equal(stop.died, false, stop.out);
   assert.notEqual(stop.code, 0, stop.out);
   assert.match(stop.out, /this shell cannot connect to it/);
   assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker for a running board');
-  const restart = await withBoard('ok', (p) => run(CLI, ['restart'], env(p), true));
+  const restart = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true));
   assert.equal(restart.died, false, restart.out);
   assert.notEqual(restart.code, 0, restart.out);
   assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
@@ -140,7 +142,7 @@ test('a sandboxed shell: stop, restart, open and board-run change nothing and ne
 });
 
 test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly, and kills nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
-  const r = await withBoard('ok', (p) => run(CLI, ['start', '--force'], env(p, { KOSMOS_RECLAIM_BUSY: '1' }), true));
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['start', '--force'], env(p, { KOSMOS_RECLAIM_BUSY: '1' }, null, pid), true));
   assert.equal(r.died, false, r.out);
   assert.notEqual(r.code, 0, 'an update would report success while the old board keeps serving: ' + r.out);
   assert.match(r.out, /Nothing was started or stopped/);
@@ -152,12 +154,23 @@ test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and s
     const port = await new Promise((resolve) => py.stdout.once('data', (d) => resolve(Number(String(d).trim()))));
     const s = await run(CLI, ['status'], env(port), true);
     assert.equal(s.code, 5, s.out);
-    assert.match(s.out, /Something \(Python\) is listening on port/i);
+    assert.match(s.out, /Something \(.+\) is listening on port/);
     assert.doesNotMatch(s.out, /Kosmos is running/);
     const r = await run(CLI, ['start'], env(port), true);
     assert.notEqual(r.code, 0, r.out);
     assert.doesNotMatch(r.out, /already running/);
   } finally { py.kill('SIGKILL'); }
+});
+
+test('a sandboxed shell, a node listener that is NOT this install\'s recorded board: "something (node)", never "Kosmos"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const s = await withBoard('ok', (p) => run(CLI, ['status'], env(p), true));   // no board.pid written
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Something \(node\) is listening on port/);
+  assert.doesNotMatch(s.out, /Kosmos is running/);
+  const r = await withBoard('ok', (p) => run(CLI, ['start'], env(p), true));
+  assert.equal(r.died, false, r.out);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /already running/);
 });
 
 test('CONTROL: without the guard, the sandboxed status says "not running" and start blames another app (the #4636 bug)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
