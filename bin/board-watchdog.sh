@@ -156,6 +156,14 @@ if [ "$STATUS_RC" -eq 0 ]; then
   exit 0
 fi
 
+# #4636: status exit 5 is "running, but this shell cannot connect to it" (a sandbox or a network rule).
+# The watchdog cannot tell anything about the board from here, and restarting it would not help, so it
+# changes nothing: no down streak, no kick.
+if [ "$STATUS_RC" -eq 5 ]; then
+  log "cannot reach the board from this shell (status exit 5); leaving it alone"
+  exit 0
+fi
+
 # --- board is down ----------------------------------------------------------
 NOW="$(now)"
 if [ -z "$DOWN_SINCE_RAW" ]; then
