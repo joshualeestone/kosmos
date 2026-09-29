@@ -22,6 +22,16 @@ const CF_SECRET = 'cloudflare_argv_secret_4507';
 const GEMINI_SECRET = 'gemini_argv_secret_4507';
 const GROK_SECRET = 'grok_argv_secret_4507';
 const PROVIDERS = ['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse'];
+const REFUSED_DOORS = {
+  PATH: 'path-control-secret-4514',
+  BASH_ENV: 'bash-env-control-secret-4514',
+  ENV: 'env-control-secret-4514',
+  SHELLOPTS: 'shellopts-control-secret-4514',
+  DYLD_INSERT_LIBRARIES: 'dyld-control-secret-4514',
+  DYLD_FUTURE_CONTROL: 'dyld-prefix-secret-4514',
+  LD_PRELOAD: 'ld-control-secret-4514',
+  LD_FUTURE_CONTROL: 'ld-prefix-secret-4514',
+};
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-token-argv-4497-'));
@@ -30,6 +40,9 @@ function fixture() {
   fs.writeFileSync(path.join(root, 'secrets', 'github.token'), GH_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'secrets', 'cloudflare.token'), CF_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'secrets', 'env', 'DISCORD_BOT_TOKEN'), DOOR_SECRET, { mode: 0o600 });
+  for (const [name, value] of Object.entries(REFUSED_DOORS)) {
+    fs.writeFileSync(path.join(root, 'secrets', 'env', name), value, { mode: 0o600 });
+  }
   fs.writeFileSync(path.join(root, 'gemini-home', '.kosmos-gemini-apikey'), GEMINI_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'grok-home', '.kosmos-grok-apikey'), GROK_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'engine', 'sendertoken.js'), `module.exports.mint = () => ({ ok: true, token: '${TOKEN}' });\n`);
@@ -238,6 +251,49 @@ test('an inherited secret with a newline cannot inject another environment varia
     assert.match(result.stderr, /GH_TOKEN was not handed to the agent \(value has a line break\)/, 'the refusal says which variable was omitted without logging its value');
     const argv = fs.readFileSync(argvRecord);
     assert.ok(!argv.includes(Buffer.from('held-value')) && !argv.includes(Buffer.from('INJECTED_SECRET')), 'neither line reaches tmux argv');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('token doors cannot set shell or loader controls in the provider environment', () => {
+  const f = fixture();
+  const evidence = path.join(f.root, 'evidence.txt');
+  const environment = path.join(f.root, 'provider.env');
+  fs.writeFileSync(f.runner, [
+    '#!/bin/bash',
+    'if [ "${1:-}" = --version ]; then printf "agy 1.2.10\\n"; exit 0; fi',
+    '/usr/bin/env > "$ENV_RECORD"',
+    'printf "%s" "${DISCORD_BOT_TOKEN:-<missing>}" > "$EVIDENCE"',
+  ].join('\n') + '\n', { mode: 0o755 });
+  try {
+    const result = spawnSync('/bin/bash', [
+      path.join(f.root, 'bin', 'agent-supervisor.sh'), 'agent-name-boundary', path.join(f.root, 'work'),
+      f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        EVIDENCE: evidence,
+        ENV_RECORD: environment,
+        ARGV_RECORD: path.join(f.root, 'argv.bin'),
+        MODE_RECORD: path.join(f.root, 'mode.txt'),
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || 'name-boundary launch failed');
+    assert.equal(fs.readFileSync(evidence, 'utf8'), DOOR_SECRET, 'an ordinary service token still reaches the provider');
+    const providerEnv = fs.readFileSync(environment, 'utf8');
+    const argv = fs.readFileSync(path.join(f.root, 'argv.bin'));
+    for (const [name, value] of Object.entries(REFUSED_DOORS)) {
+      assert.ok(!providerEnv.includes(`${name}=${value}`), `${name} stays out of the provider environment`);
+      assert.ok(!argv.includes(Buffer.from(value)), `${name} value stays out of tmux argv`);
+      assert.match(result.stderr, new RegExp(`${name} was not handed to the agent`), `the log names refused ${name}`);
+      assert.ok(!result.stdout.includes(value) && !result.stderr.includes(value), `${name} log never contains its value`);
+    }
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
   }
