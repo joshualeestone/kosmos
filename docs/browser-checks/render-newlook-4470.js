@@ -125,6 +125,20 @@ const PART_OF = `(() => {
   const t = po.closest('.tkcard').querySelector('.tkcard-t');
   return { found: true, above: po.getBoundingClientRect().bottom <= t.getBoundingClientRect().top + 1, text: po.textContent.trim() };
 })()`;
+/* The contrast of the text tokens on the ground tokens as the page resolves them right now. Each
+   token is resolved by painting it on a probe element, so a var() chain resolves as the page does. */
+const TOKEN_CONTRAST = `(() => {
+  const probe = document.createElement('span'); document.body.appendChild(probe);
+  const rgb = (v, prop) => { probe.style[prop] = 'var(' + v + ')'; const m = getComputedStyle(probe)[prop].match(/[0-9.]+/g).map(Number); return m; };
+  const lum = (c) => { const f = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]; };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return Math.round(((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)) * 100) / 100; };
+  const pairs = [];
+  for (const ink of ['--k-ink', '--k-ink-2', '--label', '--label-2', '--nl-ink-3']) for (const ground of ['--k-bg', '--k-surface']) {
+    pairs.push({ ink, ground, ratio: ratio(rgb(ink, 'color'), rgb(ground, 'backgroundColor')) });
+  }
+  probe.remove();
+  return { pairs, wide: document.documentElement.scrollWidth > window.innerWidth };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -234,6 +248,13 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
+
+      /* A page the new look has NOT been designed for yet still takes its colour tokens. The Agents
+         page must stay readable: the new ink on the new surfaces clears 4.5:1, and nothing overflows. */
+      await page.evaluate(() => showTab('agents'));
+      await page.waitForTimeout(600);
+      const ag = await page.evaluate(TOKEN_CONTRAST);
+      chk(ag.pairs.every((x) => x.ratio >= 4.5) && !ag.wide, `${tag} On, Agents page: the new ink clears 4.5:1 on the new grounds, no sideways scroll`, JSON.stringify(ag));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
