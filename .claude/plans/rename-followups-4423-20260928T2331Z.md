@@ -51,14 +51,26 @@ needs_you on the board.
 - NIT FIXED: the redundant `res.ok` in that line is gone.
 Sweep: 34 files (with the registration tests), each alone, 0 fail.
 
+## Review iteration 3 (opus): 1 BLOCKER, 3 WARNING, 0 CONVENTION, 3 NIT
+- B FIXED (measured in Chromium by the reviewer): opening the SAME agent again with an unchanged list kept a pick
+  abandoned on the earlier visit, because the menu was written only on change; a later role-only Save would have
+  cleared the reporting line. openDetail now forgets what the menu last wrote before painting it. Browser check
+  REOPEN arm (the exact case); without the reset it fails.
+- W1 FIXED: a pending DM reply on the just-opened agent's own message borrowed the previous agent's name
+  (DM_ROWS_NAME is the last drawn thread's); passed only when DM_ROWS_OF is this agent. Unit case; control.
+- W2 FIXED: nothing drove Save's marking of the sent choice. Browser check SAVED arm; removing the marking fails it.
+- W3 FIXED: the unit fixture could not see the open path; REOPEN covers it in the browser.
+- NITs FIXED: plan wording (the cache, the test count); STEADY also counts writes to the title line.
+
 ## Weakest part
-Item 4 names each agent through readIdentity per note per room read; a room with very many recommender notes pays
-that each poll. Cheap today (profile + one small file); a cache per read would be the fix if it shows.
+Item 4 names each distinct agent through readIdentity once per room read (the per-read cache from review
+iteration 1), on every room poll in both views. Cheap today (a profile and one small file); a short-lived cache
+across reads would be the next step if rooms collect many recommender notes.
 
 ## Checks
 - docs/browser-checks/render-rename-followups-4423.js: see review iteration 2 (real browser, with controls).
 - web.rename-followups-4423.test.js: the page's real followCard, dmReplyPaint, pjReplyPaint, rxnsInner on real fleet
-  cards; a source pin for pjRoomRow's fallback. Against #4437's page: 6 of 7 fail (the 7th is the fixture check).
+  cards; a source pin for pjRoomRow's fallback. Against #4437's page every behaviour test fails (the fixture check passes).
 - server.rename-followups-4423.test.js: a recommender note in a real room, a rename through the real route, both
   views name the new name; a note without facts is served as stored; malformed facts are not kept. With the route
   serving only the stored text, it fails.

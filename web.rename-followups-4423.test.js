@@ -31,6 +31,7 @@ function cardOf(key, opts) {
 const APRIL_OLD = cardOf('april', {});
 const APRIL = cardOf('april', { displayName: 'April Ludgate' });
 const LEAD = cardOf('lead-a', { displayName: 'Leslie Knope' });
+const BRAVO = cardOf('bravo', { displayName: 'Bravo Team' });
 
 test('#4423 fixture: real cards, before and after a rename', () => {
   assert.equal(APRIL_OLD.name, 'april');
@@ -72,9 +73,9 @@ test('#4423: a Reports-to choice somebody picked and has not saved is theirs: no
 test('#4423: a pending DM reply names the sender as they are called NOW, and redraws when that changes', () => {
   const el = { dataset: {}, hidden: true, innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'd-reply' ? el : null) };
-  const src = 'let LAST = [];\nlet CURRENT = null;\nlet DM_ROWS_NAME = "";\nconst DM_REPLY = {};\n'
+  const src = 'let LAST = [];\nlet CURRENT = null;\nlet DM_ROWS_NAME = "";\nlet DM_ROWS_OF = "";\nconst DM_REPLY = {};\n'
     + page.liftAll(SCRIPT, ['esc', 'tskAgentName', 'dmWho', 'dmReplyPaint'])
-    + '\nreturn { setLast: (l) => { LAST = l; }, set: (c) => { CURRENT = c; }, reply: (a, r) => { DM_REPLY[a] = r; }, dmReplyPaint };';
+    + '\nreturn { setLast: (l) => { LAST = l; }, set: (c) => { CURRENT = c; }, rows: (of, name) => { DM_ROWS_OF = of; DM_ROWS_NAME = name; }, reply: (a, r) => { DM_REPLY[a] = r; }, dmReplyPaint };';
   // eslint-disable-next-line no-new-func
   const w = new Function('document', src)(doc);
   w.set({ ...LEAD });   // the open agent; the reply is to a message from somebody else
@@ -85,6 +86,14 @@ test('#4423: a pending DM reply names the sender as they are called NOW, and red
   w.setLast([APRIL]);
   w.dmReplyPaint('lead-a');
   assert.match(el.innerHTML, /Replying to <b>April Ludgate<\/b>/, 'the strip kept the name taken at the Reply click');
+
+  /* Just after switching to bravo: the thread drawn is still lead-a's (DM_ROWS_OF), and its name must not be lent
+     to a reply on bravo's own message (review iteration 3). */
+  w.set({ ...BRAVO });
+  w.rows('lead-a', 'Leslie Knope');
+  w.reply('bravo', { at: 't2', from: 'bravo', who: 'bravo', words: 'hello' });
+  w.dmReplyPaint('bravo');
+  assert.match(el.innerHTML, /Replying to <b>Bravo Team<\/b>/, 'a reply on the open agent\'s message took the previous agent\'s name');
 });
 
 test('#4423: a pending room reply names the sender as they are called NOW', () => {

@@ -10,6 +10,10 @@
  *   RENAMED   april is renamed on the board: after one poll the menu names "April Ludgate", still chosen.
  *   ROLE      the role is changed elsewhere: after one poll the title line shows the new role.
  *   PICKED    the person picks "You" and has not saved; april is renamed again; the poll leaves the pick alone.
+ *   REOPEN    the agent is opened again: the menu shows the SAVED choice, not the abandoned pick (a later role-only
+ *             Save would otherwise send the pick and clear the reporting line).
+ *   SAVED     the person picks "You" and saves; the board then says so and renames april: the menu still follows
+ *             (Save marked the sent choice as what the menu shows), naming april by her newest name.
  * Harness posture mirrors render-rename-4421.js: load over file://, answer fetches from the fixture, no timers.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-rename-followups-4423.js
@@ -23,10 +27,10 @@ const chk = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 };
-const lead = (role) => ({
+const lead = (role, reportsTo = 'april') => ({
   sessionName: 'lead-a', name: 'Leslie Knope', state: 'idle', role, running: true, isNamedOurs: true, hasAvatar: false,
   nameDerived: true, because: null, confidence: 'structured', runner: 'claude', stateProject: null,
-  profile: { reportsTo: 'april', role },
+  profile: { reportsTo, role },
 });
 const april = (name) => ({
   sessionName: 'april', name, state: 'idle', role: 'Researcher', running: true, isNamedOurs: true, hasAvatar: false,
@@ -38,7 +42,7 @@ async function read(page) {
     const sel = document.getElementById('d-reports');
     const opt = sel ? [...sel.options].find((o) => o.value === 'april') : null;
     return { value: sel ? sel.value : null, april: opt ? opt.textContent.trim() : null, meta: (document.getElementById('d-meta') || {}).textContent || '',
-      writes: window.__menuWrites };
+      writes: window.__menuWrites, metaWrites: window.__metaWrites };
   });
 }
 
@@ -50,10 +54,12 @@ async function read(page) {
     page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
     await page.addInitScript(() => {
       window.__status = null;
+      window.__puts = [];
       const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
       window.setInterval = () => 0;
-      window.fetch = async (url) => {
+      window.fetch = async (url, init) => {
         const u = String(url);
+        if (u.includes('/profile') && init && init.method === 'PUT') { window.__puts.push(JSON.parse(init.body)); return enc({ ok: true }); }
         if (u.includes('/thread')) return enc({ messages: [], owes: { state: 'clear' }, olderCount: 0, presence: 'on', asking: false });
         if (u.includes('/api/status')) return enc(window.__status);
         if (u.includes('/api/projects')) return enc({ projects: [] });
@@ -70,7 +76,9 @@ async function read(page) {
       openDetail('lead-a');
       document.getElementById('panel-detail').hidden = false;
       window.__menuWrites = 0;
+      window.__metaWrites = 0;
       new MutationObserver((ms) => { window.__menuWrites += ms.length; }).observe(document.getElementById('d-reports'), { childList: true, subtree: true, characterData: true });
+      new MutationObserver((ms) => { window.__metaWrites += ms.length; }).observe(document.getElementById('d-meta'), { childList: true, subtree: true, characterData: true });
     }, [lead('Project Manager'), april('april')]);
     await page.waitForTimeout(300);
     const opened = await read(page);
@@ -82,6 +90,7 @@ async function read(page) {
     await page.waitForTimeout(100);
     const steady = await read(page);
     chk(steady.writes === 0, 'STEADY: two polls with nothing changed rewrote nothing in the menu', JSON.stringify(steady));
+    chk(steady.metaWrites === 0, 'STEADY: nor anything in the title line', JSON.stringify(steady));
 
     await poll([lead('Project Manager'), april('April Ludgate')]);
     await page.waitForTimeout(100);
@@ -98,6 +107,28 @@ async function read(page) {
     await page.waitForTimeout(100);
     const picked = await read(page);
     chk(picked.value === '', 'PICKED: an unsaved pick of "You" is left alone by the poll', JSON.stringify(picked));
+
+    /* The reviewer's case, exactly: the menu written with the current list, a pick abandoned, then the SAME agent
+       opened again with the list unchanged (so the write-only-on-change check alone would skip the reset). */
+    await page.evaluate(() => openDetail('lead-a'));
+    await page.waitForTimeout(200);
+    await page.evaluate(() => { document.getElementById('d-reports').value = ''; });
+    await page.evaluate(() => openDetail('lead-a'));
+    await page.waitForTimeout(200);
+    const reopened = await read(page);
+    chk(reopened.value === 'april', 'REOPEN: opening the agent again shows the saved choice, not the abandoned pick', JSON.stringify(reopened));
+
+    const put = await page.evaluate(async () => {
+      document.getElementById('d-reports').value = '';
+      document.getElementById('d-save').click();
+      await new Promise((r) => setTimeout(r, 300));
+      return window.__puts[window.__puts.length - 1] || null;
+    });
+    chk(!!put && put.reportsTo === '', 'SAVED: fixture: the Save sent the new choice ("You")', JSON.stringify(put));
+    await poll([lead('Chief of Staff', ''), april('April Final')]);
+    await page.waitForTimeout(100);
+    const saved = await read(page);
+    chk(saved.value === '' && saved.april === 'April Final', 'SAVED: after a save the menu keeps following renames', JSON.stringify(saved));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {

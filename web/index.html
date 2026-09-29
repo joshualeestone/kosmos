@@ -31935,7 +31935,9 @@ function dmReplyPaint(agent) {
   const r = agent ? DM_REPLY[agent] : null;
   const input = document.getElementById('d-say');
   /* #4423: the name as it is NOW (a rename while a reply is pending), and part of the key so a new name redraws. */
-  const who = r ? (r.from ? dmWho(r.from, DM_ROWS_NAME) : r.who) : '';
+  /* DM_ROWS_NAME is the name of the agent whose thread was last drawn, which is not yet this one's just after a
+     switch (paintTalk paints this strip before the thread): only pass it when it belongs to this agent. */
+  const who = r ? (r.from ? dmWho(r.from, DM_ROWS_OF === agent ? DM_ROWS_NAME : '') : r.who) : '';
   const key = r ? agent + '\u0000' + r.at + '\u0000' + who : '';
   if (el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
   el.dataset.key = key;
@@ -33401,6 +33403,10 @@ function openDetail(sessionName, section, fromProject) {
   paintModelPicker(a);
   paintProviderPicker(a);
   paintAccountPicker(a);
+  /* #4423: opening an agent SHOWS its saved choice, even when the list is the same as last time: without this, the
+     write-only-on-change check would keep a pick abandoned on an earlier visit, and a later role-only Save would send
+     it (review iteration 3). */
+  { const rsel = document.getElementById('d-reports'); if (rsel && rsel.dataset) delete rsel.dataset.html; }
   paintReportsTo(a);
   /* #3271 (Josh, 2026-09-18): NO reported-reason line under the agent name. `a.because`
      (e.g. "Finished responding.") used to paint into #d-why here, added by #3043; Josh
