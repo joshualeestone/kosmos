@@ -88,9 +88,8 @@ test('specs: lead first; reports report to the lead by its machine name, however
   assert.equal(r.specs[2].spec.reportsTo, 'maya-okafor');
   assert.deepEqual(r.specs.map((s) => s.spec.name), ['Maya Okafor', 'Leo', 'Ana']);
   assert.deepEqual(r.specs.map((s) => s.spec.label), ['Chief Marketing Officer', 'Content Writer', 'Social Media Manager']);
-  // The catalogue's role when this version has it, else the general one (layered, not refused).
-  const roles = require('./roles');
-  assert.deepEqual(r.specs.map((s) => s.spec.role), ['cmo', 'copy', 'social'].map((k) => (roles.byKey(k) ? k : 'own')));
+  // The catalogue's own role; a role this version lacks is refused by memberProblem (tested below).
+  assert.deepEqual(r.specs.map((s) => s.spec.role), ['cmo', 'copy', 'social']);
 });
 
 test('specs: the team brief is the catalogue\'s, built with the CHOSEN names for every slot', () => {

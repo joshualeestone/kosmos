@@ -46586,7 +46586,7 @@ async function tcRun(gen) {
   } finally {
     if (TC && gen === TC_GEN) { TC.running = false; tcPaint(); }
   }
-  if (TC && gen === TC_GEN) tcWatch(gen);
+  if (TC && gen === TC_GEN) tcWatch(gen).catch(() => {});
 }
 
 async function tcRunOnce(gen) {

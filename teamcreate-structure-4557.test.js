@@ -51,8 +51,7 @@ const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
 create.setRunner(() => ({ ok: true }));
 create.setDryRun(false);
 
-/* A catalogue in April's agreed shape (#4555). The lead's role `cmo` is NOT a Kosmos role, so it
-   also proves an unknown catalogue role still gets a standard template ('own') rather than a refusal. */
+/* A catalogue in April's agreed shape (#4555). */
 const CATALOGUE = {
   teams: () => [TEAM],
   team: (key) => (key === TEAM.key ? TEAM : null),
@@ -143,7 +142,7 @@ test('#4557 req 1: a member is the single-agent file of its role, plus its team 
     'a team member\'s file is not the single-agent file of its role apart from the team parts');
 });
 
-test('#4557 req 1: a catalogue role Kosmos does not have gets the general template, not a refusal or a raw file', () => {
+test('#4557 req 1: the lead is its role\'s template plus the team block, titled, never a raw file', () => {
   const m = makeTeam();
   const lead = file(m.lead);
   assert.ok(blockOf(lead, projects.TEAM_START, projects.TEAM_END), 'the lead has no team block');
@@ -203,18 +202,15 @@ test('#4557 create: teamInstructions is refused alongside instructions, as a non
     assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(bad));
     assert.match(r.because, /brief has to be words/, JSON.stringify(bad));
   }
-  // Over the cap ONLY once the template and the block wrapper are counted (round 3): a check that measured
-  // the brief alone would let this through, so this pins the composed measurement.
-  const { MAX_BYTES } = require('./engine/instructions');
-  const template = Buffer.byteLength(require('./engine/roles').instructionsFor('copy', 'Huge'), 'utf8');
-  const wrapper = Buffer.byteLength(projects.spliceBlock('', '## Your team\n\n\n', projects.TEAM_START, projects.TEAM_END), 'utf8');
-  const room = MAX_BYTES - template - wrapper;
-  assert.ok(room > 1000, 'the template leaves room for a brief: ' + room);
-  const huge = create.createAgent({ ...base, name: 'Huge', teamInstructions: 'x'.repeat(room + 50) });
-  assert.equal(huge.outcome, create.OUTCOME.REFUSED, 'a brief that fits alone but not with the template was accepted');
+  // The brief is capped at 32 KiB (iteration 8), far below the boot file's own cap, so the standard blocks
+  // spliced after it are never the ones pushed out. The largest seeded brief is about 5 KB.
+  const huge = create.createAgent({ ...base, name: 'Huge', teamInstructions: 'x'.repeat(32 * 1024 + 1) });
+  assert.equal(huge.outcome, create.OUTCOME.REFUSED, 'a brief over 32 KiB was accepted');
   assert.match(huge.because, /too long to fit/);
-  const fits = create.createAgent({ ...base, name: 'Fits', teamInstructions: 'x'.repeat(room - 200) });
-  assert.equal(fits.outcome, create.OUTCOME.CREATED, 'a brief that fits with the template was refused: ' + fits.because);
+  const fits = create.createAgent({ ...base, name: 'Fits', teamInstructions: 'x'.repeat(32 * 1024) });
+  assert.equal(fits.outcome, create.OUTCOME.CREATED, 'a brief of exactly 32 KiB was refused: ' + fits.because);
+  // ...and it leaves the standard blocks in: the colleagues block lands after it.
+  assert.ok(blockOf(file(create.slugFor('Fits')), '<!-- kosmos:colleagues:start -->', '<!-- kosmos:colleagues:end -->'), 'a full-size brief pushed out a standard block');
   // Nothing was made by any refusal (every case above, null's "Bad4" included).
   for (const n of ['both', 'bad0', 'bad2', 'bad4', 'huge']) assert.equal(fs.existsSync(create.instructionFile(n)), false, n);
 });

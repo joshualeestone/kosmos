@@ -159,7 +159,7 @@ function specs(req, cat, deps) {
       // #4557 (Josh): the SAME create path as a single agent. The catalogue's role when Kosmos has it,
       // else the general-purpose one; the member's brief is layered INTO that role's standard
       // instructions (teamInstructions), never sent as `instructions`, which would replace them.
-      role: roles.byKey(m.role) ? m.role : 'own',
+      role: m.role,
       label: m.title,
       teamInstructions: briefs[m.slot],
       reportsTo: m.slot === lead ? null : create.slugFor(names[lead]),

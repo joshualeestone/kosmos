@@ -39,7 +39,8 @@ creates through the existing route.
   - `specs({team, names, project}, catalogue)` returns every member's create spec IN CREATION ORDER, lead
     first: `{ slot, title, spec: { name, role, label, teamInstructions, reportsTo, projects }, avatar: { image } }`.
     `teamInstructions` comes from `memberInstructions` (`{{NAME}}` filled). `role` is the catalogue's when
-    Kosmos has it, else `own` (the general template, titled). A report's `reportsTo` is the lead's machine
+    the catalogue names; a role this version lacks is REFUSED by the catalogue's memberProblem (iteration 8: the
+    brief is written for that role, and the real seed ships every role it uses). A report's `reportsTo` is the lead's machine
     name, stored in its RECORD, so the board's reports sweep writes the tree (Josh, 20:24).
   - It refuses with a named reason: an unknown team, a missing or blank name for any slot, or two slots with
     the same name (case-insensitive).
