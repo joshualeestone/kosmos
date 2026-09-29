@@ -9385,6 +9385,32 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    white-on-white in dark (dead markup today; pinned while adjacent). */
 .fr-body p.fr-next { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2);
                      margin-top: var(--space-7); font-style: italic; }
+/* #4470: THE NEW LOOK'S TOKENS, from Josh's drawings (Files/kosmos-project-two-col-v9 light,
+   -v7-dark dark). They apply only under html[data-look="new"], which only the hidden switch
+   sets. White page, one grey (#f5f5f7) for every box, Apple's ink ramp. The --nl-* tokens are
+   the drawings' own names for what the app has no token for yet; the pages that adopt the
+   look read them as each one is rebuilt. The dark set sits in the scheme block below it, so
+   tools/sync-forced-theme.js derives the forced-dark copy like every other dark rule. */
+:root[data-look="new"] {
+  --k-bg: #ffffff; --bg: #ffffff;
+  --k-surface: #f5f5f7; --bg-elevated: #f5f5f7; --bg-sunken: #f5f5f7; --k-sunk: #f5f5f7;
+  --k-ink: #1d1d1f; --label: #1d1d1f;
+  --k-ink-2: #424245; --label-2: #424245;
+  --label-3: #6e6e73; --k-rule: #e8e8ed;
+  --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2; --nl-face: #e8e8ed;
+  --nl-green: #2e9a5a; --nl-gold: #e3b341; --nl-amber: #c98a12;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-look="new"] {
+    --k-bg: #000000; --bg: #000000;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e; --k-sunk: #2c2c2e;
+    --k-ink: #f5f5f7; --label: #f5f5f7;
+    --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
+    --label-3: #98989d; --k-rule: #3a3a3c;
+    --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
+    --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
+  }
+}
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -9562,6 +9588,16 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
+
+:root[data-theme="dark"][data-look="new"] {
+    --k-bg: #000000; --bg: #000000;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e; --k-sunk: #2c2c2e;
+    --k-ink: #f5f5f7; --label: #f5f5f7;
+    --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
+    --label-3: #98989d; --k-rule: #3a3a3c;
+    --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
+    --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
+  }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
 :root[data-theme="dark"] .s7-app {background:linear-gradient(160deg,#4a4a4e,#333336)}
@@ -10095,6 +10131,14 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     var t = localStorage.getItem('kosmos-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
+})();
+/* #4470: the new look, behind a hidden switch in Settings > Advanced. Here for the same
+   no-flash reason as the theme above. No stored value means no attribute, and with no
+   attribute nothing in the new look's rules can match, so the app is today's app. */
+(function () {
+  try {
+    if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
+  } catch (e) { /* no storage: today's look */ }
 })();
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
@@ -16756,6 +16800,16 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" id="eng-toggle" role="switch" aria-label="Show agents' windows on project pages" hidden><i></i></button>
       </div>
       <p class="dhint" id="eng-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
+    <!-- #4470: Josh asked for the new look behind a HIDDEN switch, built page by page. It only
+         changes how this window looks, on this computer; nothing is sent anywhere. -->
+    <section class="dbox">
+      <h3 class="dlab">New look</h3>
+      <div class="setrow" id="look-row">
+        <div><b>Try the new look</b>
+          <p class="dhint" style="margin:2px 0 0;">Still being built, a page at a time. Turn it off to go back.</p></div>
+        <button class="toggle" id="look-toggle" role="switch" aria-label="Try the new look" aria-checked="false"><i></i></button>
+      </div>
     </section>
 
   <div class="dremove">
@@ -28642,6 +28696,20 @@ function openCommunityDelete(r, li) {
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
    /api/notify-setting) was deleted here too. */
 document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
+/* #4470: the new-look switch. Reads the attribute the head script set, so the switch always
+   shows what the page is actually in. Look only: no server call. */
+function lookPaint() {
+  paintSwitch('look-toggle', document.documentElement.getAttribute('data-look') === 'new');
+}
+function lookToggleClick() {
+  const on = document.documentElement.getAttribute('data-look') !== 'new';
+  if (on) document.documentElement.setAttribute('data-look', 'new');
+  else document.documentElement.removeAttribute('data-look');
+  try { if (on) localStorage.setItem('kosmos-look', 'new'); else localStorage.removeItem('kosmos-look'); } catch { /* the page still changes; it just will not be remembered */ }
+  lookPaint();
+}
+document.getElementById('look-toggle').addEventListener('click', lookToggleClick);
+lookPaint();
 
 /* The one place the project page's viewport and one-to-one box visibility is
    decided: both the raw screen (.pj-viewport) and the whole #pj-thread box --
