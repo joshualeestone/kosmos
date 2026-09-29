@@ -404,10 +404,21 @@ if [ -z "$adopt" ]; then
     KOSMOS_AGENT_TOKEN=""
 
   add_launch_secret() {
-    case "${1:-}" in ''|*[!A-Z0-9_]*|[0-9]*) return 0 ;; esac
+    case "${1:-}" in
+      ''|*[!A-Z0-9_]*|[0-9]*)
+        say "$SESSION: a launch secret was not handed to the agent (invalid variable name)"
+        return 0
+        ;;
+    esac
     # One assignment per line. Refuse a malformed inherited value rather than
     # letting it invent another variable in the child environment.
-    case "${2:-}" in ''|*$'\n'*|*$'\r'*) return 0 ;; esac
+    case "${2:-}" in
+      '') return 0 ;;
+      *$'\n'*|*$'\r'*)
+        say "$SESSION: $1 was not handed to the agent (value has a line break)"
+        return 0
+        ;;
+    esac
     SECRET_ENV+=("$1=$2")
   }
 
@@ -423,8 +434,13 @@ if [ -z "$adopt" ]; then
   prepare_secret_entry() {
     [ "${#SECRET_ENV[@]}" -gt 0 ] || return 0
     _supervisor_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
-    _supervisor_self="${_supervisor_dir:+$_supervisor_dir/$(basename "$0")}"
-    [ -n "$_supervisor_self" ] && [ -r "$_supervisor_self" ] || return 0
+    _supervisor_self="${_supervisor_dir:+$_supervisor_dir/$(basename "$0")}" # absolute path to this installed script
+    if [ -z "$_supervisor_self" ] || [ ! -r "$_supervisor_self" ]; then
+      for _secret_item in ${SECRET_ENV[@]+"${SECRET_ENV[@]}"}; do
+        say "$SESSION: ${_secret_item%%=*} was not handed to the agent (the launch entrypoint is unavailable)"
+      done
+      return 0
+    fi
     _launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"
     _old_umask="$(umask)"
     umask 077
@@ -437,9 +453,12 @@ if [ -z "$adopt" ]; then
     else
       [ -n "$SECRET_FILE" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
       SECRET_FILE=""
+      for _secret_item in ${SECRET_ENV[@]+"${SECRET_ENV[@]}"}; do
+        say "$SESSION: ${_secret_item%%=*} was not handed to the agent (the private handoff could not be built)"
+      done
     fi
     umask "$_old_umask"
-    unset _old_umask _launch_secret_dir _supervisor_dir _supervisor_self
+    unset _old_umask _launch_secret_dir _supervisor_dir _supervisor_self _secret_item
   }
 
   cleanup_launch_secrets() {

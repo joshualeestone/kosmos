@@ -42,7 +42,7 @@ function fixture() {
   fs.writeFileSync(runner, [
     '#!/bin/bash',
     'if [ "${1:-}" = --version ]; then printf "agy 1.2.10\\n"; exit 0; fi',
-    'printf "%s" "${KOSMOS_AGENT_TOKEN:-<missing>}|${GH_TOKEN:-<missing>}|${DISCORD_BOT_TOKEN:-<missing>}|${CLOUDFLARE_API_TOKEN:-<missing>}|${GEMINI_API_KEY:-<missing>}|${XAI_API_KEY:-<missing>}" >> "$EVIDENCE"',
+    'printf "%s" "${KOSMOS_AGENT_TOKEN:-<missing>}|${GH_TOKEN:-<missing>}|${DISCORD_BOT_TOKEN:-<missing>}|${CLOUDFLARE_API_TOKEN:-<missing>}|${GEMINI_API_KEY:-<missing>}|${XAI_API_KEY:-<missing>}|${INJECTED_SECRET:-<missing>}" >> "$EVIDENCE"',
   ].join('\n') + '\n', { mode: 0o755 });
 
   const tmux = path.join(root, 'tmux.sh');
@@ -195,11 +195,13 @@ test('an unavailable supervisor entry path launches without handing secrets to t
       },
     });
     assert.equal(result.status, 0, result.stderr || 'the fallback launch failed');
-    assert.equal(fs.readFileSync(evidence, 'utf8'), '<missing>|<missing>|<missing>|<missing>|<missing>|<missing>', 'the provider starts without any held secret');
+    assert.equal(fs.readFileSync(evidence, 'utf8'), '<missing>|<missing>|<missing>|<missing>|<missing>|<missing>|<missing>', 'the provider starts without any held secret');
+    assert.match(result.stderr, /GH_TOKEN was not handed to the agent \(the launch entrypoint is unavailable\)/, 'the fallback names an omitted variable');
     const argv = fs.readFileSync(argvRecord);
     assert.ok(!argv.includes(Buffer.from('--pane-entry')), 'an unreadable entrypoint is never put on pane argv');
     for (const secret of [TOKEN, GH_SECRET, DOOR_SECRET, CF_SECRET]) {
       assert.ok(!argv.includes(Buffer.from(secret)), `fallback argv does not expose ${secret}`);
+      assert.ok(!result.stdout.includes(secret) && !result.stderr.includes(secret), `fallback logs do not expose ${secret}`);
     }
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
@@ -232,6 +234,8 @@ test('an inherited secret with a newline cannot inject another environment varia
     assert.equal(result.status, 0, result.stderr || 'newline control launch failed');
     const received = fs.readFileSync(evidence, 'utf8').split('|');
     assert.equal(received[1], '<missing>', 'the malformed inherited GH token is refused');
+    assert.equal(received[6], '<missing>', 'the second line cannot become another environment variable');
+    assert.match(result.stderr, /GH_TOKEN was not handed to the agent \(value has a line break\)/, 'the refusal says which variable was omitted without logging its value');
     const argv = fs.readFileSync(argvRecord);
     assert.ok(!argv.includes(Buffer.from('held-value')) && !argv.includes(Buffer.from('INJECTED_SECRET')), 'neither line reaches tmux argv');
   } finally {
