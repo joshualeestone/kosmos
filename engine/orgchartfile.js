@@ -363,7 +363,10 @@ function markLoops(rows) {
     const seen = new Set([i]);
     let at = rows[i].reportsTo;
     while (at != null && !seen.has(at)) { seen.add(at); at = rows[at].reportsTo; }
-    if (at === i) rows[i].why = rows[i].why || 'this is part of a reporting loop (someone ends up above their own manager)';
+    if (at === i) {
+      const loop = 'this is part of a reporting loop (someone ends up above their own manager)';
+      rows[i].why = rows[i].why ? rows[i].why + '; and ' + loop : loop;   // kept beside a shared-name note, not lost to it
+    }
   }
   return rows;
 }
