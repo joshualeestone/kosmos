@@ -802,13 +802,17 @@ kosmos_mark_suite_waiting 500
   && pass "#4574 a marker keeps the local start time on line 3 (older readers) and the UTC one on line 4" \
   || fail "#4574 the marker's start-time lines are not local then UTC ($(sed -n '3,4p' "$W/markers/suitewait.$$" | tr '\n' '|'))"
 kosmos_unmark_suite_waiting
-# A marker half-written (its .tmp, before the mv) is not a waiter, so it cannot add to or drop from the count (review 19).
+# A marker half-written (its .tmp, before the mv) is not a waiter of its own (review 19).
 sleep 300 & zt=$!
 q_ready "$zt"
-printf '1 %s\n%s\n%s\n%s\n' "$zt" "$(ps -ww -o command= -p "$zt")" "$(_kosmos_pid_started_local "$zt")" "$(_kosmos_pid_started "$zt")" > "$W/markers/suitewait.$zt.tmp.$zt"
-[ "$(_kosmos_suite_waiters_ahead | grep -c .)" = 0 ] && pass "#4574 a half-written marker (.tmp) is not counted as a waiter ahead" \
-  || fail "#4574 a .tmp marker was counted as a waiter ahead ($(_kosmos_suite_waiters_ahead | tr '\n' ' '))"
-rm -f "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
+# The shape that matters: the real marker AND its .tmp present at once (a re-mark in flight). Counted, the one waiter
+# would read as two, and the drop back to one as a fall.
+for mf in "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; do
+  printf '1 %s\n%s\n%s\n%s\n' "$zt" "$(ps -ww -o command= -p "$zt")" "$(_kosmos_pid_started_local "$zt")" "$(_kosmos_pid_started "$zt")" > "$mf"
+done
+[ "$(_kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a waiter whose re-mark is in flight (marker + .tmp) counts once" \
+  || fail "#4574 a waiter with a .tmp beside its marker was counted more than once ($(_kosmos_suite_waiters_ahead | tr '\n' ' '))"
+rm -f "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
 # A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
 rm -f "$W/calls"
 printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
