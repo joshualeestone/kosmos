@@ -401,3 +401,11 @@ test('blank CSV lines do not count toward the row limit', () => {
   const r = csv('\n'.repeat(o.MAX_ROWS + 10) + 'Name,Title\nAvery Quill,CEO\n');
   assert.equal(r.rows.length, 1, JSON.stringify(r).slice(0, 200));
 });
+
+test('#4559: a file with no manager column says so, rather than reading as everyone reporting to the person', () => {
+  const flat = o.tableToPeople([["Name", "Title"], ['Avery Quill', 'Chief Executive'], ['Bo Linden', 'Head of Sales']]);
+  assert.equal(flat.rows.length, 2);
+  assert.ok(flat.problems.includes(o.NO_MANAGER_COLUMN), JSON.stringify(flat.problems));
+  const withBoss = o.tableToPeople([['Name', 'Title', 'Manager'], ['Avery Quill', 'Chief Executive', ''], ['Bo Linden', 'Head of Sales', 'Avery Quill']]);
+  assert.ok(!withBoss.problems.includes(o.NO_MANAGER_COLUMN), 'CONTROL: a manager column, even with an empty top cell, is not flagged');
+});

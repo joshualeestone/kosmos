@@ -46981,7 +46981,10 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const refusedNames = new Set(refused.map((r) => r && r.name).filter(Boolean));
   const asCreated = new Map();
   let ci = 0;
-  for (const m of members) {
+  /* The pairing is by position (engine/team.test.js pins the order), so it is trusted only when every member is
+     accounted for once; otherwise no line is re-pointed, since a wrong pairing would move a report silently. */
+  const paired = created.length + refused.length === members.length;
+  for (const m of paired ? members : []) {
     if (refusedNames.has(m.name)) continue;
     const c = created[ci++];
     if (c && c.name) asCreated.set(m.name, c.name);
