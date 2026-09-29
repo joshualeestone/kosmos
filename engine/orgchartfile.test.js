@@ -505,3 +505,38 @@ test('#4559: the model\'s own doubt is kept beside a note the file earned', () =
   const r = o.fromModel({ people: [{ person: 'Avery Quill', title: 'CEO', reportsTo: 'Nobody Here', sure: false, why: 'the line is faint' }] });
   assert.match(r.rows[0].why, /not in the file.*the line is faint/, r.rows[0].why);
 });
+
+/* #4598 (Sonya Blade): openers with no closer made the reader quadratic, so an 848-byte workbook froze the board for
+   8.8 s. These compare the work at N and 4N rather than trusting a wall time alone (which flakes under load, #4189):
+   linear work grows about 4x, quadratic about 16x. Each size is timed per parse, repeating until at least 25 ms has
+   passed so a fast parse is still measurable, and the best of three is kept. */
+function perParse(buf) {
+  let best = Infinity;
+  for (let k = 0; k < 3; k += 1) {
+    let reps = 0;
+    const t0 = process.hrtime.bigint();
+    let ms = 0;
+    do { o.readLocal('x.xlsx', buf); reps += 1; ms = Number(process.hrtime.bigint() - t0) / 1e6; } while (ms < 25);
+    best = Math.min(best, ms / reps);
+  }
+  return best;
+}
+const SHEET1 = '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c></row></sheetData></worksheet>';
+const CRAFTED = {
+  'shared strings: "<" with no ">" (xmlText)': (n) => zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', SHEET1], ['xl/sharedStrings.xml', '<sst><si>' + '<'.repeat(n) + '</si></sst>']]),
+  'a cell: <v> openers with no </v>': (n) => zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', '<sheetData><row><c r="A1">' + '<v>'.repeat(n / 3) + '</c></row></sheetData>']]),
+  'an inline cell: <is> openers with no </is>': (n) => zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', '<sheetData><row><c r="A1" t="inlineStr">' + '<is>'.repeat(n / 4) + '</c></row></sheetData>']]),
+  'the workbook: <sheet openers with no ">"': (n) => zip([['xl/workbook.xml', '<workbook><sheets>' + '<sheet '.repeat(n / 7)], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', SHEET1]]),
+  'the relationships: <Relationship openers with no ">"': (n) => zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', '<Relationships>' + '<Relationship '.repeat(n / 14)], ['xl/worksheets/sheet1.xml', SHEET1]]),
+};
+for (const [what, make] of Object.entries(CRAFTED)) {
+  test(`#4598: ${what} is read in linear work (4x the input, well under 16x the time)`, { timeout: 60000 }, (t) => {
+    const N = 16000;
+    const small = make(N);
+    assert.ok(small.length < 4096, `CONTROL: the crafted file is small on disk (${small.length} bytes)`);
+    const a = perParse(small);
+    const b = perParse(make(4 * N));
+    t.diagnostic(`4x the input: ${(b / a).toFixed(1)}x the time (${a.toFixed(3)} ms -> ${b.toFixed(3)} ms per parse)`);
+    assert.ok(b / a < 8, `4x the input took ${(b / a).toFixed(1)}x the time (${a.toFixed(2)} ms -> ${b.toFixed(2)} ms): the reader is not linear here`);
+  });
+}
