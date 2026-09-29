@@ -59,7 +59,8 @@ const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-
 
 /* RFC 4180: quoted fields may hold the delimiter, line breaks and doubled quotes. The delimiter is
    whichever of tab, comma and semicolon appears most in the first line (a European export uses
-   semicolons). A leading BOM (Excel's UTF-8 CSV) is dropped. */
+   semicolons). A leading BOM (Excel's UTF-8 CSV) is dropped. A hand-written `, "..."` (a space before the
+   quote) is a quoted field too. */
 function parseDelimited(text) {
   const src = String(text == null ? '' : text).replace(/^﻿/, '');
   const firstLine = src.split(/\r?\n/).find((l) => l.trim() !== '') || '';   // the header, past any blank lines
@@ -76,7 +77,7 @@ function parseDelimited(text) {
       if (c === '"') {
         if (src[i + 1] === '"') { field += '"'; i += 1; } else quoted = false;
       } else field += c;
-    } else if (c === '"' && field === '') quoted = true;
+    } else if (c === '"' && field.trim() === '') { field = ''; quoted = true; }   // `a, "b, c"`: spaces before a quote still open it
     else if (c === delim) { row.push(field); field = ''; }
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && src[i + 1] === '\n') i += 1;
@@ -582,7 +583,8 @@ function fromModel(structured) {
   if (!clean.length) return { rows: [], problems: [untitled ? untitledSentence(untitled) : 'No people were found in that file.'] };
   const out = resolve(clean.map((c) => ({ person: c.person, title: c.title, ids: [], manager: c.manager })), people.length > MAX_ROWS);
   if (untitled) out.problems.push(untitledSentence(untitled));
-  clean.forEach((c, i) => { if (c.unsure && !out.rows[i].why) out.rows[i].why = c.unsure; });
+  // The model's own doubt is kept beside a note the file already earned (a missing manager), not lost to it.
+  clean.forEach((c, i) => { if (c.unsure) out.rows[i].why = out.rows[i].why ? out.rows[i].why + '; and ' + c.unsure : c.unsure; });
   return out;
 }
 
