@@ -17,7 +17,8 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-4416-'));
 process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, '.codex');
 const codex = require('./codexsession');
 const status = require('./status');
-const create = require('./create');
+const keyed = require('./win32keyed');
+const page = require('../test-support/page');
 
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -71,24 +72,67 @@ test('#4416: the card takes each runner\'s model from that runner\'s own record'
   assert.match(block, /!tied \? \{ model: null \}/, 'an untied pane reports the real agent\'s model');
 });
 
-test('#4416: a Gemini or Grok job with no model names the one the supervisor pins, marked (default)', () => {
+test('#4416: a Gemini or Grok job with no model names the one the launcher pins, marked (default)', () => {
+  /* ONE table (win32keyed.DEFAULT_MODEL) is what both the Windows launcher and the board read; the Mac supervisor
+     is a shell script, so its copy is held equal here, because two copies of one fact drift. */
   const sh = read('bin/agent-supervisor.sh');
-  assert.ok(sh.includes('GEMINI_MODEL="${MODEL:-' + create.LAUNCH_DEFAULT_MODEL.gemini + '}"'), 'the supervisor pins a different Gemini default than the board names');
-  assert.ok(sh.includes('GROK_MODEL="${MODEL:-' + create.LAUNCH_DEFAULT_MODEL.grok + '}"'), 'the supervisor pins a different Grok default than the board names');
+  assert.ok(sh.includes('GEMINI_MODEL="${MODEL:-' + keyed.DEFAULT_MODEL.gemini + '}"'), 'the supervisor pins a different Gemini default than the board names');
+  assert.ok(sh.includes('GROK_MODEL="${MODEL:-' + keyed.DEFAULT_MODEL.grok + '}"'), 'the supervisor pins a different Grok default than the board names');
+  /* plannedFor lives inside the request handler's closure, so its wiring is pinned by source; the value it
+     produces is pinned behaviourally on the next line. */
   const server = read('server.js');
+  assert.match(server, /if \(job && job\.model\) return modelDisplayName\(job\.model\);/, 'a Windows job\'s own model is ignored for the pinned default');
   assert.match(server, /return pinned \? modelDisplayName\(pinned\) \+ ' \(default\)' : null;/);
-  assert.equal(status.modelDisplayName(create.LAUNCH_DEFAULT_MODEL.grok) + ' (default)', 'Grok 4.6 (default)');
+  assert.equal(status.modelDisplayName(keyed.DEFAULT_MODEL.grok) + ' (default)', 'Grok 4.6 (default)');
 });
 
-test('#4416: Codex names its model; the OpenAI picker keys on the RAW id, not the readable name', () => {
-  const page = read('web/index.html');
-  const at = page.indexOf('\nfunction modelLine(a) {');
-  const fn = page.slice(at, page.indexOf('\n}\n', at));
-  assert.match(fn, /if \(a\.runner === 'codex'\) return name \|\| 'OpenAI Codex';/, 'a Codex agent still says only the provider');
-  assert.ok(fn.indexOf('const name =') < fn.indexOf("a.runner === 'codex'"), 'the Codex line runs before its model is known');
-  assert.match(page, /const currentKey = \(a && typeof a\.plannedModelId === 'string'\) \? a\.plannedModelId : '';/,
-    'the picker matches "GPT 5.6 Sol" against option values that are ids, and pre-selects nothing');
+/* The shipped page functions, lifted with their real dependencies (the #2140 check does the same). */
+function pageFns() {
+  const script = page.scriptOf(read('web/index.html'));
+  /* page.liftConst stops at the first ';', and CARD_ST's comments carry some, so the object is walked by its
+     braces (server.test.js pageConstSource does the same for the same const). */
+  const at = script.indexOf('const CARD_ST = {');
+  assert.notEqual(at, -1, 'CARD_ST vanished from the page');
+  let depth = 0; let end = -1;
+  for (let k = script.indexOf('{', at); k < script.length; k += 1) {
+    if (script[k] === '{') depth += 1;
+    else if (script[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
+  }
+  const prelude = script.slice(at, end) + ';\n' + page.liftAll(script, ['cardStOf', 'modelLine', 'runsOnLine']);
+  // eslint-disable-next-line no-new-func
+  return new Function(prelude + '\nreturn { modelLine, runsOnLine };')();
+}
+
+test('#4416: every runner shows its own model, never "Claude <another vendor\'s model>"', () => {
+  const { modelLine } = pageFns();
+  assert.equal(modelLine({ runner: 'codex', modelName: 'GPT 5.6 Sol', state: 'working' }), 'GPT 5.6 Sol');
+  assert.equal(modelLine({ runner: 'codex', state: 'working' }), 'OpenAI Codex', 'no turn yet: the provider');
+  assert.equal(modelLine({ runner: 'gemini', modelName: 'Gemini 3.8 Flash', state: 'working' }), 'Gemini 3.8 Flash');
+  assert.equal(modelLine({ runner: 'grok', plannedModelName: 'Grok 4.6 (default)', state: 'stopped' }), 'Grok 4.6 (default)');
+  assert.equal(modelLine({ modelName: 'Sonnet 5', state: 'working' }), 'Claude Sonnet 5', 'control: a Claude agent is still prefixed');
+});
+
+test('#4416: a STOPPED non-Claude agent\'s "Will start on" keeps its runner', () => {
+  const { runsOnLine } = pageFns();
+  const rows = [
+    ['gemini', 'Gemini 2.5 Flash (default)'],
+    ['grok', 'Grok 4.6 (default)'],
+    ['codex', 'GPT 5.6 Sol'],
+    ['antigravity', 'Gemini 3.8 Pro'],
+  ];
+  for (const [runner, planned] of rows) {
+    assert.deepEqual(runsOnLine({ runner, plannedModelName: planned, modelName: 'something it ran as', state: 'stopped' }),
+      { lead: 'Will start on ', name: planned }, runner + ' read as a Claude model');
+  }
+  assert.deepEqual(runsOnLine({ plannedModelName: 'Opus 5', state: 'stopped' }), { lead: 'Will start on ', name: 'Claude Opus 5' },
+    'control: a stopped Claude agent is still prefixed');
+});
+
+test('#4416: the OpenAI picker keys on the RAW id, on either platform', () => {
+  /* The picker's own pre-selection is exercised end to end by web.detail-openai-model-2140.test.js; this pins
+     that both server sites fill plannedModelId from the reader that also covers a Windows job. */
   const server = read('server.js');
-  assert.match(server, /plannedModelId: \(a\.isNamedOurs && a\.runner === 'codex'\) \? create\.plannedModelArg\(a\.sessionName\) : null,/);
-  assert.match(server, /plannedModelId: create\.plannedModelArg\(k\.name\),/);
+  assert.match(server, /plannedModelId: \(a\.isNamedOurs && a\.runner === 'codex'\) \? create\.plannedModelId\(a\.sessionName\) : null,/);
+  assert.match(server, /plannedModelId: create\.plannedModelId\(k\.name\),/);
+  assert.equal(require('./create').plannedModelId('../escape'), null, 'an unvalidated name reads nothing');
 });

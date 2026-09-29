@@ -808,6 +808,7 @@ function boardTokenOk(req) {
   }
 }
 const create = require('./engine/create');
+const win32keyed = require('./engine/win32keyed');   // #4416: the launcher's pinned Gemini/Grok model
 const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-ever default setup helper
 /* #2129 fallback: the trust-and-restart route writes the Claude-side folder-trust
    key through the same writer the create path uses (native-realpath-keyed since
@@ -4297,12 +4298,15 @@ const server = http.createServer((req, res) => {
         if (a.modelName && a.state !== STATE.STOPPED) return null;
         const arg = create.plannedModelArg(a.sessionName);
         if (arg) return modelDisplayName(arg);
-        /* #4416: a Gemini or Grok job with no model starts on the one the supervisor pins, so name it, marked as the
-           default rather than a choice. Only these two: Codex and Antigravity pick their own, which we cannot name
-           before they have run. */
-        let runner = null;
-        try { const job = create.readJob(a.sessionName); runner = job && job.runner; } catch { runner = null; }
-        const pinned = runner && create.LAUNCH_DEFAULT_MODEL[runner];
+        /* #4416: the plist read above is Mac-only; on Windows the job is a Scheduled Task, and readJob carries its
+           model. A Gemini or Grok job with no model starts on the one the launcher pins (win32keyed.DEFAULT_MODEL,
+           held equal to bin/agent-supervisor.sh by engine/modelname-4416.test.js), so name it, marked as the default
+           rather than a choice. Only these two: Codex and Antigravity pick their own, which we cannot name before
+           they have run. */
+        let job = null;
+        try { job = create.readJob(a.sessionName); } catch { job = null; }
+        if (job && job.model) return modelDisplayName(job.model);
+        const pinned = job && job.runner && win32keyed.DEFAULT_MODEL[job.runner];
         return pinned ? modelDisplayName(pinned) + ' (default)' : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
@@ -4414,7 +4418,7 @@ const server = http.createServer((req, res) => {
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
            plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
            Codex only: that is the one picker keyed on it, and the read costs a launch-file read per poll. */
-        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelArg(a.sessionName) : null,
+        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelId(a.sessionName) : null,
         /* Which Claude account this agent runs on, read from its startup file
            and resolved to something a person recognises. `null` means the
            default account, which is what an absent key has always meant.
@@ -4711,7 +4715,7 @@ const server = http.createServer((req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
-                plannedModelId: create.plannedModelArg(k.name),   // #4416: the raw id, for the OpenAI picker
+                plannedModelId: create.plannedModelId(k.name),   // #4416: the raw id, for the OpenAI picker
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no

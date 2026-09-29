@@ -17941,16 +17941,17 @@ function modelLine(a) {
      closed. One question, one derivation. */
   /* #246: the day this comment warned about arrived. An OpenAI agent's
      runner is recorded (the supervisor's option on running panes, the
-     profile on stopped ones) and its model is codex's own choice, which we
-     deliberately do not scrape a name for -- naming the provider is the
-     truth we hold, and it is what the switch changed. */
+     profile on stopped ones). #4416: its model is named from codex's own
+     rollout (turn_context), never scraped off the screen; the provider is
+     the fallback while no turn has named one. */
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   if (a.runner === 'codex') return name || 'OpenAI Codex';
-  /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
-     it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
+  /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
+     gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
+     Flash"), or the provider when none is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
@@ -18062,7 +18063,8 @@ function runsOnLine(a, switched) {
        invent one. `modelLine` is reused rather than re-prefixed so the "Claude
        Claude" guard stays in one place. */
     if (a.plannedModelName) {
-      return { lead: 'Will start on ', name: modelLine({ plannedModelName: a.plannedModelName }) };
+      /* #4416: the runner travels too, or a stopped Gemini, Grok or Codex agent reads "Claude Gemini 2.5 Flash". */
+      return { lead: 'Will start on ', name: modelLine({ plannedModelName: a.plannedModelName, runner: a.runner }) };
     }
     /* Stopped, and the job does not say. We know what it ran as and not what it
        will start on, so the name is stated as an attribute with no tense. */

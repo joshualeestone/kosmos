@@ -1042,12 +1042,6 @@ function parseServiceLabel(label) {
  * existed), or when the file cannot be read. ⚠️ Null means WE DO NOT KNOW. It
  * never means "the default".
  */
-/* #4416: the model the supervisor pins when a Gemini or Grok job records none (bin/agent-supervisor.sh:
-   GEMINI_MODEL="${MODEL:-gemini-2.5-flash}", GROK_MODEL="${MODEL:-grok-4.6}"). Stated once here so the board can
-   name what such an agent starts on; create.launch-default-4416.test.js holds it equal to the script, because two
-   copies of one fact drift. Codex and Antigravity choose their own, so they have none. */
-const LAUNCH_DEFAULT_MODEL = Object.freeze({ gemini: 'gemini-2.5-flash', grok: 'grok-4.6' });
-
 function plannedModelArg(name) {
   /* ⚠️ THE ONLY CALLER THAT RECEIVES AN UNVALIDATED NAME. Every other use of
      `plistPath` is downstream of `NAME_RE`; this one is handed `a.sessionName`
@@ -1071,6 +1065,14 @@ function plannedModelArg(name) {
   // Anything shorter is the five-argument job an agent without a model choice
   // gets, which is a real and permanent state rather than a malformed file.
   return args.length > 7 && args[7] ? args[7] : null;
+}
+
+/* #4416: the job's raw model id on EITHER platform. plannedModelArg reads the plist only, so on Windows (a
+   Scheduled Task, no plist) it is null for every agent; readJob reads both. Null means the job names none. */
+function plannedModelId(name) {
+  const arg = plannedModelArg(name);
+  if (arg) return arg;
+  try { const job = readJob(name); return (job && job.model) || null; } catch { return null; }
 }
 
 /**
@@ -5642,7 +5644,7 @@ function createAgentInner(opts) {
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
-module.exports = { LAUNCH_DEFAULT_MODEL,
+module.exports = {
   MODELS,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
@@ -5743,6 +5745,7 @@ module.exports = { LAUNCH_DEFAULT_MODEL,
   writePlistFile,
   realLaunchAgentsDir,
   plannedModelArg,
+  plannedModelId, // #4416
   forgetCodexFolder,
   trustCodexFolder,
   /* #3439: exported so the escaping/rendering can be unit-tested deterministically

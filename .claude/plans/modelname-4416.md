@@ -11,8 +11,10 @@ by asking the agent.
   side by side (claude-opus-6-1) or a date part stay raw. That is the hazard the table's own comment names ("Haiku 4 5").
 - The card's model per runner, from each CLI's own record: agy conversation, Gemini session (per message), Grok
   current_model_id, Codex turn_context (new: engine/codexsession.js returns `model`), else the Claude transcript.
-- Before a first turn: a Gemini/Grok job with no recorded model names the supervisor's pinned default, "(default)"
-  (create.LAUNCH_DEFAULT_MODEL, held equal to the script by the test).
+- Before a first turn: a job's own model wins on BOTH platforms (plannedModelArg reads plists only; readJob also
+  reads a Windows Scheduled Task). A Gemini/Grok job with no recorded model names the launcher's pinned default,
+  "(default)" (win32keyed.DEFAULT_MODEL, the one table; the test holds bin/agent-supervisor.sh equal to it).
+- A stopped agent's "Will start on" keeps its runner, so a stopped Gemini/Grok/Codex is never "Claude <model>".
 - Page: Codex names its model ("OpenAI Codex" only while none is known). The OpenAI picker's current choice reads a
   new raw `plannedModelId` (codex only), because plannedModelName is now a readable name no option value matches.
 
@@ -23,6 +25,9 @@ by asking the agent.
 ## Not done
 - Muse: it picks its model per turn and records none Kosmos can read; it still shows the provider.
 - The usage-history list (Settings) keys rows by raw id; it is a cost ledger, left as is.
+
+- The Windows arm (job.model from the Scheduled Task, plannedModelId's fallback) is REASONED from readJob's win32
+  shape, not driven: no test here injects a task spec. The Mac arm is unchanged in value.
 
 ## Weakest premise
 That each CLI's record names the model it runs NOW: Codex's last turn_context and Grok's current_model_id do; Gemini
