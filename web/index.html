@@ -14889,7 +14889,7 @@ window.kosmosMeasureScrollbarWidth();
          The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
     <div class="field" id="pjs-hooks-field">
       <span class="flabel" id="pjs-hooks-label">Webhooks</span>
-      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. The link works for programs on this computer.</p>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone.</p>
       <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
@@ -51273,7 +51273,7 @@ async function pjsHookCopy(which) {
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   const internet = which === 'pjs-hook-public';
-  if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : 'Kosmos could not copy it. Select the link and copy it yourself.';
+  if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : (internet ? 'Kosmos could not copy it. Select the internet link and copy it yourself.' : 'Kosmos could not copy it. Select the link and copy it yourself.');
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {

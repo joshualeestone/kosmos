@@ -1087,10 +1087,12 @@ const HOOK_LOCAL_ONLY = 'This link works for programs on this computer. ';
 function hookPublicLink(id, secret) {
   let st = null; let on = false; let signedIn = false;
   try { st = remote.status(); } catch { st = null; }
-  try { on = remote.read().on === true; } catch { on = false; }
+  let settingsOk = true;
+  try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
   try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
   const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
-  if (!on) return why('With Kosmos Plus on, you also get a link that works from the internet.');
+  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
   if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')

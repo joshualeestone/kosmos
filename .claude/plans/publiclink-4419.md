@@ -21,7 +21,7 @@
   when Kosmos Plus is on, signed in, `status().state === 'up'`, `admitsHooks === true`, and the
   address is a dotted host name whose last label is letters (HOOK_HOST_RE: no IP literal, no path);
   lowercased. Otherwise `publicWhy`, one true sentence per cause, keyed on the setting and the
-  sign-in, not on the tunnel's state alone: the switch off (turn it on); on but not signed in
+  sign-in, not on the tunnel's state alone: the settings unreadable (say so); the switch off (Kosmos Plus can also give a link, no promise it will); on but not signed in
   (finish signing in); connecting or restarting (make a new one once connected); on but not
   running for any other reason (not connected right now); an older connector (does not take
   webhooks from the internet yet: no promise of an update, which nothing here can check); an
@@ -48,4 +48,4 @@ That relay#195 ships the field exactly as agreed (`admits_hooks`, boolean). If i
 name, this shows no public link anywhere (the safe direction) until the one line in remote.js changes.
 
 ## Merge order
-#1307 merged (PR #4453, 0e88cfd); this branch is its own two commits on main.
+#1307 merged (PR #4453, 0e88cfd); this branch is its own commits on main.
