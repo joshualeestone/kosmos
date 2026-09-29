@@ -715,8 +715,10 @@ out="$(WPASS_AFTER=2 KOSMOS_WAIT_NOW=qbad KOSMOS_WAIT_SLEEP=: kosmos_wait_until_
   || fail "#4574 a non-numeric KOSMOS_WAIT_NOW broke the wait (rc=$rc, $out)"
 qfail() { return 3; }
 rm -f "$W/calls"
-out="$( set -e; WPASS_AFTER=2 KOSMOS_WAIT_NOW=qfail KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1; echo "survived" )"; rc=$?
-{ [ "$rc" -eq 0 ] && has "$out" "survived"; } && pass "#4574 a clock seam that fails falls back too, even under set -e" \
+# Called directly: the wait only calls it inside $( ), where bash (outside POSIX mode) does not inherit set -e, so a
+# wait-level arm could not see this. The helper's own contract is that it never fails.
+out="$( set -e; KOSMOS_WAIT_NOW=qfail _kosmos_wait_now; echo "survived" )"; rc=$?
+{ [ "$rc" -eq 0 ] && has "$out" "survived" && printf '%s\n' "$out" | head -1 | grep -Eq '^[0-9]+$'; } && pass "#4574 a clock seam that fails falls back to the real clock, even called under set -e" \
   || fail "#4574 a failing KOSMOS_WAIT_NOW killed a set -e caller (rc=$rc, $out)"
 rm -f "$W/calls"
 # A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
