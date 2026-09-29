@@ -572,10 +572,11 @@ test('a tree\'s kept positions move with the canvas on screen, measured by the p
      difference, so no face jumps in the paint. A browser measures this; the wiring is pinned here. */
   const at = SCRIPT.indexOf('function paintOrg(');
   const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  const before = paint.indexOf("const mapBefore = document.getElementById('orgmap').getBoundingClientRect();");
+  const before = paint.indexOf('const mapBefore = mapWas.getBoundingClientRect();');
   const moves = paint.search(/wrap\.classList\.toggle\('orgscroll'/);
   assert.ok(before > -1 && before < moves, 'the canvas is not measured before this paint moves it');
-  assert.match(paint, /map\.innerHTML = html;[\s\S]{0,1500}?if \(tree && !widthChanged\) \{\s*const mapAfter = map\.getBoundingClientRect\(\);\s*const dx = mapBefore\.left - mapAfter\.left; const dy = mapBefore\.top - mapAfter\.top;\s*if \(dx \|\| dy\) for \(const p of ORG_POS\.values\(\)\) \{ p\.x \+= dx; p\.y \+= dy; \}\s*\}\s*[\s\S]{0,400}?orgLiveStart\(map, placed, cx, cy, size\);/,
+  assert.match(paint, /const mapWasDrawn = mapWas\.childElementCount > 0 && !!mapWas\.style\.width;/, 'the carry no longer checks a drawn canvas was there (a failed poll empties the map)');
+  assert.match(paint, /map\.innerHTML = html;[\s\S]{0,1500}?if \(tree && !widthChanged && mapWasDrawn\) \{\s*const mapAfter = map\.getBoundingClientRect\(\);\s*const dx = mapBefore\.left - mapAfter\.left; const dy = mapBefore\.top - mapAfter\.top;\s*if \(dx \|\| dy\) for \(const p of ORG_POS\.values\(\)\) \{ p\.x \+= dx; p\.y \+= dy; \}\s*\}\s*[\s\S]{0,400}?orgLiveStart\(map, placed, cx, cy, size\);/,
     'kept positions no longer move by the measured canvas offset before the live chart starts');
 });
 
@@ -589,6 +590,11 @@ test('in a tree, a body outside the box comes in at most ORG_GLIDE_MAX a step; a
   const t = mk({ dx: 120, dy: 0 });
   sim.orgStep([t.out], t.hub, 0.02, box);
   assert.ok(1600 - t.out.x <= sim.ORG_GLIDE_MAX + 1e-9 && t.out.x < 1600, 'a tree body 642px outside moved ' + (1600 - t.out.x).toFixed(0) + 'px in one step');
+  // Outside on both axes: the whole move is capped, not each axis (review it17: 56.6px per step).
+  const c = mk({ dx: 120, dy: 0 }); c.out.y = 1600;
+  sim.orgStep([c.out], c.hub, 0.02, box);
+  const moved = Math.hypot(1600 - c.out.x, 1600 - c.out.y);
+  assert.ok(moved <= sim.ORG_GLIDE_MAX + 1e-9 && moved > 0, 'a corner body moved ' + moved.toFixed(1) + 'px in one step');
   const f = mk(null);
   sim.orgStep([f.out], f.hub, 0.02, box);
   assert.equal(f.out.x, 958, 'CONTROL: a flat body outside is put on the edge, as on main');

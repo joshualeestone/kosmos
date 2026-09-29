@@ -29204,17 +29204,18 @@ function orgStep(nodes, hub, alpha, box) {
      faces up to ~1180px in one frame (review it15). Inside the box it is the hard clamp, as before; a flat fleet
      is unchanged. */
   const inTree = nodes.some((n) => n.home);
-  const bound = (from, to) => {
-    const c = clamp(to, box.lo, box.hi);
-    if (!inTree || (from >= box.lo && from <= box.hi)) return c;
-    return from + clamp(c - from, -ORG_GLIDE_MAX, ORG_GLIDE_MAX);
-  };
+  const outside = (v) => v < box.lo || v > box.hi;
   for (const n of all) {
     if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
     n.vx *= ORG_SIM.damping; n.vy *= ORG_SIM.damping;
     const tx = n.x + n.vx; const ty = n.y + n.vy;
-    const nx = box ? bound(n.x, tx) : tx;
-    const ny = box ? bound(n.y, ty) : ty;
+    let nx = box ? clamp(tx, box.lo, box.hi) : tx;
+    let ny = box ? clamp(ty, box.lo, box.hi) : ty;
+    if (box && inTree && (outside(n.x) || outside(n.y))) {
+      // The whole move, not each axis, is capped (review it17: per axis a corner body moved 56.6px).
+      const d = Math.hypot(nx - n.x, ny - n.y);
+      if (d > ORG_GLIDE_MAX) { nx = n.x + (nx - n.x) * ORG_GLIDE_MAX / d; ny = n.y + (ny - n.y) * ORG_GLIDE_MAX / d; }
+    }
     moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
     n.x = nx; n.y = ny;
   }
@@ -29607,8 +29608,13 @@ function paintOrg() {
      next paint with a width draws it. */
   if (viewW === 0) return;
   const fit = orgFit(maxR, viewW, orgFloorOf(placed));   // #4434: never squeeze a tree's faces together
-  /* #4434: where the canvas is on screen before this paint moves it (see the carry before orgLiveStart). */
-  const mapBefore = document.getElementById('orgmap').getBoundingClientRect();
+  /* #4434: where the canvas is on screen before this paint moves it (see the carry before orgLiveStart), and
+     whether a drawn canvas was there at all: a failed poll or an empty board empties the map and clears its
+     width, and a rect read from that empty block is not where any kept position was drawn (review it17: a
+     recovering tree slid ~250px). */
+  const mapWas = document.getElementById('orgmap');
+  const mapBefore = mapWas.getBoundingClientRect();
+  const mapWasDrawn = mapWas.childElementCount > 0 && !!mapWas.style.width;
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
   /* #718: what changed since the last paint. Only a change in the box's width is
@@ -29844,7 +29850,7 @@ function paintOrg() {
      move in one paint (review it13, it15). Measured, not modelled: the canvas's screen position before this
      paint and now, and kept positions move by the difference, so every face starts where it was on screen and
      the glide takes it on. A width change is carried in proportion above instead, and a flat fleet as before. */
-  if (tree && !widthChanged) {
+  if (tree && !widthChanged && mapWasDrawn) {
     const mapAfter = map.getBoundingClientRect();
     const dx = mapBefore.left - mapAfter.left; const dy = mapBefore.top - mapAfter.top;
     if (dx || dy) for (const p of ORG_POS.values()) { p.x += dx; p.y += dy; }
