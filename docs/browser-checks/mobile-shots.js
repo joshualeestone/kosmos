@@ -159,13 +159,44 @@ const SCREENS = [
      paints it. The email is example.com so the leak guard still judges it.
      ⚠️ noServiceWorker: the board's sw.js claims the page, and in WebKit a
      page.route never sees a controlled page's fetches (measured: the stub was
-     never hit and the card stayed hidden), so this screen's context blocks it. */
+     never hit and the card stayed hidden), so this screen's context blocks it.
+     #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
+     shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
+     connected panel), so the full card is the top card there; with a connected panel it sits above the panel
+     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible and is itself what sits
+     at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
-    await page.reload({ waitUntil: 'load' });
-    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"]', { state: 'visible', timeout: 8000 });
+    await at(page, '?tab=settings&sec=plus');
+    const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
+    await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
+    /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
+       point at the first laid-out Allow button's centre must be that button (or inside it), so anything drawn
+       over it, or the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint
+       between two reads is not a red. */
+    const whatIsAt = (sel) => {
+      const b = [...document.querySelectorAll(sel)].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+      if (!b) return 'gone (no Allow button is laid out)';
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+      const top = document.elementFromPoint(x, y);
+      if (top && b.contains(top)) return '';
+      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+      return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
+    };
+    let hit = await page.evaluate(whatIsAt, allow);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
+      await page.waitForTimeout(200);
+    }
+    if (hit) throw new Error('the Allow button is not seen: ' + hit);
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -175,6 +206,25 @@ const SCREENS = [
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
+     that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
+     This board runs server.js's real start, which arms live execution, so the Recommender's
+     sweep would act on the seeded agents while it is on: `after` turns it off once the shot is
+     taken, before any other screen. */
+  { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#rec-guards-row', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
@@ -214,8 +264,18 @@ const SCREENS = [
   } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
-    await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
+    // #4550: Instructions is inside Profile now, below the profile block; the shot is of it.
+    await page.evaluate(() => document.getElementById('d-sec-instr').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(200);
+  } },
+  // #4550: AI Settings (Runs on, Memory and Fresh start, the terminal, Remove).
+  { name: 'agent-ai-settings', owner: 'Mona Lisa', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="model"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-term', { state: 'visible', timeout: 5000 });
+    await page.mouse.move(1, 1);
   } },
   // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
@@ -372,6 +432,15 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
+  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
+     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
+     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
+     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
+     cover check below must then fail that shot. */
+  if (COVER_CONTROL !== 'cmnotice') {
+    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
+    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
+  }
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -565,6 +634,7 @@ async function preflight(base) {
    preflight must stop it), `page` puts an address in an agent's role (the page
    scan must stop it). The address is invented and not example.com. */
 const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
+const COVER_CONTROL = process.env.MSHOTS_COVER_CONTROL || '';
 const PLANTED_EMAIL = 'planted.leak@leak-control.test';
 const { hitsIn } = require('./lib-leak-guard.js');
 async function leaksOn(page) {
@@ -660,8 +730,16 @@ async function fitOf(page) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+  // A control with a mistyped name would arm nothing and pass; refuse it instead.
+  if (COVER_CONTROL && COVER_CONTROL !== 'cmnotice' && COVER_CONTROL !== 'overlay') {
+    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice or overlay, not ' + COVER_CONTROL);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
+  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
+  if (COVER_CONTROL === 'overlay' && !screens.some((s) => s.name === 'allow-card')) {
+    throw new Error('MSHOTS_COVER_CONTROL=overlay needs the allow-card screen');
+  }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
@@ -678,6 +756,7 @@ async function run() {
   const rows = [];
   const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
+  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -727,6 +806,13 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
+                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
+                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
+                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
+                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
+                  coverControlWaited = true;
+                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
+                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -746,6 +832,12 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
+                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
+                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
+                   to its markup to this check. */
+                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
+                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
+                }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
@@ -757,6 +849,12 @@ async function run() {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
+              }
+              /* A screen that changed the board's state puts it back here, whatever happened above,
+                 so no later screen photographs it (#4545). A failure to is a flag on this row (counted
+                 once: a row whose go() already errored is one errored screen, not two). */
+              if (sc.after) {
+                try { await sc.after(page, ctxData); } catch (e) { if (!/ERROR/.test(note)) errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
               /* report.json and report.md travel with the shots: everything this row carries (the

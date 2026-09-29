@@ -1,0 +1,8 @@
+Employee ID,Full Name,Job Title,Manager ID
+E1,Avery Quill,Chief Executive,
+E2,Bo Linden,Head of Sales,E1
+E3,Cass Orwell,Head of Product,E1
+E4,Dev Mariner,Head of Operations,E1
+E5,Eli Tamsin,Account Executive,E2
+E6,Fen Ashby,"Sales Engineer, EMEA",E2
+E7,Gus Pell,Office Manager,E4

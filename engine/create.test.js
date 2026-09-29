@@ -1314,7 +1314,10 @@ test('the startup script names its session exactly, not by prefix', () => {
         `${cmd} resolves its target by PREFIX, so it can act on another session: ${line.trim()}`);
     } else if (PLAIN.includes(cmd)) {
       checked += 1;
-      assert.match(line, /-t "\$SESSION"/,
+      /* #4530: or the session's ID ("$_sid", from session_id_exact). Measured on tmux 3.5a (the one Kosmos ships) and 3.7c: an id
+         target names exactly one session, set-option and show-options accept it, and it fails
+         cleanly once that session is gone, where the plain name falls back to a prefix match. */
+      assert.match(line, /-t "\$(SESSION|_sid)"/,
         `${cmd} rejects the "=name" form outright ("no such session: =name"), so `
         + `this line would fail at runtime: ${line.trim()}`);
     }
@@ -1623,7 +1626,9 @@ test('the startup script, actually run, hands the pane its account and its board
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
       `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
-      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`];
+      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`,
+      // #4466: always, so the CLI can tell an agent from a person (the session is the claim above).
+      'KOSMOS_AGENT_SESSION=probe'];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1680,6 +1685,9 @@ test('the startup script, actually run, hands the pane its account and its board
            keeps the exclusion honest. */
         && !/^KOSMOS_WORLD=/.test(v)
         && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v)
+        /* #4466: the session name rides ALWAYS (it is SET by the supervisor, like the token), so the
+           CLI can tell an agent from a person. Excluded by its exact value, not a prefix. */
+        && v !== 'KOSMOS_AGENT_SESSION=probe'
         /* #3383c: HOME rides ALWAYS (see the set-case comment) -- it is $HOME, always
            non-empty here, and re-injected so a default-account agent reads the trust we
            wrote rather than parking on the folder-trust prompt. An always-on rider like
@@ -4750,7 +4758,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
   assert.match(script, /elif \[ "\$RUNNER" = antigravity \]; then/);
   assert.match(script, /_AGY_ARGS=\(--dangerously-skip-permissions\)/);
   assert.match(script, /\[ -n "\$\{MODEL:-\}" \] && _AGY_ARGS\+=\(--model "\$MODEL"\)/);
-  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}"\)" \|\| exit 1/);   // #4417: inside the pane-id capture
+  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}"\)" \|\| (?:exit 1|\{ RUN_STARTED=0; exit 1; \})/);   // #4417: inside the pane-id capture
 });
 
 /* #3939 slice 3c-3a: Meta Muse agents, behind the Muse switch (musestatus.enabled) and Mac only. */

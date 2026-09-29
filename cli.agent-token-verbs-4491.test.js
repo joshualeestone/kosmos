@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4491 slice 2: `kosmos msg`, `kosmos post` and `kosmos react` present the agent's own token
+ * #4491 slices 2-3: `kosmos msg`, `kosmos post`, `kosmos react` and `kosmos task message` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
  * so the board can tell the agent from the person. The board token is still sent as well.
  *
@@ -39,6 +39,7 @@ const ANSWERS = {
   '/api/msg': { delivery: { state: 'placed' } },
   '/api/post': { delivery: { state: 'placed' } },
   '/api/react': { ok: true },
+  '/api/project/p4491/task/1/message': { ok: true, delivered: [] },
 };
 
 function withStub(fn) {
@@ -67,6 +68,7 @@ const VERBS = [
   ['/api/msg', ['msg', 'mara', 'hello']],
   ['/api/post', ['post', 'p4491', 'hello']],
   ['/api/react', ['react', 'p4491', 'm1', 'thumbsup']],
+  ['/api/project/p4491/task/1/message', ['task', 'message', 'p4491', '1', 'hello']],
 ];
 
 // Async execFile, never execFileSync: a synchronous child blocks the event loop the stub answers on.
@@ -90,7 +92,7 @@ async function send(port, seen, home, args, token) {
 }
 
 for (const [route, args] of VERBS) {
-  test(`kosmos ${args[0]} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
+  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -102,7 +104,7 @@ for (const [route, args] of VERBS) {
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
-  test(`kosmos ${args[0]} sends no agent header for a junk or absent token`, async () => {
+  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} sends no agent header for a junk or absent token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {

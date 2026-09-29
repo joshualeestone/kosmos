@@ -104,8 +104,9 @@ test('#4064 decided: a check that gets no answer leaves a recent green standing 
   await accounts();
   await settle();
   const row = await openaiRow();
-  assert.equal(row.connection.state, 'unknown', 'setup: the re-check did not come back without an answer');
+  assert.equal(codexsigninlive.livenessCached(CODEX).verdict, 'unknown', 'setup: the re-check did not come back without an answer');
   assert.equal(row.connection.badge, 'working', 'a check with no answer took away a green confirmed a minute ago: ' + JSON.stringify(row.connection));
+  assert.equal(row.connection.state, 'connected', '#4538: the row\'s state follows its green badge: ' + JSON.stringify(row.connection));
 });
 
 test('#4064 control: a dead answer after a recorded green shows the sign-in as not connected, not green', async () => {
