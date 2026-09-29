@@ -159,5 +159,10 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
   assert.deepEqual(routes, ['POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every route added here must be checked to identify its caller from the header token');
-  assert.match(src, /AGENT_TOKEN_ROUTES\.has\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
+  /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
+  const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/];',
+    'AGENT_TOKEN_ROUTE_PATTERNS changed: every route a pattern admits must identify its caller from the header token');
+  assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
+  assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
 });

@@ -2602,7 +2602,10 @@ cmd_task() {
       # about its own message (the same field `add` sends).
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local rc=0 body
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
+      # #4491: this agent's own token, plain hex only, as `task built` sends it (off argv, in kosmos_curl's header file).
+      local _tok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
         -H 'content-type: application/json' \
         --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to send that message. Is it running at $URL?"; exit 1; }

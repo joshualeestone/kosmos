@@ -33,6 +33,7 @@ const messagesEngine = require('./engine/messages');
 const chatEngine = require('./engine/chat');
 const projectsEngine = require('./engine/projects');
 const feedpublish = require('./engine/feedpublish');
+const tasksEngine = require('./engine/tasks');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -177,6 +178,40 @@ test('a token-only community post is still refused at the gate: the public feed 
     });
     assert.ok(!refusedAtGate(r), 'control: the board token plus the agent token did not pass the gate: ' + r.code);
   } finally { feedpublish.publishPost = realPublish; }
+});
+
+test('task message and task built pass the gate with only an agent token; close and reopen do not (#4491 slice 3)', async () => {
+  for (const verb of ['message', 'built']) {
+    const p = '/api/project/p4491/task/1/' + verb;
+    assert.ok(refusedAtGate(await call('POST', p, { body: {} })), `control: POST ${p} with no credential was not refused`);
+    const r = await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
+    assert.ok(!refusedAtGate(r), `POST ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
+  }
+  for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built']) {
+    assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: {} })), `POST ${p} was reachable with only an agent token`);
+  }
+});
+
+test('task message refuses an agent that is not on the project, before recording anything (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  const said = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara'] }];
+  tasksEngine.say = (id, num, text) => { said.push({ id, num, text }); return { number: Number(num) }; };
+  tasksEngine.whoOf = () => [];
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
+  const outsider = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'not my project' } });
+  assert.equal(outsider.code, 403, 'a non-member was not refused: ' + outsider.code + ' ' + outsider.text.slice(0, 160));
+  assert.match(outsider.text, /not on this project/);
+  assert.equal(said.length, 0, 'the non-member\'s message was recorded anyway');
+  /* CONTROL: the same request from an agent that IS on the project is recorded, so the refusal above is
+     membership and not a broken request or a stub that records nothing. */
+  const member = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'my project' } });
+  assert.equal(member.code, 200, 'control: a member was not recorded: ' + member.code + ' ' + member.text.slice(0, 160));
+  assert.equal(said.length, 1);
+  assert.equal(said[0].text, 'my project');
 });
 
 test('a malformed agent token is refused at the gate without a store scan', async (t) => {

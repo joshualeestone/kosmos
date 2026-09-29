@@ -3778,6 +3778,11 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react']);
+/* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
+   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Each
+   handler identifies the caller from the token and refuses an agent that is not on the project. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
+const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
   /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
@@ -4100,7 +4105,7 @@ const server = http.createServer(async (req, res) => {
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
-    const exemptAgentToken = () => AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
+    const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
@@ -16564,6 +16569,17 @@ const server = http.createServer(async (req, res) => {
         }
         const tokenSender = senderFromAgentToken(req, body, roster);
         if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+        /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded
+           or delivered, as task built refuses it. Checked against the stored record (agents are names). */
+        const callerPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+        const callerCard = tokenSender ? tokenSender.card : (callerPane && roster ? roster.find((c) => c && c.target === callerPane) : null);
+        if (!viaScreen && callerCard && callerCard.sessionName) {
+          const stored = projects.readAll().find((x) => x.id === id) || null;
+          if (stored && !(stored.agents || []).includes(callerCard.sessionName)) {
+            sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
+            return;
+          }
+        }
         const t = tasks.say(id, taskSay[2], body.text);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
