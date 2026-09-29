@@ -29,10 +29,13 @@ can only delay a give-up, never prevent it, and a healthy queue k deep, about k 
 waiter in turn spends one full bound (45 min) at the front before giving up. That is slower than the old 20 minutes
 for the waiters behind a hung suite, and it is the price of not giving up on a healthy long queue.
 
-## Measured
-- tools/test-cut-guard.sh on 1735710e1: 0 failures.
-- CONTROL, the same tests against origin/main's cut-guard.sh: the moving queue gives up at call 3 (the jam), the
-  default is 1200, three FAILs; the two non-queue controls pass on both.
+## Measured (current, 1ec7f7f62)
+- tools/test-cut-guard.sh: 0 failures; every #4574 arm passes.
+- Each mechanism has a control that reds only its own arm (recorded per round below): the waiter-ahead reset (review
+  1), the shared helper (2), the re-mark and its old queue time (5, 8), churn behind (7), the start-time pin and its
+  locale half (9, 11), the ceiling and its scaling (9, 13), the empty start time (11), the four-line shape (10), the
+  entry clear (9), the missing-own-marker pass (15).
+- Against origin/main's cut-guard.sh the queue arms red: the moving queue gives up at call 3 (the jam).
 
 ## Review iteration 1 (blind, opus)
 0 BLOCKER, 3 WARNING, all taken:
@@ -199,3 +202,15 @@ Because the two comment edits changed the diff, one more blind round follows.
   history, not rewritten).
 - (N, taken) the first notice says the ceiling grows with the queue ahead at entry.
 - (N, left) the refusal names the first waiter ahead in glob order, as the old code did (the message stays true).
+
+## Review iteration 15 (blind, opus)
+0 BLOCKER, 1 WARNING, taken:
+- (W) a THIRD source of false restarts, where waiters BEHIND did count: another reader's failed ps can remove this
+  run's own marker during the check (after the loop-top re-mark), and the count then took every waiter as ahead; the
+  next pass read the drop back as a fall. A queued pass whose own marker is missing now takes no count. Arm: the check
+  removes it on every even call, one waiter ahead and one behind never move: the bound runs out at call 5. Control:
+  without the guard it restarted for 3335 calls until the (explicit) ceiling.
+- (N, taken) the give-up line says how the ceiling was set; run-tests.sh's long line rewrapped; this Measured section is
+  current.
+- (N, left) stand-in waiters are not in the file's EXIT trap (they end in 5 minutes, and their markers are in the
+  sandbox's marker dir).
