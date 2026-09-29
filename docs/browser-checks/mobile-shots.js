@@ -163,15 +163,25 @@ const SCREENS = [
      #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
      shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
      connected panel), so the full card is the top card there; with a connected panel it sits above the panel
-     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible (it does not check the
-     viewport; the card sits at the top of the page and opening the view does not scroll). */
+     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible and is itself what sits
+     at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
     await at(page, '?tab=settings&sec=plus');
-    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]',
-      { state: 'visible', timeout: 8000 });
+    const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
+    await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
+    /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
+       point at the Allow button's centre must be the button, so anything drawn over it, or the button
+       being off screen, fails the shot. */
+    const hit = await page.evaluate((sel) => {
+      const b = document.querySelector(sel);
+      const r = b.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return top && b.contains(top) ? '' : (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing (off screen)');
+    }, allow);
+    if (hit) throw new Error('the Allow button is covered by ' + hit);
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -409,6 +419,15 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
+  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
+     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
+     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
+     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
+     cover check below must then fail that shot. */
+  if (COVER_CONTROL !== 'cmnotice') {
+    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
+    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
+  }
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -602,6 +621,7 @@ async function preflight(base) {
    preflight must stop it), `page` puts an address in an agent's role (the page
    scan must stop it). The address is invented and not example.com. */
 const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
+const COVER_CONTROL = process.env.MSHOTS_COVER_CONTROL || '';
 const PLANTED_EMAIL = 'planted.leak@leak-control.test';
 const { hitsIn } = require('./lib-leak-guard.js');
 async function leaksOn(page) {
@@ -783,6 +803,11 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
+                /* #4524: a one-time window the screen did not open (the Community notice, What's New) sits over
+                   whatever the shot was for, and nothing else here would notice. Read after the shot: both stay
+                   until they are closed, so one there now was there when the shot was taken. */
+                const cover = await page.evaluate(() => ['cmnotice', 'whatsnew'].filter((id) => document.getElementById(id)));
+                if (cover.length) throw new Error('COVERED: #' + cover.join(', #') + ' is open over this screen');
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
