@@ -6410,6 +6410,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+/* #4631: Copy message reference, first in the hover bar, drawn like Reply. The number is faint: it is there so a
+   person sees what they copy, not to be read as part of the message. */
+.rxn-ref { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
+           display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rxn-ref-ico { flex: none; display: block; }
+.rxn-ref-n { opacity: .7; font-variant-numeric: tabular-nums; }
+.rxn-ref:hover, .rxn-ref:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-ref:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
+            background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
+.msg-menu[hidden] { display: none; }
+.msg-menu-i { display: block; width: 100%; text-align: left; font: inherit; font-size: .875rem; color: var(--k-ink); background: none; border: 0; border-radius: 5px; padding: 7px 10px; min-height: 32px; cursor: pointer; }
+.msg-menu-i:hover, .msg-menu-i:focus-visible { background: color-mix(in srgb, var(--k-surface) 88%, var(--k-ink)); outline: none; }
+.msg-toast { position: fixed; z-index: 45; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 32px));
+             padding: 9px 14px; border-radius: 8px; background: var(--k-ink); color: var(--k-surface); font-size: .875rem; box-shadow: 0 8px 24px rgba(20,22,26,.2); }
+.msg-toast[hidden] { display: none; }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
 /* No longer drawn by the room (#4359 removed its "Add @name" hint); kept because render-no-left-bars-3692 renders markup with it. */
@@ -33207,7 +33223,7 @@ function dmRow(m, name, replyAdjacent) {
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
       ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
-        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, m.id) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
@@ -55672,6 +55688,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     pjReplyStart(box.getAttribute('data-post'));
     return;
   }
+  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
@@ -55774,7 +55791,8 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     }
     return;
   }
-  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
+  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }
+  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631   // #4256, closing a picker open on another row as the room does
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -55968,7 +55986,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -56661,7 +56679,140 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
    (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
    panel already uses, opened beside whichever post's smiley was clicked. */
-function rxnsInner(list, withReply) {
+/* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
+   message to then reference it to an agent later on". Every message offers "Copy message reference": right-click
+   (which is ctrl-click on a Mac), ctrl-click on Windows, and a button at the start of the hover bar for touch and
+   keyboard. It copies words a person can paste to any agent: "message 530 in Kosmos Growth" for a message with a
+   number (ids are one sequence for the whole Kosmos, so the number alone finds it and the room is for the reader;
+   the agent's commands take this whole phrase, engine/messages.js messageIdOf), and "Mark's message to me at
+   2:31 PM on Sep 29" for a direct-conversation row, which has no number. The hover button shows the number
+   faintly, so a person sees what they are copying; it is never shown outside the hover bar. */
+function msgRefNumber(mid) {
+  const hit = /^m(\d+)$/.exec(String(mid || ''));
+  return hit ? hit[1] : '';
+}
+function msgRefButton(mid) {
+  const n = msgRefNumber(mid);
+  return '<button class="rxn-ref" type="button" title="Copy message reference" aria-label="'
+    + (n ? 'Copy a reference to message ' + n : 'Copy a reference to this message') + '">'
+    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
+    + (n ? '<span class="rxn-ref-n">' + n + '</span>' : '')
+    + '</button>';
+}
+function msgRefWhen(at) {
+  const d = new Date(at);
+  if (!at || isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return ' at ' + time + ' on ' + day;
+}
+/* The words copied for one message row, or '' when the row is not a message this can name. */
+function msgRefText(row) {
+  if (!row || !row.getAttribute) return '';
+  const mid = row.getAttribute('data-mid') || '';
+  const inRoom = !!(row.closest && row.closest('#pj-room'));
+  const n = msgRefNumber(mid);
+  if (n) {
+    const nameEl = inRoom ? document.getElementById('pj-one-name') : null;
+    const room = nameEl ? nameEl.textContent.trim() : '';
+    return 'message ' + n + (room ? ' in ' + room : '');
+  }
+  const when = msgRefWhen(mid);
+  if (!when) return '';
+  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
+    ? (typeof tskAgentName === 'function' ? tskAgentName(CURRENT.sessionName) : CURRENT.sessionName) : '';
+  if (row.classList.contains('you')) return 'my message' + (agent ? ' to ' + agent : '') + when;
+  const nm = row.querySelector('.msg-nm');
+  const who = nm ? nm.textContent.trim() : agent;
+  return who ? who + "'s message to me" + when : '';
+}
+function msgToast(text) {
+  let t = document.getElementById('msg-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'msg-toast'; t.className = 'msg-toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(msgToast.timer);
+  msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+async function msgRefCopy(row) {
+  const text = msgRefText(row);
+  if (!text) return;
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; }
+  } catch { ok = false; }
+  if (!ok) {
+    /* The same fallback copyCommandFrom uses: a clipboard the page may not write (an older WebView, a denied
+       permission) is reached through a selected textarea instead. */
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+  }
+  msgToast(ok ? 'Copied "' + text + '". Paste it to any agent.' : 'Could not copy. The reference is: ' + text);
+}
+/* The small menu right-click and ctrl-click open on a message. One item today; a menu (not an instant copy) so
+   the click says what it will do before it does it. */
+function msgMenuClose() {
+  const m = document.getElementById('msg-menu');
+  if (m && !m.hidden) { m.hidden = true; m.msgRow = null; }
+}
+function msgMenuOpen(row, x, y) {
+  let m = document.getElementById('msg-menu');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'msg-menu'; m.className = 'msg-menu'; m.setAttribute('role', 'menu'); m.hidden = true;
+    m.innerHTML = '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message reference</button>';
+    document.body.appendChild(m);
+    m.addEventListener('click', (e) => {
+      if (!e.target.closest('#msg-menu-copy')) return;
+      const r = m.msgRow; msgMenuClose(); msgRefCopy(r);
+    });
+    m.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); msgMenuClose(); } });
+  }
+  m.msgRow = row;
+  m.hidden = false;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+  document.getElementById('msg-menu-copy').focus();
+}
+/* Which clicks open it. Not on a link, a button, a field or a picture (their own menus stay), and not while
+   text is selected (the browser's Copy is what a person wants then). */
+function msgMenuRowFor(e) {
+  const t = e.target;
+  if (!t || !t.closest) return null;
+  const row = t.closest('#pj-room .msg, #d-dmthread .msg');
+  if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable]')) return null;
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (sel && !sel.isCollapsed && String(sel).trim()) return null;
+  return msgRefText(row) ? row : null;
+}
+const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+document.addEventListener('contextmenu', (e) => {
+  const row = msgMenuRowFor(e);
+  if (!row) return;
+  e.preventDefault();
+  msgMenuOpen(row, e.clientX, e.clientY);
+});
+/* A Mac already turns ctrl-click into the contextmenu above; elsewhere ctrl-click is a plain click. */
+document.addEventListener('click', (e) => {
+  const m = document.getElementById('msg-menu');
+  if (m && !m.hidden && !(e.target.closest && e.target.closest('#msg-menu'))) msgMenuClose();
+  if (MSG_MENU_MAC || !e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const row = msgMenuRowFor(e);
+  if (!row) return;
+  e.preventDefault();
+  msgMenuOpen(row, e.clientX, e.clientY);
+});
+window.addEventListener('scroll', msgMenuClose, true);
+window.addEventListener('resize', msgMenuClose);
+function rxnsInner(list, withReply, mid) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -56691,7 +56842,9 @@ function rxnsInner(list, withReply) {
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
     + 'Reply</button>' : '';
   return pills
-    + '<span class="rxn-quick">' + quicks
+    /* #4631: Copy message reference goes FIRST, so the emoji stay together and Reply stays last (#4358); the
+       faint number at the front reads as the message's own label. Guarded: tests lift rxnsInner alone. */
+    + '<span class="rxn-quick">' + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
     + reply
@@ -56700,12 +56853,12 @@ function rxnsInner(list, withReply) {
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
-  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true) + '</div>';
+  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true, id) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'));   // a room row and a DM row (#4256) keep their Reply
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'), box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
 }
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
