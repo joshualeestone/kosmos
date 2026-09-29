@@ -297,15 +297,9 @@ _lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 #     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
 #   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
-# #4636: THIS SHELL MAY NOT BE ABLE TO CONNECT AT ALL. A connect to 127.0.0.1 that fails (curl 7) while
-# lsof shows an IPv4 listener on 127.0.0.1:PORT or *:PORT is not a stopped board: an unrestricted shell
-# connects to such a socket, so this shell is blocked (a sandbox that denies even 127.0.0.1, or a local
-# network fault). That is HEALTH_STATE unreachable: never "not running", never start advice, never a
-# reclaim. The words say "Kosmos is running" only when the listener's pid (lsof, which works where ps is
-# denied) is the one this install recorded in board.pid; any other listener, node included, is "something
-# (its name) is listening". A HUNG board is not this: the OS still
-# accepts the connect on its socket, so a hang is a timeout (busy), as before. (A proxy in the way is the
-# other shape of this, handled by the loopback NO_PROXY/no_proxy above, #4466.)
+# #4636: a refused connect while a listener holds the port is "unreachable" (this shell is blocked, not the
+# board stopped); see _health_refused below. A proxy in the way is the other shape of this, handled by the
+# loopback NO_PROXY/no_proxy above (#4466).
 # Returns 0 only for up. ⚠️ Call it as a plain statement or in `if`, never inside $( ): HEALTH_STATE is
 # a global and would be lost in the subshell.
 HEALTH_STATE=down
@@ -364,11 +358,11 @@ _health_refused() {   # <the probe's budget, to re-probe with>
   # lsof on each refusal, the re-probe's too: a listener that exited in the half second then reads down.
   _pc="$(_ipv4_listener)" || _pc=""
   if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi
-  if [ -z "$_HEALTH_REPROBE" ]; then
-    _HEALTH_REPROBE=1
+  if [ -z "${_HEALTH_REPROBE:-}" ]; then
+    # A local, seen by the nested probe through bash's dynamic scope and gone however this returns.
+    local _HEALTH_REPROBE=1
     sleep 0.5
     _health_probe "${1:-2}"
-    _HEALTH_REPROBE=""
     return
   fi
   _UNREACH_PID="${_pc%% *}"; _UNREACH_CMD="${_pc#* }"
@@ -496,7 +490,8 @@ _unreachable_why() {
   printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
 }
 # #4636: positive evidence that this shell runs under a macOS sandbox (seatbelt): /bin/ps is setuid root, and
-# ANY seatbelt profile refuses to run it, network rules or not (measured: exit 71 even under "(allow default)").
+# ANY seatbelt profile refuses to run it, network rules or not (measured with sandbox-exec: exit 71 even under
+# "(allow default)"; other ways ps can fail twice, such as an MDM-restricted account, are not measured).
 # An ordinary shell runs it, even one whose network is broken (a firewall, the TIME_WAIT leak). So combined with
 # HEALTH_STATE unreachable it means "blocked by a sandbox", not "blocked by a network fault". (Under any seatbelt
 # profile running_pid, which uses ps, is blind too.)
@@ -1048,9 +1043,12 @@ _await_board_up() {
         if kill -0 "$_pid" 2>/dev/null; then kill -9 "$_pid" 2>/dev/null || true; fi
         for _k in 1 2 3 4 5; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.2; done
         # ASKED IS NOT STOPPED (cmd_stop's rule): the pidfile is the only handle on it, so it goes only once
-        # the process is gone. (board.started-at, written before the launch, stays: it only times the agent
+        # the process is gone: kill -0 fails AND lsof no longer shows it listening (a sandbox that denies
+        # signals would make kill -0 fail on a live process too). (board.started-at, written before the launch, stays: it only times the agent
         # restart cooldown, and a failed start counts as a start there, as #4466 intends.)
-        if kill -0 "$_pid" 2>/dev/null; then
+        local _still=""
+        _still="$(_ipv4_listener)" || _still=""
+        if kill -0 "$_pid" 2>/dev/null || [ "${_still%% *}" = "$_pid" ]; then
           die "Kosmos cannot be started from this shell: it started (process $_pid), but $(_unreachable_why). A board started here would be blocked the same way, and this one could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
         fi
         # Only if it still names this launch (a supervised board-run could have written its own since).

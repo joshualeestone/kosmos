@@ -98,6 +98,22 @@ async function freePort() {
   await new Promise((ok) => srv.close(ok));
   return port;
 }
+/* A throwaway install for a start that really launches: its runtime is this node, its app a stub that listens on the
+   PORT it is given (and exits on its own after a minute, so a start that failed to stop it cannot leak it), its
+   tmux a no-op. */
+async function makeInstall() {
+  const h = {};
+  const e = env(await freePort(), {}, h);
+  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
+    + "setTimeout(() => process.exit(0), 60000);\n");
+  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
+  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  return { h, e };
+}
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
 test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', async () => {
@@ -134,7 +150,7 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
   assert.doesNotMatch(post.out, START_ADVICE);
 });
 
-test('a sandboxed shell: stop, restart, open and board-run change nothing and never say "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+test('a sandboxed shell: stop, restart and open change nothing, board-run launches nothing, none says "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const h = {};
   // No board.pid: this arm is stop's no-pidfile branch (with one, see the board.pid arm below).
   const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
@@ -198,18 +214,7 @@ test('a sandboxed shell, a node listener that is NOT this install\'s recorded bo
 });
 
 test('a sandboxed shell, the board STOPPED: the board it launches would be sandboxed too, so it is stopped again and the start fails', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
-  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
-  const h = {};
-  const e = env(await freePort(), {}, h);
-  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
-  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
-  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
-  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
-    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
-    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
-    + "setTimeout(() => process.exit(0), 60000);\n");
-  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
-  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  const { h, e } = await makeInstall();
   try {
     const t0 = Date.now();
     const r = await run(CLI, ['start'], e, true);
@@ -234,18 +239,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
 });
 
 test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
-  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
-  const h = {};
-  const e = env(await freePort(), {}, h);
-  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
-  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
-  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
-  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
-    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
-    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
-    + "setTimeout(() => process.exit(0), 60000);\n");
-  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
-  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  const { h, e } = await makeInstall();
   try {
     const r = await run(CLI, ['restart'], e, true);
     assert.notEqual(r.code, 0, r.out);
@@ -260,18 +254,7 @@ test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-st
 });
 
 test('a person\'s deliberate stop stands when a sandboxed start refuses: launched-and-stopped-again, and a listener that is not ours', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
-  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
-  const h = {};
-  const e = env(await freePort(), {}, h);
-  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
-  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
-  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
-  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
-    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
-    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
-    + "setTimeout(() => process.exit(0), 60000);\n");
-  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
-  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  const { h, e } = await makeInstall();
   fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
   try {
     const r = await run(CLI, ['start'], e, true);
@@ -358,6 +341,28 @@ test('the listener lookup: finds the loopback or wildcard IPv4 listener among ot
   assert.equal(await listener(''), 'none');
 });
 
+test('a person\'s start from a blocked shell on this install\'s running board: exit 0, and the stop marker stays cleared (by decision)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const h = {};
+  const r = await withBoard('ok', (p, pid) => {
+    const e = env(p, {}, h, pid);
+    fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
+    return run(CLI, ['start'], e, true);
+  });
+  assert.equal(r.died, false, r.out);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /already running .*Nothing was started/);
+  // Starting means "I want it running", and it is (#2955's early clear, kept for this case: see the plan).
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false);
+});
+
+test('the CLI\'s exit 5 and the watchdog\'s branch for it stay one contract', () => {
+  const cli = fs.readFileSync(CLI, 'utf8');
+  const wd = fs.readFileSync(path.join(__dirname, 'bin', 'board-watchdog.sh'), 'utf8');
+  const status = cli.slice(cli.indexOf('cmd_status() {'), cli.indexOf('\ncmd_open() {'));
+  assert.match(status, /elif \[ "\$HEALTH_STATE" = unreachable \]; then[\s\S]*?exit 5/, 'kosmos status no longer exits 5 for unreachable');
+  assert.match(wd, /if \[ "\$STATUS_RC" -eq 5 \]; then/, 'the watchdog no longer handles status exit 5');
+});
+
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
    stubbed (bash allows a function named /usr/bin/curl), so the arms decide the exact sequence of answers. */
 function probe(curlAnswers, listeners) {
@@ -379,8 +384,8 @@ _ipv4_listener() {   # the lsof lookup: answers from LISTENERS, one per call ("n
   local _n; _n=$(( $(cat "$_lf") + 1 )); echo "$_n" > "$_lf"
   case "$(echo "\${LISTENERS:-yes,yes,yes,yes}" | cut -d, -f$_n)" in none) return 1 ;; *) printf '%s' "4242 node" ;; esac
 }
-_health_probe 2; echo "first=$HEALTH_STATE flag=[$_HEALTH_REPROBE] pid=[$_UNREACH_PID] calls=$(calls)"
-_health_probe 2; echo "second=$HEALTH_STATE flag=[$_HEALTH_REPROBE] calls=$(calls)"
+_health_probe 2; echo "first=$HEALTH_STATE flag=[\${_HEALTH_REPROBE:-}] pid=[$_UNREACH_PID] calls=$(calls)"
+_health_probe 2; echo "second=$HEALTH_STATE flag=[\${_HEALTH_REPROBE:-}] calls=$(calls)"
 `;
   return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(1), ANSWERS: curlAnswers, ...(listeners ? { LISTENERS: listeners } : {}) } },
     (err, so, se) => resolve({ code: err ? err.code : 0, out: (so + se).trim() })));
