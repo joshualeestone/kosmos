@@ -19,8 +19,8 @@
  * arrival order. A message from the person (the operator envelopes engine/messages.js mints and
  * refuses inside any agent's text, so an agent cannot forge one) goes ahead of everyone else's,
  * behind only the person's own earlier ones and a stop note that is waiting. A person's short
- * stop request ends the running turn and drops what waits, like Escape, then runs as the next turn with a note naming what was dropped,
- * so the agent can say it stopped. Background room posts ("not addressed to you") that pile up
+ * stop request ends the running turn and drops what waits, like Escape, then runs as the next
+ * turn with a note naming what was dropped, so the agent can say it stopped. Background room posts ("not addressed to you") that pile up
  * while a turn runs are folded into one turn.
  *
  * The board hears working and idle through bin/agy-report-bridge.js (its PreInvocation and Stop
