@@ -145,7 +145,28 @@
     return $text.TrimStart([char]0xFEFF)
   }
 
-  function Get-FileSha256([string] $Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+  # SHA-256 straight from .NET, not Get-FileHash. On Windows PowerShell 5.1 Get-FileHash lives in a
+  # script module that loads on first use from $env:PSModulePath; started from a process PowerShell 7
+  # launched (a terminal, an editor, CI), that path lists PowerShell 7's module folders first, 5.1
+  # picks up 7's Microsoft.PowerShell.Utility, cannot load it, and Get-FileHash "is not recognized".
+  function Get-FileSha256([string] $Path) {
+    $stream = [System.IO.File]::OpenRead($Path)
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try { return ([System.BitConverter]::ToString($hasher.ComputeHash($stream)) -replace '-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose(); $stream.Dispose() }
+  }
+
+  # Get-AuthenticodeSignature has the same trap on 5.1 (Microsoft.PowerShell.Security is found in 7's
+  # folder first and fails to load). There is no plain .NET call for it, so on 5.1 the module is
+  # imported by its full path under $PSHOME, Windows PowerShell's own copy, whatever PSModulePath
+  # says. Nothing about the person's session changes except that the module is loaded, which is what
+  # the first use of the command would have done anyway. PowerShell 7 loads its own copy as usual.
+  function Import-SecurityModule {
+    if ($PSVersionTable.PSEdition -ne 'Desktop') { return }
+    $own = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+    try { Import-Module -Name $own -ErrorAction Stop }
+    catch { Refuse "Windows PowerShell could not load its signature checker ($($_.Exception.Message))." }
+  }
 
   function Remove-Folder([string] $Path) {
     for ($attempt = 1; $attempt -le 5; $attempt++) {
@@ -207,6 +228,7 @@
   # Refuses unless Kosmos.exe is validly signed by $EXPECTED_SIGNER under Microsoft's ID Verified
   # code-signing chain (see WHAT IS TRUSTED at the top).
   function Assert-KosmosSignature([string] $Exe) {
+    Import-SecurityModule
     $signature = Get-AuthenticodeSignature -LiteralPath $Exe
     if ($signature.Status -ne 'Valid') { Refuse "Kosmos.exe is not validly signed (Windows says: $($signature.Status))." }
     $leaf = $signature.SignerCertificate

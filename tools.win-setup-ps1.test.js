@@ -123,6 +123,8 @@ function hasPwsh() {
   return spawnSync('pwsh', ['-NoProfile', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true }).status === 0;
 }
 const SHELLS = ['powershell.exe', ...(hasPwsh() ? ['pwsh'] : [])];
+/** For the tests' own powershell.exe probes: no inherited PSModulePath, so 5.1 uses its own module folders even when these tests run under PowerShell 7 (as CI does). */
+const PROBE_ENV = (() => { const env = { ...process.env }; for (const key of Object.keys(env)) if (/^psmodulepath$/i.test(key)) delete env[key]; return env; })();
 
 /**
  * Runs `irm <host>/setup.ps1 | iex` in a fresh shell and reports its exit code, its output, and
@@ -299,7 +301,7 @@ test('a Kosmos.exe with no signature is refused, though both checksums match', W
 
 test('a Kosmos.exe validly signed by someone else is refused', WINDOWS_ONLY, async (t) => {
   // node.exe is Authenticode-signed by the OpenJS Foundation: Valid, but the wrong signer.
-  const check = spawnSync('powershell.exe', ['-NoProfile', '-Command', `(Get-AuthenticodeSignature -LiteralPath '${process.execPath}').Status`], { encoding: 'utf8', windowsHide: true });
+  const check = spawnSync('powershell.exe', ['-NoProfile', '-Command', `(Get-AuthenticodeSignature -LiteralPath '${process.execPath}').Status`], { encoding: 'utf8', windowsHide: true, env: PROBE_ENV });
   if (String(check.stdout).trim() !== 'Valid') { t.skip('this node.exe is not validly signed, so it cannot stand in for another signer'); return; }
   const zip = buildZip(fs.readFileSync(process.execPath));
   const host = await startHost(goodFiles(zip));
@@ -357,6 +359,38 @@ test('setup.ps1 never calls exit outside the run-as-file branch, which would clo
   // Comments dropped first: they may talk about exit. (This script has no '#' inside a string.)
   const lines = fs.readFileSync(SCRIPT, 'utf8').split(/\r?\n/).map((line) => line.replace(/#.*$/, '')).filter((line) => /\bexit\b/.test(line));
   assert.deepEqual(lines.map((line) => line.trim()), ['if ($RunAsFile) { exit 1 }']);
+});
+
+// ---- Windows PowerShell 5.1 started from inside PowerShell 7 (CI's first red, PR #4565) ----
+
+function pwshModulesFolder() {
+  if (!hasPwsh()) return null;
+  const home = String(spawnSync('pwsh', ['-NoProfile', '-Command', '$PSHOME'], { encoding: 'utf8', windowsHide: true }).stdout).trim();
+  const modules = home && path.join(home, 'Modules');
+  return modules && fs.existsSync(modules) ? modules : null;
+}
+
+test('5.1 run with PowerShell 7\'s module folders first on PSModulePath still hashes and checks the signature', WINDOWS_ONLY, async (t) => {
+  // What powershell.exe inherits when anything PowerShell 7 started (a terminal, an editor, the CI
+  // step running these tests) starts it: 7's module folders ahead of 5.1's. 5.1 then finds 7's
+  // Microsoft.PowerShell.Utility and .Security first, cannot load them, and Get-FileHash and
+  // Get-AuthenticodeSignature stop working.
+  const modules = pwshModulesFolder();
+  if (!modules) { t.skip('no PowerShell 7 here to take module folders from'); return; }
+  const inherited = [modules, process.env.PSModulePath || ''].join(';');
+  const host = await startHost(goodFiles(signedZip()));
+  try {
+    const result = await runSetup(host, { env: { PSModulePath: inherited } });
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /Checked: Kosmos\.exe is signed by Kosmos Agent Manager, Inc\./);
+    assert.deepEqual(result.leftInTemp, []);
+  } finally { await host.close(); }
+  // And a refusal under that path is still the named one, not "something unexpected".
+  const zip = signedZip();
+  const bad = await startHost({ ...goodFiles(zip), [`${VERSIONED}.sha256`]: sidecarFor(OTHER_SHA) });
+  try {
+    assertRefused(await runSetup(bad, { env: { PSModulePath: inherited } }), /the download did not match its published checksum/);
+  } finally { await bad.close(); }
 });
 
 // ---- after the launch (review of #4549: the folder is kept unless it is positively free) ----
@@ -509,7 +543,7 @@ test('a Kosmos.exe signed with a self-made certificate named Kosmos Agent Manage
     "$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=\"Kosmos Agent Manager, Inc.\"' -CertStoreLocation Cert:\\CurrentUser\\My",
     `try { $s = Set-AuthenticodeSignature -LiteralPath '${signedCopy}' -Certificate $c; Write-Output ('signed ' + $s.Status) }`,
     "finally { Remove-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $c.Thumbprint) -DeleteKey }",
-  ].join('\n')], { encoding: 'utf8', windowsHide: true });
+  ].join('\n')], { encoding: 'utf8', windowsHide: true, env: PROBE_ENV });
   assert.match(String(make.stdout), /signed /, `could not make the self-signed fixture: ${make.stdout}${make.stderr}`);
   const host = await startHost(goodFiles(buildZip(fs.readFileSync(signedCopy))));
   try {
@@ -524,7 +558,7 @@ test('the chain check: a valid signature whose name matches but whose chain is n
   // The test-only KOSMOS_SETUP_TEST_EXPECTED_SIGNER (honoured only with NO_LAUNCH) makes its name the
   // expected one, so only the chain check stands between it and the launch.
   const other = path.join(process.env.windir || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const probe = spawnSync('powershell.exe', ['-NoProfile', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${other}'; if ($s.Status -eq 'Valid') { $s.SignerCertificate.GetNameInfo('SimpleName', $false) }`], { encoding: 'utf8', windowsHide: true });
+  const probe = spawnSync('powershell.exe', ['-NoProfile', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${other}'; if ($s.Status -eq 'Valid') { $s.SignerCertificate.GetNameInfo('SimpleName', $false) }`], { encoding: 'utf8', windowsHide: true, env: PROBE_ENV });
   const otherSigner = String(probe.stdout).trim();
   if (!otherSigner) { t.skip('powershell.exe is not validly signed here'); return; }
   const host = await startHost(goodFiles(buildZip(fs.readFileSync(other))));
