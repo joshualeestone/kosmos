@@ -5767,6 +5767,10 @@ test('#1139: installSupervisor leaves an engine-path beside the supervisor, poin
     fs.existsSync(nodePath.join(dir, 'sendertoken.js')),
     `engine-path points at ${dir}, which has no sendertoken.js`,
   );
+  assert.ok(
+    fs.existsSync(nodePath.join(dir, 'codexruntime.js')),
+    `engine-path points at ${dir}, which has no codexruntime.js`,
+  );
 
   /* And it must not be the SUPPORT_DIR copy's own parent, which is the layout
      that had no engine at all. */
