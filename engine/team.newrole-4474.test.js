@@ -72,6 +72,8 @@ test('#4474: a label cannot break the identity line or the card (newlines and **
   const { got } = build([{ name: 'Lu', role: 'own', label: 'Grant\n**writer**', instructions: 'Write grants and sign them all.' }]);
   assert.equal(got[0].instructions, 'You are **Lu**, Grant writer.\n\nWrite grants and sign them all.');
   assert.equal(got[0].label, 'Grant writer', 'the label create stores for the card was not flattened');
+  const { got: one } = build([{ name: 'Cee', role: 'own', label: 'C* specialist', instructions: 'Write C code that compiles.' }]);
+  assert.equal(one[0].label, 'C* specialist', 'a single * the person meant was dropped');
 });
 
 test('#4474: an identity line written for another name is given the member\'s name; its own name is kept', () => {

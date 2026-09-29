@@ -100,3 +100,26 @@ test('#3947 a guide whose "Who you are" paragraph the person reworded is left al
   assert.deepEqual(sa.refreshGuideRole({ name: 'guidee', isGuide: () => true }), { changed: false });
   assert.equal(fs.readFileSync(file, 'utf8'), edited);
 });
+
+/* #4474: a guide born after #3734 carries the make-agents lines without the new-role lines; they are added once. */
+const BORN_3734 = ['# You are Josh', '', '## How you work', '', ...roles.MAKE_AGENTS_LINES_BEFORE_4474, '', '## Which screen they are on', ''].join('\n');
+const count = (text, needle) => text.split(needle).length - 1;
+
+test('#4474 an existing guide gets the new-role lines once, after its make-agents lines', () => {
+  const file = seed('guide4474', BORN_3734);
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guide4474', isGuide: () => true }), { changed: true });
+  const after = fs.readFileSync(file, 'utf8');
+  assert.ok(after.includes(roles.MAKE_AGENTS_LINES.join('\n')), 'the new-role lines were not added');
+  assert.equal(count(after, 'kosmos agent role-draft'), 1);
+  assert.match(after, /## Which screen they are on/, 'the rest of the file was not kept');
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guide4474', isGuide: () => true }), { changed: false }, 'a second run changed it again');
+  assert.equal(count(fs.readFileSync(file, 'utf8'), 'kosmos agent role-draft'), 1, 'the new-role lines were added twice');
+});
+
+test('#4474 a guide from before #3734 is brought fully up to date in one run, with the new-role lines once', () => {
+  const file = seed('guidepre', BEFORE);
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guidepre', isGuide: () => true }), { changed: true });
+  const after = fs.readFileSync(file, 'utf8');
+  assert.equal(count(after, 'kosmos agent role-draft'), 1, 'the #3734 and #4474 swaps both added the new-role lines');
+  assert.deepEqual(sa.refreshGuideRole({ name: 'guidepre', isGuide: () => true }), { changed: false });
+});

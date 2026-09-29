@@ -544,11 +544,17 @@ function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) 
       because: 'Kosmos let the setup guide make agents for you' },
     { old: roles.WHO_YOU_ARE_LINES_BEFORE_3947.join('\n'), now: roles.WHO_YOU_ARE_LINES.join('\n'),
       because: 'the setup guide\'s greeting now says it is an AI, so its answers go straight to helping' },
+    /* #4474: the new-role lines follow the make-agents lines. The old lines are a PREFIX of the new ones, so
+       "the old text is there" stays true after the swap: `done` (the new lines are already there) is what
+       keeps a second run, or a guide the #3734 swap just brought up to date, from adding them twice. */
+    ...(roles.SETUP_MAKES_AGENTS ? [{ old: roles.MAKE_AGENTS_LINES_BEFORE_4474.join('\n'), now: roles.MAKE_AGENTS_LINES.join('\n'),
+      done: roles.MAKE_AGENTS_LINES.join('\n'),
+      because: 'the setup guide can write a new role when none on the list fits' }] : []),
   ];
   let text = cur.text;
   const why = [];
   for (const s of swaps) {
-    if (!text.includes(s.old)) continue;
+    if (!text.includes(s.old) || (s.done && text.includes(s.done))) continue;
     text = text.replace(s.old, () => s.now);
     why.push(s.because);
   }

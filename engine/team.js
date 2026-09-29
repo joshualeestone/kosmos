@@ -136,8 +136,9 @@ function vetAgentMember(member) {
   let text = member.instructions.split('{{NAME}}').join(name);
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
      it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be
-     made whose whole brief is its name. The label is flattened so it cannot break the line (a newline, or **). */
-  const label = typeof member.label === 'string' ? member.label.replace(/\*+/g, '').replace(/\s+/g, ' ').trim() : '';
+     made whose whole brief is its name. The label is flattened so it cannot break the line (a newline, or a **
+     run; a single * a person meant, as in "C* specialist", is kept). */
+  const label = typeof member.label === 'string' ? member.label.replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';
   const enough = text.trim().length >= require('./instructions').MIN_CHARS;
   const said = IDENTITY_LINE.exec(text);
   if (said && name && said[2].trim() !== name) {
