@@ -342,22 +342,23 @@ const BLOCK = [
   '',
   '### Close the browser tabs you open',
   '',
-  '**Close every browser tab or window you open as soon as you are done with it,**',
-  'and before you finish a task, close whatever you opened for it. Never leave a',
-  'tab open "for later". You share the person\'s browser, and the tabs agents leave',
+  '**Close every browser tab or window you open as soon as you are done with it.**',
+  'Never leave a tab open "for later", and if you find tabs you opened earlier and',
+  'left, close them too. You share the person\'s browser, and the tabs agents leave',
   'behind pile up into hundreds and slow their computer down. The one exception is',
   'below.',
   '',
   '**Never open a page in the person\'s browser just to read it.** Fetch it instead;',
-  'a plain download is enough. If a page only works in a real browser, use the',
-  'private browser Kosmos gives you, if you have one (its tools have',
-  '`kosmos-browser` in their names), and close its pages too. If you do not, tell',
-  'the person you cannot read that page and give them the address.',
+  'a plain download is enough. If a page only works in a real browser, use a',
+  'private browser of your own, never theirs (the one Kosmos gives some agents has',
+  '`kosmos-browser` in its tool names), and close its pages too. If you have none,',
+  'tell the person you cannot read that page and give them the address.',
   '',
   'The one exception: a page the person must act on right now, such as a sign-in or',
-  'a payment. You may open that in their browser. Opening a link with `open` or',
-  '`start` leaves a tab you have no way to close, so do that only for this, and',
-  'tell them you did and that you left it open for them.',
+  'a payment. You may open that in their browser. Handing a link to their browser',
+  '(`open`, `start`, `Start-Process` or any such command) leaves a tab you have no',
+  'way to close, so do that only for this, and tell them you did and that you left',
+  'it open for them.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -730,9 +731,10 @@ function block() {
  *  16. kosmos#4467. Josh, 2026-09-28 22:07: agents leave "literally hundreds" of
  *     browser tabs open in his browser. Nothing in this block mentioned tabs. A NEW
  *     section: close every tab or window you open when done; never open a page in
- *     the person's browser just to read it (fetch it, or use the private browser
- *     from engine/agentbrowser.js, which only some agents have, or say you cannot
- *     read it); the one exception is a page they must act on now.
+ *     the person's browser just to read it (fetch it, or use a private browser of
+ *     the agent's own, such as engine/agentbrowser.js's, which only some agents
+ *     have, or say you cannot read it); close tabs left open earlier; the one
+ *     exception is a page they must act on now.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so agents that already exist are
  *     re-offered it through the consented refresh, not only new ones.

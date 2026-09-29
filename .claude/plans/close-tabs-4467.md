@@ -6,10 +6,10 @@ tabs open in his browser). Routed by Splinter, claimed by Angel.
 ## Finished looks like
 Every agent's instruction file, on every provider and on Mac and Windows, carries a section telling
 it to close every browser tab or window it opens when done; never to open a page in the person's
-browser just to read it (fetch it, use its own private browser if it has one, or say it cannot read
-the page and give the address); and that the one exception is a page the person must act on now
-(a sign-in, a payment), opened, said so, and left open for them. `open`/`start` leave a tab with no
-way to close it, so they are only for that exception. Existing agents are offered it too. Tests hold
+browser just to read it (fetch it, use a private browser of its own if it has one, or say it
+cannot read the page and give the address); to close tabs it left open earlier too; and that the one exception is a page the person must act on now
+(a sign-in, a payment), opened, said so, and left open for them. Handing a link to the browser
+(`open`, `start`, `Start-Process`) leaves a tab with no way to close it, so only for that exception. Existing agents are offered it too. Tests hold
 the words. The behaviour (an agent actually closing a tab) is measured after the release.
 
 ## Decisions
@@ -17,8 +17,9 @@ the words. The behaviour (an agent actually closing a tab) is measured after the
   after "Look before you install". A new heading because `missingFrom` matches by heading: that is
   what makes the consented refresh offer it to agents that already exist (the version log, entries 5 to 8).
 - DOCTRINE_VERSION 15 -> 16 with a log entry; fingerprint pinned in defaults.test.js.
-- Provider coverage: the block is one text appended to every runner's instruction file
-  (CLAUDE.md, AGENTS.md, GEMINI.md) by create.js / discover.js / roles.js, so no per-provider copy.
+- Provider coverage (REASONED from the code, not measured per provider): the block is one text
+  appended to every runner's instruction file (CLAUDE.md, AGENTS.md, GEMINI.md) by create.js /
+  discover.js / roles.js, and appendTo has no provider branch. The tests read a Claude boot file.
 - Windows parity: there is no separate Windows copy (create.js appends the same block on win32).
   Pinned by one line in engine/create.test.js's "taught how to work" test, which reads a real
   created agent's boot file and is on the Windows CI list. Rejected: the same line in
