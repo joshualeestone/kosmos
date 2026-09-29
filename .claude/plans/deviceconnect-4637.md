@@ -31,3 +31,14 @@ WARNINGs fixed, each with a check arm that fails its mutant:
 - Closing with no request left sent focus to a hidden Review: it goes to the current view's nav tab.
 - No way out without deciding for a screen reader on a phone: a visible Close button (an addition to the design, told to Mona Lisa).
 NIT taken: a request with no name at all reads "A device", not "A browser" (the web sign-in always sends a name). Accepted NIT: the sheet's headline may be read twice on open (dialog label plus the live region).
+
+## Mona Lisa's design approval (16:0x) and two NITs, fixed
+Approved: the blue everywhere, the Close x, "no longer waiting", "A device" for a nameless request. Fixed: the notice's subtitle broke early (a `.kp-t span` rule made the nested time a block); now only the direct line is a block and each "part" is nowrap, so a wrap carries the dot with the time (check: one line per part, one line on desktop; fails on the old rule). The sheet's body text is line-height 1.45.
+
+## Blind review round 2 (Sonnet, separate reviewer)
+WARNINGs fixed, each with a check arm that fails its mutant:
+- A failed Allow / Not me made the request unreachable (askLive dropped `error`): an error now still waits (notice, dot, Review), and closing the sheet on it forgets the error.
+- A device kept out could never ask again this session (`denied` / `gone` never cleared): cleared once the device is no longer listed (after a minute, never while the sheet shows it), or at once when the same device asks again after the answer.
+- A double press sent two answers: an in-flight guard (ASK.busy).
+- Reasoned, not measured: a poll between the tunnel dropping the request and our own answer arriving showed "no longer waiting"; while our answer is in flight the card stays (ASK.busy).
+Accepted NIT: the page behind the sheet is not `inert` (Tab is trapped; a screen reader's virtual cursor can still leave).

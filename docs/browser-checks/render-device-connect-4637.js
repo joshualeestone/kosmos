@@ -49,8 +49,12 @@ async function open(browser, { width, scheme, pending }) {
   await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
   await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com' })));
   await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: st.allowed, pending: [] })));
-  await page.route('**/api/remote/devices/*', (route, req) => {
+  st.posts = 0;
+  await page.route('**/api/remote/devices/*', async (route, req) => {
+    st.posts += 1;
     const id = req.postDataJSON().device_id;
+    if (id === 'd-fail') return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) });
+    if (id === 'd-slow') await new Promise((r) => setTimeout(r, 600));
     const d = st.pending.find((x) => x.device_id === id);
     st.pending = st.pending.filter((x) => x.device_id !== id);
     if (d && /allow$/.test(req.url())) st.allowed.push({ device_id: id, name: d.name, allowed_at: now() });
@@ -67,7 +71,11 @@ const notice = (page) => page.evaluate(() => {
   const c = document.getElementById('askcard');
   const n = c.querySelector('.kp-notice');
   return { shown: !c.hidden && !!n, head: (c.querySelector('.kp-t b') || {}).textContent || '', sub: (c.querySelector('.kp-t > span') || {}).textContent || '',
-    review: !!c.querySelector('.kp-gold[data-ask="open"]'), mark: !!c.querySelector('canvas.kp-mark[data-drawn]'),
+    review: !!c.querySelector('.kp-gold[data-ask="open"]'),
+    // Mona 16:0x: each "part" stays whole, and the subtitle's line count.
+    // One LINE per part (a part with a nested time span has two fragments on the same line, which is fine).
+    partsWhole: [...c.querySelectorAll('.kp-t > span .kp-part')].every((p) => new Set([...p.getClientRects()].map((r) => Math.round(r.top))).size === 1),
+    subLines: (() => { const e = c.querySelector('.kp-t > span'); if (!e) return 0; return Math.round(e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight || '18')); })(), mark: !!c.querySelector('canvas.kp-mark[data-drawn]'),
     bg: n ? getComputedStyle(n).backgroundImage : '', w: n ? Math.round(n.getBoundingClientRect().width) : 0 };
 });
 const sheet = (page) => page.evaluate(() => {
@@ -100,6 +108,7 @@ let BASE = '';
       const { page } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd1', name, code: 'K7-3M', first_seen: now() - 90 }] });
       const n = await notice(page);
       chk(n.shown && n.head === head && sub.test(n.sub), `words: "${name}" reads "${head}"`, JSON.stringify(n));
+      chk(n.partsWhole && n.subLines === 1, `words: "${name}": the subtitle is one line, no part split (Mona 16:0x)`, JSON.stringify({ parts: n.partsWhole, lines: n.subLines, sub: n.sub }));
       await page.close();
     }
 
@@ -178,10 +187,52 @@ let BASE = '';
       await page.close();
     }
 
+    // Review round 2: a failed Allow keeps the request reachable; a double press sends one answer; a device kept out
+    // that asks again is shown.
+    {
+      const { page, st } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd-fail', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 }] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      await page.click('#kp-sheet [data-ask="allow"]');
+      await page.waitForTimeout(500);
+      const err = await sheet(page);
+      chk(err.open && /the tunnel did not answer/i.test(err.text) && err.focus === 'allow', 'a failed Allow says why, and Allow is there to try again (focused)', JSON.stringify(err));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      const still = await notice(page);
+      chk(still.shown && still.review, 'after closing on a failed Allow, the request is still waiting: its notice and Review are there', JSON.stringify(still));
+      await page.close();
+    }
+    {
+      const { page, st } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd-slow', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 }] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      await page.evaluate(() => { const b = document.querySelector('#kp-sheet [data-ask="allow"]'); b.click(); b.click(); });
+      await page.waitForTimeout(1200);
+      chk(st.posts === 1, 'a double press on Allow sends one answer', 'posts=' + st.posts);
+      await page.close();
+    }
+    {
+      const { page, st } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd-re', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 }] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      await page.click('#kp-sheet [data-ask="deny"]');
+      await page.waitForTimeout(400);
+      await page.click('#kp-sheet .kp-x');   // closed on "kept out" without Got it
+      await page.waitForTimeout(300);
+      st.pending = [{ device_id: 'd-re', name: 'iPhone \u00b7 Safari', code: 'WX-YZ', first_seen: now() + 1, denied_at: now() }];   // it asks again
+      await page.waitForTimeout(5800);
+      const back = await notice(page);
+      chk(back.shown && back.head === 'Your iPhone wants to connect', 'a device kept out that asks again is shown again', JSON.stringify(back));
+      await page.close();
+    }
+
     // Phone: the notice full width with Review under the text; the sheet a bottom sheet with a grab handle.
     const { page: phone, errs: perrs } = await open(browser, { width: 390, scheme: 'light', pending: [{ device_id: 'd-app', name: 'PizzaRama (Kosmos app)', code: 'K7-3M', first_seen: now() - 30 }] });
     const pn = await phone.evaluate(() => { const b = document.querySelector('#askcard [data-ask="open"]').getBoundingClientRect(); const n = document.querySelector('#askcard .kp-notice').getBoundingClientRect(); return { btnW: Math.round(b.width), noticeW: Math.round(n.width) }; });
     chk(pn.btnW >= pn.noticeW - 40, '[390] the notice\'s Review is full width under the text', JSON.stringify(pn));
+    const pnw = await notice(phone);
+    chk(pnw.partsWhole, '[390] the subtitle wraps only between parts; the dot stays with the time', JSON.stringify(pnw));
     if (SHOTS) await phone.screenshot({ path: path.join(SHOTS, '4637-notice-phone.png') });
     await phone.click('#askcard [data-ask="open"]');
     await phone.waitForTimeout(400);

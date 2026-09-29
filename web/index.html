@@ -487,7 +487,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
                box-shadow: 0 12px 32px rgba(11,20,40,.28); color: #E6EBF7; }
   .kp-notice .kp-t { flex: 1; min-width: 0; }
   .kp-notice .kp-t b { display: block; font: 650 15px/1.3 var(--font-ui); color: #E6EBF7; }
-  .kp-notice .kp-t span { display: block; color: #9fb0d0; font-size: 13px; }
+  .kp-notice .kp-t > span { display: block; color: #9fb0d0; font-size: 13px; }
+  /* Mona Lisa (16:0x): a "part · part" line wraps only BETWEEN parts, and the dot travels with the part after it. */
+  .kp-part { white-space: nowrap; }
   /* Kosmos+ blue (Josh's 09-16 ruling: gold is regular Kosmos only; Mona Lisa's correction 15:5x), not the mock's gold. */
   .kp-devico { flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
                background: rgba(65,113,227,.12); box-shadow: inset 0 0 0 1px rgba(126,160,240,.45); color: #9cc0ff; }
@@ -523,7 +525,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .kp-no { background: rgba(240,135,122,.12); box-shadow: inset 0 0 0 1px rgba(240,135,122,.4); color: #f0877a; }
   .kp-ok svg, .kp-no svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   .kp-card h2 { margin: 0 0 4px; font: 680 21px/1.25 var(--font-ui); letter-spacing: -.01em; color: #E6EBF7; }
-  .kp-card .kp-sub { margin: 0 0 20px; color: #9fb0d0; font-size: 14.5px; }
+  .kp-card .kp-sub { margin: 0 0 20px; color: #9fb0d0; font-size: 14.5px; line-height: 1.45; }
   .kp-match { margin: 0 0 18px; padding: 14px 14px 16px; border-radius: 14px; background: rgba(120,150,200,.08); border: 1px solid rgba(120,150,200,.18); }
   .kp-match p { margin: 0 0 6px; color: #9fb0d0; font-size: 13.5px; }
   .kp-code { font: 650 30px/1.2 var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace); letter-spacing: .14em; color: #E6EBF7; }
@@ -41528,7 +41530,7 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, busy: new Set() };   // busy: #4637 review round 2, an Allow / Not me in flight
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
@@ -41593,7 +41595,9 @@ function askWrite(el, html) {
     if (s.textContent !== t) s.textContent = t;
   }
 }
-function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
+/* A request still waiting: not answered here. An answer that FAILED (error) still waits, so its notice, dot and Review
+   stay (#4637 review round 2: a failed Allow must not make the request unreachable). */
+function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state === 'error'); }
 async function pollAsk() {
   let r = null;
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
@@ -41608,6 +41612,13 @@ async function pollAsk() {
     const e = ASK.done[id];
     if (e.state === 'allowed' && Date.now() - e.at > 6000 && KP_MODAL !== id) delete ASK.done[id];   // the sheet's result stays until Done
     else if (e.state === 'error' && !still) delete ASK.done[id];
+    /* #4637 review round 2: a kept-out or dismissed answer is forgotten once the device is no longer listed (after a
+       minute, so its result is read first, and never while the sheet shows it), so the same device can ask again. */
+    else if ((e.state === 'denied' || e.state === 'gone') && KP_MODAL !== id) {
+      /* A request from the same device that STARTED after this answer is a new ask: it is shown, not hidden. */
+      const again = ASK.devices.find((d) => d.device_id === id);
+      if ((!still && Date.now() - e.at > 60000) || (again && Number(again.first_seen) * 1000 > e.at)) delete ASK.done[id];
+    }
   }
   paintAsk();
 }
@@ -41678,7 +41689,7 @@ function kpCard(d, e, modal) {
   const old = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
   /* An old request says its age instead of fading (#4637). */
   const when = old ? 'Asked ' + askAgoSpan(d.first_seen) : askAgoSpan(d.first_seen);
-  const sub = (w.sub ? askEsc(w.sub) + ' · ' : '') + when;
+  const sub = w.sub ? '<span class="kp-part">' + askEsc(w.sub) + '</span> <span class="kp-part">· ' + when + '</span>' : '<span class="kp-part">' + when + '</span>';
   const again = d.denied_at ? '<p class="kp-note warn"><b>Asked again.</b> You said no to ' + askEsc(w.who) + ' ' + askAgoSpan(d.denied_at) + '. If it is not yours, change that email’s password; that is what stops it.</p>' : '';
   const err = e && e.state === 'error' ? '<p class="kp-note warn">' + askEsc(e.because) + '</p>' : '';
   const match = d.code
@@ -41703,6 +41714,9 @@ function kpModalDevice() {
   if (e && e.state !== 'gone') return { d: e.device, e };
   const d = ASK.devices.find((x) => x.device_id === KP_MODAL);
   if (d && !e) { KP_MODAL_DEV = d; return { d, e: null }; }
+  /* Our own Allow / Not me is in flight: the tunnel may drop the request before the answer reaches this page. That is
+     not "no longer waiting" (review round 2); keep the card until the answer lands. */
+  if (ASK.busy.has(KP_MODAL) && KP_MODAL_DEV) return { d: KP_MODAL_DEV, e: null };
   return { d: KP_MODAL_DEV || { device_id: KP_MODAL }, e: { state: 'vanished' } };
 }
 function kpShow(id) {
@@ -41722,7 +41736,8 @@ function kpOpen() {
 function kpClose() {
   const modal = document.getElementById('kp-modal');
   const was = !modal.hidden;
-  if (KP_MODAL && ASK.done[KP_MODAL] && ASK.done[KP_MODAL].state === 'allowed') delete ASK.done[KP_MODAL];   // its result was seen
+  /* Its result was seen; a failed answer is dropped so the request is simply waiting again (review round 2). */
+  if (KP_MODAL && ASK.done[KP_MODAL] && (ASK.done[KP_MODAL].state === 'allowed' || ASK.done[KP_MODAL].state === 'error')) delete ASK.done[KP_MODAL];
   KP_MODAL = null;
   KP_MODAL_DEV = null;
   modal.hidden = true;
@@ -41776,7 +41791,9 @@ function paintAsk() {
     const n = live.length;
     const w = kpWords(live[0]);
     const head = n === 1 ? w.head + ' wants to connect' : n + ' devices want to connect';
-    const sub = n === 1 ? (w.sub ? askEsc(w.sub) + ' · ' : '') + askAgoSpan(live[0].first_seen) : 'Review them one at a time';
+    const sub = n === 1
+      ? (w.sub ? '<span class="kp-part">' + askEsc(w.sub) + '</span> <span class="kp-part">· ' + askAgoSpan(live[0].first_seen) + '</span>' : '<span class="kp-part">' + askAgoSpan(live[0].first_seen) + '</span>')
+      : 'Review them one at a time';
     askWrite(document.getElementById('ask-rows'), '<div class="kp-notice"><div class="kp-devico">' + kpIcon(n === 1 ? w.icon : 'computer') + '</div>' +
       '<div class="kp-t">' + kpBrand() + '<b>' + askEsc(head) + '</b><span>' + sub + '</span></div>' +
       '<button class="kp-gold" type="button" data-ask="open">Review</button></div>');
@@ -41786,7 +41803,6 @@ function paintAsk() {
   const modal = document.getElementById('kp-modal');
   if (modal && !modal.hidden) {
     const it = kpModalDevice();
-    if (!it) { kpClose(); return; }
     askWrite(document.getElementById('kp-sheet-body'), kpCard(it.d, it.e, true));
     kpDrawMarks(document.getElementById('kp-sheet-body'));
   }
@@ -41806,6 +41822,8 @@ async function askAct(act, id) {
     return;
   }
   if (!d) return;
+  if (ASK.busy.has(id)) return;   // #4637 review round 2: a second press while the first is in flight does nothing
+  ASK.busy.add(id);
   const verb = act === 'allow' ? 'allow' : 'deny';
   let res = null;
   try {
@@ -41818,6 +41836,7 @@ async function askAct(act, id) {
     const said = res ? await res.json().catch(() => null) : null;
     ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
   }
+  ASK.busy.delete(id);   // the answer has landed (as a result or an error)
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
   for (const rid of ['ask-rows', 'plus-ask-rows', 'kp-sheet-body']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
