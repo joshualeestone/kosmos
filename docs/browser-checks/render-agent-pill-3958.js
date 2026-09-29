@@ -15,7 +15,9 @@
  *     was not rebuilt and restarted by the poll (asserted to have run, not skipped);
  *   - after needs-you: auth_failed shows the Sign in again button and the screen evidence, and
  *     working hides them again; stopped shows "Start this agent", and working hides it again (a
- *     Start button frozen at open could sit beside Working and restart a running agent).
+ *     Start button frozen at open could sit beside Working and restart a running agent);
+ *   - #4591: on a page that prefers reduced motion, the pill's and the DM line's working dots still
+ *     fade in turn (they stopped dead there before, which reads as frozen) and do not move.
  * Control: the first reading (idle, before any flip) shows the instrument can read "Idle" and "no
  * dots", so a working reading is not the instrument's default.
  *
@@ -162,12 +164,15 @@ async function read(page) {
            do not move. Measured on a fresh page that prefers reduced motion, the agent working. */
         {
           const rm = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
+          const rmErrs = [];
+          rm.on('pageerror', (e) => rmErrs.push(e.message));
           await rm.goto(URL);
           await rm.waitForSelector('.acard .namego', { timeout: 20000 });
           await rm.locator('.acard .namego').first().click();
           await rm.waitForSelector('#d-state .act i', { timeout: 20000 });
-          const f = await rm.evaluate(async () => {
-            const dots = [...document.querySelectorAll('#d-state .act i')];
+          await rm.waitForSelector('#d-busy:not([hidden]) .act i', { timeout: 20000 }).catch(() => {});
+          const fade = (sel) => rm.evaluate(async (sel) => {
+            const dots = [...document.querySelectorAll(sel)];
             const ops = new Set(), tfs = new Set(), spread = [];
             for (let k = 0; k < 14; k++) {
               const cs = dots.map((d) => getComputedStyle(d));
@@ -176,12 +181,18 @@ async function read(page) {
               await new Promise((r) => setTimeout(r, 100));
             }
             return { reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, dots: dots.length,
-              opacities: ops.size, transforms: [...tfs], inTurn: Math.max(...spread) > 0.15 };
-          });
-          chk(f.reduce && f.dots === 3 && f.opacities >= 4 && f.inTurn,
-            `${engineName}: with Reduce Motion on, the working dots still fade, in turn, so Working reads as live`, JSON.stringify(f));
-          chk(f.transforms.every((t) => t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)'),
-            `${engineName}: and they do not move (no translate under Reduce Motion)`, JSON.stringify(f.transforms));
+              opacities: ops.size, transforms: [...tfs], inTurn: dots.length ? Math.max(...spread) > 0.15 : false };
+          }, sel);
+          // Both sets of dots in Josh's screenshot: the pill, and the "is working" line under the thread.
+          for (const [where, sel] of [['the pill', '#d-state .act i'], ['the DM line', '#d-busy .act i']]) {
+            const f = await fade(sel);
+            chk(f.reduce && f.dots === 3 && f.opacities >= 4 && f.inTurn,
+              `${engineName}: with Reduce Motion on, ${where}'s working dots still fade, in turn, so Working reads as live`, JSON.stringify(f));
+            // A guard, not evidence for #4591 (animation: none on main moves nothing either): the bounce stays off.
+            chk(f.transforms.every((t) => t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)'),
+              `${engineName}: and ${where}'s dots do not move (guard: no translate comes back under Reduce Motion)`, JSON.stringify(f.transforms));
+          }
+          chk(rmErrs.length === 0, `${engineName}: the Reduce Motion page throws no error`, rmErrs.join(' | '));
           await rm.close();
         }
         setState('stopped');
