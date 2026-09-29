@@ -5039,7 +5039,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
-     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out.
+     #4586 (Josh, 2026-09-29) reversed this for Documents and Tasks: the way back there is now the
+     round chevron beside the title (#docs-chev, #tsk-back), so #docs-back stays hidden here. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
@@ -51381,7 +51383,7 @@ function tskFocusMark(el) {
   if (!attr) return null;
   const row = el.closest('.tsk-row');
   const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
-  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null, id: el.id || null };
 }
 function tskFocusRestore(mark) {
   if (!mark) return;
@@ -51389,6 +51391,11 @@ function tskFocusRestore(mark) {
     ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
   const shown = (x) => x && x.getClientRects().length > 0;
+  /* #4586: a control with an id (the title's back chevron, #tsk-back) is not rebuilt by the paint, so
+     it keeps focus while it is still on screen; without this the attribute search finds the crumb's
+     Open project first, which carries the same data-open-project. */
+  const same = mark.id ? document.getElementById(mark.id) : null;
+  if (shown(same)) { same.focus(); return; }
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on

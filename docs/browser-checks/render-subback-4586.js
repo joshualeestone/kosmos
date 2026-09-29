@@ -43,8 +43,8 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   const tasks = [{ projectId: 'p1', projectName: 'Five Families', number: 1, title: 'Draft the ranking', state: 'open', createdAt: new Date(now - 3600e3).toISOString(), updatedAt: new Date(now - 60e3).toISOString() }];
   const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
 
-  async function boot(layout) {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
+  async function boot(layout, width) {
+    const ctx = await browser.newContext({ viewport: { width: width || 1280, height: 900 }, colorScheme: 'light' });
     const page = await ctx.newPage();
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
@@ -116,6 +116,17 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   say('#4586 Tasks for a project: it sits LEFT of the title, beside it (0-24px), on the title\'s line', t.gap >= 0 && t.gap <= 24 && t.overlapY > 10, JSON.stringify(t));
   say('#4586 Tasks for a project: "+ New task" stays at the far right (well clear of the title)', t.extraRightOfTitle > 100, JSON.stringify(t));
   say('#4586 Tasks for a project: it is named for the project', t.label === 'Back to Five Families', JSON.stringify(t));
+  /* A repaint nobody pressed for (a load finishing) must leave focus ON the chevron. It carries
+     data-open-project like the crumb's Open project, which sits earlier in the panel, so a restore
+     keyed on the attribute alone moves focus to the crumb. */
+  const keep = await c.page.evaluate(() => {
+    const b = document.getElementById('tsk-back'); b.focus();
+    const before = document.activeElement === b;
+    tskPaintKeepingCurrentFocus();
+    const a = document.activeElement;
+    return { before, after: a === b, now: a ? (a.id || a.textContent.trim()) : null };
+  });
+  say('#4586 Tasks for a project: a background repaint keeps keyboard focus on the chevron', keep.before && keep.after, JSON.stringify(keep));
   await c.page.click('#tsk-back');
   await c.page.waitForTimeout(800);
   const afterTasks = await inRoom(c.page);
@@ -127,6 +138,28 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   say('#4586 CONTROL: the Tasks view for all projects shows no chevron', none.hidden === true && none.display === 'none', JSON.stringify(none));
   say('no page errors (consolidated)', c.errs.length === 0, c.errs.join(' | '));
   await c.ctx.close();
+
+  // ---- tab view: Tasks for a project, at a desktop and a phone width ----
+  for (const width of [1280, 390]) {
+    const tv = await boot('tabs', width);
+    await tv.page.evaluate(() => openProjectTasks('p1'));
+    await tv.page.waitForTimeout(800);
+    const g = await geom(tv.page, 'tsk-back', '#tsk-title', '#tsk-new');
+    say(`#4586 tab view ${width}: the Tasks chevron is painted beside the title, on its line`, g.display !== 'none' && g.w >= 28 && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10, JSON.stringify(g));
+    /* At a phone width "+ New task" may wrap under the title; it must never land LEFT of the title's end
+       on the title's line, i.e. between the chevron and the title. */
+    const nb = await tv.page.evaluate(() => {
+      const n = document.getElementById('tsk-new').getBoundingClientRect(), t = document.getElementById('tsk-title').getBoundingClientRect();
+      return { sameLine: Math.min(n.bottom, t.bottom) - Math.max(n.top, t.top) > 4, rightOfTitle: n.left >= t.right, below: n.top >= t.bottom - 2, inView: n.right <= window.innerWidth + 1 };
+    });
+    say(`#4586 tab view ${width}: "+ New task" is right of the title or wrapped below it, and on screen`, ((nb.sameLine && nb.rightOfTitle) || nb.below) && nb.inView, JSON.stringify(nb));
+    await tv.page.click('#tsk-back');
+    await tv.page.waitForTimeout(800);
+    const r = await inRoom(tv.page);
+    say(`#4586 tab view ${width}: clicking the chevron returns to the project room`, r.oneShown && r.view === 'one' && !r.tasksShown, JSON.stringify(r));
+    say(`no page errors (tab view ${width})`, tv.errs.length === 0, tv.errs.join(' | '));
+    await tv.ctx.close();
+  }
 
   // ---- tab view: Documents keeps its own back, so no chevron ----
   const tb = await boot('tabs');
