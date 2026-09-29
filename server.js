@@ -12681,16 +12681,6 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;
         }
-        /* #4552: a recorded idle report is the agent saying it has stopped, so it also stands for "holding
-           nothing" in its commitments record, which the Assigner needs before it will give it work.
-           commitments.assertIdle decides when that is true (not over an open task part, never over a list
-           the agent stated). An unreadable projects file answers "cannot tell", so nothing is written.
-           Best-effort: the report stands either way. */
-        if (body.state === 'idle') {
-          let hasWork = null;
-          try { hasWork = assigner.hasOpenWork(who, projects.readAll()); } catch { hasWork = null; }
-          try { commitments.assertIdle(who, hasWork); } catch { /* never fails a recorded report */ }
-        }
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the report's words.
         if (body.state === 'needs_you' && !wasNeedsYou) {

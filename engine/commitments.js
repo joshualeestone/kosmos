@@ -342,6 +342,9 @@ function read(agent) {
       ...unknown(`it last reported ${mins} minutes ago, too long to still be true`),
       reportedAt: rec.reportedAt,
       commitments: rec.commitments,
+      /* #4552: a FIELD, like neverReported: the record was read fine and is only old, which a caller
+         (the Assigner) must be able to tell from "could not read it" without matching prose. */
+      stale: true,
     };
   }
 
@@ -384,35 +387,6 @@ function report(agent, commitments) {
     throw new Error('every commitment needs its own id');
   }
   return writeRecord(key, agent, clean, new Date().toISOString());
-}
-
-/**
- * #4552: an agent's own `idle` report stands for "I am holding nothing", so the Assigner (which gives
- * work only to an agent whose record reads `clear`) can ever act. Nothing shipped wrote the record, so
- * every real agent read `unknown` and was never given a task.
- *
- * Called by the report route after an `idle` report is RECORDED (a machine idle over a standing
- * blocked or needs_you is refused there, so it never reaches this). Writes [] only when that is true:
- *   - not while the agent holds an open part of a task (`hasOpenWork`, the board's own answer);
- *   - never over a record whose last list named something, however old: only the agent can drop a
- *     commitment it stated (resolve, or report a shorter list);
- *   - never over a record that exists but cannot be read, which may hold real commitments.
- * Otherwise (no record, or a last list that was already empty) it writes [], which also keeps an
- * idle agent's `clear` fresh past STALE_AFTER_MS.
- * Returns { wrote, because }. Never throws.
- */
-function assertIdle(agent, hasOpenWork) {
-  try {
-    // Only a definite "no open task" lets an idle report stand for holding nothing.
-    if (hasOpenWork !== false) return { wrote: false, because: hasOpenWork === true ? 'it holds an open part of a task' : 'we could not tell whether it holds a task' };
-    const rec = parseRecord(agent);
-    if (!rec.ok && !rec.absent) return { wrote: false, because: 'its record exists but cannot be read' };
-    if (rec.ok && rec.commitments.length) return { wrote: false, because: 'its last report named work it holds' };
-    report(agent, []);
-    return { wrote: true, because: rec.ok ? 'an idle report renews its empty list' : 'an idle report is its first word on what it holds' };
-  } catch (err) {
-    return { wrote: false, because: String((err && err.message) || err) };
-  }
 }
 
 /** Coerce and cap every field of every commitment. */
@@ -638,4 +612,4 @@ function readAll() {
   return out;
 }
 
-module.exports = { assertIdle, DIR, STATE, STALE_AFTER_MS, FUTURE_TOLERANCE_MS, MAX_COMMITMENTS, MAX_RECORD_BYTES, read, report, add, resolve, readAll, recordPath };
+module.exports = { DIR, STATE, STALE_AFTER_MS, FUTURE_TOLERANCE_MS, MAX_COMMITMENTS, MAX_RECORD_BYTES, read, report, add, resolve, readAll, recordPath };

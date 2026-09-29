@@ -4,13 +4,13 @@
  *
  * WHAT IT DOES. An agent that has had no work for IDLE_MS is given the next task nobody is on,
  * from a live project it already belongs to: soonest due date first, then oldest. "No work" is
- * all three of: its card reads idle, its commitments read clear, and it has no open part of any
- * task assigned to it.
+ * all three of: its card reads idle, its commitments leave it free (commitmentsFree), and it has no
+ * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
  * a project, never touches a task somebody is already on, and never assigns in an archived
- * project. Commitments that read `unknown` (stale, unreadable, never reported) do not count as
- * clear, so an agent that is mid-task but quiet is left alone.
+ * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
+ * read, is left alone.
  *
  * PURE. step() takes the previous memory, the board roster, the setting, the project records,
  * each idle agent's commitments state and a clock, and returns what to assign plus the next
@@ -47,6 +47,21 @@ const MAX_ASK_FAILS = 3;
 /* At most one goal ask per agent per hour, so an agent that answers "nothing to add" is not asked
    about its next goal project a minute later. */
 const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
+/* #4552: does this agent's commitments record leave it free for new work? Stated clear, yes. Also,
+   with nothing stated: an agent that never reported a list, or whose last list was empty and has only
+   aged. Nothing shipped writes the record (only an agent's own PUT does), so requiring `clear` meant
+   the Assigner never gave a real agent anything (April measured it live). No: a list that names work,
+   fresh or stale; a record that cannot be read; a record dated in the future. Decided when the
+   Assigner checks, from the record as it stands, so nothing is written in the agent's name and nothing
+   decays. The card's own idle reading (idleCard) and hasOpenWork are the other two conditions. */
+function commitmentsFree(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  if (rec.state === 'clear') return true;
+  if (rec.state !== 'unknown') return false;
+  if (rec.neverReported === true) return true;
+  return rec.stale === true && Array.isArray(rec.commitments) && rec.commitments.length === 0;
+}
+
 /* Sorts after every real YYYY-MM-DD, so a task with no due date comes after every dated one. */
 const NO_DUE_DATE = '9999-99-99';
 
@@ -176,7 +191,8 @@ function askText(item) {
  * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
  * @param {{on:boolean}} o.setting  from assigner-setting.read()
  * @param {Array} o.records  projects.readAll()
- * @param {Map<string,string>} o.commitments  session -> commitments state, for idle cards
+ * @param {Map<string,string>} o.commitments  session -> commitments state for idle cards, or 'free'
+ *   (tick's commitmentsFree: nothing stated), which counts like 'clear'
  * @param {Map<string,string>} [o.goals]  project id -> BRIEF.md goal (phase 3); absent = none
  * @param {number} o.now  ms clock
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
@@ -199,7 +215,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     if (!idleCard(a)) continue;
     const session = a.sessionName;
     const state = commitments instanceof Map ? commitments.get(session) : undefined;
-    if (state !== 'clear') continue;
+    if (state !== 'clear' && state !== 'free') continue;
     if (hasOpenWork(session, allProjects)) continue;
     const since = base.idleSince.has(session) ? base.idleSince.get(session) : now;
     idleSince.set(session, since);
@@ -277,8 +293,8 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
 /**
  * One runner tick with every read injected: the composition server.js runs each minute, as a
  * function so it is tested. Reads nothing but the setting while the setting is off, and reads
- * commitments only for idle cards (they are not on the board card). A commitments read that
- * throws counts as not clear.
+ * commitments only for idle cards (they are not on the board card). An agent the record leaves free
+ * (commitmentsFree) is passed on as 'free'; a commitments read that throws counts as not free.
  * Goals (phase 3) are read only for live projects with no open task that an idle agent
  * belongs to, and a goal read that throws is no goal.
  * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
@@ -293,9 +309,9 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
   const states = new Map();
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;
-    try { states.set(a.sessionName, readCommitment(a.sessionName).state); } catch { /* unread is not clear */ }
+    try { const rec = readCommitment(a.sessionName); states.set(a.sessionName, commitmentsFree(rec) ? 'free' : rec.state); } catch { /* unread is not free */ }
   }
-  const idle = new Set([...states].filter(([, st]) => st === 'clear').map(([s]) => s));
+  const idle = new Set([...states].filter(([, st]) => st === 'clear' || st === 'free').map(([s]) => s));
   const goals = new Map();
   if (typeof readGoal === 'function' && idle.size) {
     for (const p of liveProjects(records)) {
@@ -309,5 +325,5 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
-module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, goalProject, askText,
+module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
