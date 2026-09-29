@@ -202,10 +202,13 @@ test('the open project stays lit: a persistent .open state, written on click and
      pjMarkOpen(null) is gone. No path was LOST -- openProject carries both halves:
      it lights the new project's row (pjMarkOpen(id)), and on a read-back failure it
      runs its OWN `PJ_CURRENT = null; pjMarkOpen(null); pjView('list')` (already one
-     of these six), so a lit row still cannot outlive its project. */
+     of these six), so a lit row still cannot outlive its project.
+     📌 #4470 brings it to 7: the new look's "Projects" crumb root (#pj-crumb-root) returns to
+     the projects list from any depth, so it clears the open marker exactly as the back
+     chevron's list branch does (`PJ_CURRENT = null; pjMarkOpen(null); pjView('list')`). */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
-  assert.equal(nulls, 6,
-    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
+  assert.equal(nulls, 7,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 7. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });

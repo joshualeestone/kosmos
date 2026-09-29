@@ -107,9 +107,9 @@ test('the switch turns the look on and off, and remembers it on this computer on
   };
   const paintSwitch = (id, on) => painted.push([id, on]);
   const placed = [];
-  const placeLookTasks = (cons) => placed.push([attrs['data-look'] || null, cons]);
+  const placeLook = (cons) => placed.push([attrs['data-look'] || null, cons]);
   document.body = { classList: { contains: (c) => c === 'consolidated' && false } };
-  const click = new Function('document', 'localStorage', 'paintSwitch', 'placeLookTasks', src + '\nreturn lookToggleClick;')(document, localStorage, paintSwitch, placeLookTasks);
+  const click = new Function('document', 'localStorage', 'paintSwitch', 'placeLook', src + '\nreturn lookToggleClick;')(document, localStorage, paintSwitch, placeLook);
   click();
   assert.equal(attrs['data-look'], 'new');
   assert.equal(store['kosmos-look'], 'new');
