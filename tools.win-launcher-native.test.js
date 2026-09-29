@@ -267,12 +267,15 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
      (tools.win-installer-native.test.js); the move starts the moved exe. #1118: the board window
      (Kosmos.exe --window, its own process) asks the opener for the address
      (ResolveBoardAddress), falls back to the opener's browser (OpenInBrowserInstead), and hands a
-     web link to the person's browser (OpenInPersonsBrowser). */
+     web link to the person's browser (OpenInPersonsBrowser). #4543: a board that holds its port
+     and does not answer is replaced before the hand-off, by schtasks /End and /Run (RunSchtasks)
+     and, when it outlives that, taskkill /T on its listener (EndProcessTree); only for a person at
+     a desktop, after the checks (tools.win-launcher-stuck-board-4543.test.js). */
   const declarations = [...SOURCE.matchAll(/\n {4}(?:internal |public |private )?static [^\n(=]*?\b(\w+)\(/g)].map((m) => ({ name: m[1], at: m.index }));
   const ownerOf = (at) => declarations.filter((d) => d.at < at).pop().name;
   assert.deepEqual(launches.map(ownerOf).sort(),
-    ['Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'StartLauncherAt'],
-    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, and the window\'s opener and links');
+    ['EndProcessTree', 'Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'RunSchtasks', 'StartLauncherAt'],
+    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, the window\'s opener and links, and a stuck board\'s replacement');
   const mainAt = SOURCE.indexOf('static int Main(');
   for (const at of launches.filter((l) => ownerOf(l) === 'Main')) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
