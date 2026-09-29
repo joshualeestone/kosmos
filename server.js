@@ -16500,8 +16500,6 @@ const server = http.createServer(async (req, res) => {
       /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
          messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
          the caller unnamed. */
-      /* Only resolveSender here: the CLI's `kosmos task built` sends tmux's %N, never a roster target (task message also
-         accepts a raw roster target, as it always has). */
       const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
       const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
@@ -16698,7 +16696,7 @@ const server = http.createServer(async (req, res) => {
         // A failed append is a server-side (disk/IO) condition, not a bad request,
         // so it is a 500; a missing project/task is a 404; everything else (empty
         // or over-length text) is a 400 malformed request.
-        const code = err && err.code === 'UNREADABLE' ? 503   // the project list could not be read: the server's, not the request's
+        const code = err && err.code === 'UNREADABLE' ? 503
           : /we could not record that message/.test(msg) ? 500
           : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
         sendJson(res, code, { error: msg || 'we could not record that message' });

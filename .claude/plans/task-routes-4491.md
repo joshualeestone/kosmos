@@ -49,11 +49,19 @@ onto main.
   with "reply in the task", a reply this slice now refuses. A task message is therefore not delivered to an assignee
   that is no longer on the project; `delivered` lists it as not sent, with the reason (like an Off swarm). Rejected:
   letting a current assignee past membership, which reopens the non-member write this slice closes. If the project
-  list cannot be read at delivery time, everyone is told, as before. Residual, stated: task built still refuses a
+  list cannot be read at delivery time, everyone is told, as before. This applies to every sender, the person included: a
+  departed agent is not told about its old task's messages; the person can still message it directly. Residual, stated: task built still refuses a
   departed assignee's mark (it did before this slice, on the pane path).
   The other task notifications (parts, close, reopen, heard-by) still reach departed assignees: filed as #4540
   (claimed:angel), out of this slice's scope.
 - The paneless test is one helper (panelessCaller), shared by both handlers with sameAgentName/projectHasAgent.
+
+- Residual, stated: a paneless token is matched by store.safeKey, which is lossy (lowercases, strips), so "ghost"
+  matches a stored "Ghost" or "G host". The token store is keyed the same way, so this admits nothing the token
+  store does not already conflate.
+- Not done: one shared caller-resolution helper for both handlers. Task built resolves a pane only through
+  resolveSender (its CLI sends %N); task message also takes a tied roster target. Giving built the target arm
+  would change its behaviour for no caller that uses it.
 
 ## Weakest premise
 That no legitimate agent messages a task on a project it is not a member of. Task built has refused that since
