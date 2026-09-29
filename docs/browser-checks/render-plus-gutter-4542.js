@@ -69,8 +69,9 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
         await page.click('#s-nav button[data-go="plus"]').catch(() => {});
       }
       await page.waitForFunction(() => document.body.classList.contains('plus-active'), null, { timeout: 30000 }).catch(() => {});
-      // A real classic gutter (see the header): a 15px root scrollbar and the page's own classic flag.
-      await page.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; } ::-webkit-scrollbar-thumb { background: #888; }' });
+      // A real classic gutter (see the header): a 15px root scrollbar and the page's own classic flag. The thumb is
+      // transparent so every read lands on what the gutter paints (the canvas), not on a drawn thumb.
+      await page.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; } ::-webkit-scrollbar-thumb { background: transparent; }' });
       await page.evaluate(() => document.documentElement.setAttribute('data-scrollbar-classic', ''));
       await page.waitForTimeout(500);
       const pre = await page.evaluate(() => ({
