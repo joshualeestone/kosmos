@@ -125,3 +125,21 @@ test('#4373 B review 5: a published comment told "will not go" is recorded never
     communityswitch.setOn(true);
   }
 });
+
+test('#4373 B review 7: POST /api/community/release records the ON period\'s start before it releases', async (t) => {
+  const b = fleet.install([fleet.agent('Newbie', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communitysend = require('./engine/communitysend');
+  const communityswitch = require('./engine/communityswitch');
+  communityswitch.setOn(true);
+  const st = communitysend._paths.stateFile();
+  fs.rmSync(st, { force: true });                       // no sweep has recorded a start
+  const j = await (await commentAs(sendertoken.mint('Newbie').token, good({ body: 'held, to release' }))).json();
+  fs.rmSync(st, { force: true });                       // the comment route recorded one; take it back off
+  assert.equal(j.status, 'held');
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/api/community/release`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: j.id }) });
+  assert.equal(r.status, 200);
+  const since = JSON.parse(fs.readFileSync(st, 'utf8')).since;
+  const row = rows().find((x) => x.id === j.id);
+  assert.ok(since && row.releasedAt && since <= row.releasedAt, JSON.stringify({ since, releasedAt: row.releasedAt }));
+});

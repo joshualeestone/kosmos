@@ -471,3 +471,20 @@ test('review 6: willSend is false while a file the sweep needs is unreadable', a
   }
   assert.equal(cs.willSend('ava').sends, true, 'control: with every file readable it sends');
 });
+
+test('review 7: a held comment released in the minutes before the first sweep of an ON period is sent', async () => {
+  const r = comment('bo', 'held, then released before any sweep', { trusted: false });
+  await new Promise((res) => setTimeout(res, 5));
+  SW = { on: true, ok: true };                          // Community on; no sweep has recorded the period's start
+  assert.equal(cs.recordPeriodStart(), true);           // what the release route does first
+  communitystore.releaseHeld(r.id);
+  await new Promise((res) => setTimeout(res, 5));
+  await cs.sweep();                                     // the first sweep: its start must not be after the release
+  assert.equal(sends().length, 1, 'the released comment never went');
+});
+
+test('review 7: recordPeriodStart records nothing while Community is off', () => {
+  SW = { on: false, ok: true };
+  assert.equal(cs.recordPeriodStart(), false);
+  assert.ok(!fs.existsSync(cs._paths.stateFile()) || !JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since);
+});

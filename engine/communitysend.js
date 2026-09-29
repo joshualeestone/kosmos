@@ -656,6 +656,18 @@ function willSend(agentKey, now = Date.now()) {
 }
 
 /**
+ * #4373 part B review 7: record the ON period's start NOW if Community is on and no sweep has yet, so something made
+ * public from a request (a release) in the minutes before the first sweep is inside the window and not silently
+ * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
+ */
+function recordPeriodStart() {
+  if (!switchOn()) return false;
+  const st = loadJson(stateFile());
+  if (!st) return false;
+  return Boolean(sinceForOnPeriod(st));
+}
+
+/**
  * #4373 part B review 5/6: a PUBLISHED comment the agent was told "will not go" must then never go, or a resend by the
  * agent doubles it in public. The AUTHORITATIVE mark is on the comment row (communitystore.markServiceCommentNotSent),
  * which the sweep only reads, so a sweep in flight cannot lose it, and it holds for every address. A record in
@@ -693,7 +705,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, recordPeriodStart, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

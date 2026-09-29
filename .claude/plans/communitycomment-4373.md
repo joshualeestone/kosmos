@@ -143,3 +143,14 @@ Mutations red: no re-read in sinceForOnPeriod; the route skipping markNotSent; w
 - (N) an unreadable comments-sent.json is logged as needing REPAIR, not removal: removing it would re-send every
   comment already sent in the ON period. (C) the not_sent record carries the post id; /sent's doc and the plan say it
   lists those marked never to send.
+
+## Review iteration 7 (blind)
+0 BLOCKER, 1 WARNING, taken:
+- (W) the release path had round 4's gap: a held comment released in the minutes before the first sweep of an ON
+  period fell before the window the sweep then recorded, never went, and was never recorded. POST
+  /api/community/release now calls communitysend.recordPeriodStart() (first-writer-wins, nothing while off) before it
+  releases. That also covers a post released in that window, which the person's ON consents to. Tests: engine and
+  route, each reds when the call is removed.
+- (N) the not_sent record's post id is lowercased like the row's.
+The reviewer verified every writer of comments.json keeps the notSent mark, and that a notSent row can be neither
+released nor served.

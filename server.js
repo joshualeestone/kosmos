@@ -4178,6 +4178,9 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'release requires an id' });
           return;
         }
+        // #4373 part B review 7: a release in the minutes before the first sweep of an ON period must fall inside the
+        // send window (releasedAt >= since), or the released post or comment never goes and nothing records it.
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
@@ -7702,7 +7705,7 @@ const server = http.createServer(async (req, res) => {
         let sends = will.sends;
         if (r.status === 'published' && !sends) {
           let marked = false;
-          try { marked = communitysend.markNotSent(r.id, agentId, content.servicePostId); } catch { marked = false; }
+          try { marked = communitysend.markNotSent(r.id, agentId, String(content.servicePostId).toLowerCase()); } catch { marked = false; }
           if (!marked) sends = true;
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
