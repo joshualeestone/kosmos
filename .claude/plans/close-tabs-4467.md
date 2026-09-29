@@ -23,11 +23,11 @@ words. The behaviour (an agent actually closing a tab) is measured after the rel
   win32codexreply.e2e.test.js, which is skipped on Mac and excluded from Windows CI, so it would
   never run.
 - Copy names both `open` (Mac) and `start` (Windows) for the no-handle case.
-- A page that only works in a real browser: the agent's own private browser (engine/agentbrowser.js,
-  headless and isolated, never the person's), named conditionally because not every agent has it.
-  When the person needs to see a page, give them the address; open their browser only when they
-  must act now (a sign-in, a payment). Never `open`/`start` a link just to read it, rather than
-  a report for every such tab. Lines up with "Send readable messages" (paste a bare address).
+- Three paragraphs: the rule (close what you open, nothing "for later", the exception flagged);
+  never open a page in the person's browser just to read it (fetch it; for a page that must be
+  rendered, the private browser from engine/agentbrowser.js, named by its kosmos-browser tools and
+  conditionally, since only Claude agents on Mac and Windows have it; otherwise say you cannot read
+  it and give the address); the one exception, a page they must act on now, opened and said so.
 - Not built: the card's optional item 3 (a count of agent-opened tabs). Kosmos keeps no record of
   which tabs an agent opens, so it is not cheap.
 
