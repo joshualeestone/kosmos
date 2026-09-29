@@ -4196,7 +4196,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // #4525: discard a held or quarantined post/comment — the other half of the person's
+  // #4525: discard a held or quarantined post/comment, the other half of the person's
   // "Waiting for you" list, board-token gated above exactly like release.
   if (pathname === '/api/community/discard' && req.method === 'POST') {
     readBody(req)
