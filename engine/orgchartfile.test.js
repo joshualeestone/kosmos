@@ -464,3 +464,30 @@ test('#4559: the heaviest workbook under the caps is read on the board thread in
   assert.equal(r.rows.length, 1, JSON.stringify(r).slice(0, 300));
   assert.ok(ms < 1500, `the read held the board's thread for ${Math.round(ms)}ms`);
 });
+
+test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR unset, as an agent on it runs; a board on its own account passes that one as set', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-ccd-'));
+  const fake = path.join(dir, 'claude');
+  const seen = path.join(dir, 'seen');
+  const answer = JSON.stringify({ type: 'result', is_error: false, structured_output: { people: [] } });
+  // Records the CLAUDE_CONFIG_DIR it was started with (UNSET when there is none), then answers.
+  fs.writeFileSync(fake, '#!/bin/sh\ncat > /dev/null\nprintf %s "${CLAUDE_CONFIG_DIR-UNSET}" > ' + JSON.stringify(seen) + '\necho \'' + answer + '\'\n', { mode: 0o755 });
+  const saved = { bin: process.env.AGENT_WORKFORCE_CLAUDE_BIN, ccd: process.env.CLAUDE_CONFIG_DIR };
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fake;
+  o.setModelRunner(null);
+  try {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.equal(fs.readFileSync(seen, 'utf8'), 'UNSET', 'the default account must run with CLAUDE_CONFIG_DIR unset');
+    process.env.CLAUDE_CONFIG_DIR = '/tmp/kosmos-test-account-4559';
+    await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.equal(fs.readFileSync(seen, 'utf8'), '/tmp/kosmos-test-account-4559');
+  } finally {
+    if (saved.bin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = saved.bin;
+    if (saved.ccd === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved.ccd;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

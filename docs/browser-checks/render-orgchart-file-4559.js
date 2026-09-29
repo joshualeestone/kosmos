@@ -231,6 +231,36 @@ async function run() {
     } else check('PREVIEW: the panel offers a file', false);
     await ppv.close();
 
+    // CREATE DURING A READ: Create on the list already previewed ends a picture read still under way, so the read's
+    // late answer cannot repaint over the create (and take its result and Undo with it).
+    const pcr = await page();
+    let crAborted = false;
+    await pcr.route('**/api/team', (r) => { const body = JSON.parse(r.request().postData() || '{}'); r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } }); });
+    await pcr.route('**/api/orgchart/read*', async (r) => {
+      const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
+      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      await new Promise((ok) => setTimeout(ok, 3000));
+      try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { /* aborted */ }
+    });
+    pcr.on('requestfailed', (q) => { if (/\/api\/orgchart\/read\?consent=1/.test(q.url())) crAborted = true; });
+    await openPanel(pcr);
+    if (await pcr.$('#orgchart-file-btn')) {
+      await pcr.fill('#orgchart-text', 'Office Manager');
+      await pcr.click('#orgchart-preview');
+      await pcr.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+      await pcr.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pcr.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+      await pcr.click('#orgchart-consent-go');
+      await pcr.waitForSelector('#orgchart-read-stop:not([hidden])', { timeout: 5000 }).catch(() => {});
+      await pcr.click('#orgchart-create');
+      await pcr.waitForFunction(() => /Created 1 agent/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
+      await pcr.waitForTimeout(3500);   // past the read's own answer
+      const cr = await pcr.evaluate(() => ({ count: document.getElementById('orgchart-count').textContent, undo: !document.getElementById('orgchart-undo').hidden, stop: !document.getElementById('orgchart-read-stop').hidden }));
+      check('CREATE DURING A READ: the create ends the read, and its result and Undo stay on screen',
+        crAborted && /Created 1 agent/.test(cr.count) && cr.undo && !cr.stop, JSON.stringify([crAborted, cr]));
+    } else check('CREATE DURING A READ: the panel offers a file', false);
+    await pcr.close();
+
     // MANY: past the usual team size (12), Create asks in words about the load and the bill; Not now sends nothing,
     // and only Start all sends #2972's raise, set to the chart's size (Liu Kang m3436).
     const pm = await page();

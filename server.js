@@ -6504,9 +6504,9 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
       })
       .catch((err) => {
-        /* readBody's only rejection is an oversized body (it then drops the connection, so this answer often
-           never arrives); anything else is our failure, logged, not the file's. */
-        if (res.headersSent) return;
+        /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
+           a person who left mid-upload (nothing to answer); anything else is our failure, logged, not the file's. */
+        if (res.headersSent || res.destroyed || req.aborted) return;
         const big = /too large/.test(String((err && err.message) || ''));
         if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
         try {
