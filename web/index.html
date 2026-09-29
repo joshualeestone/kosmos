@@ -29391,15 +29391,6 @@ function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
 /* #4434: whether positions kept from the last paint may seed this one: not when a tree turns flat (see
    paintOrg). A flat fleet turning into a tree keeps them: the tree glides from them to its placement. */
 function orgKeepPositions(wasTree, tree) { return wasTree !== true || tree; }
-/* #718: the factor that carries positions kept from the last paint (ORG_POS) onto this paint's canvas: the
-   ratio of the sizes when the box's width changed, else 1. #4434: a TREE's canvas can also change size at the
-   same width (an agent removed or re-parented shrinks or grows its rings a lot), and positions left in the old
-   frame put faces past the new edge, which the first physics frame then clamps in one jump (review it7: over
-   1000px). A tree carries them across in proportion too. A flat fleet keeps its positions, as before. */
-function orgCarryFactor(widthChanged, sizeWas, size, tree) {
-  if (!(sizeWas > 0) || size === sizeWas) return 1;
-  return widthChanged || tree ? size / sizeWas : 1;
-}
 /* #4434: the kMin orgFit takes for a placement: a tree is never squeezed below the scale that keeps its
    closest two faces 46px apart. A flat fleet has no floor (0), as before. */
 function orgFloorOf(placed) {
@@ -29484,10 +29475,12 @@ function paintOrg() {
   /* #4434: positions from a TREE layout mean nothing to a flat one: a tree's canvas can be many times a flat
      one's for the same people, and a flat fleet has no repair at rest (review it8: the last manager removed
      left faces resting on top of each other). A tree turning flat starts from the flat placement; a flat fleet
-     turning into a tree keeps its positions and glides from them (orgLiveStart). */
+     turning into a tree keeps its positions and glides from them (orgLiveStart). A tree whose own canvas
+     changes size keeps them too, in the old frame, and glides from there at most ORG_GLIDE_MAX a frame: a glide
+     never clamps to the box (review it11: rescaling them zoomed the chart in one paint). */
   if (!orgKeepPositions(ORG_POS_TREE, tree)) ORG_POS.clear();
   ORG_POS_TREE = tree;
-  const f = orgCarryFactor(widthChanged, ORG_SIZE, size, tree);
+  const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
@@ -29855,7 +29848,6 @@ function orgLiveSettle() {
     if (a <= 0.02 || moved <= 0.05) break;
   }
   L.alpha = 0.02;
-  orgPlanarRepair(bodies, L.hub);   // #4434: never rest with a crossing
   orgLiveSync();
 }
 function orgLiveSync() {
@@ -29895,7 +29887,8 @@ function orgLiveRun() {
       L.homing = false; L.raf = 0;
       return;
     }
-    L.homing = false;
+    /* A press during the glide stops it (the physics takes the drag); the release resumes it (see release). */
+    if (L.homing) { L.homing = false; L.glidePaused = true; }
     const moved = orgStep([...L.nodes.values()], L.hub, L.alpha, L.box);
     orgLiveSync();
     L.alpha *= 0.985;
@@ -29962,8 +29955,8 @@ function orgLiveRun() {
       ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null;
       /* #4434: a press that never moved (a click) leaves a TREE where it rests: nothing moved, so there is
          nothing to settle, and running the physics would drift it (review it5). A flat fleet runs as before. */
-      if (was.moved || ![...ORG_LIVE.nodes.values()].some((n) => n.home)) { ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
-      else if (orgPlanarRepair([...ORG_LIVE.nodes.values()], ORG_LIVE.hub, true)) { ORG_LIVE.homing = true; orgLiveRun(); }   // a click that stopped a glide: finish it
+      if (was.moved || ![...ORG_LIVE.nodes.values()].some((n) => n.home)) { ORG_LIVE.glidePaused = false; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+      else if (ORG_LIVE.glidePaused || orgPlanarRepair([...ORG_LIVE.nodes.values()], ORG_LIVE.hub, true)) { ORG_LIVE.glidePaused = false; ORG_LIVE.homing = true; orgLiveRun(); }   // a click that stopped a glide: finish it
     }
     was.el.classList.remove('dragging');
     /* 🛑 THE CLICK THAT ENDS A DRAG MUST NOT OPEN THE AGENT (#381). The first

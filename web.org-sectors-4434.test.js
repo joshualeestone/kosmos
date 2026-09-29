@@ -12,8 +12,9 @@
  * drawn centre to centre, which is stricter than the drawn wires (those are cut back at each face).
  * Realistic trees with uneven branch sizes, plus seeded random trees, checked:
  *   1. on `orgPlace`'s positions (first paint),
- *   2. after the physics settles, exactly as orgLiveSettle runs it,
- *   3. after a re-parent, from the OLD positions (a repaint seeds from ORG_POS by key).
+ *   2. after the physics and the rest-time repair, the path a released drag takes (settled() below),
+ *   3. the page's own live chart (livePage() below): first load, repaints, the glide, clicks and drags.
+ * A tree that is repainted off its placement glides straight to it; the physics runs only for a drag.
  */
 
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
@@ -130,7 +131,8 @@ function firstPaint(agentCards) {
   }
   return { placed, pos, parentOf };
 }
-/* The settle, built the way orgLiveStart builds its live nodes and run the way orgLiveSettle runs it,
+/* The physics then the repair, as a released drag runs them (orgLiveRun), from nodes built the way
+   orgLiveStart builds them,
    on a canvas sized the way paintOrg sizes it: (maxR + ORG_PAD) * 2 square, the box ORG_PAD_MIN in from
    each edge. (A fixed box smaller than a big tree pinned its outer ring to the edge, squashed two nodes
    together and crossed their lines: a test artifact the real page never produces.)
@@ -157,7 +159,7 @@ const fitOf = (() => {
     + '; const ORG_SQUEEZE_MIN = ' + pageConst('ORG_SQUEEZE_MIN') + ';\n' + src + '\nreturn { orgFit, orgFloorOf };')();
 })();
 /* `avail` (optional): the width the chart must fit, squeezed as paintOrg squeezes it (orgFit scales every
-   radius by k; the canvas is fit.size). The settle then ends with orgPlanarRepair, as orgLiveSettle does. */
+   radius by k; the canvas is fit.size). The physics then ends with orgPlanarRepair, as a drag's does. */
 /* The canvas paintOrg gives a placement: the squeeze to `avail` (which scales `placed` in place), the square's
    size, and the hub's centre. */
 function canvasFor(placed, avail) {
@@ -311,7 +313,7 @@ test('first paint: seeded random trees have no crossings and no overlaps (#4434)
   }
 });
 
-test('after the settle (the physics, then the rest-time repair): no crossings, and faces stay apart (#4434)', () => {
+test('after the physics and the rest-time repair (a released drag\'s path): no crossings, and faces stay apart (#4434)', () => {
   const specs = Object.entries(NAMED).concat(Array.from({ length: 20 }, (_, i) => ['seed ' + (i + 1), randomTree(i + 1, 8 + (i % 18))]));
   for (const [label, spec] of specs) {
     const { placed } = firstPaint(cards(spec));
@@ -322,7 +324,7 @@ test('after the settle (the physics, then the rest-time repair): no crossings, a
   }
 });
 
-test('a re-parent settles into the new manager\'s sector without crossing, from the old positions (#4434)', () => {
+test('the physics from old positions (a drag released after a re-parent) ends in the new sector without crossing (#4434)', () => {
   /* A repaint seeds each node from ORG_POS by key, so a moved agent STARTS where it used to be, in its
      old manager's branch. Settling must carry it into its new manager's sector. */
   const before = firstPaint(cards(UNEVEN));
@@ -338,7 +340,7 @@ test('a re-parent settles into the new manager\'s sector without crossing, from 
   assert.deepEqual(bad, [], bad.length + ' crossing(s) after a re-parent: ' + bad.slice(0, 6).join(', '));
 });
 
-test('a settle stays close to the placement: the spring rests at the placed length, not the ring step (#4434)', () => {
+test('the physics stays close to the placement: the spring rests at the placed length, not the ring step (#4434)', () => {
   /* orgPlace grows rings; a parent spring resting at ORG_STEP pulled grown rings back in, across other branches
      (review it1: a node placed at r=322 settled at 145). Measured max drift with the placed rest 61.5px, with
      ORG_STEP 110.9px, over 200 random trees; 85px separates them. */
@@ -383,7 +385,7 @@ test('a bigger branch gets a wider slice (sectors are weighted by the people at 
   assert.ok(Math.abs(width('m2') - width('s1')) < 1e-9, 'two branches of one leaf each got different slices');
 });
 
-test('squeezed to a phone, a large fleet still settles with no crossings (#4434, review it2)', () => {
+test('squeezed to a phone, a large fleet under the physics and the repair rests with no crossings (#4434, review it2)', () => {
   /* orgFit squeezes a big chart to the screen by scaling every radius; faces then sit closer than the
      physics' gap and push each other off their places. Without the rest-time repair, 60-90 agents at 375px
      crossed in 9 of 150 trees (review it2). */
@@ -408,9 +410,8 @@ test('one manager with hundreds of direct reports: nobody overlaps on first pain
   assert.equal(overlaps(pos, 46), 0, 'a 300-report team overlaps');
 });
 
-test('the rest-time repair is wired where every settle ends: the reduced-motion settle and the animation\'s stop', () => {
+test('the rest-time repair is wired where the physics ends: the animation\'s stop (the only physics a tree runs is a drag)', () => {
   const body = (name) => { const at = SCRIPT.indexOf('function ' + name + '('); return SCRIPT.slice(at, SCRIPT.indexOf('\n}', at)); };
-  assert.match(body('orgLiveSettle'), /orgPlanarRepair\(bodies, L\.hub\)/, 'orgLiveSettle no longer repairs a crossing at rest');
   assert.match(body('orgLiveRun'), /orgPlanarRepair\(\[\.\.\.L\.nodes\.values\(\)\], L\.hub, true\)\) \{ L\.homing = true;/, 'the animation no longer repairs a crossing when it stops (by gliding home)');
 });
 
@@ -535,23 +536,12 @@ test('a grab during the glide home ends the glide: the held hub does not move (#
   assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL: let go, the chart did not come back to its placement');
 });
 
-test('a tree whose canvas changes size at the same width carries its positions across in proportion (#4434, review it7)', () => {
-  /* A remove or re-parent can shrink a big tree's canvas a lot; positions left in the old frame put faces past
-     the new edge and the first physics frame clamped them in one jump (review it7: over 1000px). */
-  const at = SCRIPT.indexOf('function orgCarryFactor(');
-  // eslint-disable-next-line no-new-func
-  const carry = new Function(SCRIPT.slice(at, SCRIPT.indexOf('\n}', at) + 2) + '\nreturn orgCarryFactor;')();
-  assert.equal(carry(false, 3000, 1600, true), 1600 / 3000, 'a tree kept its positions in the old frame');
-  assert.equal(carry(false, 1600, 1600, true), 1, 'the same canvas moved the positions');
-  assert.equal(carry(false, 3000, 1600, false), 1, 'CONTROL: a flat fleet at the same width keeps them, as before');
-});
-
 test('a tree that turns flat (its last manager removed) starts from the flat placement, not the tree\'s positions (#4434, review it8)', () => {
   /* Positions from a tree's canvas (2630px for this one) put a flat fleet's faces far outside its 860px canvas,
      and a flat fleet has no repair at rest: review it8 measured 37 overlapping pairs at rest, one at 0px. */
   const at = SCRIPT.indexOf('function paintOrg(');
   const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,700}?if \(!orgKeepPositions\(ORG_POS_TREE, tree\)\) ORG_POS\.clear\(\);\s*ORG_POS_TREE = tree;\s*const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, tree\);/,
+  assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,900}?if \(!orgKeepPositions\(ORG_POS_TREE, tree\)\) ORG_POS\.clear\(\);\s*ORG_POS_TREE = tree;\s*const f = widthChanged && ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/,
     'paintOrg no longer drops positions across a change between tree and flat');
   const k = SCRIPT.indexOf('function orgKeepPositions(');
   // eslint-disable-next-line no-new-func
@@ -594,13 +584,51 @@ test('a flat fleet given its first manager glides from where it was to the tree\
   const { page, map, run } = livePage();
   page.orgLiveStart(map, fp, f0.cx, f0.cy, f0.size); run();
   const t0 = canvasFor(tp, 1000);
-  const scale = t0.size / f0.size;   // paintOrg carries the ring's positions onto the tree's canvas (orgCarryFactor)
-  for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x * scale, y: q.y * scale });
-  page.orgLiveStart(map, tp, t0.cx, t0.cy, t0.size);
+  page.orgLiveStart(map, tp, t0.cx, t0.cy, t0.size);   // the ring's positions as they were: paintOrg keeps them (orgKeepPositions)
   const g = run();
   assert.ok(g.frames > 1 && g.far > 40, 'CONTROL: the tree\'s placement is where the ring already was (' + g.far.toFixed(0) + 'px), so this tests nothing');
   assert.ok(g.jump <= 41, 'a frame moved a face ' + g.jump.toFixed(0) + 'px: the change snapped instead of gliding');
   assert.ok(offPlacement(page, tp, t0.cx, t0.cy) < 0.01, 'the glide did not end at the tree\'s placement');
+});
+
+test('under reduced motion a tree off its placement is placed there at once, with no animation (#4434, review it11)', () => {
+  const { placed } = firstPaint(cards(randomTree(7, 60)));
+  const { size, cx, cy } = canvasFor(placed, 375);
+  for (const still of [true, false]) {
+    const { page, map, run } = livePage(still);
+    page.orgLiveStart(map, placed, cx, cy, size); run();
+    for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x + 120, y: q.y + 40 });   // off its placement: a re-parent, an add
+    page.orgLiveStart(map, placed, cx, cy, size);
+    if (still) {
+      assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'under reduced motion the tree was not placed at once');
+      assert.equal(run().frames, 0, 'under reduced motion the tree animated');
+    } else {
+      assert.ok(run().frames > 1, 'CONTROL: animated, the same change did not glide, so this tests nothing');
+    }
+  }
+});
+
+test('a click that stops a glide finishes it: the chart comes home even with nothing crossed (#4434, review it11)', () => {
+  /* A press held for a few frames stopped the glide; the release resumed it only when something crossed, so a
+     chart could rest part-way home (review it11: 3 of 40, up to 124px off). */
+  const { placed } = firstPaint(cards(randomTree(7, 60)));
+  const { size, cx, cy } = canvasFor(placed, 0);
+  const { page, map, run, down, up, one } = livePage();
+  page.orgLiveStart(map, placed, cx, cy, size); run();
+  /* The whole chart 30px off, inside its box: nothing crosses or overlaps, so only the paused glide can bring
+     it home (a larger shift runs faces into the box edge, and the repair would resume it anyway). */
+  for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x + 30, y: q.y });
+  page.orgLiveStart(map, placed, cx, cy, size);
+  one(); one();
+  const L = page.live();
+  down();
+  for (let i = 0; i < 4; i += 1) one();
+  L.hub.fixed = false;
+  assert.equal(sim.orgPlanarRepair([...L.nodes.values()], L.hub, true), false, 'CONTROL: the chart part-way home crosses or overlaps, so the repair would bring it home anyway');
+  L.hub.fixed = true;
+  up();
+  run();
+  assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'the chart rested ' + offPlacement(page, placed, cx, cy).toFixed(0) + 'px off its placement after a click stopped the glide');
 });
 
 test('a click on the hub of a tree at rest does not move it; a drag of the same hub does (#4434, review it5, it6)', () => {
@@ -627,7 +655,7 @@ test('a click on a tree (a press that never moved) does not restart the physics 
   const at = SCRIPT.indexOf('const release = (e) => {');
   const body = SCRIPT.slice(at, SCRIPT.indexOf('\n  };', at));
   assert.match(body, /if \(was\.moved \|\| !\[\.\.\.ORG_LIVE\.nodes\.values\(\)\]\.some\(\(n\) => n\.home\)\) \{[^}]*orgLiveRun\(\); \}/, 'a release that never moved runs the physics on a tree again');
-  assert.match(body, /else if \(orgPlanarRepair\(\[\.\.\.ORG_LIVE\.nodes\.values\(\)\], ORG_LIVE\.hub, true\)\) \{ ORG_LIVE\.homing = true; orgLiveRun\(\); \}/, 'a click that interrupted a glide no longer finishes it');
+  assert.match(body, /else if \(ORG_LIVE\.glidePaused \|\| orgPlanarRepair\(\[\.\.\.ORG_LIVE\.nodes\.values\(\)\], ORG_LIVE\.hub, true\)\) \{ ORG_LIVE\.glidePaused = false; ORG_LIVE\.homing = true; orgLiveRun\(\); \}/, 'a click that interrupted a glide no longer finishes it');
 });
 
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
@@ -642,7 +670,7 @@ test('the same input gives the same positions (stable across reloads) (#4434)', 
 
 /* The page's live chart itself (orgLiveStart, orgLiveSettle, orgLiveSync, orgLiveRun), lifted with the
    simulation and run against a stub map, animation frames queued by hand. */
-function livePage() {
+function livePage(still) {
   const grab = (name) => {
     const at = SCRIPT.indexOf('function ' + name + '(');
     assert.ok(at > -1, name + ' vanished from the page');
@@ -670,7 +698,7 @@ function livePage() {
   const ptrSrc = SCRIPT.slice(ptrAt, SCRIPT.indexOf("document.getElementById('orgmap').addEventListener('click'", ptrAt));
   assert.ok(ptrAt > -1 && ptrSrc.includes("addEventListener('pointerup', release)"), 'the org chart pointer wiring left the page');
   const env = {
-    window: { matchMedia: () => ({ matches: false }) },
+    window: { matchMedia: () => ({ matches: Boolean(still) }) },   // prefers-reduced-motion
     CSS: { escape: (x) => x },
     requestAnimationFrame: (f) => { nextFrame += 1; frames.push({ id: nextFrame, f }); return nextFrame; },
     // Cancels as a browser does, so a second orgLiveStart with a frame still queued does not replay it (review it10).
