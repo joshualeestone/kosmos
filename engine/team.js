@@ -159,8 +159,10 @@ function vetAgentMember(member, opts) {
   for (const k of AGENT_MEMBER_KEYS) if (member[k] !== undefined) out[k] = member[k];
   if (member.role !== undefined) out.role = role;   // the role as vetted, a string, never the shape it was sent in
   /* The label is flattened on every path (with or without text), so it can break neither the identity line nor
-     the card: a newline, or a ** run (a single * a person meant, as in "C* specialist", is kept). */
-  const label = typeof member.label === 'string' ? member.label.replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';
+     the card: a newline or any control character (a NUL would ride into the text through the identity line), or
+     a ** run (a single * a person meant, as in "C* specialist", is kept). */
+  const label = typeof member.label === 'string'
+    ? member.label.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';   // no control char (NUL too)
   if (typeof member.label === 'string') out.label = label;
   if (typeof member.instructions !== 'string') return { member: out };
   /* NUL is never text: a file saved as UTF-16 and read as UTF-8 has one between every letter, and would pass

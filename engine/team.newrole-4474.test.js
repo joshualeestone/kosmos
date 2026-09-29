@@ -189,3 +189,10 @@ test('#4474: the rules phrase the vetting keys on is the one defaults.appendTo k
   assert.ok(defaults.block().includes(defaults.RULES_PHRASE), 'the shared block no longer carries the phrase both key on');
   assert.equal(defaults.appendTo('x ' + defaults.RULES_PHRASE), 'x ' + defaults.RULES_PHRASE, 'appendTo keys on another phrase');
 });
+
+test('#4474: a NUL or other control character in the label reaches neither the text nor the card', () => {
+  const { got } = build([{ name: 'Nia', role: 'own', label: 'Grant\u0000wri\u0007ter', instructions: 'Write grant applications for the team.' }]);
+  assert.ok(!/[\u0000-\u001f]/.test(got[0].label), 'a control character reached the card: ' + JSON.stringify(got[0].label));
+  assert.ok(!got[0].instructions.includes('\u0000'), 'a NUL rode into the text through the identity line');
+  assert.match(got[0].instructions, /^You are \*\*Nia\*\*, Grant wri ter\./);
+});
