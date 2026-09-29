@@ -1686,7 +1686,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     if (offHere.has(name)) return null;
     /* #4624: a colleague's post that does not name this member, arriving mid-turn, is held rather than
        typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
-    if (roomhold.shouldHold({ name, operator, mentioned, readReport: (n) => require('./selfreport').read(n),
+    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answered && answered.operator !== true ? answered.from : null,
+      reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
       now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })
       && roomhold.hold(name, projectId, id)) {
       outcomes[name] = roomhold.HELD;
@@ -1793,19 +1794,24 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
-       line, and are forgotten once it was typed. */
-    const heldIds = roomhold.heldIn(name, projectId);
+       line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
+    const heldIds = roomhold.take(name, projectId);
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       outcomes[name] = sent.state;
-      if (sent.state !== chat.DELIVERY.COULD_NOT) {
-        reached += 1;
-        if (heldIds.length) roomhold.clear(name, projectId, heldIds);
-      } else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
+      else {
+        roomhold.restore(name, projectId, heldIds);
+        unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      }
       return sent;
     };
-    const sent = deliverToPane(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
-    return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+    // A throw or rejection from the typing path is not a told member either: put the held ids back.
+    const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    let sent;
+    try { sent = deliverToPane(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    catch (err) { putBack(err); }
+    return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
 
   const finishDeliveries = () => {

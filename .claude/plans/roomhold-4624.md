@@ -22,3 +22,11 @@ Unchanged: the person's posts, any post that @-names the member, and members who
 - A runner that reports `working` but never `idle` (none known; Claude, Grok send idle at Stop) would be told only on its next typed arrival.
 - An agent renamed while it holds posts loses the line; the posts stay in the room.
 - The idle flush types a line, which is one turn. That is the point (one turn for N posts), not zero.
+
+## Blind review round 1 (Opus, separate reviewer)
+Three WARNINGs, all fixed with a test each that fails on revert (mutation, cmp-restored):
+- A working member with no pane was held and counted as reached, hiding a refusal. Now held only when chat.addressable says the board can type to it.
+- An idle flush racing a typed arrival could tell the same held posts twice. Both paths now TAKE the ids first and restore them only if their line was not typed (or the typing threw).
+- A reply to the member's own post was held as "nothing is asked of you". A reply to a member's post is never held for that member.
+NITs taken: removal forgets the held list (remove.js, tested); null-prototype store so any project id is an own key; the key-sharing limit (safeKey, same as the self-report) and the arrival-budget count are stated in the module header.
+Tests now: messages.roomhold-4624 (12), server.roomhold-idle-4624 (1), remove.test #4624 (1). Neighbours incl remove.test: 339/339.

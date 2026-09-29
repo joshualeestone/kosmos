@@ -29,8 +29,19 @@
  *
  * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before.
  *
- * Known limit: the held list is keyed by the agent's board name. An agent renamed while it holds
- * posts loses the line (the posts are still in the room).
+ * Held only for a member the board can type into right now (chat.addressable), so a post to a dead or
+ * missing pane is still refused as before rather than kept for someone who cannot hear it. Never held:
+ * a reply to the member's own post (it is the answer they asked for, not background).
+ *
+ * Told once: whichever of the two paths above tells the member TAKES the ids first (take), and puts
+ * them back only if its line could not be typed (restore), so an idle flush racing a typed arrival
+ * cannot both carry the same line.
+ *
+ * Known limits: the held list is keyed like the self-report (store.safeKey of the board name), so two
+ * names that key alike ("Pete" and "pete") share one list, as they share one report; an agent renamed
+ * while it holds posts loses the line (the posts are still in the room). Removal forgets the list
+ * (forget, called by engine/remove.js). A held post still counts toward the room's arrival budget,
+ * which errs toward the valve closing sooner, never later.
  */
 
 const fs = require('node:fs');
@@ -51,10 +62,12 @@ function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
 /* Whether this post is held for this member instead of typed. Pure apart from the injected read. */
-function shouldHold({ name, operator, mentioned, readReport, now, decayMs, env }) {
+function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readReport, now, decayMs, env }) {
   if (off(env)) return false;
   if (operator === true) return false;
   if (mentioned && typeof mentioned.has === 'function' && mentioned.has(name)) return false;
+  if (answersAuthor === name) return false;
+  if (reachable !== true) return false;
   let rep;
   try { rep = readReport(name); } catch { return false; }
   if (!rep || rep.found !== true || rep.state !== 'working') return false;
@@ -64,18 +77,23 @@ function shouldHold({ name, operator, mentioned, readReport, now, decayMs, env }
   return age >= 0 && age <= decayMs;
 }
 
+/* Null-prototype, so a project id such as "__proto__" is an own key like any other. */
 function readAll(name) {
+  const out = Object.create(null);
   try {
     const got = JSON.parse(fs.readFileSync(fileFor(name), 'utf8'));
-    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
-  } catch { return {}; }
+    if (got && typeof got === 'object' && !Array.isArray(got)) {
+      for (const k of Object.keys(got)) if (Array.isArray(got[k])) out[k] = got[k];
+    }
+  } catch { /* nothing held */ }
+  return out;
 }
 
 function writeAll(name, all) {
   const file = fileFor(name);
   const keys = Object.keys(all).filter((k) => Array.isArray(all[k]) && all[k].length);
   if (!keys.length) { try { fs.rmSync(file, { force: true }); } catch { /* nothing to remove */ } return true; }
-  const kept = {};
+  const kept = Object.create(null);
   for (const k of keys) kept[k] = all[k];
   fs.mkdirSync(dir(), { recursive: true });
   const tmp = file + '.' + process.pid + '.tmp';
@@ -108,16 +126,32 @@ function heldProjects(name) {
   return Object.keys(all).filter((k) => Array.isArray(all[k]) && all[k].length);
 }
 
-/* Forget exactly these ids (the ones the member was just told about); an id held after they were
-   read stays for the next line. */
-function clear(name, projectId, ids) {
+/* Take the ids held for this member in one project, clearing them in the same synchronous step, so no
+   other path can read them again. Returns [] when there are none or they could not be taken. */
+function take(name, projectId) {
   try {
     const all = readAll(name);
-    if (!Array.isArray(all[projectId])) return true;
-    const told = new Set(ids);
-    all[projectId] = all[projectId].filter((x) => !told.has(x));
+    const ids = Array.isArray(all[projectId]) ? all[projectId].filter((x) => typeof x === 'string') : [];
+    if (!ids.length) return [];
+    delete all[projectId];
+    return writeAll(name, all) ? ids : [];
+  } catch { return []; }
+}
+
+/* Put back ids whose line could not be typed, ahead of any held since, so the next line names them. */
+function restore(name, projectId, ids) {
+  if (!Array.isArray(ids) || !ids.length) return true;
+  try {
+    const all = readAll(name);
+    const since = Array.isArray(all[projectId]) ? all[projectId].filter((x) => !ids.includes(x)) : [];
+    all[projectId] = ids.concat(since).slice(-KEEP);
     return writeAll(name, all);
   } catch { return false; }
+}
+
+/* The member was removed: nothing held for it is told to anyone who later takes its name. */
+function forget(name) {
+  try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
 
 /* The line, in the room's own bracket form. `shown` is the project as the member reads it (its name);
@@ -141,7 +175,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
-    const ids = heldIn(name, projectId);
+    const ids = take(name, projectId);
     if (!ids.length) continue;
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
@@ -150,10 +184,10 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env }) {
       const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
       state = sent && sent.state;
     } catch { state = DELIVERY.COULD_NOT; }
-    if (state && state !== DELIVERY.COULD_NOT) clear(name, projectId, ids);
+    if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, ids);
     out.push({ projectId, n: ids.length, state });
   }
   return out;
 }
 
-module.exports = { HELD, KEEP, SHOWN, dir, fileFor, shouldHold, hold, heldIn, heldProjects, clear, clauseFor, flushOnIdle };
+module.exports = { HELD, KEEP, SHOWN, dir, fileFor, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle };

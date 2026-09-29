@@ -232,3 +232,59 @@ test('#4624: a project name that could bend the bracket is replaced by its id; l
   assert.ok(roomhold.clauseFor('p-1', 'Lease', ['m1']).includes('1 room post not addressed'));
   assert.equal(roomhold.clauseFor('p-1', 'Lease', []), '');
 });
+
+test('#4624 round 1: a working member with no pane to type into is refused as before, not held', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'working');
+    armSender('leo-discord');
+    arm();
+    const noMara = board.agents.filter((a) => a.sessionName !== 'mara');
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, noMara, MEMBERS);
+    assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'a member nobody can type to was held: ' + JSON.stringify(sent.outcomes));
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+  });
+});
+
+test('#4624 round 1: a reply to the member\'s own post is typed even while it works; others still held (control)', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm();
+    const ask = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'does clause 4 renew monthly?' }, board.agents, MEMBERS);
+    report('mara', 'working');
+    report('april', 'working');
+    armSender('leo-discord');
+    const tmux = arm();
+    const ans = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'yes, monthly', replyTo: ask.id }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, 'mara').length, 1, 'the answer to her own question was held: ' + JSON.stringify(ans.outcomes));
+    assert.equal(ans.outcomes.april, roomhold.HELD, 'CONTROL: a working bystander must still be held');
+  });
+});
+
+test('#4624 round 1: an idle flush in flight and a typed arrival never both carry the same held posts', async () => {
+  await withFleet(room3(), async (board) => {
+    roomhold.hold('mara', PROJECT, 'm90');
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const flushed = roomhold.flushOnIdle('mara', {
+      deliver: async () => { await gate; return { state: chat.DELIVERY.PLACED }; },
+      roster: board.agents, DELIVERY: chat.DELIVERY, env: {}, shownOf: () => null,
+    });
+    report('mara', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'meanwhile' }, board.agents, MEMBERS);
+    const got = typedTo(tmux, 'mara');
+    assert.equal(got.length, 1);
+    assert.ok(!got[0].includes('m90'), 'the arrival repeated a line the flush is already typing: ' + got[0]);
+    release();
+    assert.equal((await flushed).length, 1, 'CONTROL: the flush must have been the one to tell it');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+  });
+});
+
+test('#4624 round 1: removal forgets what was held; a "__proto__" project id is kept like any other', () => {
+  roomhold.hold('mara', '__proto__', 'm5');
+  assert.deepEqual(roomhold.heldIn('mara', '__proto__'), ['m5']);
+  assert.equal(roomhold.forget('mara'), true);
+  assert.deepEqual(roomhold.heldProjects('mara'), []);
+});
