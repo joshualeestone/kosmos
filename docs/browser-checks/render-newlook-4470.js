@@ -118,6 +118,13 @@ const TASK_ROWS = `(() => {
     wordHidden: !!n && parseFloat(getComputedStyle(n).fontSize) === 0 && n.textContent.startsWith('Task ' + n.dataset.n),
     claimShown: !!claim && getComputedStyle(claim).display !== 'none' && claim.getBoundingClientRect().height > 0 };
 })()`;
+/* A left-box task row that says "Part of #N": is its line drawn above the row's title? */
+const PART_OF = `(() => {
+  const po = document.querySelector('#pj-one-view .pjsplit .tkcard .tkcard-part-of');
+  if (!po) return { found: false };
+  const t = po.closest('.tkcard').querySelector('.tkcard-t');
+  return { found: true, above: po.getBoundingClientRect().bottom <= t.getBoundingClientRect().top + 1, text: po.textContent.trim() };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -132,6 +139,10 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
     const t1 = tasks.create(proj.id, { sentence: 'Plan the launch week', who: 'ada' });
     tasks.create(proj.id, { sentence: 'Book the venue', who: 'ada', parent: t1.number });
     tasks.create(proj.id, { sentence: 'Order the paper' });
+    /* Three more, then a late subtask of #1: the column shows the newest five, so #1 drops out and
+       its subtask has to say "Part of #1" on its own. */
+    for (const w of ['Draft the menu', 'Call the florist', 'Print the badges']) tasks.create(proj.id, { sentence: w });
+    tasks.create(proj.id, { sentence: 'Send the reminders', who: 'bo', parent: t1.number });
     server = await srv.start(0);
     const URL = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -190,6 +201,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
       const labs = await page.evaluate(`[...document.querySelectorAll('#pj-one-view .pjsplit .dlab')].filter((h) => h.getClientRects().length).map((h) => getComputedStyle(h).textTransform)`);
       chk(labs.length >= 3 && labs.every((x) => x === 'none'), `${tag} On: the left box's headings are sentence case`, JSON.stringify(labs));
+      const partOf = await page.evaluate(PART_OF);
+      chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };

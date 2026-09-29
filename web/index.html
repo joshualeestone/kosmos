@@ -9477,7 +9477,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    the aside instead and cannot read as a second one. */
 :root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcol,
 :root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcard { border: 0; border-radius: 0; background: none; padding: 0; }
-:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > * + * { border-top: 1px solid var(--k-rule); margin-top: 22px; padding-top: 22px; }
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > :not([hidden]) ~ :not([hidden]) { border-top: 1px solid var(--k-rule); margin-top: 22px; padding-top: 22px; }
 :root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjmid { border: 0; background: none; padding: 0; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
@@ -9526,14 +9526,20 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n::before { content: "#" attr(data-n) / ""; font: 400 .875rem var(--font-ui); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed .tkcard-t { color: var(--label-2); }
-:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part-of { grid-row: auto; grid-column: 1 / -1; font-size: .75rem; color: var(--nl-ink-3); }
+/* A subtask whose parent is not shown says "Part of #N" FIRST in the markup, so it takes the top row
+   and the row below it moves down one, keeping reading order and visual order the same (#1017). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) > :is(.tkcard-n, .tkcard-t, .tsk-chip),
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) .tkcard-who-b > b,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) .tkcard-who:not(:has(b)) { grid-row: 2; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) :is(.tksay, .tkunk) { grid-row: 3; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part-of { grid-row: 1; grid-column: 1 / -1; font-size: .75rem; color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b), :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b) > .tkcard-who-b { display: contents; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who .lav { display: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who-b > b,
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b)) { grid-column: 3; grid-row: 1; display: inline-flex; align-items: center; gap: 6px; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); white-space: nowrap; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who-b > b::before,
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--nl-green); flex: none; }
-:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-4); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tksay,
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkunk { grid-column: 2 / -1; grid-row: 2; font-size: .75rem; font-style: normal; color: var(--nl-ink-3); text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tsk-chip { grid-column: 4; grid-row: 1; border: 0; background: none; padding: 0; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
@@ -9566,7 +9572,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--nl-ink-4); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="working"]::before { background: var(--nl-green); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="attn"]::before { background: var(--danger); }
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="idle"]::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-4); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="idle"]::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -40367,8 +40373,9 @@ function placeProjectHead() {
   if (crumb && pj3 && crumb.parentElement !== oneView) oneView.insertBefore(crumb, pj3);
   /* #4470: the new look puts the crumb row in the conversation header. applyLayout calls this
      from an async paint that can land AFTER the boot showTab's placeLook, so re-apply it here
-     or a reload with the look on leaves the crumb above the columns. */
-  placeLook(document.body.classList.contains('consolidated'));
+     or a reload with the look on leaves the crumb above the columns. Guarded because tests lift
+     this function and run it alone (web.layout-picker); in the page placeLook is always defined. */
+  if (typeof placeLook === 'function') placeLook(document.body.classList.contains('consolidated'));
 }
 /* #3103 (Josh, 6.68): placeSubProjects removed with the sub-projects section it
    positioned. The #2848 consolidated-vs-tab relocation it did no longer applies. */
