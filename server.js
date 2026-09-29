@@ -1100,7 +1100,11 @@ function hookPublicLink(id, secret) {
       : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
   }
   if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet yet.');
-  if (!HOOK_HOST_RE.test(String(st.address || ''))) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
+  // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
+  // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
+  let enrolledName = '';
+  try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
+  if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
   return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
 }
 

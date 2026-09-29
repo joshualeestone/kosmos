@@ -179,10 +179,10 @@ test('a deleted webhook stops verifying even when the store file\'s stat does no
 
 test('#4419: the internet link is given only when Kosmos Plus is up and the running connector admits webhooks; otherwise one true reason', async () => {
   const remote = require('./engine/remote');
-  const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled };
+  const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled, address: remote.address };
   const UP = { state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: true };
   const make = async (st, { on = true, signedIn = true } = {}) => {
-    remote.status = () => st; remote.read = () => ({ on, ok: true }); remote.enrolled = () => signedIn;
+    remote.status = () => st; remote.read = () => ({ on, ok: true }); remote.enrolled = () => signedIn; remote.address = () => 'hers.kosmosplus.com';
     try { return (await api(P(), { method: 'POST', body: {} })).json; } finally { Object.assign(remote, real); }
   };
   try {
@@ -200,6 +200,7 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
       ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet yet/],
       ['an address with a path', await make({ ...UP, address: 'hers.kosmosplus.com/evil?' }), /could not read this computer's internet address/],
       ['an IP literal', await make({ ...UP, address: '1.2.3.4' }), /could not read this computer's internet address/],
+      ['a valid host that is not this computer\'s name', await make({ ...UP, address: 'someone-else.example.com' }), /could not read this computer's internet address/],
     ];
     for (const [label, r, why] of cases) {
       assert.equal(r.publicUrl, null, label + ': no internet link');
@@ -210,7 +211,7 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
     }
     assert.ok(!cases.some(([, r]) => /Kosmos Plus can also give/.test(r.publicWhy) && r !== cases[0][1]), 'only the switch being off is pointed at Kosmos Plus');
     // An unreadable settings file is its own cause, not "the switch is off".
-    remote.status = () => ({ state: 'off', address: null, because: 'x' }); remote.read = () => ({ on: false, ok: false }); remote.enrolled = () => true;
+    remote.status = () => ({ state: 'off', address: null, because: 'x' }); remote.read = () => ({ on: false, ok: false }); remote.enrolled = () => true; remote.address = () => 'hers.kosmosplus.com';
     let bad; try { bad = (await api(P(), { method: 'POST', body: {} })).json; } finally { Object.assign(remote, real); }
     assert.equal(bad.publicUrl, null);
     assert.match(bad.publicWhy, /could not read the Kosmos Plus settings/);

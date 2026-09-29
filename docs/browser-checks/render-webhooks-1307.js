@@ -205,10 +205,11 @@ function chk(ok, label, extra) {
         // that admits webhooks (#4419), so both links show. remote is stubbed in THIS process, which
         // is the board the page talks to; restored right after the make.
         const remote = require('../../engine/remote');
-        const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled };
+        const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled, address: remote.address };
         remote.status = () => ({ state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: true });
         remote.read = () => ({ on: true, ok: true });
         remote.enrolled = () => true;
+        remote.address = () => 'hers.kosmosplus.com';   // the enrolled name the link's host must match
         try {
           await page.click('#pjs-hook-add');
           await page.waitForSelector('#pjs-hook-public', { timeout: 8000 });
