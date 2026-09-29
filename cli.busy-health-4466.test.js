@@ -288,3 +288,13 @@ test('#4466 a person stopping a BUSY board this command did not start leaves it 
     assert.equal(fs.existsSync(path.join(home, 'board.stopped')), false, 'a busy board is running: no stop marker');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
+
+test('#4466 a person RESTART of a busy board this command did not start refuses loudly (non-zero), never a silent no-op', () => withBoard('hang', async (port) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const out = await runCli(['restart'], baseEnv(port, { KOSMOS_HOME: home }));
+    assert.notEqual(out.code, 0, 'a restart that restarted nothing must not exit 0: ' + out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /but is busy, and it was not started by this command, so it was left alone/);
+    assert.doesNotMatch(out.stdout, /already running|Bringing the board up/, 'stop refused, so start must not run after it');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+}));

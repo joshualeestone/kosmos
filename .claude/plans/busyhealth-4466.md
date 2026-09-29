@@ -17,8 +17,8 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 2. **`healthy()`** probes `/api/health`; any other answer falls back to the page and the old identity
    match (an older board has no route: 404, or 403 from its token gate). It sets `HEALTH_STATE`:
    `up`, `down` (curl 7, refused), `stranger`, `busy` (timeout or cut reply). Busy retries with a longer
-   timeout each time (2, 4, 8, 8 s) until `KOSMOS_BUSY_WAIT` (20 s). `healthy --once` is a single 2 s
-   probe for the start/stop polling loops. Errexit-safe (`&& rc=0 || rc=$?`, no bare false tests).
+   timeout each time (2, 4, 8, 8 s) until `KOSMOS_BUSY_WAIT` (20 s). `healthy --once` is one probe (2 s
+   per request; an older board without /api/health costs a second request for the page) for the start/stop polling loops. Errexit-safe (`&& rc=0 || rc=$?`, no bare false tests).
 3. **`say_not_up`**: the one message for all 13 verbs. Busy says "running but too busy... it does not
    need a restart"; only a real refusal keeps "Start it with: kosmos start".
 4. **`kosmos status`**: busy exits **4** (not 1, which is the start advice, and not 0, which would hide a
@@ -55,6 +55,17 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - **Watchdog on a busy board:** its first attempt, `kosmos start`, is a no-op on a busy board (already
   running), so recovering a truly wedged board is the next escalation, `kickstart -k`, one throttle later.
   Test arms 6c/6d assert exactly that.
+
+## Review round 2 decisions (deferred, with the reason)
+- **A person's `kosmos start` no longer reclaims a same-user Kosmos board that holds the port and never
+  answers**: it says "already running (busy)". Deliberate: start cannot tell busy from wedged, and killing
+  a busy board is this card's bug. Recovery of a wedged board is `kosmos restart` (the pidfile path kills
+  it, supervised or not) or, for a supervised board, the watchdog's `kickstart -k` after the busy grace.
+- **`kosmos restart` of a busy board this command did not start** refuses with exit 1 (`die` in cmd_stop
+  ends the script), so it is never a silent no-op; a test arm pins it.
+- **`setup.sh`'s update-pause `stop --force` on a busy board with no pidfile** leaves that board running,
+  the same outcome as on main (which called it "not running" and continued); every Kosmos-started board
+  writes a pidfile, so this is the rare hand-started case.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.

@@ -324,14 +324,19 @@ $_own
 EOF
   if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$(/usr/bin/id -u)" ]; then HEALTH_STATE=stranger; fi
 }
+# KOSMOS_BUSY_WAIT in whole seconds (default 20). Anything else is 20: "2.5" would be an arithmetic
+# error under set -e, and the messages must name the wait that was actually used.
+_busy_wait() {
+  case "${KOSMOS_BUSY_WAIT:-}" in ''|*[!0-9]*) printf '20' ;; *) printf '%s' "$KOSMOS_BUSY_WAIT" ;; esac
+}
 healthy() {
   if [ "${1:-}" = --once ]; then
     _health_probe 2
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     return 1
   fi
-  local _limit="${KOSMOS_BUSY_WAIT:-20}" _start="$SECONDS" _t=2 _left _said=""
-  case "$_limit" in ''|*[!0-9]*) _limit=20 ;; esac   # whole seconds only: "2.5" would be an arithmetic error under set -e
+  local _limit _start="$SECONDS" _t=2 _left _said=""
+  _limit="$(_busy_wait)"
   while :; do
     _health_probe "$_t"
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
@@ -348,7 +353,7 @@ healthy() {
 # running: telling an agent to start (or restart) it is what turned a slow answer into a blackout.
 say_not_up() {   # <what could not happen, e.g. "nothing can be posted">
   if [ "$HEALTH_STATE" = busy ]; then
-    say "Kosmos is running but too busy to answer (no reply in ${KOSMOS_BUSY_WAIT:-20} s), so $1. Wait a minute and try again; it does not need a restart."
+    say "Kosmos is running but too busy to answer (no reply in $(_busy_wait) s), so $1. Wait a minute and try again; it does not need a restart."
   else
     say "Kosmos is not running, so $1. Start it with: kosmos start"
   fi
@@ -1044,7 +1049,7 @@ cmd_status() {
   elif [ "$HEALTH_STATE" = busy ]; then
     # #4466: running, only slow, so no start/restart advice: that advice is what made agents switch a
     # busy board off and on.
-    say "Kosmos is running at $URL but is busy: it did not answer within ${KOSMOS_BUSY_WAIT:-20} s. Wait a minute; it does not need a restart."
+    say "Kosmos is running at $URL but is busy: it did not answer within $(_busy_wait) s. Wait a minute; it does not need a restart."
     # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
     # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
     # reads this exit code and gives 4 a long grace instead of treating it as down.

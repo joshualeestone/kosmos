@@ -916,6 +916,8 @@ async function main(argv, io) {
   /* #4466: whether the LAST request ran out of time rather than being refused. A board busy with many
      agents answers slowly; telling an agent "we could not reach Kosmos, is it running?" then reads as
      "it is down", and on the Mac the same reading sent agents to restart a healthy board. */
+  // Read only by ctx.unreachable, which every verb calls straight after the failing call, before any
+  // other request: the invariant this relies on.
   let lastTimedOut = false;
   async function call(method, route, body, opts) {
     const c = opts || {};
