@@ -322,7 +322,9 @@ async function verbMsg(ctx, args) {
   // send inside five minutes, so asking once more is safe and turns "maybe" into its real receipt.
   // Every failure but a refused connection is retried: the board is loopback, so there is no DNS or TLS failure
   // to tell apart, and anything else that is not "refused" may have arrived (the Mac lists curl 18/28/52/56).
+  let retried = false;
   if (!r.reached && !r.refused) {
+    retried = true;
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
     const first = r;
@@ -332,6 +334,8 @@ async function verbMsg(ctx, args) {
   }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
+    // #4580: the first attempt was not refused, so it may have landed; a retry that also failed proves nothing.
+    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; check with them before sending it again.');
     const code = ctx.unreachable('send that');
     keepPiped();
     return code;
@@ -433,7 +437,9 @@ async function verbPost(ctx, args) {
   let r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
   // #4580: a CUT reply may come after the board kept the post, so ask once more (the board keeps one copy).
   // Not after a timeout: with a 120 s budget the post is still being delivered.
+  let retried = false;
   if (!r.reached && !r.refused && !r.timedOut) {
+    retried = true;
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
     const first = r;
@@ -443,6 +449,8 @@ async function verbPost(ctx, args) {
   }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');
+    // #4580: as in msg, a first attempt that was cut may have landed, whatever the retry did.
+    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The post may have been delivered; check the room before posting it again.');
     const code = ctx.unreachable('post that');
     keepPiped();
     return code;
@@ -1112,7 +1120,11 @@ async function main(argv, io) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
       lastTimedOut = timedOut;
       // #4580: a refused connection means nothing arrived; a reset or a timeout may come after the board kept it.
-      const refused = Boolean(e && e.cause && e.cause.code === 'ECONNREFUSED');
+      // Every shape a refused connection comes in: fetch's cause.code, an AggregateError of both address families
+      // (cause.errors[].code), or the code in the message.
+      const isRefused = (x) => Boolean(x && (x.code === 'ECONNREFUSED' || /ECONNREFUSED/.test(String(x.message || ''))));
+      const refused = Boolean(e && (isRefused(e) || isRefused(e.cause)
+        || (e.cause && Array.isArray(e.cause.errors) && e.cause.errors.some(isRefused))));
       return { reached: false, timedOut, refused };
     }
   }

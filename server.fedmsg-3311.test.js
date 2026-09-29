@@ -382,6 +382,6 @@ test('#4580: a folded retry (the same post, duplicate) never goes out to the oth
   federateOut(pid, { id: 'p-dup', from: 'you', text: 'said once', duplicate: true }, false);
   assert.deepEqual(children.map((c) => c.written.length), before, 'a duplicate receipt was federated again');
   // CONTROL: the same delivery without the duplicate mark does go out, so the arm can see a send.
-  federateOut(pid, { id: 'p-dup', from: 'you', text: 'said once' }, true);
+  federateOut(pid, { id: 'p-dup', from: 'you', text: 'said once' }, false);
   assert.notDeepEqual(children.map((c) => c.written.length), before);
 });

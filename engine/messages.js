@@ -478,6 +478,7 @@ function resetForTests() {
      inode/size/mtime invalidation cannot see; production never does that
      (the product only appends), and tests reset. */
   READ_CACHE = null;
+  IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
 }
 
 function tmuxBin() {
@@ -972,7 +973,7 @@ function aggregateState(outcomes) {
    the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
    match is folded only while the conversation has been QUIET since it: no row at all, from anyone, in the same pair
    or room, after the matched one. */
-function quietSince(log, matched, isOtherVoice) {
+function quietSince(log, matched, inConversation) {
   // A row counts as "since" if it is later in the log OR started after the match: rows are appended when a
   // send finishes, so on a busy board a reply that started later can sit BEFORE the match. Either one breaks the
   // quiet, which errs toward sending (a real answer is never lost to the fold).
@@ -980,7 +981,7 @@ function quietSince(log, matched, isOtherVoice) {
   const t0 = Date.parse(matched.at);
   for (let j = 0; j < log.length; j++) {
     const r = log[j];
-    if (!r || r === matched || !isOtherVoice(r)) continue;
+    if (!r || r === matched || !inConversation(r)) continue;
     // Strictly later start: rows stamped in the same millisecond are ordered by the log, not by the clock.
     if (j > i || (Number.isFinite(t0) && Date.parse(r.at) > t0)) return false;
   }
@@ -1606,7 +1607,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
   if (operator !== true) {
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
-    if (samePost && quietSince(log, samePost, (r) => r.kind === 'post' && r.project === projectId)) {
+    // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
+    if (samePost && quietSince(log, samePost, (r) => (r.kind === 'post' || r.kind === 'external') && r.project === projectId)) {
       const foldedState = aggregateState(samePost.outcomes);
       return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
     }

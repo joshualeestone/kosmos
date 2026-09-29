@@ -97,3 +97,15 @@ test('#4580 Windows: a timed-out msg whose retry is REFUSED keeps "may have been
   assert.match(h.err(), /may have been delivered/, h.err());
   assert.doesNotMatch(h.err(), /Is it running/);
 });
+
+test('#4580 Windows: a RESET first attempt then a failed retry (refused, or reset again) keeps "may have been delivered"', async () => {
+  for (const [label, second] of [['refused', refusedErr()], ['reset', reset()]]) {
+    for (const verb of [['msg', 'mara', 'signed'], ['post', 'proj', 'signed']]) {
+      const h = sequence([reset(), second]);
+      assert.equal(await cli.main(verb, h.io), 3, verb[0] + ' ' + label + ': ' + h.err());
+      assert.equal(h.calls(), 2);
+      assert.match(h.err(), /may have been delivered/, verb[0] + ' ' + label);
+      assert.doesNotMatch(h.err(), /Is it running/, verb[0] + ' ' + label);
+    }
+  }
+});
