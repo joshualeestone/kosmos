@@ -2838,7 +2838,6 @@ test('#4580: the SAME room post sent again is posted once; a person\'s identical
 
 test('#4580: a retry that arrives while the first send is STILL delivering waits for it, and nothing is sent twice', async () => {
   // The first send is held open (a busy board); the retry arrives meanwhile.
-  const roster = null;
   let release;
   const gate = new Promise((r) => { release = r; });
   let delivered = 0;
@@ -2856,5 +2855,87 @@ test('#4580: a retry that arrives while the first send is STILL delivering waits
     assert.equal(b.id, a.id);
     assert.equal(messages.list('leo').length, 1);
   });
-  void roster;
+});
+
+test('#4580: a newer send is found even when an OLDER row was appended after it (a slow fan-out finishes late)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'recent words' }, board.agents);
+    // A row stamped 3 minutes ago lands AFTER it in the file, as a long fan-out that started earlier would.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm99', from: 'april', to: 'leo', text: 'late row', at: new Date(Date.now() - 180000).toISOString(), state: 'placed' }) + '\n');
+    messages.resetForTests();
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'recent words' }, board.agents);
+    assert.equal(again.duplicate, true, 'the scan stopped at the out-of-order old row: ' + JSON.stringify(again));
+    assert.equal(again.id, first.id);
+  });
+});
+
+test('#4580: the same words answering a DIFFERENT message are two answers, not one', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const q1 = messages.send({ fromPane: '%7', to: 'leo', text: 'can you take the lease?' }, board.agents);
+    const q2 = messages.send({ fromPane: '%7', to: 'leo', text: 'and the keys?' }, board.agents);
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const a1 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
+    const a2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q2.id }, board.agents);
+    assert.equal(a2.duplicate, undefined, 'a second answer was folded into the first: ' + JSON.stringify(a2));
+    assert.notEqual(a2.id, a1.id);
+    // CONTROL: the same answer to the SAME message again is folded.
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const a1again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
+    assert.equal(a1again.duplicate, true);
+    assert.equal(a1again.id, a1.id);
+  });
+});
+
+test('#4580: a retry at the pair cap its own first copy reached is folded, not refused', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm(Array.from({ length: PAIR_BUDGET * 2 + 4 }, () => ok()));
+    let last;
+    for (let i = 0; i < PAIR_BUDGET; i++) last = messages.send({ fromPane: '%7', to: 'mara', text: 'note ' + i }, board.agents);
+    assert.equal(last.state, chat.DELIVERY.PLACED, 'the cap was reached on the last new message: ' + JSON.stringify(last));
+    const retry = messages.send({ fromPane: '%7', to: 'mara', text: 'note ' + (PAIR_BUDGET - 1) }, board.agents);
+    assert.equal(retry.duplicate, true, 'the retry of a delivered message was refused at the cap: ' + JSON.stringify(retry));
+    assert.equal(retry.id, last.id);
+    // CONTROL: a NEW message at the cap is refused (the valve still works).
+    const fresh = messages.send({ fromPane: '%7', to: 'mara', text: 'something new' }, board.agents);
+    assert.equal(fresh.state, chat.DELIVERY.COULD_NOT);
+  });
+});
+
+test('#4580: an agent alone on a project gets the SAME state for its post and for the folded retry', () => {
+  withFleet([fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'notes to self' }, board.agents, ['mara']);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'notes to self' }, board.agents, ['mara']);
+    assert.equal(again.duplicate, true, JSON.stringify(again));
+    assert.equal(again.state, first.state, 'the retry read a different state than the post it folds into');
+  });
+});
+
+test('#4580: a room post retried while the first is STILL delivering waits for it, and nobody is typed to twice', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let delivered = 0;
+  const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
+  const sender = { ok: true, card: { sessionName: 'mara' } };
+  const input = { sender, project: 'henderson-lease', text: 'draft is up' };
+  await withFleet(room3(), async (board) => {
+    const p1 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
+    const p2 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(delivered, MEMBERS.length - 1, 'each colleague was delivered to ONCE: ' + delivered);
+    assert.equal(b.duplicate, true, JSON.stringify(b));
+    assert.equal(b.id, a.id);
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1);
+  });
 });

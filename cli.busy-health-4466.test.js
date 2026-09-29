@@ -439,13 +439,15 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
     assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2);
   });
   // CONTROL: every send cut. One retry, then the honest "may still have happened" (never a loop, never "not running").
-  await withBoard('cutalways', async (port, firstFile) => {
-    const out = await runCli(['msg', 'mara', 'on my way'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
-    assert.notEqual(out.code, 0);
-    assert.match(out.stdout, /It may still have happened: check before doing it again/);
-    assert.doesNotMatch(out.stdout, /not running|Is it running/);
-    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'one retry, then stop');
-  });
+  for (const args of [['msg', 'mara', 'on my way'], ['post', 'proj', 'on my way']]) {
+    await withBoard('cutalways', async (port, firstFile) => {
+      const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+      assert.notEqual(out.code, 0, args[0]);
+      assert.match(out.stdout, /It may still have happened: check before doing it again/, args[0] + ': ' + out.stdout);
+      assert.doesNotMatch(out.stdout, /not running|Is it running/);
+      assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, args[0] + ': one retry, then stop');
+    });
+  }
 });
 
 test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {

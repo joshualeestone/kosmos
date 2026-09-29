@@ -319,7 +319,7 @@ async function verbMsg(ctx, args) {
   // #4580: a timeout or a cut reply may come AFTER the board delivered; the board keeps one copy of the same
   // send inside two minutes, so asking once more is safe and turns "maybe" into its real receipt.
   if (!r.reached && !r.refused) {
-    process.stderr.write('  Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n');
+    ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     r = await ctx.call('POST', '/api/msg', body);
   }
   if (!r.reached) {
@@ -426,7 +426,7 @@ async function verbPost(ctx, args) {
   // #4580: a CUT reply may come after the board kept the post, so ask once more (the board keeps one copy).
   // Not after a timeout: with a 120 s budget the post is still being delivered.
   if (!r.reached && !r.refused && !r.timedOut) {
-    process.stderr.write('  Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n');
+    ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
     r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
   }
   if (!r.reached) {
