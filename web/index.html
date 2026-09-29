@@ -30287,11 +30287,12 @@ function orgPlace(nodes) {
            pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
         /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
-           no longer always centred on the manager. One or two reports keep a centred window (#352: a lone report
-           straight out, a pair either side of it by angle; a crowded pair of leaves may take two rings, one face
-           a ring further out than the other, still either side by angle). */
-        const left = ks.length > 2 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
-        const right = ks.length > 2 ? Math.min(ps.hi - ps.ang, cap) : left;
+           no longer always centred on the manager. A lone report keeps a centred window (#352: straight out). A pair
+           is still either side of the manager when its slice is even on both sides (#352), but may lean into the
+           roomier side when the manager sits near one edge of its slice: a centred window there was a sliver, and
+           one pair was pushed 2428px out for it (review it5). A crowded pair of leaves may take two rings. */
+        const left = ks.length > 1 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
+        const right = ks.length > 1 ? Math.min(ps.hi - ps.ang, cap) : left;
         const half = (left + right) / 2;
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
         /* #4472: a team with no managers in it (every report a leaf) that would crowd one ring takes two
@@ -30334,7 +30335,9 @@ function orgPlace(nodes) {
             out.set(k.agent.sessionName, { ang, r: rr, node: k, span: h, lane: i % 2, laned });
           });
           /* Their slices: cut at the midpoints between neighbouring faces by angle, the ends at the window's edges
-             or the outermost face, whichever is further out, so each face sits inside its own slice. */
+             or the outermost face, whichever is further out, so each face sits inside its own slice. Unlike a
+             one-ring team's, the end slices do not run on to the manager's slice edges: these reports are all
+             leaves, so nothing is ever placed in their slices. */
           const team = ks.map((k) => out.get(k.agent.sessionName)).sort((a, b) => a.ang - b.ang);
           team.forEach((sp, i) => {
             sp.lo = i ? (team[i - 1].ang + sp.ang) / 2 : Math.max(ps.lo, Math.min(start, sp.ang));
@@ -30392,15 +30395,16 @@ function orgPlace(nodes) {
     /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
        added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
        its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within its ends' radii
-       give or take ORG_LINE_CLEAR. That holds because below the first ring the cap makes every line run steadily
-       outward, and a first-ring manager's lines (no tangent cap, ~85 degrees) dip below the manager's radius by
-       only a few pixels (measured at most 4.6px), less than ORG_LINE_CLEAR, while no face sits inside ORG_R0.
-       The checks below skip the distance for the rest (every pair is still visited), which took a 1000-agent
-       chart from 97ms to 18ms. */
+       give or take ORG_LINE_CLEAR. That holds below the first ring, where the cap makes every line run steadily
+       outward. A first-ring manager's lines have no tangent cap (~85 degrees) and dip below the manager's radius
+       (review it5 measured 12.9px, more than ORG_LINE_CLEAR), so a line from the first ring (or the hub) is
+       never skipped: its band starts at 0. The checks below skip the distance for the rest (every pair is still
+       visited), which took a 1000-agent chart from 97ms to 18ms. */
     const faceOf = (name, s) => ({ name, r: s.r, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
     const lineOf = (f, parent) => {
       const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
-      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
+      const firstRing = !parent || !placed.get(parent).node.parent;
+      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: firstRing ? 0 : Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
     };
     const segDist = (q, g) => {
       const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];

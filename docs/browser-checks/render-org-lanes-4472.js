@@ -2,7 +2,7 @@
 
 /**
  * kosmos#4472: on the rendered org chart, a big team with no managers in it sits on two staggered rings, and the
- * wires still do not cross or run through a face.
+ * wires still do not cross or pass nearer a face than the layout promises.
  *
  * web.org-lanes-4472.test.js pins orgPlace's geometry in node; this drives the real page on a board with a CEO over
  * three managers of fourteen reports each (tools/browser-checks.sh ORG_LANES_TREE), where every team takes two rings,
@@ -29,6 +29,10 @@ const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orgla
 const AGENTS = 46;
 const MANAGERS = 3;
 const FACE_R = 22;   // a face is 44px across
+/* The nearest a wire may come to a face that is not one of its ends: what orgPlace promises inside a two-ring team
+   (ORG_LANE_SLOT, 31px) at the tightest squeeze orgFit applies on a phone (ORG_SQUEEZE_MIN, 0.7). A tighter threshold
+   would pass only by this board's spacing, not by anything the layout guarantees (review it5). */
+const WIRE_CLEAR = 31 * 0.7;
 
 /* A proper crossing: interior to both segments (as render-org-sectors-4434 counts it). */
 function crossings(segs) {
@@ -122,7 +126,7 @@ async function settledRead(pg) {
       'spread ' + spreads.map((x) => x.toFixed(0) + 'px').join(', '));
     const bad = crossings(m.segs);
     say(bad.length === 0, label + ': no two connector lines cross', bad.length + ' crossing(s)' + (bad.length ? ': ' + bad.slice(0, 5).join(', ') : ''));
-    /* No wire runs through a face: every wire clears every face that is not one of its ends by a face's radius. */
+    /* Every wire clears every face that is not one of its ends by WIRE_CLEAR. */
     let least = Infinity; let where = '';
     for (const s of m.segs) {
       for (const n of m.nodes) {
@@ -131,7 +135,7 @@ async function settledRead(pg) {
         if (d < least) { least = d; where = s.name + ' past ' + n.key; }
       }
     }
-    say(least >= FACE_R, label + ': no wire runs through a face that is not one of its ends', 'least ' + least.toFixed(1) + 'px (' + where + ')');
+    say(least >= WIRE_CLEAR, label + ': no wire comes nearer than ' + WIRE_CLEAR.toFixed(1) + 'px to a face that is not one of its ends', 'least ' + least.toFixed(1) + 'px (' + where + ')');
     const shot = path.join(OUT, 'org-lanes-4472-' + label + '.png');
     await pg.locator('#orgview').screenshot({ path: shot });
     console.log('      screenshot: ' + shot);
