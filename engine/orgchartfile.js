@@ -146,6 +146,9 @@ const attr = (tag, name) => { const m = new RegExp(`\\b${name}="([^"]*)"`).exec(
    would otherwise make a row millions of cells long (measured: 200 such rows took about 1 GB of heap from a
    2 KB file), and that runs out of memory on the board's only process. */
 const MAX_COLS = 16384;
+/* Only the first columns are kept: the reader needs a handful (name, title, manager, id), and a legal cell at
+   XFD on every row would otherwise make each of 2,000 rows 16,384 cells wide (measured: 284 MB). */
+const KEEP_COLS = 256;
 const colIndex = (ref) => {
   const letters = /^[A-Z]{1,3}/.exec(ref || '');
   if (!letters) return null;
@@ -239,6 +242,7 @@ function readXlsx(buf) {
       const at = colIndex(attr(tag, 'r'));
       const i = at == null ? next : at;
       if (i >= MAX_COLS) break;   // past Excel's last column: the rest of this row is not a real sheet's
+      if (i >= KEEP_COLS) { next = i + 1; continue; }   // a real but far column: not one the reader uses
       const type = attr(tag, 't');
       const inner = cell.inner;
       let v = '';
@@ -287,15 +291,24 @@ function tableToPeople(table) {
   }
   const cell = (r, k) => (col[k] == null ? '' : String(r[col[k]] || '').trim());
   const people = [];
+  let untitled = 0;
   for (const r of table.slice(1, MAX_ROWS + 1)) {
     const title = cell(r, 'title');
     let person = cell(r, 'person');
     if (!person && (col.first != null || col.last != null)) person = [cell(r, 'first'), cell(r, 'last')].filter(Boolean).join(' ');
     if (!title && !person) continue;
-    people.push({ person: plain(person, MAX_PERSON), title: plain(title || person, MAX_TITLE), id: plain(cell(r, 'id'), MAX_TITLE), manager: plain(cell(r, 'manager'), MAX_PERSON) });
+    /* No title: left out and counted, never titled with the person's name (the agent would be named after a
+       real person with names off, which #1280's default exists to prevent). */
+    if (!title) { untitled += 1; continue; }
+    people.push({ person: plain(person, MAX_PERSON), title: plain(title, MAX_TITLE), id: plain(cell(r, 'id'), MAX_TITLE), manager: plain(cell(r, 'manager'), MAX_PERSON) });
   }
-  return resolve(people, table.length - 1 > MAX_ROWS);
+  const out = resolve(people, table.length - 1 > MAX_ROWS);
+  if (untitled) out.problems.push(untitledSentence(untitled));
+  return out;
 }
+
+const untitledSentence = (n) => n + (n === 1 ? ' person has' : ' people have')
+  + ' no title in the file and ' + (n === 1 ? 'was' : 'were') + ' left out. Add the title and upload again, or add them to the list by hand.';
 
 /* Manager text into a row index. It may be the manager's id or email (a Manager ID column) or their
    name. Matched case-insensitively and exactly; anything else is marked, never guessed. */
@@ -352,7 +365,7 @@ function readLocal(name, bytes) {
   if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than ' + Math.round(MAX_BYTES / 1048576) + ' MB. An org chart export is usually much smaller; try exporting just the people.'] };
   const ext = extOf(name);
   try {
-    if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return tableToPeople(parseDelimited(buf.toString('utf8')));
+    if (ext === 'csv' || ext === 'tsv') return tableToPeople(parseDelimited(buf.toString('utf8')));
     if (ext === 'xlsx') return tableToPeople(readXlsx(buf));
   } catch (e) {
     // A truncated or crafted file fails a bounds read deep in the zip or sheet walk; say what that means.
@@ -385,6 +398,7 @@ const PROVIDER = 'Anthropic (Claude)';
 const NO_MODEL = 'Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 const MODEL_TIMEOUT_MS = 120000;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /* What the model must answer. Enforced by the CLI (--json-schema) AND re-checked below, because a
    schema the other side applies is a request, not a guarantee. */
@@ -459,7 +473,10 @@ function defaultModelRunner(line) {
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* execFile reports a missing cwd */ }
   return new Promise((resolve) => {
     const env = { ...process.env };
-    delete env.CLAUDE_CONFIG_DIR;   // the person's default Claude account, as the create probe uses
+    /* The account is named explicitly, never left to claude's ambient default: that default fails inside the
+       board's launchd process (#3136). The board's own account if it runs on one, else the default account. */
+    const acct = readAccount();
+    if (acct) env.CLAUDE_CONFIG_DIR = acct.dir; else delete env.CLAUDE_CONFIG_DIR;
     const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL' },
       (err, stdout) => {
         let result = null;
@@ -479,6 +496,25 @@ function defaultModelRunner(line) {
     child.stdin.end(line);
   });
 }
+/* The Claude account a read runs on: the board's own (CLAUDE_CONFIG_DIR) when it has one, else the default
+   account, resolved to its directory. Null when this computer has no Claude account. */
+function readAccount() {
+  let list = [];
+  try { list = require('./accounts').list(); } catch { list = []; }
+  const own = process.env.CLAUDE_CONFIG_DIR;
+  if (own) {
+    const hit = list.find((a) => a.dir === require('node:path').resolve(own));
+    return hit || { dir: own, email: null };
+  }
+  return list.find((a) => a.isDefault) || null;
+}
+/* Who the consent names: the provider, and the account when its address is known. */
+function providerLabel() {
+  let acct = null;
+  try { acct = readAccount(); } catch { acct = null; }
+  return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
+}
+
 /* Whether a picture or PDF can be read at all on this computer: a Claude Code the board can run. The
    read itself still reports a dead sign-in; this only decides whether to offer the read. */
 let availability = () => { try { return Boolean(require('./runners').resolveBin('claude').bin); } catch { return false; } };
@@ -496,19 +532,22 @@ function fromModel(structured) {
   const people = structured && Array.isArray(structured.people) ? structured.people : null;
   if (!people) return { rows: [], problems: ['The answer was not a list of people. Try again, or upload a CSV.'] };
   const clean = [];
+  let untitled = 0;
   for (const p of people.slice(0, MAX_ROWS)) {
     if (!p || typeof p !== 'object') continue;
     const person = plain(typeof p.person === 'string' ? p.person : '', MAX_PERSON);
     const title = plain(typeof p.title === 'string' ? p.title : '', MAX_TITLE);
     if (!person && !title) continue;
+    if (!title) { untitled += 1; continue; }   // as tableToPeople: never titled with the person's name
     clean.push({
-      person, title: title || person,
+      person, title,
       manager: typeof p.reportsTo === 'string' ? plain(p.reportsTo, MAX_PERSON) : '',
       unsure: p.sure === false ? (plain(typeof p.why === 'string' ? p.why : '', MAX_WHY) || 'the model was not sure of this line') : null,
     });
   }
-  if (!clean.length) return { rows: [], problems: ['No people were found in that file.'] };
+  if (!clean.length) return { rows: [], problems: [untitled ? untitledSentence(untitled) : 'No people were found in that file.'] };
   const out = resolve(clean.map((c) => ({ person: c.person, title: c.title, id: '', manager: c.manager })), people.length > MAX_ROWS);
+  if (untitled) out.problems.push(untitledSentence(untitled));
   clean.forEach((c, i) => { if (c.unsure && !out.rows[i].why) out.rows[i].why = c.unsure; });
   return out;
 }
@@ -518,10 +557,15 @@ async function readWithModel(name, bytes) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   if (!forModel(name)) return { rows: [], problems: ['That kind of file is not read by the model.'] };
   if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than ' + Math.round(MAX_BYTES / 1048576) + ' MB. Try a smaller picture or a one-page PDF.'] };
+  /* The provider takes a picture of up to 5 MB; refuse a larger one here, in words, rather than send it and get
+     back a failure that says less. */
+  if (MODEL_TYPES[extOf(name)].block === 'image' && buf.length > MAX_IMAGE_BYTES) {
+    return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.'] };
+  }
   let got;
   try { got = await modelRunner(requestLine(name, buf)); } catch { got = { ok: false, because: 'the read failed' }; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }
 
-module.exports = { NO_MODEL, MAX_COLS, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+module.exports = { NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

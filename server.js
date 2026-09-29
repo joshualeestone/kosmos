@@ -6524,16 +6524,17 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
-        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.PROVIDER }); return; }
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         const got = await orgchartfile.readWithModel(name, bytes);
         if (got.unavailable) {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
-        sendJson(res, 200, { source: 'model', provider: orgchartfile.PROVIDER, rows: got.rows, problems: got.problems });
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
       })
-      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that file') }));
+      /* readBody rejects only for a body over the cap; any other failure gets the same plain sentence. */
+      .catch(() => sendJson(res, 400, { error: 'We could not read that file. An org chart export is usually well under 10 MB.' }));
     return;
   }
 

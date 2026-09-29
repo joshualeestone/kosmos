@@ -13945,7 +13945,7 @@ window.kosmosMeasureScrollbarWidth();
              read by the person's own AI provider, and only after they say yes to that (#orgchart-consent). -->
         <div class="importrow orgchart-filerow">
           <button class="btn" type="button" id="orgchart-file-btn">Choose a file</button>
-          <input type="file" id="orgchart-file" hidden accept=".csv,.tsv,.txt,.xlsx,.xls,.numbers,.png,.jpg,.jpeg,.webp,.gif,.pdf,.pptx,.key">
+          <input type="file" id="orgchart-file" hidden accept=".csv,.tsv,.xlsx,.xls,.numbers,.png,.jpg,.jpeg,.webp,.gif,.pdf,.pptx,.key">
           <span class="rolehelp" id="orgchart-file-note">Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.</span>
         </div>
         <div class="orgchart-consent" id="orgchart-consent" role="group" aria-labelledby="orgchart-consent-say" hidden>
@@ -46747,7 +46747,7 @@ async function orgchartSendFile(file, consent, seq) {
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
-      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Nothing is kept afterwards.';
+      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.';
     document.getElementById('orgchart-consent').hidden = false;
     msg.textContent = ''; msg.hidden = true;
     document.getElementById('orgchart-consent-go').focus();
