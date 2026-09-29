@@ -95,7 +95,8 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   repeats the same ctx.call, headers included.
 
 ## Review round 5 (sonnet): 2 WARNINGs fixed, 1 confirmed not real (commented), NITs tidied
-- W: the plan and the CLI comments still said "two minutes" after the window became five. Reworded everywhere.
+- W: the plan and the CLI comments still said "two minutes" after the window became five. Reworded (round 6 corrected
+  the sweep: it had also changed two unrelated comments and missed two test comments).
 - W: quiet-since used LOG POSITION only, but rows are appended at finish, so a reply that started after the first
   copy could sit before it and be missed. A row now breaks the quiet if it is later in the log OR started strictly
   later than the match (same-millisecond rows are ordered by the log). Errs toward sending. Arm, red.
@@ -103,6 +104,22 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   always an agent card: /api/msg and the outbox drain); a person's direct messages go through chat, not here.
 - NITs: comment order above asDuplicate, a stray blank line, the posthang comment; the 31 s worst case of a msg
   that times out twice is already written at the #2909 arm.
+
+## Review round 6 (opus): 4 WARNINGs fixed, 1 written down, NITs
+- W (my own sweep): the round-5 "two minutes" -> "five minutes" rewrite also changed two UNRELATED comments (the agent
+  guard's stale-lock clear, about two minutes; the Windows stdin quiet limit, 120 s) and the post-timeout seam note, and
+  missed two test comments. All fixed by exact line; no base-branch "two minutes" line is changed now.
+- W: an ambiguous first attempt (timeout or cut) followed by a REFUSED retry (the board restarted in between) was
+  reported as plain "not sent", and the copy handed back for re-sending, although the first may have landed and the
+  restarted board no longer remembers it. Both CLIs now keep the first attempt's "maybe" when the retry proves nothing.
+  Arms: Mac 'cutthendie' (msg and post) and Windows timeout-then-refused; red on the previous CLIs.
+- WRITTEN DOWN (weakest premise): quiet-since sees only LOGGED rows between the two agents. A reply from the other party
+  that is still in flight, or a person's chat message to the agent (a different store), does not break the quiet.
+  Both are narrow: the other party would have to answer inside the few seconds of a retry.
+- NIT fixed: the #4580 header comment rewrapped.
+- DEFERRED: the async test `deliverToPane !== chat.deliver` (it is exactly "not the synchronous deliver", which is what
+  the in-flight wait needs); a route-level end-to-end arm (each layer has its own arms: engine fold, route federation,
+  both CLIs against stubs).
 
 ## Weakest premise
 An agent that MEANS to send the identical text twice within five minutes, to the same place, answering the same

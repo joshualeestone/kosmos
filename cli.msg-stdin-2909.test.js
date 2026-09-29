@@ -143,7 +143,7 @@ test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no c
   assert.doesNotMatch(out.stdout, /saved at/, 'a message that may have landed is not offered for re-sending');
   // Two 15 s budgets against the stub's 17 s stall: about 34 s of wall time inside the 45 s limit, on purpose.
   // #4580: the CLI asks ONCE more after a timeout (the real board keeps one copy of the same send inside
-  // two minutes, so the retry cannot duplicate it); this stub does not fold, so it counts both.
+  // five minutes, so the retry cannot duplicate it); this stub does not fold, so it counts both.
   assert.equal(seen.length, 2, 'the board received it, and was asked exactly once more');
 }, null, 17000));
 

@@ -941,9 +941,9 @@ function filteredText(from, text) {
    sender as a failure (the reply timed out, or was cut, on a busy board), and the sender re-sends: four of
    five model families filled rooms with copies that way. The sender cannot tell a lost send from a slow
    one, so the board does: a send identical to one the SAME sender made to the SAME place in the last
-   SEND_DEDUP_WINDOW_MS (with nothing said in between) is not sent again, and gets the first one's receipt with duplicate: true. Only
-   agents' sends (a person's post is never folded). The trade: an agent that MEANS to send the same text
-   twice inside the window gets one copy. */
+   SEND_DEDUP_WINDOW_MS, with nothing said in between, is not sent again, and gets the first one's receipt with
+   duplicate: true. Only agents' sends (a person's post is never folded). The trade: an agent that MEANS to send
+   the same text twice into a silent conversation inside the window gets one copy. */
 // Five minutes, comfortably past a room post's own 120 s budget: a row is stamped when its send STARTED, so a slow
 // fan-out that finished at 110 s must still be inside the window when the agent re-runs the command. The quiet-since
 // rule below, not the window, is what keeps a real second answer from being folded.
