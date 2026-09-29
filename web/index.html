@@ -16069,7 +16069,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish. It sends each one a short reminder to pick its work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish. It can send each one a short reminder to pick its work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -22317,7 +22317,7 @@ async function paintPrompterNudges() {
   const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
   if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
   /* #4544 (Josh): each name is a link to that agent. A real link (the ?tab=detail&agent= deep link
-     a push tap uses), so it is keyboard-reachable and opens in a new tab; a plain click opens it in
+     a push tap uses), so it is keyboard-reachable and a modified click opens it in a new tab; a plain click opens it in
      place (prompterNudgeOpen). */
   const rows = nudges.map((n) =>
     '<div class="hb-nudge" role="listitem">' +

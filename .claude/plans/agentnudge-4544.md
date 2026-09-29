@@ -80,10 +80,18 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
   card that is not ours, with a control.
 - WARNING fixed: the Settings hint promised a check-in for every stopped agent and did not say Kosmos messages the
   agent. New copy (Josh's spec wording): "Every so often, Kosmos checks on your agents that have stopped while they
-  still have tasks to finish. It sends each one a short reminder to pick its work back up, and shows a check-in below
+  still have tasks to finish. It can send each one a short reminder to pick its work back up, and shows a check-in below
   so you can look in on it. Everything stays on this computer. On by default." Pinned by a test. Overridable.
 - NIT fixed: the restart limit is about one interval, not two (the Prompter opens a never-seen stall on its 2nd tick).
 - NIT fixed: a direct test that sweepOnce refuses a null roster and says why.
 - NIT fixed: prompterTick reads the projects only when there is a stall.
 - NIT deferred: Agent Communication's copy does not say the same number paces the Prompter's nudges. A separate count
   at the same number; reversible later if it confuses.
+
+### Iteration 4 (sonnet)
+- WARNING fixed: the hint promised a reminder always; it goes only with live execution allowed and within the cap.
+  Now "It can send each one a short reminder"; the test pins "can send".
+- WARNING duplicate: the two named limits and "resume" unmeasured (already recorded; the card stays open until a
+  resume is observed after release).
+- NIT fixed: a broken sentence in the module header, now only what the code does.
+- NIT fixed: the link comment said "opens in a new tab" without the condition; it is a modified click that does.

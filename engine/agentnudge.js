@@ -18,10 +18,8 @@
  *  - it did not go idle on this very tick (an episode the Prompter opened on a working-to-idle edge
  *    is nudged one interval later, so an agent that just finished a turn is not nudged at once);
  *  - the Prompter read it as idle (toAsk's `to`), and its card reads idle, is ours, and is not a
- *    switched-off swarm (the Assigner's idleCard). A low-confidence idle is `unknown` to the Prompter
- *    and is not typed into. Only idle: unknown,
- *    auth_failed, connection_lost and stopped cannot act on typed text, and they keep reaching the
- *    person through the check-in;
+ *    switched-off swarm (the Assigner's idleCard). Every other reading is left to the person's
+ *    check-in, a low-confidence idle included (the Prompter reads it as unknown);
  *  - it holds an open part of a task in a live project where it is not switched off (openParts, the
  *    Assigner's hasOpenWork rule). An agent with none is the Assigner's lane, so the two never both
  *    poke one agent;

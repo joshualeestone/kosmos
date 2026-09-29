@@ -186,6 +186,7 @@ test('#4544: the Prompter hint says what it now does: only agents with tasks to 
   assert.ok(at > 0, 'the Prompter row was not found');
   const hint = PAGE.slice(at, PAGE.indexOf('</p>', at));
   assert.match(hint, /still have tasks to finish/, 'the hint must say the list is only agents with tasks to finish');
-  assert.match(hint, /sends each one a short reminder/, 'the hint must say Kosmos messages the agent');
+  // "can send": the reminder goes only where Kosmos is allowed to type to agents (live execution) and within the hour's cap.
+  assert.match(hint, /can send each one a short reminder/, 'the hint must say Kosmos messages the agent, without promising it always does');
   assert.doesNotMatch(hint, /checks which of your agents have stopped\. When one has/, 'the old every-stopped-agent wording is back');
 });
