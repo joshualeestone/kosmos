@@ -138,6 +138,7 @@ fi
 # recovers on its own the moment that session ends.
 adopt=
 RUN_INSTANCE=""   # #4530: which run's sender token this supervisor retires when the run ends
+RUN_STARTED=0     # #4530: set once this launch's session exists (launch_pane)
 warned=0
 waited=0
 # ⚠️ SEAMS, defaulted to the shipped behaviour: the poll interval exists so
@@ -300,28 +301,44 @@ token_roster_name() {
   unset _tr
 }
 
-# #4530: retire THIS run's sender token once the run is over, as the Windows supervisor
-# does (win32create.retireRun). Before this, every past launch stayed a valid credential
-# until 32 newer ones pushed it out, so any launch that ever leaked stayed usable.
-# RUN_INSTANCE is the instance this run was minted with (the launch path), or the one the
-# session recorded (the adopt path, where a restarted supervisor took over a live run).
-# Best effort and silent, like the mint: it must never be the reason a supervisor fails.
-# The world's roots are applied here only when the launch block did not already export
-# them (the adopt path): applying them twice would nest one world inside another.
-retire_run_token() {
+# #4530: the sender-token store, from the shell. `retire` drops THIS run's token
+# (RUN_INSTANCE); `sweep` drops every other token this session's launches were minted,
+# keeping this run's. Best effort and silent, like the mint: it must never be the
+# reason a supervisor fails. The world's roots are applied here only when the launch
+# block did not already export them (the adopt path): applying them twice would nest
+# one world inside another. Before this, a Mac never retired a run's token, so every
+# past launch stayed a valid credential until 32 newer ones pushed it out.
+token_store() {
   [ -n "${RUN_INSTANCE:-}" ] || return 0
   if [ -z "${_eng:-}" ] || [ -z "${NODE_BIN:-}" ]; then resolve_token_engine; fi
   [ -n "${_eng:-}" ] && [ -n "${NODE_BIN:-}" ] || return 0
   "$NODE_BIN" -e '
     try {
-      const eng = process.argv[1];
-      if (process.argv[4] !== "1" && process.env.KOSMOS_WORLD) {
+      const [eng, op, name, instance, applied, session] = process.argv.slice(1);
+      if (applied !== "1" && process.env.KOSMOS_WORLD) {
         try { require(eng + "/worlds.js").applyAgentWorldEnv(process.env); } catch (e) { /* the default roots, as the mint falls back */ }
       }
-      require(eng + "/sendertoken.js").retire(process.argv[2], process.argv[3]);
-    } catch (e) { /* a retire is never worth a failed supervisor */ }
-  ' "$_eng" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" >/dev/null 2>&1 || true
+      const s = require(eng + "/sendertoken.js");
+      const r = op === "sweep" ? s.retireLauncher(name, "supervisor:" + session, instance) : s.retire(name, instance);
+      if (!r || !r.ok) process.stdout.write((r && r.because) || "failed");
+    } catch (e) { process.stdout.write("failed"); }
+  ' "$_eng" "$1" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" "$SESSION" 2>/dev/null || true
+}
+retire_run_token() {
+  [ -n "${RUN_INSTANCE:-}" ] || return 0
+  _why="$(token_store retire)"
+  [ -n "$_why" ] && say "$SESSION: the ended run's sender token could not be retired ($_why); the next launch retires it"
   RUN_INSTANCE=""
+  unset _why
+}
+
+# This session's id, found by EXACT name. tmux resolves a plain -t by prefix when the
+# exact session is gone (measured: an option read on `foo` answered from `foo-discord`),
+# and `=name` is refused by set-option and show-options (measured), so the instance is
+# written through the id, which names one session or fails. Empty when there is none.
+session_id_exact() {
+  "$TMUX_BIN" list-sessions -F '#{session_name}	#{session_id}' 2>/dev/null \
+    | awk -F '\t' -v n="$SESSION" '$1 == n { print $2; exit }'
 }
 
 # --dangerously-skip-permissions is not optional for an unattended agent.
@@ -426,15 +443,15 @@ if [ -z "$adopt" ]; then
       # it), so a -discord strip before the +world parse would mangle
       # `sales-bot+qa-discord` into `sales-bot+qa`.
       _roster="$(token_roster_name)"
-      # #4530: tagged with THIS session, replacing the tokens earlier runs of it were
-      # minted: we are here only because no session of this name exists, so every one
-      # of those runs has ended, and until now each stayed a valid credential (up to
-      # 32 per agent). The instance comes back beside the token so this run can retire
-      # its own when it ends (below the supervision loop). Two words: token, instance.
+      # #4530: tagged with THIS session, so once this run's session exists the earlier
+      # runs it was minted for can be retired (after the claim, below). Not at mint time:
+      # a launch that mints and then loses the race for the session name must not cut
+      # off the run that won it. The instance comes back beside the token so this run can
+      # retire its own when it ends. Two words: token, instance.
       _minted="$("$NODE_BIN" -e '
         try {
           const s = require(process.argv[1]);
-          const r = s.mint(process.argv[2], { launcher: "supervisor:" + process.argv[3], replaceLauncher: true });
+          const r = s.mint(process.argv[2], { launcher: "supervisor:" + process.argv[3] });
           if (r && r.ok) process.stdout.write(r.token + (r.instance ? " " + r.instance : ""));
         } catch (e) { /* a mint is never worth a failed launch */ }
       ' "$_eng/sendertoken.js" "$_roster" "$SESSION" 2>/dev/null || true)"
@@ -516,6 +533,9 @@ if [ -z "$adopt" ]; then
 
   cleanup_launch_secrets() {
     [ -n "${SECRET_FILE:-}" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
+    # #4530: a launch that minted and then never started its session (every `|| exit 1`
+    # below, or losing the name to another launch) leaves a token no run holds.
+    if [ "${RUN_STARTED:-0}" != 1 ]; then retire_run_token; fi
   }
   trap cleanup_launch_secrets EXIT
   trap 'exit 129' HUP
@@ -525,7 +545,8 @@ if [ -z "$adopt" ]; then
   launch_pane() {
     prepare_secret_entry
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@"
+      ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@" || return
+    RUN_STARTED=1   # #4530: from here the minted token belongs to a run that exists
   }
 
   # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
@@ -1072,10 +1093,21 @@ fi
 # can retire that token even when it is not the one that launched it (a supervisor
 # restarted mid-run adopts the live session and never minted). The instance is a label,
 # not a secret (sendertoken.js), and it dies with the session like the claim above.
+# Both directions go by EXACT name (session_id_exact): a prefix match could stamp this
+# run onto `foo-discord`, or read `foo-discord`'s run as ours and retire a live token.
 if [ -z "$adopt" ] && [ -n "$RUN_INSTANCE" ]; then
-  "$TMUX_BIN" set-option -t "$SESSION" @kosmos_token_instance "$RUN_INSTANCE" 2>/dev/null || true
+  _sid="$(session_id_exact)"
+  [ -n "$_sid" ] && "$TMUX_BIN" set-option -t "$_sid" @kosmos_token_instance "$RUN_INSTANCE" 2>/dev/null || true
+  # This run's session exists and is claimed, and a session name is unique, so every
+  # other run launched for it has ended: retire their tokens now.
+  if [ -n "$_sid" ]; then
+    _why="$(token_store sweep)"
+    [ -n "$_why" ] && say "$SESSION: earlier runs' sender tokens could not be retired ($_why); the next launch tries again"
+  fi
+  unset _sid _why
 elif [ -n "$adopt" ]; then
-  RUN_INSTANCE="$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_token_instance 2>/dev/null || true)"
+  RUN_INSTANCE="$("$TMUX_BIN" list-sessions -F '#{session_name}	#{@kosmos_token_instance}' 2>/dev/null \
+    | awk -F '\t' -v n="$SESSION" '$1 == n { print $2; exit }')"
   case "$RUN_INSTANCE" in ''|*[!0-9a-f]*) RUN_INSTANCE="" ;; esac
 fi
 
@@ -1128,4 +1160,22 @@ done
 # #4530: the run is over, so its sender token stops being a credential now rather than
 # when 32 newer launches push it out. Only here, after the session is gone: a supervisor
 # stopped by a signal exits above without retiring, because its run may still be alive.
-retire_run_token
+# 🛑 AND ONLY ON PROOF THAT IT IS GONE. The loop above ends on ANY failure of
+# has-session, and a tmux that cannot answer for a moment (an update swaps its binary
+# under a running supervisor: exit 127) would otherwise retire a LIVE agent's token, so
+# its reports are refused until its next launch (review of #4530, B1). tmux answers 1
+# for "no such session" and for "no server" (measured); anything else is not an answer.
+# Two answers of 1, a couple of seconds apart, or nothing is retired.
+_gone=0
+"$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
+if [ "$_rc" -eq 1 ]; then
+  sleep 2
+  "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
+  [ "$_rc" -eq 1 ] && _gone=1
+fi
+if [ "$_gone" = 1 ]; then
+  retire_run_token
+elif [ -n "${RUN_INSTANCE:-}" ]; then
+  say "$SESSION: tmux did not confirm the session ended (exit $_rc), so its sender token is kept; the next launch retires it"
+fi
+unset _gone _rc

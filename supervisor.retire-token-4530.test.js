@@ -42,9 +42,21 @@ function fixture() {
     '#!/bin/bash',
     'S="$TMUX_STATE"',
     'case "${1:-}" in',
-    '  has-session) [ -f "$S/alive" ]; exit $? ;;',
-    '  show-options) for a in "$@"; do last="$a"; done; f="$S/opt-${last#@}"; [ -f "$f" ] && cat "$f"; exit 0 ;;',
-    '  set-option) shift; while [ "$#" -gt 2 ]; do shift; done; printf "%s" "$2" > "$S/opt-${1#@}"; exit 0 ;;',
+    /* FLAKE_ONCE: the next has-session fails like a tmux binary mid-swap (127), once. */
+    '  has-session) if [ -f "$S/flake" ]; then rm -f "$S/flake"; exit 127; fi; [ -f "$S/alive" ]; exit $? ;;',
+    /* A plain-name target falls back to a PREFIX match when the exact session is gone, as
+       tmux does (measured): it then reaches the -discord twin, whose options are twin-opt-*. */
+    '  show-options) for a in "$@"; do last="$a"; done; p="opt"; [ -f "$S/alive" ] || p="twin-opt"; f="$S/$p-${last#@}"; [ -f "$f" ] && cat "$f"; exit 0 ;;',
+    /* An option set through the session id ($1) lands on the session; anything else is refused,
+       as tmux refuses a dead or unknown target. */
+    '  set-option) t=""; [ "$2" = -t ] && t="$3"; while [ "$#" -gt 2 ]; do shift; done;',
+    '    case "$t" in \\$1) [ -f "$S/alive" ] || exit 1; printf "%s" "$2" > "$S/opt-${1#@}" ;; \\$2) printf "%s" "$2" > "$S/twin-opt-${1#@}" ;;',
+    '      *) if [ -f "$S/alive" ]; then printf "%s" "$2" > "$S/opt-${1#@}"; else printf "%s" "$2" > "$S/twin-opt-${1#@}"; fi ;; esac; exit 0 ;;',
+    /* list-sessions: this agent's session (when alive) plus a -discord twin that always lives. */
+    '  list-sessions) fmt="$3";',
+    '    if [ -f "$S/alive" ]; then case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME" "\\$1" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME" "$(cat "$S/opt-kosmos_token_instance" 2>/dev/null)" ;; esac; fi',
+    '    case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME-discord" "\\$2" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME-discord" "abcabcabcabc" ;; esac',
+    '    exit 0 ;;',
     '  list-panes) printf "claude\\n"; exit 0 ;;',
     '  new-session)',
     '    shift',
@@ -57,7 +69,8 @@ function fixture() {
     '        *) break ;;',
     '      esac',
     '    done',
-    '    touch "$S/alive"',
+    '    [ -f "$S/refuse" ] && exit 1',
+    '    [ -f "$S/dieatonce" ] || touch "$S/alive"',
     '    "$@" >/dev/null 2>&1',
     '    exit 0 ;;',
     '  kill-session) rm -f "$S/alive"; exit 0 ;;',
@@ -69,6 +82,7 @@ function fixture() {
     HOME: path.join(root, 'home'),
     EVIDENCE: evidence,
     TMUX_STATE: path.join(root, 'state'),
+    NAME,
     AGENT_WORKFORCE_HOME: root,
     AGENT_WORKFORCE_DATA: path.join(root, 'data'),
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(root, 'home', '.claude.json'),
@@ -92,9 +106,16 @@ function fixture() {
     for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); }
     assert.fail('timed out waiting for ' + what);
   };
+  /* Like until, but hands back whether it came true instead of failing, for a state the
+     supervisor reaches a moment AFTER the evidence appears (the sweep runs after the claim). */
+  const settles = async (fn) => {
+    for (let i = 0; i < 200; i++) { if (fn()) return true; await new Promise((r) => setTimeout(r, 50)); }
+    return false;
+  };
   const endSession = () => fs.rmSync(path.join(root, 'state', 'alive'), { force: true });
+  const flag = (name) => fs.writeFileSync(path.join(root, 'state', name), '');
   const cleanup = () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } };
-  return { root, tokens, live, resolves, start, ends, until, endSession, cleanup, store };
+  return { root, tokens, live, resolves, start, ends, until, settles, endSession, flag, cleanup, store };
 }
 
 test('#4530 RELAUNCH: after a relaunch the agent has exactly one live token, and the previous one does not resolve', async () => {
@@ -115,7 +136,11 @@ test('#4530 RELAUNCH: after a relaunch the agent has exactly one live token, and
     await f.until(() => f.tokens().length === 2, 'the relaunched run to receive its token');
     const t2 = f.tokens()[1];
     assert.notEqual(t2, t1);
-    assert.equal(f.live().length, 1, `a relaunch left ${f.live().length} live tokens for the agent`);
+    /* The token reaches the runner at new-session; the earlier runs are retired just after, once
+       the session is claimed. So wait (up to 10s) for one live token rather than reading at once. */
+    const one1 = await f.settles(() => f.live().length === 1);
+    const n = f.live().length;
+    assert.ok(one1 && n === 1, `a relaunch left ${n} live tokens for the agent`);
     assert.equal(f.resolves(t1), false, 'the previous run\'s token still resolves after a relaunch');
     assert.equal(f.resolves(t2), true, 'the relaunched run\'s own token does not resolve');
     f.endSession();
@@ -169,5 +194,62 @@ test('#4530 OTHERS: a relaunch leaves a token with no launcher alone (a remote a
     await f.ends(one);
     assert.equal(f.resolves(remote), true, 'the run\'s exit retired a token it did not mint');
     assert.equal(f.live().length, 1, 'only the remote token should be left');
+  } finally { f.cleanup(); }
+});
+
+test('#4530 FLAKE: a tmux that fails to answer once does not retire a live run\'s token', async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    const [t1] = f.tokens();
+    f.flag('flake');   // the next has-session exits 127 while the session is still alive
+    await f.ends(one);
+    assert.equal(fs.existsSync(path.join(f.root, 'state', 'alive')), true, 'CONTROL: the session is still alive');
+    assert.equal(f.resolves(t1), true, 'one failed has-session retired a live agent\'s token');
+    f.endSession();
+  } finally { f.cleanup(); }
+});
+
+test('#4530 LOSER: a launch that mints and then loses the session name retires only its own token', async () => {
+  const f = fixture();
+  try {
+    /* The winner: a live run of this session, minted the way the supervisor mints. */
+    const winner = f.store(`s.mint(${JSON.stringify(NAME)}, { launcher: 'supervisor:' + ${JSON.stringify(NAME)} })`);
+    f.flag('refuse');   // new-session fails: the name was taken between the check and the launch
+    const how = await f.ends(f.start());
+    assert.notEqual(how.code, 0, 'CONTROL: the refused launch should have failed');
+    assert.deepEqual(f.live(), [winner.instance], 'the losing launch cut off the winner, or kept its own token');
+    assert.equal(f.resolves(winner.token), true);
+  } finally { f.cleanup(); }
+});
+
+test('#4530 TWIN: the -discord twin\'s run is never read as this session\'s (exact names, not prefixes)', async () => {
+  const f = fixture();
+  try {
+    const one = f.start();
+    await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    one.kill('SIGKILL');
+    await f.ends(one);
+    const opt = path.join(f.root, 'state', 'opt-kosmos_token_instance');
+    const recorded = fs.readFileSync(opt, 'utf8');
+    assert.match(recorded, /^[0-9a-f]{12}$/, 'the run did not record its instance on its session');
+    assert.notEqual(recorded, 'abcabcabcabc', 'the record landed on the twin');
+    const two = f.start();   // adopts, and must read THIS session's record, not the twin's
+    await new Promise((r) => setTimeout(r, 1500));
+    f.endSession();
+    await f.ends(two);
+    assert.deepEqual(f.live(), [], 'the adopted run\'s own token was not the one retired');
+  } finally { f.cleanup(); }
+});
+
+test('#4530 TWIN, launch race: a run whose session dies at once never stamps its instance on the -discord twin', async () => {
+  const f = fixture();
+  try {
+    f.flag('dieatonce');   // the runner starts and its session is gone before the claim
+    await f.ends(f.start());
+    assert.equal(f.tokens().length, 1, 'CONTROL: the run did start and receive its token');
+    assert.equal(fs.existsSync(path.join(f.root, 'state', 'twin-opt-kosmos_token_instance')), false,
+      'the run\'s instance was written onto the -discord twin by a prefix match');
   } finally { f.cleanup(); }
 });

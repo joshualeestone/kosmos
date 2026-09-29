@@ -172,14 +172,10 @@ function withSessionLock(sessionName, fn) {
  * Appends: previously minted tokens keep working, which is the point.
  *
  * #4530: `opts.launcher` names WHAT launched this run (the Mac supervisor passes
- * `supervisor:<tmux session>`), recorded on the token. With `opts.replaceLauncher`
- * the earlier tokens carrying that SAME launcher are dropped in the same locked
- * write. The supervisor launches a session only when none of that name exists, so
- * every earlier run it launched there has ended and its token is a stale credential
- * (Scorpion had 18). Tokens with another launcher or none (a remote agent's, an
- * adoption's, anything minted before #4530) are untouched, so this is not the
- * rotation #1000 had: two runs from two launchers still coexist and `live()` still
- * shows them.
+ * `supervisor:<tmux session>`), recorded on the token so `retireLauncher` can later
+ * drop that launcher's earlier runs. Minting never drops anything itself: a launch
+ * that mints and then loses the race for its session must not have cut off the run
+ * that won it (review of #4530, W2).
  */
 function mint(sessionName, opts = {}) {
   try { fileFor(sessionName); } catch {
@@ -188,13 +184,12 @@ function mint(sessionName, opts = {}) {
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
   const instance = crypto.randomBytes(INSTANCE_BYTES).toString('hex');
   const launcher = (opts && typeof opts.launcher === 'string' && opts.launcher) ? opts.launcher : null;
-  const replace = Boolean(launcher && opts.replaceLauncher);
   let held;
   try {
     /* #1782: read and write under the lock, so a concurrent launch cannot build
        its write from a list that predates ours and drop this token. */
     held = withSessionLock(sessionName, () => {
-      const tokens = readTokens(sessionName).filter((t) => !(replace && t.launcher === launcher));
+      const tokens = readTokens(sessionName);
       tokens.push({ token, instance, mintedAt: new Date().toISOString(), ...(launcher ? { launcher } : {}) });
       writeTokens(sessionName, tokens.slice(-MAX_LIVE));
     });
@@ -246,6 +241,32 @@ function retire(sessionName, instance) {
     });
   } catch { return { ok: false, because: 'we could not retire that run' }; }
   if (!held.ok) return { ok: false, because: held.because };   // busy; carries ELOCKBUSY
+  return held.value;
+}
+
+/**
+ * #4530: drop every token ONE launcher minted for this agent except `keepInstance`.
+ * The Mac supervisor calls it once its own run's session exists and is claimed: a
+ * session of that name is unique, so every other run that launcher started there has
+ * ended, and until now each stayed a valid credential (up to MAX_LIVE; Scorpion had 18).
+ * Tokens with another launcher or none (a remote agent's, an adoption's, anything
+ * minted before #4530) are untouched, so this is not the rotation #1000 had: runs from
+ * different launchers still coexist and `live()` still shows them.
+ */
+function retireLauncher(sessionName, launcher, keepInstance) {
+  if (typeof launcher !== 'string' || !launcher) return { ok: false, because: 'name the launcher whose runs to retire' };
+  let held;
+  try {
+    held = withSessionLock(sessionName, () => {
+      const all = readTokens(sessionName);
+      const left = all.filter((t) => t.launcher !== launcher || t.instance === keepInstance);
+      if (left.length === all.length) return { ok: true, retired: 0 };
+      if (left.length === 0) { const r = revokeUnlocked(sessionName); return r.ok ? { ok: true, retired: all.length } : r; }
+      writeTokens(sessionName, left);
+      return { ok: true, retired: all.length - left.length };
+    });
+  } catch { return { ok: false, because: 'we could not retire that launcher\'s runs' }; }
+  if (!held.ok) return { ok: false, because: held.because };
   return held.value;
 }
 
@@ -390,4 +411,4 @@ function resolveName(token) {
 }
 
 module.exports = {
-  mint, revoke, retire, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, DIR, MAX_LIVE };

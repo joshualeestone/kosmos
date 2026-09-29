@@ -1314,7 +1314,10 @@ test('the startup script names its session exactly, not by prefix', () => {
         `${cmd} resolves its target by PREFIX, so it can act on another session: ${line.trim()}`);
     } else if (PLAIN.includes(cmd)) {
       checked += 1;
-      assert.match(line, /-t "\$SESSION"/,
+      /* #4530: or the session's ID ("$_sid", from session_id_exact). Measured on tmux 3.6a: an id
+         target names exactly one session, set-option and show-options accept it, and it fails
+         cleanly once that session is gone, where the plain name falls back to a prefix match. */
+      assert.match(line, /-t "\$(SESSION|_sid)"/,
         `${cmd} rejects the "=name" form outright ("no such session: =name"), so `
         + `this line would fail at runtime: ${line.trim()}`);
     }
