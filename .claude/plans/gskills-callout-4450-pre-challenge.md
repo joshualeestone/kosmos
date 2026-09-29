@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: gskills-callout-4450
-diff_hash: 8fcaada00db153733b4cc9858b62bcd1e490f84f798fd2cd89ed653dc2515419
+diff_hash: e8f8bed879dadc48f3f91f68b867d3cd20abed0e0613331d48cee8f386ac86d0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T01:29:02Z
-iterations: 2
+timestamp: 2026-09-29T02:37:49Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
+**Iterations:** 3 (re-run after CI found a wiring defect the first two passes missed)
 **Converged:** Yes
 **Total findings:** 5 (1 BLOCKER, 1 WARNING, 0 CONVENTIONs, 5 NITs)
 **Fixed:** 2 blocking + 2 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
@@ -38,15 +38,27 @@ converged: true
 - [NIT] plan — a PASS count that will drift --> FIXED (commit 52b905921)
 **Converged** — no new actionable findings.
 
+#### CI finding between runs (not a reviewer pass)
+- [BLOCKER] docs/browser-checks/gated.txt — the check was also listed in gated.txt, whose loop runs each check with NO address; CI run 36508158520 passed it on B8, then failed it twice on the default port --> FIXED (commit 910c9d2b0): removed from gated.txt; it runs only on B8 with the board URL, like render-openai-key-callout-2164. Missed by iterations 1 and 2 and by every index test (none of them checks for a B8 check listed in the no-address loop).
+
+#### Iteration 3
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above
+- The reviewer independently traced every way a check is invoked (B8 run_one, b8-board.txt, gated.txt, the CI allowlist, bc-pr-select) and confirmed this one now always receives its board URL.
+- [NIT] default URL fallback when run by hand; [NIT] width assertion weaker than the overflow one; [NIT] SHOTS path on a missing card; [NIT] manual data-theme toggle not exercised
+**Converged** — no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
 | 1 | 1 | BLOCKER | docs/browser-checks/b8-board.txt | BRANCH | check missing from the $B8 board roster | FIXED | 4690ed975 |
 | 2 | 1 | WARNING | web/index.html:1097 | BRANCH | note text smaller than the body under it | FIXED | 4690ed975 |
+| 3 | CI | BLOCKER | docs/browser-checks/gated.txt | BRANCH | check in the no-address gated loop | FIXED | 910c9d2b0 |
 
 ### Validation
-- Final validation (6j) on 52b905921: PASSED, hash 8fcaada00db1, 11479 node tests / 0 fail, shell suites clean, subdir audit clean.
+- Final validation (6j) on 910c9d2b0: PASSED, hash e8f8bed879da, 11479 node tests / 0 fail, shell suites clean, subdir audit clean.
 - Browser check render-gskills-ask-4450 against a sandboxed board: all PASS in light/dark x desktop/phone; negative control (note line removed) reds all four runs.
 
 ### NITs (non-blocking, across all iterations)
