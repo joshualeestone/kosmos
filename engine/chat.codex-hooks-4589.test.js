@@ -287,3 +287,18 @@ test('#4589 round 5: the per-hook review screen (a single "t" trusts that hook) 
     assert.deepEqual(tmux.typedInto(), [], 'typed into one hook\'s review');
   });
 });
+
+test('#4589 round 6: a hook with a very long command (its anchors far above) is still the per-hook screen', () => {
+  const rows = HOOK.split('\n');
+  const at = rows.findIndex((r) => /^\s*Command\s/.test(r));
+  assert.ok(at > 0, 'the fixture has no Command row');
+  const long = Array.from({ length: 40 }, (_, i) => '            echo line ' + i + ' of an inline hook script');
+  const screen = [...rows.slice(0, at + 1), ...long, ...rows.slice(at + 1)].join('\n');
+  const r = status.codexHookReview(screen);
+  assert.ok(r && r.screen === 'hook', 'a 40-line command hid the per-hook screen');
+  withCodex(HOOK, (board) => {
+    const tmux = arm([ok(screen)]);
+    assert.equal(chat.deliver('sam', 'the letter t', board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(tmux.typedInto(), []);
+  });
+});

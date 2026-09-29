@@ -1587,6 +1587,9 @@ const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctocl
    back", so a single "t" typed there trusts that hook. */
 const CODEX_HOOK_ONE_FOOTER_END = /Pressttotrust;esctogoback$/;
 const CODEX_HOOK_ONE_ROW = /^\s*\[!\]\s*Hook\s+\d+\b/;
+/* Round 6: the per-hook screen's constant "Trust ... review required" row sits a few rows above its footer, whatever
+   the hook's command length (a long inline script pushed the other anchors above the last 30 rows). */
+const CODEX_HOOK_TRUST_ROW = /^\s*Trust\s{2,}.*review required\s*$/;
 /* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
 const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
   + 'there that typed text would answer. Send this again in a moment.';
@@ -1620,9 +1623,12 @@ function codexHookReview(paneText) {
   if (CODEX_HOOK_ONE_FOOTER_END.test(lastJoined)) {
     /* Its own "N hook(s) need(s) review" line or a "[!] Hook N" row must be above, so the footer words alone are
        not enough. */
-    const warning = above.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
-    const hookRow = above.some((r) => CODEX_HOOK_ONE_ROW.test(r));
-    if (!warning && !hookRow) return null;
+    /* Anchors searched over the WHOLE screen (round 6: not only the last CODEX_HOOK_ROWS), plus the Trust row near
+       the footer, which a long command cannot push away. */
+    const warning = rows.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const hookRow = rows.some((r) => CODEX_HOOK_ONE_ROW.test(r));
+    const trustRow = rows.slice(-8).some((r) => CODEX_HOOK_TRUST_ROW.test(r));
+    if (!warning && !hookRow && !trustRow) return null;
     return { screen: 'hook', evidence: (warning || 'Press t to trust; esc to go back').trim().replace(/^⚠\s*/, '') };
   }
   return null;

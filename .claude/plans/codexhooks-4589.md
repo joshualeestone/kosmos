@@ -52,7 +52,7 @@ That the person re-sending is acceptable as "the held message arrives whole". Th
 one press away; they are not sent by themselves.
 
 ## Tests
-engine/chat.codex-hooks-4589.test.js (14): both real screens, wrapped at 50/30/20 columns, blank and failed reads,
+engine/chat.codex-hooks-4589.test.js (18): all three real screens, wrapped at 50/30/20 columns, blank and failed reads,
 Stop now's keys, an untagged native pane, option digits 2/3/t, the stale-snapshot and prompt controls. On main's engine
 the same delivery to either real screen reports "placed" with Enter typed (control script, measured).
 
@@ -98,3 +98,11 @@ captured. Captured live the same way (test-support/codex-screens/hook-review-hoo
 footer is "Press t to trust; esc to go back", so a single "t" in a pasted message would have trusted that hook. Now
 recognised (footer at the end of the last rows, plus its own "needs review" line or a "[!] Hook N" row), tested at
 full width and at 30 columns, with the footer-alone and quoted-then-prompt controls; removing the branch fails it.
+
+## Blind review round 6 (Sonnet, a separate reviewer, 2026-09-29 14:06)
+Nothing above WARNING; the WARNING was real: on the per-hook screen a long hook command (an inline script) pushed both
+anchors above the last 30 rows, so the screen was missed and a "t" would have been typed. Now anchored on the constant
+"Trust ... review required" row just above the footer, and the other anchors are searched over the whole screen; a
+40-line command is tested, and reverting to the tail-only search fails it. Stated, not changed: Stop now is refused on
+a blank or unreadable Codex screen too (the safe direction; a wedged Codex agent is stopped from its terminal); the menu
+is told apart from other Codex popups by its "Hooks need review" title, not by its footer (which may be generic).
