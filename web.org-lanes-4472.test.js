@@ -109,7 +109,9 @@ test('a lead with 30 reports, and one with 50: the natural size stays near its p
 
 test('deep 100-agent trees: the median natural size over 60 seeds, and the largest (#4472)', () => {
   /* Measured over seeds 1..60, through these cards: median 1432 before #4434, 3232 with it, 2700 now; largest 2024,
-     8113, 4805. (Plain cards in a different order give 2718: the heavy/light order keeps input order on ties.) */
+     8113, 4805. (Plain cards in a different order give 2718: the heavy/light order keeps input order on ties.) The
+     plan's table uses seeds 1..200 (median 1580 / 3353 / 2749): a larger sample of the same trees, not a different
+     measurement; 60 seeds keep this test fast. */
   const sizes = [];
   for (let seed = 1; seed <= 60; seed += 1) sizes.push(paint(randomTree(seed, 100, 0.05)).size);
   sizes.sort((a, b) => a - b);

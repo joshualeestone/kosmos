@@ -30426,7 +30426,9 @@ function orgPlace(nodes) {
         for (const s of spots.values()) {
           const w = weigh(s.node);
           const h = heightOf(s.node);
-          /* An all-leaf team can take two rings, so its reports need half the room each. */
+          /* An all-leaf team can take two rings, so its reports need half the room each. Only one generation down:
+             a branch whose leaves sit two or more rings further out reserves the full ORG_MIN_ARC each even if
+             their team will take two rings. That over-reserves (never a crossing), part of the gap on #4499. */
           const each = h === 1 ? ORG_LANE_SLOT : ORG_MIN_ARC;
           if (w > 1 && (s.hi - s.lo) * (s.r + h * ORG_STEP) < w * each * ORG_BRANCH_ROOM) return false;
         }
