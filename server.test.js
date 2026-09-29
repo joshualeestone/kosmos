@@ -293,6 +293,52 @@ function pastedMessages(calls) {
   return msgs;
 }
 
+test('#4468: status answers while a 25-recipient room post keeps its paste-to-Enter gaps', async (t) => {
+  const chat = require('./engine/chat');
+  const messages = require('./engine/messages');
+  const projects = require('./engine/projects');
+  // The sender is not fanned back to itself, so 26 members make 25 recipients.
+  const specs = Array.from({ length: 26 }, (_, i) => fleet.agent(`load${i}`, {
+    state: 'idle', pane: `0.${i}`,
+  }));
+  const made = fleet.install(specs);
+  t.after(() => {
+    chat.resetForTests();
+    messages.resetForTests();
+    made.restore();
+  });
+
+  messages.setRunner(() => ({ ok: true, session: 'load0-discord' }));
+  chat.setRunner((args) => ({
+    ran: true, spawnFailed: false, status: 0,
+    out: args[0] === 'display-message' ? '2.1.212\t\t0\n' : '', err: '',
+  }));
+  chat.setDryRun(false);
+  const gaps = [];
+  chat.setPauser((ms) => new Promise((resolve) => {
+    gaps.push(ms);
+    setTimeout(resolve, 5);
+  }));
+
+  const folder = fs.mkdtempSync(nodePath.join(process.env.AGENT_WORKFORCE_PROJECTS, 'load-room-'));
+  const project = projects.create({
+    name: 'Load Room 4468', folder,
+    agents: specs.map((s) => s.name), roster: made.agents,
+  });
+  const post = postJson('/api/post', {
+    project: project.id, text: 'status must stay responsive', from_pane: '%4468',
+  });
+  const statusDuringPost = req('/api/status').then((answer) => ({ kind: 'status', answer }));
+  const postDone = post.then((answer) => ({ kind: 'post', answer }));
+
+  const first = await Promise.race([statusDuringPost, postDone]);
+  assert.equal(first.kind, 'status', 'the post held the event loop until all 25 delivery gaps finished');
+  assert.equal(first.answer.status, 200);
+  const delivered = await postDone;
+  assert.equal(JSON.parse(delivered.answer.body).delivery.state, chat.DELIVERY.PLACED);
+  assert.equal(gaps.length, 25, 'one unchanged paste-to-Enter gap per recipient');
+});
+
 // #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape
 // check before any roster/project work. A non-boolean is refused with 400 rather than coerced --
 // a truthy "false" string must never read as reply-required. A boolean or an omitted field passes

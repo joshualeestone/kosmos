@@ -2934,7 +2934,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2983,7 +2983,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  const delivery = messages.sendPost({
+  const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
     project: found.id,
@@ -3014,8 +3014,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
     replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
-  federateOut(found.id, delivery, false);
-  return delivery;
+  const finish = (result) => {
+    federateOut(found.id, result, false);
+    return result;
+  };
+  return delivery && typeof delivery.then === 'function' ? delivery.then(finish) : finish(delivery);
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -12880,7 +12883,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12904,7 +12907,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
           return;
         }
-        const delivery = messages.send({
+        const delivery = await messages.sendAsync({
           fromPane: body.from_pane,
           sender: tokenSender,
           to: body.to,
@@ -12924,7 +12927,7 @@ const server = http.createServer((req, res) => {
      the project record so the engine owns no membership model. */
   if (pathname === '/api/post' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12981,7 +12984,7 @@ const server = http.createServer((req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
-        const delivery = sendRoomPostAsAgent({
+        const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
           project: body.project,
@@ -12990,7 +12993,7 @@ const server = http.createServer((req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
-        }, roster);
+        }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -15380,7 +15383,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -15427,7 +15430,7 @@ const server = http.createServer((req, res) => {
           }
           replyTo = body.reply_to;
         }
-        const delivery = messages.sendPost({
+        const delivery = await messages.sendPostAsync({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
           replyTo,
