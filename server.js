@@ -3808,8 +3808,10 @@ function taskMessageSummary(delivered, assigned) {
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
   const names = (state) => [...new Set(list.filter((d) => d && d.state === state).map((d) => plain(d.agent)))];
   const told = names(chat.DELIVERY.PLACED);
-  const maybe = names(chat.DELIVERY.UNCONFIRMED);
-  const not = list.filter((d) => d && d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.UNCONFIRMED);
+  /* Only a delivery the board knows failed is "not told"; one it did not hear back from (unconfirmed, or no state
+     at all) may have landed, so it is never claimed either way. */
+  const maybe = [...new Set(list.filter((d) => d && d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT).map((d) => plain(d.agent)))];
+  const not = list.filter((d) => d && d.state === chat.DELIVERY.COULD_NOT);
   const parts = [];
   if (told.length) parts.push('Told ' + told.join(', ') + '.');
   if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');

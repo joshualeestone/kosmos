@@ -62,6 +62,10 @@ test('a reason that does not name the agent (chat\'s own) is said after the name
     'Not told: mona is switched off in this project.', 'a reason that already starts with the name is not doubled');
 });
 
+test('a delivery with no known state is never claimed as not told: it may have been told', () => {
+  assert.equal(taskMessageSummary([{ agent: 'zed' }], 1), 'zed may have been told (Kosmos could not confirm it).');
+});
+
 test('duplicates are said once, and a blank reason falls back to the name', () => {
   assert.equal(taskMessageSummary([{ agent: 'a', state: 'placed' }, { agent: 'a', state: 'placed' }], 2), 'Told a.');
   assert.equal(taskMessageSummary([{ agent: 'zed', state: 'could_not', because: '   ' }], 1), 'Not told: zed could not be reached.');
