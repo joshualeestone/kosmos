@@ -64,7 +64,7 @@ test('#4583: a brief written before #4583 (the old placeholder) is still read as
   assert.equal(projects.doneIsPending(dir), true);
 });
 
-test('#4583: a brief the person wrote (no placeholder) is done; an unreadable brief never contradicts it; no brief is pending', () => {
+test('#4583: a brief the person wrote (no placeholder) is done; an unreadable brief never contradicts it; no brief is pending', (t) => {
   const dir = folder('own');
   fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Mine\n\nDone when the tests pass.\n');
   assert.equal(projects.doneIsPending(dir), false);
@@ -74,7 +74,8 @@ test('#4583: a brief the person wrote (no placeholder) is done; an unreadable br
   fs.writeFileSync(path.join(locked, projects.BRIEF_STUB_FILENAME), 'x');
   fs.chmodSync(path.join(locked, projects.BRIEF_STUB_FILENAME), 0o000);
   try {
-    if (process.getuid && process.getuid() !== 0) assert.equal(projects.doneIsPending(locked), false);
+      if (process.getuid && process.getuid() === 0) { t.skip('running as root: an unreadable file is readable, so this arm cannot be tested'); return; }
+    assert.equal(projects.doneIsPending(locked), false);
   } finally { fs.chmodSync(path.join(locked, projects.BRIEF_STUB_FILENAME), 0o644); }
 });
 
@@ -90,15 +91,17 @@ test('#4583: done is one line, capped at 1000 characters, and must be words; the
   assert.equal(fs.existsSync(path.join(dir, projects.BRIEF_STUB_FILENAME)), false, 'a refused create wrote a brief');
 });
 
+/* roles: { machineName: role } or { machineName: [role, savedName] }. */
 function withProfiles(roles, fn) {
-  for (const [name, role] of Object.entries(roles)) store.writeProfile(name, { role });
-  try { return fn(); } finally { for (const name of Object.keys(roles)) store.writeProfile(name, { role: null }); }
+  for (const [name, r] of Object.entries(roles)) store.writeProfile(name, Array.isArray(r) ? { role: r[0], name: r[1] } : { role: r });
+  try { return fn(); } finally { for (const name of Object.keys(roles)) store.writeProfile(name, { role: null, name: null }); }
 }
 
 test('#4583: two coordinators warn, naming both and the split; one coordinator, or none, does not (control)', () => {
-  withProfiles({ pm1: 'Project Manager', pm2: 'Project Manager', dev: 'Developer' }, () => {
-    const two = projects.coordinatorWarning({ agents: [{ sessionName: 'pm1', name: 'Ada' }, { sessionName: 'pm2', name: 'Bo' }, { sessionName: 'dev' }] }, null);
-    assert.ok(two && two.startsWith('Ada and Bo all have a coordinating role'), two);
+  withProfiles({ pm1: ['Project Manager', 'Ada'], pm2: ['Project Manager', 'Bo'], dev: 'Developer' }, () => {
+    const two = projects.coordinatorWarning({ agents: [{ sessionName: 'pm1', name: 'Stranger' }, { sessionName: 'pm2' }, { sessionName: 'dev' }] }, null);
+    assert.ok(two && two.startsWith('Ada and Bo both have a coordinating role'), two);
+    assert.ok(!two.includes('Stranger'), 'a saved role was paired with the read\'s card name, which an untied pane supplies: ' + two);
     assert.ok(two.includes('one owns the brief (BRIEF.md) and the other owns the task queue'), two);
     assert.equal(projects.coordinatorWarning({ agents: [{ sessionName: 'pm1' }, { sessionName: 'dev' }] }, null), null);
     assert.equal(projects.coordinatorWarning({ agents: [] }, null), null);
@@ -124,4 +127,53 @@ test('#4583: the project read carries the current warning from saved roles (memb
     const one = projects.create({ name: 'One PM', folder: folder('pm'), agents: ['pm1'], roster: [] });
     assert.equal(projects.get(one.id, []).coordinators, null);
   });
+});
+
+test('#4583 round 1: only a role that coordinates the PROJECT counts, not any "Manager" or "Lead"', () => {
+  withProfiles({ mk: 'Marketing Manager', sm: 'Social Media Manager', tl: 'Tech Lead', ld: 'Lead Developer', rc: 'Recruiting Coordinator', pm: 'Project Manager', pg: 'Program Manager (PM)' }, () => {
+    const warn = (...names) => projects.coordinatorWarning({ agents: names.map((n) => ({ sessionName: n })) }, null);
+    assert.equal(warn('mk', 'sm'), null, 'two marketing roles are not two project coordinators');
+    assert.equal(warn('tl', 'ld', 'rc'), null, 'leads and a recruiting coordinator are not project coordinators');
+    assert.ok(warn('pm', 'pg'), 'CONTROL: a Project Manager and a Program Manager are');
+    assert.ok(warn('pm', 'pg', 'mk').startsWith('pm and pg both have'), warn('pm', 'pg', 'mk'));
+  });
+});
+
+test('#4583 round 1: three coordinators read "all have"', () => {
+  withProfiles({ a: 'Project Manager', b: 'Project Manager', c: 'Project Lead' }, () => {
+    assert.ok(projects.coordinatorWarning({ agents: [{ sessionName: 'a' }, { sessionName: 'b' }, { sessionName: 'c' }] }, null).startsWith('a, b and c all have'));
+  });
+});
+
+test('#4583 round 1: a project whose folder has no BRIEF.md says nothing about done (null), not "Done not set"', () => {
+  reset();
+  const dir = folder('nobrief');
+  const made = projects.create({ name: 'Adopted', folder: dir });
+  fs.rmSync(path.join(dir, projects.BRIEF_STUB_FILENAME));
+  assert.equal(projects.get(made.id, []).doneSet, null);
+});
+
+test('#4583 round 1: the welcome project is not badged: its brief says what done is', () => {
+  reset();
+  const made = projects.seedWelcomeHome({ roster: [] });
+  assert.ok(made, 'the welcome home was not seeded (fixture control)');
+  assert.equal(projects.get(made.id, []).doneSet, true);
+  assert.ok(brief(made.folder).includes(projects.WELCOME_DONE));
+});
+
+test('#4583 round 1: done typed for a folder that already has a brief is not dropped', () => {
+  reset();
+  const stub = folder('oldstub');
+  fs.writeFileSync(path.join(stub, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n_How will everyone know this is finished? Replace this line._\n\nMore.\n');
+  projects.create({ name: 'Old stub', folder: stub, done: 'Filed.' });
+  assert.equal(brief(stub), '# Old\n\n## Done looks like\n\nFiled.\n\nMore.\n', 'Kosmos\'s own placeholder was not replaced');
+  const nodone = folder('nodone');
+  fs.writeFileSync(path.join(nodone, projects.BRIEF_STUB_FILENAME), '# Mine\n\nMy goal.\n');
+  projects.create({ name: 'No done section', folder: nodone, done: 'Shipped.' });
+  assert.equal(brief(nodone), '# Mine\n\nMy goal.\n\n## Done looks like\n\nShipped.\n');
+  const own = folder('owndone');
+  const mine = '# Mine\n\n## Done looks like\n\nWhen I say so.\n';
+  fs.writeFileSync(path.join(own, projects.BRIEF_STUB_FILENAME), mine);
+  projects.create({ name: 'Own done', folder: own, done: 'Something else.' });
+  assert.equal(brief(own), mine, 'the person\'s own Done section was overwritten');
 });

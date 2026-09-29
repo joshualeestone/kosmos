@@ -1130,7 +1130,10 @@ function describe(project, roster, all) {
     defaultAgent: chat.defaultAgentFor(members),
     /* #4583: whether the brief says what done looks like: false shows a "Done not set" badge, null means the
        folder is not there to read (its own warning already says so), true is set. */
-    doneSet: (typeof project.folder === 'string' && project.folder && fs.existsSync(project.folder)) ? !doneIsPending(project.folder) : null,
+    /* Review round 1: no BRIEF.md at all says nothing (null), not "Done not set": a folder the person adopted, or a
+       project older than the seeded brief, would otherwise be badged with nothing on screen to clear it. */
+    doneSet: (typeof project.folder === 'string' && project.folder && path.isAbsolute(project.folder)
+      && fs.existsSync(path.join(project.folder, BRIEF_STUB_FILENAME))) ? !doneIsPending(project.folder) : null,
     /* #4583: the two-coordinator warning as it stands now (null when there is not more than one). The page shows
        it only after an add or a create that brought it on, and drops it once this is null. */
     coordinators: coordinatorWarning({ agents: members }, null),
@@ -1951,7 +1954,7 @@ function create({ name, folder, agents, roster, description, made, parent, done 
   // project EXISTS from writeAll above, and a folder we could not write a stub into
   // (read-only, or one that already holds the person's own brief) is not a reason to
   // report "we could not create that project".
-  seedBriefStub(given, { name: title, description: desc, done: doneText });
+  if (!seedBriefStub(given, { name: title, description: desc, done: doneText }) && doneText) fillDone(given, doneText);
   return project;
 }
 
@@ -2041,6 +2044,24 @@ function briefIsPending(folder) {
   } catch { return false; }
 }
 
+/* #4583 review round 1: done typed on the form, for a folder that ALREADY had a BRIEF.md (so no stub was written).
+   Kosmos's own placeholder is replaced with it; a brief with no "Done looks like" section gets one at the end; a
+   brief whose Done section the person already wrote is left alone (their words win). Best-effort, like the stub. */
+function fillDone(folder, doneText) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const file = path.join(folder, BRIEF_STUB_FILENAME);
+    const text = fs.readFileSync(file, 'utf8');
+    const hit = BRIEF_DONE_PLACEHOLDERS.find((ph) => text.includes(ph));
+    let next = null;
+    if (hit) next = text.replace(hit, doneText);
+    else if (!/^## Done looks like\s*$/m.test(text)) next = text.replace(/\s*$/, '') + '\n\n## Done looks like\n\n' + doneText + '\n';
+    if (next === null) return false;
+    fs.writeFileSync(file, next, 'utf8');
+    return true;
+  } catch { return false; }
+}
+
 /* #4583: is this project's "Done looks like" still unset? True when the brief is absent (as briefIsPending)
    or still holds a Done placeholder; false for a brief the person wrote themselves (no placeholder), and
    false when the brief cannot be read, for briefIsPending's reason: never contradict a real brief. */
@@ -2062,21 +2083,29 @@ function doneIsPending(folder) {
    A member the read could not tie to a live pane has no `role` there (an agent not running yet, which is
    the usual case at creation), so its role comes from its saved profile instead: Kosmos's own record,
    never a pane's word. */
+/* The role and the name to say for a member. A live role comes with the read's own name. A saved role comes with the
+   saved name (or the machine name), never the read's card name: the read gives an untied pane no role, and that
+   pane's card name is not known to be this member's. */
 function roleOfMember(m) {
-  if (m && typeof m.role === 'string' && m.role) return m.role;
+  if (m && typeof m.role === 'string' && m.role) return { role: m.role, name: m.name || m.sessionName };
   try {
     const saved = store.readProfile(m && m.sessionName);
-    return saved && typeof saved.role === 'string' ? saved.role : null;
-  } catch { return null; }
+    const role = saved && typeof saved.role === 'string' ? saved.role : null;
+    return { role, name: (saved && typeof saved.name === 'string' && saved.name) || (m && m.sessionName) };
+  } catch { return { role: null, name: m && m.sessionName }; }
 }
+/* NARROWER than chat.looksLikeManager on purpose (review round 1): that rule only preselects who answers the room, where
+   a loose match costs nothing, and it matches "Marketing Manager", "Tech Lead" and "Recruiting Coordinator". Here a
+   match tells the person to split the brief and the task queue, so only a role that coordinates the PROJECT counts. */
+const PROJECT_COORDINATOR = /\b(project manager|program manager|project lead|project coordinator|pm)\b/i;
 function coordinatorWarning(project, joining) {
   const members = (project && Array.isArray(project.agents)) ? project.agents : [];
-  const coords = members.filter((m) => m && chat.looksLikeManager(roleOfMember(m)));
+  const coords = members.map((m) => ({ m, said: roleOfMember(m) })).filter((x) => x.m && PROJECT_COORDINATOR.test(String(x.said.role || '')));
   if (coords.length < 2) return null;
-  if (joining && !coords.some((m) => m.sessionName === joining)) return null;
-  const names = coords.map((m) => m.name || m.sessionName);
-  const list = names.length === 2 ? names[0] + ' and ' + names[1] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-  return list + ' all have a coordinating role on this project. So they do not split the work by hand, '
+  if (joining && !coords.some((x) => x.m.sessionName === joining)) return null;
+  const names = coords.map((x) => x.said.name || x.m.sessionName);
+  const list = names.length === 2 ? names[0] + ' and ' + names[1] + ' both have' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' all have';
+  return list + ' a coordinating role on this project. So they do not split the work by hand, '
     + 'decide who owns what now: one owns the brief (BRIEF.md) and the other owns the task queue.';
 }
 
@@ -2136,6 +2165,7 @@ const BRIEF_PENDING_NOTES_BEFORE_AUDIENCE = Object.freeze([
 const WELCOME_NAME = 'Getting started';
 const WELCOME_DESCRIPTION = 'Kosmos made this so your first agent has somewhere to work with you. '
   + 'Post below and everyone on it answers here.';
+const WELCOME_DONE = 'You have talked with your first agent here and given it something to work on.';
 /* The welcoming room note -- the first thing a new person reads in the home.
    #2279: kept here with the name and description so the create route and the
    first-run seed share ONE copy; a second literal at either call site is the
@@ -2178,6 +2208,8 @@ function seedWelcomeHome({ roster } = {}) {
     agents: [],
     roster: Array.isArray(roster) ? roster : [],
     description: WELCOME_DESCRIPTION,
+    // #4583: its brief says what done is, so the first project a new person sees is not badged "Done not set".
+    done: WELCOME_DONE,
     made: { via: 'kosmos' },
   });
 }
@@ -3085,7 +3117,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, cleanDone, coordinatorWarning,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,

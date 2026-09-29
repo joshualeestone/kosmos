@@ -24,7 +24,7 @@ const { chromium } = require('playwright');
 const REPO = path.resolve(__dirname, '..', '..');
 const freePort = () => Number(execFileSync(process.execPath, ['-e', "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close()})"], { encoding: 'utf8' }));
 const PORT = freePort();
-const WARN = 'Ada and Bo all have a coordinating role on this project. So they do not split the work by hand, decide who owns what now: one owns the brief (BRIEF.md) and the other owns the task queue.';
+const WARN = 'Ada and Bo both have a coordinating role on this project. So they do not split the work by hand, decide who owns what now: one owns the brief (BRIEF.md) and the other owns the task queue.';
 
 let passed = 0;
 const failed = [];

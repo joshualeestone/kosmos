@@ -21,3 +21,10 @@ Card: joshualeestone/kosmos#4583 (#4580 items 3 and 4). Started by Ice Cream Kit
 - The titles-only rail (#3105) grew to 52.8px per row with the badge; the rail now hides "Done not set" like the status pill (render-project-rows back to 26px). The list view keeps it.
 - Room tests built on the generic "briefed" fixture now also set a done, for the same reason #2707 gave it a description (a goal with no done posts the done note).
 - web.project-notice-3923: its harness stubs pjCoordNotice and asserts the rail puts the warning first.
+
+## Blind review round 1 (Opus, separate reviewer)
+Three WARNINGs, fixed, each with a test that fails on revert:
+- The coordinator rule was chat.looksLikeManager, which matches Marketing Manager, Tech Lead, Lead Developer. Now its own narrow PROJECT_COORDINATOR (project manager, program manager, project lead, project coordinator, pm).
+- "Done not set" showed for a folder with no BRIEF.md (adopted folders, older projects) and on the welcome project from day one. Now: no brief says nothing (doneSet null); the welcome brief carries WELCOME_DONE.
+- A done typed for a folder that already had a BRIEF.md was dropped. Now fillDone replaces Kosmos's placeholder, or adds a Done section to a brief without one; a Done section the person wrote is left alone.
+NITs taken: "both have" for two; a saved role is paired with the saved name, never an untied pane's card name; the root-only skip is recorded (t.skip). Accepted: the done note (like #2707's) is posted only at creation; per-read file reads (existsSync + BRIEF.md + a profile per member not running) are small and uncached, a cache keyed by mtime is the fix if it shows.
