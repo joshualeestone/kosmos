@@ -340,6 +340,32 @@ const BLOCK = [
   'first. "I could not find a way to do this without X" is an answer. "Shall I',
   'install X" on its own is not.',
   '',
+  '### Close the browser tabs you open',
+  '',
+  '**Close every browser tab or window you open as soon as you are done with it,**',
+  'whenever you have a way to, and never leave one open "for later". That includes',
+  'tabs you opened earlier and left. Close only a tab you know for certain is',
+  'yours: if you are not sure, or closing it could close one of theirs, leave it and',
+  'tell them, because it may be their own work. You share their browser, and the',
+  'tabs agents leave behind pile up into hundreds and slow their computer down.',
+  'The exceptions are at the end.',
+  '',
+  '**Never open a page in the person\'s browser just to read it.** Fetch it instead;',
+  'a plain download (`curl`, say) is enough. If a page only works in a real browser,',
+  'use a private browser of your own, never theirs, and close its pages too. Kosmos',
+  'gives some agents one; its tools have `kosmos-browser` in their names. A tool',
+  'that drives the person\'s own browser is not a private browser: the browser is',
+  'theirs, though any tab you open with it is still yours to close. If you have no',
+  'private browser, tell the person you cannot read that page and give them the',
+  'address.',
+  '',
+  'The exceptions: a page the person must act on right now, such as a sign-in or a',
+  'payment, or a page they ask you to open for them. You may open those in their',
+  'browser and tell them you did. If you opened it with a tool that can close it,',
+  'close it only once they tell you they have finished. Handing a link to their',
+  'browser (`open`, `start`, `Start-Process` or any such command) leaves a tab you',
+  'have no way to close, so do that only for these, and leave that tab to them.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -707,8 +733,25 @@ function block() {
  *     how, not by ignoring #10. Local evidence is thin: this board's store has
  *     one room post since #2239, and it has no line break. Re-measure room
  *     posts after this reaches agents.
+ *
+ *  16. kosmos#4467. Josh, 2026-09-28 22:07: agents leave "literally hundreds" of
+ *     browser tabs open in his browser. Nothing in this block mentioned tabs. A NEW
+ *     section: close every tab or window you open when done; never open a page in
+ *     the person's browser just to read it (fetch it, or use a private browser of
+ *     the agent's own, such as engine/agentbrowser.js's, which only some agents
+ *     have, or say you cannot read it); close tabs it left open earlier; the
+ *     exceptions are a page they must act on now or ask to have opened, closed
+ *     only once they say they are done, if the agent can. Only a tab the agent certainly opened
+ *     is closed; an unsure agent leaves it, since it may hold the person's work.
+ *     A tool that drives the person's own browser is not a private browser, but a
+ *     tab the agent opens with it is still the agent's to close.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so agents that already exist are
+ *     re-offered it through the consented refresh, not only new ones.
+ *     WEAKEST PREMISE, NAMED: that a written rule changes what agents do with the
+ *     browser. Measured only once the release reaches agents.
  */
-const DOCTRINE_VERSION = 15;
+const DOCTRINE_VERSION = 16;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

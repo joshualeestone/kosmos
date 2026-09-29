@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -456,4 +456,37 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
     assert.match(got, /DONE/, sh + ': the script carried on past the reply (set -e did not stop it)');
   }
   assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the examples were never run');
+});
+
+/* #4467 (Josh, 2026-09-28 22:07): agents left hundreds of tabs open in his browser. Pinned as
+   CONTENT: the rule, closing only what is certainly yours, never opening to read, and both exceptions.
+   Its own heading, so missingFrom re-offers it to agents that already exist. */
+test('#4467: the block tells every agent to close the browser tabs it opens', () => {
+  const b = defaults.block();
+  /* Whitespace-tolerant throughout, so a re-wrap of the copy is not a failure. */
+  const has = (words, why) => assert.match(b, new RegExp(words.split(' ').map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')), why);
+  assert.match(b, /^### Close the browser tabs you open$/m, 'the section is missing, or not under its own heading');
+  has('Close every browser tab or window you open as soon as you are done with it', 'the rule itself is gone');
+  has('whenever you have a way to, and never leave one open "for later"', 'the "not for later" half is gone');
+  has('That includes tabs you opened earlier and left', 'the tabs already piled up are not addressed');
+  has('Close only a tab you know for certain is yours', 'an agent may close a tab that is the person\'s own work');
+  has('if you are not sure, or closing it could close one of theirs, leave it', 'an unsure close is no longer forbidden');
+  has('Never open a page in the person\'s browser just to read it', 'the never-open-to-read rule is gone');
+  has('use a private browser of your own, never theirs', 'the rendered-page case no longer keeps the agent out of their browser');
+  has('its tools have `kosmos-browser` in their names', 'the private browser is no longer named the way its tools appear');
+  has('A tool that drives the person\'s own browser is not a private browser', 'a tool driving their browser could be read as the agent\'s own');
+  has('any tab you open with it is still yours to close', 'tabs opened through a tool on their browser are no longer the agent\'s to close');
+  has('If you have no private browser, tell the person you cannot read that page', 'an agent with no private browser has no instruction');
+  has('The exceptions: a page the person must act on right now', 'the act-now exception is gone');
+  has('or a page they ask you to open for them', 'a page the person asks for is not an exception');
+  has('If you opened it with a tool that can close it, close it only once they tell you they have finished', 'an exception tab has no end, or is closed on a guess');
+  has('do that only for these, and leave that tab to them', 'a handed-off tab has no stated owner');
+  has('(`open`, `start`, `Start-Process` or any such command) leaves a tab you have no way to close', 'the hand-a-link case no longer says it cannot be closed');
+  /* Delivery to agents that already exist: with every other section present, missingFrom must name
+     exactly this one, which is what the consented refresh offers. */
+  const section = defaults.sections().find((x) => x.heading === '### Close the browser tabs you open');
+  assert.ok(section, 'sections() does not split it out as its own section');
+  const without = b.replace(section.text, '');
+  assert.deepEqual(defaults.missingFrom(without).map((x) => x.heading), ['### Close the browser tabs you open'],
+    'an agent holding every other section would not be offered this one');
 });
