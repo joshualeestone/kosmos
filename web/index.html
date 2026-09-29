@@ -14964,7 +14964,7 @@ window.kosmosMeasureScrollbarWidth();
          The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
     <div class="field" id="pjs-hooks-field">
       <span class="flabel" id="pjs-hooks-label">Webhooks</span>
-      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. The link works for programs on this computer.</p>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone.</p>
       <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
@@ -51743,7 +51743,7 @@ function pjsHooksPaint() {
      that follows making one must not take the link out from under the person copying it). */
   const typed = new Map();
   let focusedName = null;
-  const onLink = !!document.activeElement && document.activeElement.id === 'pjs-hook-url';
+  const onLink = document.activeElement && (document.activeElement.id === 'pjs-hook-url' || document.activeElement.id === 'pjs-hook-public') ? document.activeElement.id : null;
   /* And on a row's own button (Delete, Keep it, Done...), found again by its data-hook-* key: after
      a rename the person tabs on to that row's Delete, and the read that follows repaints the list. */
   let onButton = null;
@@ -51761,12 +51761,18 @@ function pjsHooksPaint() {
     const id = esc(h.id);
     const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
       ? '<div class="pjs-hook-reveal">'
-        + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
-        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
-        + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
+        + '<p><b>' + (PJS_HOOKS.reveal.publicUrl ? 'Copy these links now.' : 'Copy this link now.') + '</b> For your safety Kosmos shows ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + ' only once.</p>'
+        + (PJS_HOOKS.reveal.publicUrl ? '<p class="fhint" style="margin:0 0 4px;">On this computer:</p>' : '')
+        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + ' on this computer">'
+        + '<button class="btn" type="button" data-hook-copy="pjs-hook-url" aria-label="Copy the link for this computer">Copy</button></div>'
+        + (PJS_HOOKS.reveal.publicUrl
+          ? '<p class="fhint" style="margin:10px 0 4px;">From the internet (Zapier, GitHub and the like):</p>'
+            + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-public" value="' + esc(PJS_HOOKS.reveal.publicUrl) + '" aria-label="The internet link for ' + esc(h.name) + '">'
+            + '<button class="btn" type="button" data-hook-copy="pjs-hook-public" aria-label="Copy the internet link">Copy</button></div>'
+          : (PJS_HOOKS.reveal.publicWhy ? '<p class="fhint" style="margin:8px 0 0;">' + esc(PJS_HOOKS.reveal.publicWhy) + '</p>' : ''))
         + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
-        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
+        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + '</button></div>'
       : '';
     const confirm = PJS_HOOKS.confirm === h.id
       ? '<div class="pjs-hook-confirm"><span id="pjs-hook-confirm-' + id + '">Delete ' + esc(h.name) + '? Anything using its link stops working.</span> '
@@ -51780,7 +51786,7 @@ function pjsHooksPaint() {
   }).join('');
   typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
   if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
-  if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
+  if (onLink) { const u = document.getElementById(onLink); if (u) { u.focus(); u.select(); } }
   if (onButton) { const b = box.querySelector('[' + onButton[0] + '="' + CSS.escape(onButton[1]) + '"]'); if (b) b.focus(); }
 }
 function pjsHooksInit(method, body) {
@@ -51803,7 +51809,7 @@ async function pjsHookAdd() {
     /* Settings moved to another project while this was being made: it belongs to the first one,
        so it is not shown here. Its link can no longer be shown; the person deletes it there. */
     if (PJS_HOOKS.projectId !== forProject) return;
-    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
+    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url, publicUrl: out.publicUrl || null, publicWhy: out.publicWhy || null };
     PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
     msg.textContent = '';
     pjsHooksPaint();
@@ -51868,20 +51874,21 @@ async function pjsHookDelete(id) {
   pjsHooksPaint();
   msg.focus();
 }
-async function pjsHookCopy() {
-  const input = document.getElementById('pjs-hook-url');
+async function pjsHookCopy(which) {
+  const input = document.getElementById(which === 'pjs-hook-public' ? 'pjs-hook-public' : 'pjs-hook-url');
   const said = document.getElementById('pjs-hook-copied');
   if (!input) return;
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and copy it yourself.';
+  const internet = which === 'pjs-hook-public';
+  if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : (internet ? 'Kosmos could not copy it. Select the internet link and copy it yourself.' : 'Kosmos could not copy it. Select the link and copy it yourself.');
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.hookCopy) { pjsHookCopy(); return; }
+  if (b.dataset.hookCopy) { pjsHookCopy(b.dataset.hookCopy); return; }
   if (b.dataset.hookDone) { PJS_HOOKS.reveal = null; pjsHooksPaint(); document.getElementById('pjs-hook-add').focus(); return; }
   if (b.dataset.hookDelete) {
     PJS_HOOKS.confirm = b.dataset.hookDelete;

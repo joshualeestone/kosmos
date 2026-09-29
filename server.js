@@ -1106,6 +1106,39 @@ const tasks = require('./engine/tasks');
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
 const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
+/* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
+   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
+   host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
+const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const HOOK_LOCAL_ONLY = 'This link works for programs on this computer. ';
+function hookPublicLink(id, secret) {
+  let st = null; let on = false; let signedIn = false;
+  try { st = remote.status(); } catch { st = null; }
+  let settingsOk = true;
+  try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
+  try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
+  const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
+  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
+  if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
+  if (!st || st.state !== 'up') {
+    return why(st && (st.state === 'connecting' || st.state === 'restarting')
+      ? 'Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
+      : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
+  }
+  if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet.');
+  // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
+  // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
+  let enrolledName = '';
+  try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
+  if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
+    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time.');
+  }
+  if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
+  return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
+}
+
 /* 🛑 NO SHARED CAP IN FRONT OF VERIFY, on purpose. A bucket every /hooks/ call counts toward is a
    lever any local program (another account on this computer included) can pull to silence every
    real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
@@ -3732,11 +3765,12 @@ function agentTokenOk(req) {
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
-   remoteWriteGuard refuses every DIRECT network peer, and the link the screen shows is a
-   127.0.0.1 address. ⚠️ Traffic through the Kosmos+ tunnel reaches the board over loopback, so
-   whether a webhook is reachable from the internet is decided by the tunnel's own path filter
-   (crates/tunnel, not in this repo), not by this line; if it forwards /hooks/, a call still needs
-   the secret. The coordinator must never mint or honour a webhook secret. */
+   remoteWriteGuard refuses every DIRECT network peer. ⚠️ Traffic through the Kosmos+ tunnel
+   reaches the board over loopback, so whether a webhook is reachable from the internet is decided
+   by the tunnel's own path filter (crates/tunnel, not in this repo), not by this line. #4419: the
+   screen shows the https://<name>.kosmosplus.com link only when the running connector reports
+   admits_hooks: true (hookPublicLink); either way, the secret is the only thing that lets a call
+   through. The coordinator must never mint or honour a webhook secret. */
 const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
@@ -16298,7 +16332,7 @@ const server = http.createServer(async (req, res) => {
         let made;
         try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
         const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
-        sendJson(res, 201, { webhook: made.hook, url });
+        sendJson(res, 201, { webhook: made.hook, url, ...hookPublicLink(made.hook.id, made.secret) });
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }

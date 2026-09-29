@@ -98,6 +98,75 @@ test('pjsHooksPaint escapes the name everywhere it lands, and shows the link onl
   assert.match(box.innerHTML, /not used yet/);
 });
 
+test('#4419: the revealed row shows the internet link with its own Copy when there is one, else the sentence why', () => {
+  const box = stubBox();
+  const { pjsHooksPaint, PJS_HOOKS } = load(box);
+  PJS_HOOKS.list = [{ id: 'bbbbbbbbbbbbbbbb', name: 'Plain', createdAt: null, lastUsedAt: null }];
+  PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET', publicUrl: 'https://hers.kosmosplus.com/hooks/bbbbbbbbbbbbbbbb/SECRET"><b>', publicWhy: null };
+  pjsHooksPaint();
+  assert.ok(box.innerHTML.includes('id="pjs-hook-public"'), 'no internet link field');
+  assert.ok(box.innerHTML.includes('data-hook-copy="pjs-hook-public"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'), 'each link has its own Copy');
+  assert.ok(!box.innerHTML.includes('"><b>') && box.innerHTML.includes('&quot;&gt;&lt;b&gt;'), 'the internet link is escaped');
+  assert.ok(box.innerHTML.includes('Done, I have copied them'), 'two links, so Done says them');
+  PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET', publicUrl: null, publicWhy: 'This link works for programs on this computer for now.' };
+  pjsHooksPaint();
+  assert.ok(!box.innerHTML.includes('id="pjs-hook-public"'), 'an internet link field with nothing to show');
+  assert.ok(box.innerHTML.includes('works for programs on this computer for now'), 'the reason is not said');
+  assert.ok(box.innerHTML.includes('Done, I have copied it<'), 'CONTROL: one link, so Done says it');
+  // CONTROL: the local link and its Copy are there either way.
+  assert.ok(box.innerHTML.includes('id="pjs-hook-url"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'));
+});
+
+test('#4419: each Copy copies its own link and says which one it copied', async () => {
+  const fields = { 'pjs-hook-url': { value: 'http://127.0.0.1:1/hooks/x/LOCAL', select() {} }, 'pjs-hook-public': { value: 'https://hers.kosmosplus.com/hooks/x/NET', select() {} }, 'pjs-hook-copied': { textContent: '' } };
+  const document = { getElementById: (id) => fields[id] || null };
+  const wrote = [];
+  const navigator = { clipboard: { writeText: async (v) => { wrote.push(v); } } };
+  // eslint-disable-next-line no-new-func
+  const pjsHookCopy = new Function('document', 'navigator', fnSource('pjsHookCopy') + 'return pjsHookCopy;')(document, navigator);
+  await pjsHookCopy('pjs-hook-public');
+  assert.equal(wrote.pop(), 'https://hers.kosmosplus.com/hooks/x/NET');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied the internet link.');
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL', 'CONTROL: the local Copy still copies the local link');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied the link for this computer.');
+  // With Kosmos Plus off there is only the one link, so it just says Copied.
+  delete fields['pjs-hook-public'];
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied.');
+});
+
+test('#4419: when copying fails, it says which link to select by hand', async () => {
+  const fields = { 'pjs-hook-url': { value: 'L', select() {} }, 'pjs-hook-public': { value: 'N', select() {} }, 'pjs-hook-copied': { textContent: '' } };
+  const document = { getElementById: (id) => fields[id] || null, execCommand: () => false };
+  const navigator = { clipboard: { writeText: async () => { throw new Error('denied'); } } };
+  // eslint-disable-next-line no-new-func
+  const pjsHookCopy = new Function('document', 'navigator', fnSource('pjsHookCopy') + 'return pjsHookCopy;')(document, navigator);
+  await pjsHookCopy('pjs-hook-public');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Kosmos could not copy it. Select the internet link and copy it yourself.');
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Kosmos could not copy it. Select the link and copy it yourself.', 'CONTROL: the local link has its own sentence');
+});
+
+test('#4419: a repaint keeps focus on whichever link had it, the internet one included', () => {
+  const box = stubBox();
+  const got = [];
+  const field = (id) => ({ id, focus() { got.push(id); }, select() {} });
+  for (const had of ['pjs-hook-public', 'pjs-hook-url']) {
+    const document = { getElementById: (id) => (id === 'pjs-hooks' ? box : (id === 'pjs-hook-url' || id === 'pjs-hook-public') ? field(id) : null), activeElement: { id: had } };
+    const CSS = { escape: (s) => String(s) };
+    // eslint-disable-next-line no-new-func
+    const pg = new Function('document', 'CSS', fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksWhen') + fnSource('pjsHooksPaint')
+      + 'const PJS_HOOKS = { projectId: "p", list: [], reveal: null, confirm: null, gen: 0, readErr: null }; return { pjsHooksPaint, PJS_HOOKS };')(document, CSS);
+    pg.PJS_HOOKS.list = [{ id: 'bbbbbbbbbbbbbbbb', name: 'Plain', createdAt: null, lastUsedAt: null }];
+    pg.PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/b/S', publicUrl: 'https://hers.kosmosplus.com/hooks/b/S', publicWhy: null };
+    got.length = 0;
+    pg.pjsHooksPaint();
+    assert.deepEqual(got, [had], had + ' keeps focus through the repaint');
+  }
+});
+
 test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row shows the stored name', () => {
   const box = stubBox();
   const { pjsHooksPaint, PJS_HOOKS } = load(box);
