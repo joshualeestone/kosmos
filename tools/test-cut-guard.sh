@@ -659,25 +659,52 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4498 a suite that gives up leaves the queue" \
   || fail "#4498 a suite that gave up left its marker (rc=$rc, $out)"
 
-# --- #4574: the queue's bound counts from the last time the run ahead CHANGED ---------------------
-# A moving queue (a new refusal each call: the run ahead finished, the next one started) is waited through far past
-# the bound; the SAME refusal for the whole bound (a stuck run ahead) still gives up.
-rm -f "$W/calls"
-out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
-# 12 calls: 10 refusals, the clear one, and the #4498 second ask made after leaving the queue.
-{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 12 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
-  && pass "#4574 a queue that keeps moving is waited through past the bound (300 s asleep on a 60 s bound), then the run starts" \
+# --- #4574: in the queue the bound counts from the last time a waiter AHEAD left ------------------
+# Three live stand-in waiters with earlier queue times sit ahead of this run. A waiter leaves the queue by removing its
+# marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
+# (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
+q_ahead() { local i; : > "$W/ahead"; for i in 1 2 3; do sleep 300 & echo "$!" >> "$W/ahead"
+  printf '%s %s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
+q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
+qnow() { cat "$W/clock" 2>/dev/null || echo 0; }
+# Sleeps: advance the clock by QSTEP; on every QLEAVE-th sleep (0 = never) the first waiter still marked leaves.
+qsleep() { local n p; n=$(( $(cat "$W/sleeps" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/sleeps"
+  echo $(( $(qnow) + ${QSTEP:-30} )) > "$W/clock"
+  [ "${QLEAVE:-0}" -gt 0 ] && [ $((n % QLEAVE)) -eq 0 ] || return 0
+  for p in $(cat "$W/ahead"); do [ -e "$W/markers/suitewait.$p" ] && { rm -f "$W/markers/suitewait.$p"; return 0; }; done; }
+q_clear; q_ahead
+out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+# 10 calls: 8 refusals, the clear one, and the #4498 second ask after leaving the queue; 240 s on a 60 s bound.
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 10 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 a queue that keeps moving is waited through past the bound (240 s on a 60 s bound), then the run starts" \
   || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
-rm -f "$W/calls"
-out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "did not change for 60s"; } \
-  && pass "#4574 CONTROL: the same run ahead for the whole bound still gives up, and says the queue did not move" \
-  || fail "#4574 a stuck run ahead was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "the queue did not move for 60s" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says the queue did not move" \
+  || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+# The wall-clock arm: 100 s pass per sleep but only 30 s is counted asleep, so only the clock can reach a 60 s bound.
+out="$(QSTEP=100 QLEAVE=1 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 6 ]; } \
+  && pass "#4574 the wall-clock arm restarts too: a waiter leaving every 100 s keeps a 60 s bound from firing" \
+  || fail "#4574 the wall clock gave up on a moving queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 2 ]; } \
+  && pass "#4574 CONTROL: with nobody leaving, the wall clock alone ends the wait at the bound (one 100 s sleep)" \
+  || fail "#4574 the wall-clock arm did not fire (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 a refusal that only changes its wording does not restart the bound" \
+  || fail "#4574 a changing refusal was read as the queue moving (rc=$rc, calls=$(cat "$W/calls"), $out)"
 rm -f "$W/calls"
 out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
-  && pass "#4574 outside the queue the bound is unchanged: a changing refusal still gives up at it" \
-  || fail "#4574 a non-queue wait was stretched by a changing refusal (rc=$rc, calls=$(cat "$W/calls"), $out)"
+  && pass "#4574 outside the queue the bound is unchanged" \
+  || fail "#4574 a non-queue wait was stretched (rc=$rc, calls=$(cat "$W/calls"), $out)"
 rm -f "$W/calls"
 out="$(unset KOSMOS_WAIT_MAX_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 91 ]; } \

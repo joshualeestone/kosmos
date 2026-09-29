@@ -504,6 +504,13 @@ kosmos_refuse_if_suite_live() {
 # one of the two always sees the other.
 # KNOWN RESIDUAL: a harness jumps the queue (a waiting suite yields to any test-install, even one
 # that arrived later), so a suite behind a long harness can reach its bound. That is the safe side.
+#
+# #4574: the queue's bound. A full suite takes 14 to 26 minutes, so a bound on the TOTAL wait gave up on every waiter
+# second in line or later. In the queue the bound (default 2700 s) runs from the last time a waiter AHEAD of this run
+# left (_kosmos_suite_waiters_ahead fell): a queue that keeps moving is waited through, and the waiter at the front
+# gives up only when the run in front of it has held the box for the whole bound. Waiters ahead only ever leave, so the
+# count cannot flap; a harness or a suite's own subshells do not count. The cost: behind a HUNG suite each waiter in
+# turn spends one bound at the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -587,15 +594,37 @@ kosmos_refuse_if_earlier_suite_waiter() {
 # kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
 # command that returns 0 for "go" and prints its refusal on stderr) until it passes or the bound runs
 # out. --suite-queue joins the suite queue above (run-tests.sh). Returns 0 to go, 1 to refuse.
+# _kosmos_suite_waiters_ahead: how many live waiters are ahead of this run in the suite queue (all of them before this
+# run holds a marker). New arrivals queue behind, so the count only falls, and it falls when one ahead leaves.
+_kosmos_suite_waiters_ahead() {
+  local dir f pid mine_ts mine_pid ts wpid n=0
+  dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || { echo 0; return 0; }
+  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  for f in "$dir"/suitewait.*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    _kosmos_suite_waiter_live "$pid" || continue
+    read -r ts wpid 2>/dev/null < "$f" || continue
+    case "$ts" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
+      n=$((n + 1))
+    fi
+  done
+  echo "$n"
+}
+# The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP.
+_kosmos_wait_now() { if [ -n "${KOSMOS_WAIT_NOW:-}" ]; then "$KOSMOS_WAIT_NOW"; else date +%s; fi; }
+
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
-  # #4574: in the suite queue the bound is 45 minutes, not 20, and it counts from the last time the run this one
-  # waits on CHANGED (see the queue note above), not from the start.
+  # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
   local dflt=1200; [ "$queue" = 1 ] && dflt=2700
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
-  local waited=0 said=0 err ts="" start next_note=300 blk="" wblk=0 bstart
-  start="$(date +%s)"; bstart="$start"
+  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
+  start="$(_kosmos_wait_now)"; bstart="$start"
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   while :; do
@@ -615,20 +644,20 @@ kosmos_wait_until_clear() {
       if [ "$queue" = 1 ]; then err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
       else err="the box is busy (the check refused without saying why)."; fi
     fi
-    # #4574: in the queue, a new first line of the refusal (another suite running, another waiter ahead) is the
-    # queue moving, so the bound starts again. The same line for the whole bound is a run that is not moving.
+    # #4574: in the queue, one fewer waiter ahead is the queue moving, so the bound starts again.
     if [ "$queue" = 1 ]; then
-      local sig; sig="$(printf '%s\n' "$err" | head -1)"
-      if [ "$sig" != "$blk" ]; then blk="$sig"; wblk=0; bstart="$(date +%s)"; fi
+      ahead="$(_kosmos_suite_waiters_ahead)"
+      if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
+      prev="$ahead"
     else
-      wblk="$waited"; bstart="$start"
+      wblk="$waited"
     fi
     # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
-    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(date +%s) - bstart )) -ge "$max" ]; then
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
       if [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
-        echo "gave up after waiting ${waited}s: the run ahead did not change for ${max}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+        echo "gave up after waiting ${waited}s: the queue did not move for ${max}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       fi
@@ -637,7 +666,11 @@ kosmos_wait_until_clear() {
     if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2
-      echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      if [ "$queue" = 1 ]; then
+        echo "waiting for it: asking again every ${every}s, and giving up if the queue does not move for ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      else
+        echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      fi
       said=1
     elif [ "$waited" -ge "$next_note" ]; then
       echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2

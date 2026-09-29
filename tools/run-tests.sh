@@ -200,7 +200,7 @@ BEFORE="$(seen_before)"
 . "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
 # #4498 (Kano's review, Liu Kang m3015): the claim is asked INSIDE _rt_box_clear below, on every poll, not once
 # here. Asked once, a suite already waiting when a cut claimed the box could start inside the cut. Now a claim is a
-# reason to wait, and the wait names the release; at the 20-minute bound the run refuses with that message.
+# reason to wait, and the wait names the release; at the wait's bound the run refuses with that message.
 # #4410: nor beside a live install harness (tools/test-install.sh). It boots real boards on test
 # ports and checks that they let go of them; a suite started 3 minutes into one, both behind a
 # clear heavy-gate, reddened its port checks (Kano, 2026-09-28). Fail-open on the library load,
@@ -211,8 +211,9 @@ BEFORE="$(seen_before)"
 # #4498: nor beside ANOTHER suite (three full suites overlapped on Mortals on 2026-09-28, because
 # plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
 # the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
-# Both checks WAIT rather than refuse: every 30 s for up to 20 minutes, in a queue so the oldest
-# waiting suite goes first (tools/lib/cut-guard.sh, kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
+# Both checks WAIT rather than refuse: every 30 s, in a queue so the oldest waiting suite goes
+# first, giving up only when the queue has not moved for 45 minutes (#4574; tools/lib/cut-guard.sh,
+# kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
 # refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
