@@ -350,26 +350,24 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # (lsof also shows it as *:PORT) really does refuse a 127.0.0.1 connect, so it is not evidence.
 # The board binds 127.0.0.1 by default (engine/bindhost.js); KOSMOS_BIND_HOST=0.0.0.0 is *:PORT, also IPv4.
 # A dual-stack or IPv6 bind (KOSMOS_BIND_HOST=::) is not seen here, and keeps the old "down" reading.
-# The re-probe makes one refused probe with a listener cost more than its budget (one lsof, 0.5 s, a second
-# probe); a refused probe with no listener costs one lsof.
+# The re-probe makes one refused probe with a listener cost more than its budget (lsof, 0.5 s, a second probe
+# and its own lsof); a refused probe with no listener costs one lsof.
 # Before calling it unreachable, the probe runs ONCE more after half a second: a board that started
 # listening between curl's refusal and lsof (a boot in progress) then answers, instead of a start or
 # restart dying on a moment's race.
 _UNREACH_CMD=""
 _UNREACH_PID=""
 _HEALTH_REPROBE=""
-_HEALTH_LISTENER=""
 _health_refused() {   # <the probe's budget, to re-probe with>
   local _pc
-  # The re-probe's own refusal reuses the listener the first one found: one lsof per refused probe.
-  if [ -n "$_HEALTH_REPROBE" ] && [ -n "$_HEALTH_LISTENER" ]; then _pc="$_HEALTH_LISTENER"
-  else _pc="$(_ipv4_listener)" || _pc=""; fi
+  # lsof on each refusal, the re-probe's too: a listener that exited in the half second then reads down.
+  _pc="$(_ipv4_listener)" || _pc=""
   if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi
   if [ -z "$_HEALTH_REPROBE" ]; then
-    _HEALTH_REPROBE=1; _HEALTH_LISTENER="$_pc"
+    _HEALTH_REPROBE=1
     sleep 0.5
     _health_probe "${1:-2}"
-    _HEALTH_REPROBE=""; _HEALTH_LISTENER=""
+    _HEALTH_REPROBE=""
     return
   fi
   _UNREACH_PID="${_pc%% *}"; _UNREACH_CMD="${_pc#* }"
@@ -1006,7 +1004,16 @@ _await_board_up() {
         return 0
       fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ]; then
+        local _k
         kill "$_pid" 2>/dev/null || true
+        for _k in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.3; done
+        kill -0 "$_pid" 2>/dev/null && kill -9 "$_pid" 2>/dev/null
+        for _k in 1 2 3 4 5; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.2; done
+        # ASKED IS NOT STOPPED (cmd_stop's rule): the pidfile is the only handle on it, so it goes only once
+        # the process is gone.
+        if kill -0 "$_pid" 2>/dev/null; then
+          die "Kosmos cannot be started from this shell: $(_unreachable_why). The board it launched (process $_pid) would be blocked the same way and could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
+        fi
         rm -f "$PIDFILE" 2>/dev/null || true
         die "Kosmos cannot be started from this shell: $(_unreachable_why), and a board started here would be blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
@@ -1040,6 +1047,8 @@ cmd_start() {
   # brought the board back. Persistent "stopped means stopped" is the intended
   # semantic (the card's requirement); it does not affect crash recovery, which is
   # marker-ABSENT and still relaunches.
+  local _had_stop_marker=""
+  [ -f "$STOP_MARKER" ] && _had_stop_marker=1
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
@@ -1051,6 +1060,8 @@ cmd_start() {
   # report success while the old board keeps serving old code.
   if [ "$HEALTH_STATE" = unreachable ]; then
     if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
+      # Nothing was started, so a deliberate stop a person made stands (#2955's early clear is undone).
+      if [ -n "$_had_stop_marker" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
       die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run 'kosmos start' from a shell that can reach it."
     fi
     say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."

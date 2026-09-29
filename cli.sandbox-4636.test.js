@@ -194,7 +194,9 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
   fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
   fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
   fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
-    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n");
+    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
+    + "setTimeout(() => process.exit(0), 60000);\n");
   fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
   fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
   try {
