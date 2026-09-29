@@ -220,7 +220,7 @@ const SCREENS = [
       }
       return '';
     };
-    // Polled like the hit-test, so a repaint mid-read is not a red.
+    // Polled for up to 3 s, like the hit-test.
     let spill = await page.evaluate(fits, allow);
     for (const until = Date.now() + 3000; spill && Date.now() < until; spill = await page.evaluate(fits, allow)) {
       await page.waitForTimeout(200);
@@ -768,6 +768,10 @@ async function run() {
   // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
   if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
     throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
+  }
+  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
+    throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
