@@ -477,11 +477,15 @@ async function sweepIndustry(keys, on) {
       // A refusal says THIS PATCH changed nothing; it says nothing about an earlier unanswered one (review 8), so the
       // mark is put back as it was before this send, not deleted.
       if (!wasUnsure) delete k.industryUnsure;
+      delete k.industryRetrying;                        // an answer: a later outage for this value is logged again
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
-    } else {
-      log(`industry for ${agentKey}: no usable answer (status ${r.status || 'none'}); the next sweep tries again`);
+    } else if (k.industryRetrying !== want) {
+      // No usable answer (a timeout, a 5xx, a 429): tried again next sweep, logged once per value like a 404 (review 10).
+      k.industryRetrying = want;
+      saveJson(keysFile(), keys);
+      log(`industry for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again every sweep until it lands`);
     }
   }
 }

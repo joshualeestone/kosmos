@@ -142,3 +142,7 @@ Only that exact refusal is final now (serviceRefusedIndustry); every other 400/4
 and a bare 400 on a pick, then recovery, deliver the pick. (N) the weakest premise now says a refused pick leaves the
 old value public.
 
+## Review iteration 10 (blind): CONVERGED (nothing at BLOCKER or WARNING)
+Two log-only NITs taken: a refusal clears the retry-log flag (a later outage for that value is logged again); the
+no-usable-answer branch logs once per value like a 404 instead of every sweep. Delivery unchanged.
+
