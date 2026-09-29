@@ -300,8 +300,44 @@ test('every function a check declares is defined on the page today, so no declar
   for (const f of fs.readdirSync(CHECKS).filter((x) => x.endsWith('.js'))) {
     for (const fn of sel.declaredFunctions(fs.readFileSync(path.join(CHECKS, f), 'utf8'))) {
       declared.push(`${f}:${fn}`);
-      assert.ok(sel.functionRange(page, fn), `${f} declares ${fn}, which web/index.html no longer defines (or whose closing brace is not at its own indentation)`);
+      const r = sel.functionRange(page, fn);
+      assert.ok(Array.isArray(r), `${f} declares ${fn}, which web/index.html ${r === 'unclosed' ? 'declares with no closing brace at its own indentation' : 'no longer defines'}`);
+      // Tight, not merely found: no other function declared at the same indentation inside the range, so a
+      // closing line the finder missed cannot stretch it over the functions after it.
+      const lines = page.split('\n');
+      const indent = /^(\s*)/.exec(lines[r[0] - 1])[1];
+      const other = new RegExp(`^${indent}(?:async\\s+)?function\\s+[A-Za-z_$][\\w$]*\\s*\\(`);
+      const inside = lines.slice(r[0], r[1]).filter((l) => other.test(l));
+      assert.deepEqual(inside, [], `${f}'s ${fn} range [${r}] runs over another function`);
     }
   }
   assert.ok(declared.length >= 2, `CONTROL: the walker found ${declared.length} declarations; it must see the two this card added`);
+});
+
+test('functionRange: a closing line may carry ; or a comment, a one-line function is one line, and a missing end says so', () => {
+  const page = ['x', 'function a() { return 1; }', 'function b(x) {', '  y();', '}; // end of b', 'function c() {', '  z();', 'function d() {', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(page, 'a'), [2, 2]);
+  assert.deepEqual(sel.functionRange(page, 'b'), [3, 5]);
+  // c has no closer before d's: it is 'unclosed', never stretched over d (d's own `}` is at the same indentation).
+  assert.equal(sel.functionRange(page, 'c'), 'unclosed');
+  assert.equal(sel.functionRange(page, 'nope'), null);
+});
+
+test('through select(): an unclosed declared function selects its check with its own reason, not "not on the page"', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const [start, end] = sel.functionRange(page, 'asbAvatar');
+  const lines = page.split('\n');
+  const broken = [...lines.slice(0, end - 1), '  // (closing brace removed)', ...lines.slice(end)].join('\n');
+  const diff = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    `@@ -${start + 2},1 +${start + 2},1 @@`, '-  const probeOld = 1;', '+  const probeNew = 2;'].join('\n');
+  const got = (sel.select(diff, [], broken).get('render-assistant-hosted-3660') || []).join(';');
+  assert.match(got, /function asbAvatar \(its end was not found\)/);
+  assert.doesNotMatch(got, /not on the page/);
+});
+
+test('touchedLines counts only web/index.html hunks, and places a -U0 pure deletion after its head line', () => {
+  const diff = ['diff --git a/x.js b/x.js', '--- a/x.js', '+++ b/x.js', '@@ -1,1 +1,1 @@', '-a', '+b',
+    'diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -10,2 +9,0 @@', '-gone1', '-gone2', '@@ -20 +20 @@', '-old', '+new'].join('\n');
+  assert.deepEqual(sel.touchedLines(diff), [10, 10, 20, 20]);
 });

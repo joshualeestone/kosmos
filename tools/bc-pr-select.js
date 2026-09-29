@@ -8,8 +8,9 @@
  * passed it and broke a check outside it, found only at the cut: #3985 broke render-talk, #4095
  * broke render-fields. This names the checks a `web/index.html` diff reaches, so the PR job runs
  * them too. It diffs `<base>...<head>` (the merge base, as the #2518 gate does), web/index.html
- * only, and reads the changed (+/-) lines. `head` picks the diff only: the checks, the page index
- * and gated.txt are read from the working tree, so a replay asks what TODAY's checks select.
+ * only, and reads the changed (+/-) lines. The checks and gated.txt are read from the working tree,
+ * so a replay asks what TODAY's checks select; the page itself (its ids, function names and function
+ * bodies) is read at `head`, so the diff's line numbers refer to the page they were written against.
  *
  * NOT READ: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
  * fires on them, but a change there runs the fixed allowlist only, as it did before #4119.
@@ -91,28 +92,43 @@ function declaredFunctions(src) {
 }
 
 /* A page function's body as 1-based [first, last] lines: the declaration, to the first later line that is
-   the declaration's own indentation followed by `}`. null when the page does not define it. */
+   the declaration's own indentation followed by `}` (then optionally `;` and a `//` comment). A function
+   whose braces open and close on its declaration line is that one line. null when the page does not
+   declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation. */
 function functionRange(page, name) {
   const lines = page.split('\n');
   const decl = new RegExp(`^(\\s*)(?:async\\s+)?function\\s+${name.replace(/\$/g, '\\$')}\\s*\\(`);
   for (let i = 0; i < lines.length; i += 1) {
     const m = decl.exec(lines[i]);
     if (!m) continue;
-    for (let j = i + 1; j < lines.length; j += 1) if (lines[j].replace(/\s+$/, '') === `${m[1]}}`) return [i + 1, j + 1];
-    return null;
+    const opens = (lines[i].match(/\{/g) || []).length;
+    if (opens > 0 && opens === (lines[i].match(/\}/g) || []).length) return [i + 1, i + 1];
+    const close = new RegExp(`^${m[1]}\\}\\s*;?\\s*(//.*)?$`);
+    // Another declaration at this indentation first means this one's closer was missed: stop there, rather
+    // than run on to that function's own `}` and claim its body too.
+    const next = new RegExp(`^${m[1]}(?:async\\s+)?function\\s+[A-Za-z_$][\\w$]*\\s*\\(`);
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (close.test(lines[j])) return [i + 1, j + 1];
+      if (next.test(lines[j])) return 'unclosed';
+    }
+    return 'unclosed';
   }
   return null;
 }
 
-/* The head-side line numbers a diff changes: each added line, and for a removed line the head line it was
-   removed before. Only hunks count, as in changedLines. */
+/* The head-side line numbers a diff changes in web/index.html: each added line, and for a removed line the
+   head line it was removed before. Only hunks count, as in changedLines, and only the page's: a hunk under
+   another file's `+++` header is skipped. A hunk whose new side is empty (`+N,0`, as -U0 writes a pure
+   deletion) sits AFTER head line N. */
 function touchedLines(diff) {
   const out = [];
   let next = null;
+  let inPage = true;   // a diff with no file headers (a hand-built one) is taken as the page's
   for (const l of diff.split('\n')) {
-    if (l.startsWith('diff --git ')) { next = null; continue; }
-    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
-    if (h) { next = Number(h[1]); continue; }
+    if (l.startsWith('diff --git ')) { next = null; inPage = true; continue; }
+    if (l.startsWith('+++ ') && next === null) { inPage = l === '+++ b/web/index.html'; continue; }
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
+    if (h) { next = inPage ? Number(h[1]) + (h[2] === '0' ? 1 : 0) : null; continue; }
     if (next === null) continue;
     if (l[0] === '+') { out.push(next); next += 1; } else if (l[0] === '-') out.push(next); else if (l[0] === ' ') next += 1;
   }
@@ -297,6 +313,7 @@ function selectByPage(diff, text, add, page) {
     for (const fn of declaredFunctions(src)) {
       const r = functionRange(page, fn);
       if (!r) add(name, `function ${fn} (not on the page)`);
+      else if (r === 'unclosed') add(name, `function ${fn} (its end was not found)`);
       else if (touched.some((n) => n >= r[0] && n <= r[1])) add(name, `function ${fn}`);
     }
     const sel = [...selectorsOf(src, index)].filter((t) => hits(t, text) && usedAsSelector(t, text)).sort();
