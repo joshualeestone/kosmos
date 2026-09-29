@@ -82,6 +82,12 @@ test('the five badge states each render, and only "working" is green', () => {
   // #3997 (Josh 09-26): the unconfirmed state is AMBER on every provider, not the muted grey kept for "could not check".
   assert.match(unver[1], /acct-unverified/, 'signed_in_unverified is not the amber unconfirmed class (#3997)');
   assert.doesNotMatch(unver[1], /acct-none|acct-unknown/, 'signed_in_unverified reads as a negative or as could-not-check');
+  // #3997 ruling C: the arm an idle signed-in Claude row actually takes when its login date is known. Calm and
+  // neutral, never green (review iteration 4: the regexes above do not reach this arm).
+  const loginOk = fn.match(/badge === 'signed_in_unverified' && loginDate\)\s*\{([\s\S]*?)\}\s*else if/);
+  assert.ok(loginOk, "#3997: the login-good arm of signed_in_unverified is missing");
+  assert.match(loginOk[1], /acct-loginok/, '#3997: the login-good arm is not the calm neutral class');
+  assert.doesNotMatch(loginOk[1], /acct-connected|acct-unverified/, '#3997: the login-good arm renders green or amber');
   assert.match(unver[1], />Signed in</, '#3136: the pill must read a neutral "Signed in"');
   assert.doesNotMatch(unver[1], /not recently checked/, '#3136: "not recently checked" must NOT be in the visible pill -- it reads as "not connected"');
   assert.match(unver[1], /title="'\s*\+\s*esc\(unverifiedTitle \|\| unverifiedWhy\)/, 'the not-verified-live nuance must ride the tooltip (unverifiedWhy), not the visible pill');

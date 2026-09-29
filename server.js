@@ -836,6 +836,7 @@ const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const observed = require('./engine/observed');
 const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
+const claudeloginlive = require('./engine/claudeloginlive');   // #3997 (ruling C): a Claude login's own date, never a token
 /* #3997 round 7: how long /api/accounts waits on a Grok subscription's free check before saying it is checking. */
 const GROK_CHECK_WAIT_MS = Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) : 1500;
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
@@ -8025,6 +8026,11 @@ const server = http.createServer((req, res) => {
           const prev = obsByDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
+           on the next poll rather than holding this one. */
+        // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
+        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
+          (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -8049,11 +8055,20 @@ const server = http.createServer((req, res) => {
              create screen offers the % limit only where it means something. */
           let cal = null;
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
+          /* #3997 (ruling C): an unverified sign-in whose login date is still ahead, with no rejection seen since the
+             board started, carries that date; the page shows it as a calm "login good until". Green only with the
+             switch on. */
+          const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
+          const loginOk = claudeloginlive.loginGood(loginArgs);
+          const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             /* #4139: which outcome the badge came from, so a green from Check now does not claim an agent's request. */
-            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },   // a stale one decided nothing (#4139 follow-up)
+            connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
+              ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              ...(loginGreen ? { observedFrom: 'login' } : {}) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
