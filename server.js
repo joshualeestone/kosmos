@@ -17931,6 +17931,22 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
+      /* #4588: Antigravity agents paused on their Google account's shared quota get ONE carry-on line after the reset,
+         one agent at a time (engine/agyquota.js). Same gating as the sweeps above: inert under `node --test` and before
+         the live-execution opt-in, operator brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1, own ~1-min timer, unref'd,
+         best-effort. */
+      const agyQuota = require('./engine/agyquota');
+      const AGY_QUOTA_BOOK = new Map();
+      const agyQuotaTick = agyQuota.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: AGY_QUOTA_BOOK,
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
+      });
+      const agyQuotaSweep = setInterval(agyQuotaTick, Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) : 60 * 1000); // the env is the test seam only
+      if (agyQuotaSweep && typeof agyQuotaSweep.unref === 'function') agyQuotaSweep.unref();
       /* #4004: a Gemini agent frozen on its usage-limit question (Keep trying / Stop) is answered Stop
          (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
          the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
