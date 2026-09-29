@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0710
-diff_hash: 0edf4be8e9992c1dbc8c5b82c4e03efec3ec5e1532f85343b0df2d7b784124ae
+diff_hash: 31190f20b94c1fb09b8d60bfb8cb50a6b9da7047972c421ddf016ca9ce3ed9ff
 validation: failed (the one full run at 99e3d95cc was red ONLY on #4498 queue tests in tools/test-cut-guard.sh, because Splinter's deadlock unstick required exporting KOSMOS_TESTS_IGNORE_SUITE=1, which those tests read; that file alone without the flag = 0 failures; node half 11931 tests 0 fail; every change since is web/whats-new.json copy + the plan, checked by whats-new-check and engine/whatsnew.test.js 6/6)
 subdir_audit: passed
 timestamp: 2026-09-29T18:08:36Z
@@ -42,6 +42,9 @@ converged: true
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 NEW WARNINGs (2 duplicates: the deterrent wording, already accounted for; "never" is scoped by "on your own board", which is the PR's finding), 0 CONVENTIONs, 0 NEW NITs
 **Converged** - no new actionable findings.
+
+### Re-key after convergence
+- The version string moved 0.7.10 -> 0.7.11 (Windows staging took 0.7.10). Content unchanged; whats-new-check 0.7.11 passes.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
