@@ -30,12 +30,15 @@ const { paneCount } = require('./lib-firstrun-steps.js');
    free port (#633/#708). The literal stays as the hand-run fallback. */
 const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
 const FLAG = process.argv[2];   // the sandboxed first-run.json
-// The About-you record lives at the DATA root (the flag's grandparent, per
-// engine/you.js's BASE), and it is first-run state: left behind by an earlier
-// run it prefills the About-you step and arms the gate, so the "Continue waits"
+// The About-you record is first-run state: left behind by an earlier run it
+// prefills the About-you step and arms the gate, so the "Continue waits"
 // assertions would measure the leftover, not the gate. Cleared everywhere the
-// flag is cleared.
-const YOU = path.join(path.dirname(path.dirname(FLAG)), 'you.json');
+// flag is cleared. It sits BESIDE the flag: since #1848 engine/you.js writes
+// through store.ROOT, the same directory as first-run.json. #4563: this used to
+// be the flag's grandparent, so fresh() deleted a file that never existed and a
+// run_one retry always opened About-you already answered; section 1 now asserts
+// the walk wrote THIS path, so a drift reds instead of hiding.
+const YOU = path.join(path.dirname(FLAG), 'you.json');
 
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
@@ -218,6 +221,10 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   console.log('\n1. A machine that has never been through it opens ON first run, at Welcome');
   {
     const { ctx, page } = await fresh(browser);
+    // #4563: the overlay can come up after networkidle + fresh()'s 500ms under
+    // CI load (837ms measured), so wait for it, bounded. An overlay that never
+    // shows still fails here.
+    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 10000 }).catch(() => {});
     ok(await page.isVisible('#firstrun'), 'the overlay is up with no ?first-run flag at all');
     ok((await activeHead(page)) === 'Welcome to Kosmos', 'on step 1, the Welcome screen');
     // install-flow-9screen: the step crumb + progress segments are GONE (Josh's
@@ -298,6 +305,10 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // so this restates the line above rather than checking it independently; kept
     // for the two-line report this check has always printed.
     ok(flag && flag.completedAt, 'and the flag has a timestamp in it');
+    // #4563: the About-you answers landed at YOU, the path fresh() clears. If the
+    // board ever writes them elsewhere, fresh() stops clearing them and a retry
+    // opens About-you pre-answered; this is what says so.
+    ok(fs.existsSync(YOU), 'the About-you answers were saved where fresh() clears them');
     await ctx.close();
   }
 
