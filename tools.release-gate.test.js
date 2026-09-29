@@ -637,11 +637,13 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_HARNESS_IGNORE_CUT: '1',
       /* #3619: and the other direction. release.sh also refuses while an install harness
          (tools/test-install.sh) runs anywhere on the Mac, and tools/test-cut-guard.sh starts
-         a real stand-in for one (`bash tools/test-install.sh --sleep 4`) as its fixture. So
+         a real stand-in for one as its fixture. So
          any other suite on the box that is inside test-cut-guard.sh turned these arms red
          with the harness refusal, although none of them tests that guard
          (test-cut-guard.sh does). Measured with a stand-in harness running: 12 of 26 red
-         without this, 26 of 26 with it. */
+         without this, 26 of 26 with it. Since #4410 that stand-in sits in the kt<digits>
+         fixture sandbox, which release.sh's harness guard drops, so it no longer reaches
+         these arms; the override stays for a REAL harness another agent may be running. */
       KOSMOS_CUT_IGNORE_HARNESS: '1',
       /* #3619, same family: the arms that pass step 2 run on into the load guard (step 2b),
          which waits up to 600 s while the Mac's load is high. They only need to reach step 2,

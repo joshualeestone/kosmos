@@ -58,10 +58,20 @@ const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
  * folder is derived: change it here, never rebuild it elsewhere.
  */
 function filesDir(sessionName) {
+  return ownDir(sessionName, FOLDER);
+}
+
+/**
+ * #4447: a named folder of the agent's OWN, beside the file its instructions are written into:
+ * the one derivation filesDir uses, shared so the Inbox (engine/messages.js, where a long
+ * message is spilled) can never name a different folder than Files does. Null when the agent
+ * has no usable folder, or the path could not be stated safely.
+ */
+function ownDir(sessionName, folder) {
   let file = null;
   try { file = instructions.fileFor(sessionName); } catch { file = null; }
   if (typeof file !== 'string' || !file) return null;
-  const dir = path.join(path.dirname(file), FOLDER);
+  const dir = path.join(path.dirname(file), folder);
   /* A path the block cannot state safely is no path: NUL (create.workerDir's sentinel for
      an unusable name), or a line break or backtick that would break out of the code span
      and write lines of its own into the agent's instructions (a recorded folder is only
@@ -209,4 +219,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, FOLDER, filesDir, blockBody, bodyFor, tellAgent, syncEveryone };
+module.exports = { START, END, FOLDER, filesDir, ownDir, blockBody, bodyFor, tellAgent, syncEveryone };

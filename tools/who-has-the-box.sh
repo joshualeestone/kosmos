@@ -4,7 +4,7 @@
 # their gate refused, or to confirm the box is free before a heavy run.
 # Before a heavy run (a full suite, browser checks, a screenshot sheet), use
 # tools/heavy-gate.sh instead (kosmos#3805): it reads this AND checks for a real
-# release.sh or browser-checks.sh already running.
+# release.sh, browser-checks.sh or test-install.sh already running (#4410).
 #
 #   bash tools/who-has-the-box.sh
 #

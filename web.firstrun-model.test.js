@@ -106,8 +106,11 @@ test('the step is a real slice of the model pane', () => {
      ⚠️ RAISED 44000 -> 49000 (#3731): Gemini and Grok each got GPT's four panels (install, choice,
      sign-in, key) directly under their own rows, replacing one shared box. The slice measures
      46213; `id="create-model"` sits 108398 chars from the slice start, so 49000 is still far
-     short of swallowing the create form. */
-  assert.ok(STEP.length > 200 && STEP.length < 49000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     short of swallowing the create form.
+     ⚠️ RAISED 49000 -> 54000 (#3939 3c-4): the Meta row gained its hidden Connect and the Muse sign-in panel
+     under it. The slice measures 49755; `id="create-model"` sits 115234 chars from the slice start, so 54000
+     is still ~61k short of swallowing the create form. */
+  assert.ok(STEP.length > 200 && STEP.length < 54000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });

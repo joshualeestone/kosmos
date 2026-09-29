@@ -137,7 +137,7 @@ const EXPECTED = {
   ],
   "web.consolidated-project-name-overflow.test.js": [
     {
-      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated \\.pjcard-h b \\{ font-size: \\.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,",
+      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated :where\\(#pj-list\\) \\.pjcard-h b \\{ font-size: \\.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,",
       "count": 1
     }
   ],

@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: panel-cons-agents openConsolidatedAgents placeAgentsPanel consNavLight CONS_AGENTS_OPEN
+// Browser-check-surface: panel-cons-agents openConsolidatedAgents placeAgentsPanel consNavLight CONS_AGENTS_OPEN panel-cons-projects pj-full-list pj-full-sort openConsolidatedProjects paintConsProjects CONS_PROJECTS_OPEN
 // (#2518) the distinctive web/index.html tokens this check asserts. A change to any of them must
 // update this check at PR time.
 /* #4345 (Josh, #admin 2026-09-28 09:21): in the consolidated view the top nav (Agents, Projects,
@@ -10,7 +10,9 @@
  *    moves into the column; the agents list stays the rail. An agent click there opens that agent's
  *    page, the same openDetail the rail calls.
  *  - Tasks: the existing consolidated Tasks panel (#3559).
- *  - Projects: the board comes back (the way back).
+ *  - Projects (#4377, slice 2): the full projects page (the Projects tab's grid, with its sort) in
+ *    the column; a row click activates that project, as the rail does. Pressed again, or any project
+ *    opened, is the way back to the board, which lights no nav item.
  * The lit nav item says what the column holds. Leaving the consolidated view restores #grid and
  * #orgview to their tab-view slots. This drives the SHIPPED #tabs click handler, showTab, pjView,
  * takeOverDisplayColumn and boardApplyVisibility in the real page.
@@ -92,13 +94,17 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.o_gridHidden = $('grid').hidden === true;
         BOARD_LAYOUT = 'grid';
 
-        // 5. Projects is the way back: the board returns and the Agents view closes.
+        // 5. Projects (#4377) opens the full projects page over the Agents view; pressed again it is the
+        //    way back to the board.
+        tab('projects').click();
+        res.p_fullOpen = $('panel-cons-projects') && $('panel-cons-projects').hidden === false && lit() === 'projects';
         tab('projects').click();
         res.p_cons = cons();
         res.p_agentsHidden = $('panel-cons-agents').hidden === true;
         res.p_gridHidden = $('grid').hidden === true;
         res.p_lit = lit();
         res.p_projectsColShown = $('pj-list-view').hidden === false;
+        res.p_fullHidden = $('panel-cons-projects').hidden === true;
         // The way back keeps the active project (review round 1: it used to drop it).
         res.p_keptProject = PJ_CURRENT === 'k' && $('pj-one-view').hidden === false;
 
@@ -140,17 +146,19 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return res;
     });
     const J = JSON.stringify(out);
+    const $hidden = (o) => o.p_fullHidden === true;
     const e0 = out.err === null;
-    ok(t + ' the top nav is on screen in the consolidated view, Projects lit for the board', e0 && out.navShown === true && out.litOnBoard === 'projects', J);
+    ok(t + ' the top nav is on screen in the consolidated view, and the board itself lights no item', e0 && out.navShown === true && out.litOnBoard === '', J);
     ok(t + ' the nav does not collide with the right-hand header cluster, and nothing scrolls sideways', e0 && out.navClearOfRight === true && out.noSideScroll === true, J);
     ok(t + ' Agents loads the card grid into the display column and stays consolidated', e0 && out.a_cons && out.a_inColumn && out.a_gridShown && out.a_orgHidden, J);
     ok(t + ' the agents rail and the projects column stay beside it; the project view steps aside', e0 && out.a_railShown && out.a_projectsColShown && out.a_projectHidden, J);
     ok(t + ' Agents is lit while the column holds it, and the empty-board hint stays off', e0 && out.a_lit === 'agents' && out.a_noneHidden === true, J);
     ok(t + ' an agent click in the column opens that agent (openDetail, as the rail does)', e0 && out.a_clickOpened === 'max', J);
     ok(t + ' an org-chart person gets the chart in the column, not the grid', e0 && out.o_orgShown && out.o_gridHidden, J);
-    ok(t + ' Projects brings the board back and closes the Agents view', e0 && out.p_cons && out.p_agentsHidden && out.p_gridHidden && out.p_lit === 'projects' && out.p_projectsColShown, J);
+    ok(t + ' Projects over the Agents view opens the full projects page, Projects lit', e0 && out.p_fullOpen === true, J);
+    ok(t + ' Projects pressed again brings the board back (Agents view closed, nothing lit)', e0 && out.p_cons && out.p_agentsHidden && out.p_gridHidden && out.p_lit === '' && out.p_projectsColShown && $hidden(out), J);
     ok(t + ' ...and keeps the project that was open, rather than resetting to the list', e0 && out.p_keptProject === true, J);
-    ok(t + ' opening a project closes the Agents view, Projects lit', e0 && out.n_agentsHidden && out.n_projectShown && out.n_lit === 'projects', J);
+    ok(t + ' opening a project closes the Agents view; the board lights nothing', e0 && out.n_agentsHidden && out.n_projectShown && out.n_lit === '', J);
     ok(t + ' ...and clears the record, so the grid is hidden again, not only its wrapper', e0 && out.n_flagCleared === true, J);
     ok(t + ' Settings over the Agents view hides it, and no nav item is lit', e0 && out.s_settingsShown && out.s_agentsHidden && out.s_lit === '', J);
     ok(t + ' Tasks loads into the column, staying consolidated, Tasks lit', e0 && out.t_cons && out.t_inColumn && out.t_lit === 'tasks', J);
@@ -231,6 +239,113 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
     ok(t + ' a saved list layout shows the grid and presses neither switch button', r0 && r1.l_neither === true, R1);
     ok(t + ' another overlay taking the column re-hides the grid itself', r0 && r1.t_rehidden === true, R1);
+
+    // ---- #4377, slice 2: the full projects page. fetch never settles here, so the fixture's rows are
+    // the ones painted (over file:// the read fails and would paint "cannot read" instead). ----
+    const s2 = await page.evaluate(async () => {
+      const $ = (id) => document.getElementById(id);
+      const tab = (name) => document.querySelector('#tabs .tab[data-tab="' + name + '"]');
+      const lit = () => [...document.querySelectorAll('#tabs .tab.on')].map((x) => x.dataset.tab).join(',');
+      const names = (el) => [...el.querySelectorAll('[data-project] .pjname b')].map((b) => b.textContent).join(',');
+      const res = {};
+      try {
+        window.fetch = () => new Promise(() => {});
+        const mk = (id, name, at) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0, createdAt: at });
+        PROJECTS = [mk('a', 'Alpha', '2026-01-01'), mk('b', 'Beta', '2026-02-01'), mk('c', 'Gamma', '2026-03-01')];
+        PJ_SORT = 'az'; PJ_CURRENT = null; PJ_LOADED_ONCE = true; PJ_READ_FAILED = false;
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
+        paintProjects();
+        res.noneBefore = $('pj-none').hidden === false;   // CONTROL: the list-state hint is up on the board
+        tab('projects').click();
+        paintProjects();
+        const full = $('pj-full-list');
+        res.open = $('panel-cons-projects').hidden === false && $('panel-cons-projects').parentElement === $('panel-projects') && lit() === 'projects' && document.body.classList.contains('consolidated');
+        res.rows = full.querySelectorAll('[data-project]').length;
+        res.railRows = $('pj-list').querySelectorAll('[data-project]').length;
+        res.isGrid = full.classList.contains('pj-list') && full.classList.contains('asgrid');
+        const fr = full.querySelector('.pj-row'); const rr = $('pj-list').querySelector('.pj-row');
+        res.fullAlign = fr ? getComputedStyle(fr).textAlign : null;   // the grid card is centred
+        res.railAlign = rr ? getComputedStyle(rr).textAlign : null;   // the rail row stays left
+        res.railShown = $('pj-list-view').hidden === false;
+        res.noneHidden = $('pj-none').hidden === true;
+        // Sort from the column drives the one sort (#pj-sort, PJ_SORT) and the rail follows.
+        res.orderAz = names(full);
+        $('pj-full-sort').value = 'za';
+        $('pj-full-sort').dispatchEvent(new Event('change'));
+        res.orderZa = names(full);
+        res.sortShared = PJ_SORT === 'za' && $('pj-sort').value === 'za' && names($('pj-list')) === res.orderZa;
+        PJ_SORT = 'az'; $('pj-sort').value = 'az'; paintProjects();
+        // A row click activates that project in the column, as the rail does; no nested view.
+        full.querySelector('[data-project="b"]').click();
+        res.clicked = PJ_CURRENT === 'b' && $('pj-one-view').hidden === false && $('panel-cons-projects').hidden === true && lit() === '' && CONS_PROJECTS_OPEN === false;
+        // Empty and failed reads say what the rail says.
+        tab('projects').click();
+        PROJECTS = []; paintProjects();
+        res.emptySame = full.querySelectorAll('[data-project]').length === 0 && full.textContent.trim() !== '' && full.textContent.trim() === $('pj-list').textContent.trim();
+        // No duplicate id from the copied empty state, and its "Add a project" still works.
+        res.oneEmptyId = document.querySelectorAll('#pj-new-empty').length <= 1 && !!full.querySelector('[data-pj-new-empty]');
+        PROJECTS = [mk('a', 'Alpha', '2026-01-01')]; paintProjects();
+        res.backRows = full.querySelectorAll('[data-project]').length === 1;
+        // The 5s poll's hint repaint keeps the hint off while the page is open. From the LIST state (no
+        // project open), where the hint does show on the board: that is the control.
+        PJ_CURRENT = null; showTab('projects'); paintPjNone();
+        res.noneOnBoard = $('pj-none').hidden === false;
+        tab('projects').click();
+        paintPjNone();
+        res.noneAfterPoll = $('pj-none').hidden === true && $('panel-cons-projects').hidden === false;
+        // A failed read: the page says what the rail says (the read's own failure path paints it).
+        window.fetch = () => Promise.reject(new Error('down'));
+        await loadProjects();
+        res.failSame = full.querySelectorAll('[data-project]').length === 0 && /cannot read your projects/i.test(full.textContent)
+          && full.textContent.trim() === $('pj-list').textContent.trim();
+        window.fetch = () => new Promise(() => {});
+        // Review round 1: a parent/child pair. The copy is a grid, so no fold caret shows on the parent and
+        // the child's parent chip stays centred, as in the Projects tab's grid; the rail keeps both.
+        PROJECTS = [mk('a', 'Alpha', '2026-01-01'), Object.assign(mk('d', 'Delta', '2026-04-01'), { parent: 'a', parentName: 'Alpha' })];
+        paintProjects();
+        const caret = (root) => root.querySelector('[data-project="a"] .pjtreefold');
+        const anc = (root) => root.querySelector('[data-project="d"] .pj-anc');
+        res.caretCopy = caret(full) ? getComputedStyle(caret(full)).display : 'absent';
+        res.caretRail = caret($('pj-list')) ? getComputedStyle(caret($('pj-list'))).display : 'absent';
+        res.ancCopy = anc(full) ? getComputedStyle(anc(full)).justifyContent : 'absent';
+        res.ancRail = anc($('pj-list')) ? getComputedStyle(anc($('pj-list'))).justifyContent : 'absent';
+        // The sort control carries its chevron.
+        res.chevron = !!$('panel-cons-projects').querySelector('.sortctl .sortctl-i');
+        // With a project current, only the rail marks it.
+        PJ_CURRENT = 'a'; paintProjects();
+        res.oneCurrent = document.querySelectorAll('[aria-current="true"][data-project]').length === 1;
+        PJ_CURRENT = null; paintProjects();
+        // Settings taking the column closes it (one overlay at a time).
+        $('userpop-settings').click();
+        res.settingsClosed = $('panel-cons-projects').hidden === true && CONS_PROJECTS_OPEN === false;
+        // Leaving the consolidated layout leaves it closed.
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        showTab('projects');
+        res.tabsClosed = $('panel-cons-projects').hidden === true && document.body.classList.contains('consolidated') === false;
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        res.err = null;
+      } catch (e) { res.err = String(e && e.stack || e); }
+      return res;
+    });
+    const S2 = JSON.stringify(s2);
+    const s0 = s2.err === null;
+    ok(t + ' #4377 CONTROL: the list-state hint shows on the board before Projects is pressed', s0 && s2.noneBefore === true, S2);
+    ok(t + ' #4377 Projects opens the full projects page in the column, Projects lit, still consolidated', s0 && s2.open === true, S2);
+    ok(t + ' #4377 it holds every active project, and the rail keeps its own rows', s0 && s2.rows === 3 && s2.railRows === 3 && s2.railShown === true, S2);
+    ok(t + ' #4377 it is the Projects grid (centred cards), while the rail rows stay left-aligned', s0 && s2.isGrid && s2.fullAlign === 'center' && s2.railAlign === 'left', S2);
+    ok(t + ' #4377 the empty-board hint is off while it is open', s0 && s2.noneHidden === true, S2);
+    ok(t + ' #4377 its sort drives the one sort, and the rail follows', s0 && s2.orderAz === 'Alpha,Beta,Gamma' && s2.orderZa === 'Gamma,Beta,Alpha' && s2.sortShared === true, S2);
+    ok(t + ' #4377 a row click activates that project in the column (no nested view)', s0 && s2.clicked === true, S2);
+    ok(t + ' #4377 an empty read shows the rail\'s own sentence, and rows come back', s0 && s2.emptySame === true && s2.backRows === true, S2);
+    ok(t + ' #4377 the copied empty state adds no duplicate id and keeps its action', s0 && s2.oneEmptyId === true, S2);
+    ok(t + ' #4377 no fold caret on a parent tile in the copy (the rail keeps its caret)', s0 && s2.caretCopy === 'none' && s2.caretRail !== 'none' && s2.caretRail !== 'absent', S2);
+    ok(t + ' #4377 a child\'s parent chip is centred in the copy, left in the rail', s0 && s2.ancCopy === 'center' && s2.ancRail === 'flex-start', S2);
+    ok(t + ' #4377 the copy\'s sort control has its dropdown chevron', s0 && s2.chevron === true, S2);
+    ok(t + ' #4377 only one row says it is the current project', s0 && s2.oneCurrent === true, S2);
+    ok(t + ' #4377 the poll\'s hint repaint keeps the hint off while it is open (CONTROL: it shows on the board)', s0 && s2.noneOnBoard === true && s2.noneAfterPoll === true, S2);
+    ok(t + ' #4377 a failed projects read shows the rail\'s "cannot read" sentence there too', s0 && s2.failSame === true, S2);
+    ok(t + ' #4377 Settings taking the column closes it, and the tab layout leaves it closed', s0 && s2.settingsClosed === true && s2.tabsClosed === true, S2);
 
     // ---- The LIST state (no project open): the "Open or create a project" hint must not draw over
     // the Agents view, including after the 5s poll's paintPjNone. Same guard #3053 has for Create. ----

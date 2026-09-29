@@ -37,7 +37,7 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
    ⭐ And the docblock above already SAID `.pjcard-h` is dissolved to
    `display: contents`. The prose knew; the assertion did not. */
-const ROW = 'html[data-layout="consolidated"] body.consolidated .pj-row';
+const ROW = 'html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row';
 
 // #1469: re-anchoring any brace-loosened assertion below is caught mechanically by web.brace-anchor-guard-1469.test.js
 /* #1430: the remaining brace-anchored assertions in this file no longer end at
@@ -115,6 +115,6 @@ test('the name and the status pill stack, rather than compete for one line', () 
 });
 
 test('the existing ellipsis rule on the project name is untouched -- this fix gives it a box to work in, not a new rule', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated :where\(#pj-list\) \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,
     'the pre-existing (and always correct) truncation rule on the name is gone');
 });
