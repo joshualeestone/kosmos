@@ -1602,7 +1602,7 @@ function codexHookReview(paneText) {
    characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. Choose in its terminal: trust the hooks, or continue without them. Then send this again.';
+  + 'so nothing was typed. Choose in its terminal whether to trust them, then send this again.';
 /* True when a card's evidence is this dialog's, as isTrustDialogEvidence is for Claude's: only the Codex hook
    branch of classify writes these rows as needs_you evidence. */
 function isCodexHookEvidence(evidence) {

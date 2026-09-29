@@ -52,5 +52,5 @@ That the person re-sending is acceptable as "the held message arrives whole". Th
 one press away; they are not sent by themselves.
 
 ## Tests
-engine/chat.codex-hooks-4589.test.js (8). On main's engine, the same delivery to either real screen reports
+engine/chat.codex-hooks-4589.test.js (9). On main's engine, the same delivery to either real screen reports
 "placed" with Enter typed and the card reads "unknown" (control script, measured).
