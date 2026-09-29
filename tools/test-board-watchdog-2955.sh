@@ -112,18 +112,12 @@ _n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_
 rm -f "$H/.stub-unreachable"; run_wd "$H"
 [ ! -f "$H/logs/board-watchdog.unreachable" ] && ok "unreachable: the spell ends when status says something else" || bad "unreachable: its marker outlived the spell"
 rm -rf "$H"
-# 6w. #4636: a spell older than 6 hours is logged again (so a long one is not silent). Needs this Mac up for more
-#     than 7 hours, since a marker older than boot is cleared first (arm 6v); skipped otherwise, and says so.
-_boot="$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p')"
-if [ -n "$_boot" ] && [ $(( $(now) - _boot )) -gt 25200 ]; then
-  H="$(new_home)"; : > "$H/.stub-unreachable"; : > "$H/logs/board-watchdog.unreachable"
-  touch -t "$(date -r $(( $(now) - 25000 )) +%Y%m%d%H%M.%S)" "$H/logs/board-watchdog.unreachable"
-  run_wd "$H"; run_wd "$H"
-  _n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: a spell over 6 hours old is logged again, once" || bad "unreachable: a long spell was logged ${_n:-0} times"
-  rm -rf "$H"
-else
-  echo "SKIP  unreachable 6-hour re-log: this Mac has not been up 7 hours"
-fi
+# 6w. #4636: a spell older than 6 hours is logged again (so a long one is not silent), once.
+H="$(new_home)"; : > "$H/.stub-unreachable"; : > "$H/logs/board-watchdog.unreachable"
+touch -t "$(date -r $(( $(now) - 25000 )) +%Y%m%d%H%M.%S)" "$H/logs/board-watchdog.unreachable"
+run_wd "$H"; run_wd "$H"
+_n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: a spell over 6 hours old is logged again, once" || bad "unreachable: a long spell was logged ${_n:-0} times"
+rm -rf "$H"
 
 # 6e. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
 #     control: the same age of down streak, plain down, does restart.

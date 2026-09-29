@@ -138,17 +138,20 @@ test('a sandboxed shell: stop, restart, open and board-run change nothing and ne
   assert.notEqual(stop.code, 0, stop.out);
   assert.match(stop.out, /this shell cannot connect to it/);
   assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker for a running board');
-  const restart = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true));
-  assert.equal(restart.died, false, restart.out);
-  assert.notEqual(restart.code, 0, restart.out);
-  assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
+  // restart refuses in a sandbox (ps denied); where ps works it goes ahead by the pid, which is right there.
+  const restart = PS_DENIED_IN_SANDBOX ? await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true)) : null;
+  if (restart) {
+    assert.equal(restart.died, false, restart.out);
+    assert.notEqual(restart.code, 0, restart.out);
+    assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
+  }
   const open = await withBoard('ok', (p) => run(CLI, ['open'], env(p), true));
   assert.equal(open.code, 5, open.out);
   assert.match(open.out, /this shell cannot connect to it/);
   const boardRun = await withBoard('ok', (p) => run(CLI, ['board-run'], env(p), true));
   assert.equal(boardRun.died, false, boardRun.out);
   assert.equal(boardRun.code, 0, boardRun.out);
-  for (const r of [stop, restart, open, boardRun]) assert.doesNotMatch(r.out, /not running|another app/i);
+  for (const r of [stop, restart, open, boardRun].filter(Boolean)) assert.doesNotMatch(r.out, /not running|another app/i);
 });
 
 test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly, and kills nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
