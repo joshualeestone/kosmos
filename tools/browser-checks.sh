@@ -918,13 +918,13 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
-# board above is needed. The slice is the frame and the accounts page at the
-# smallest phone, both engines; nav-menu and agents-list fail if their control
+# board above is needed. The slice is the frame, the accounts page and the
+# allow card at the smallest phone, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is the element at its own centre
-# (kosmos#4524), and every shot fails if the Community notice or What's New covers it. The full
+# (kosmos#4524), and every shot fails if the one-time Community notice covers it. The full
 # sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
   --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
