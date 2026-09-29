@@ -53,6 +53,17 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    This produces `dist/kosmos-win-x64.zip`. The launcher inside it is the committed, signed
    `tools/windows/Kosmos.exe` (#3677).
 
+   The build also needs the Plus connector (kosmos#4597), signed, with its two sidecars. Build
+   it first in a kosmos-relay checkout on an up-to-date `main`:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-tunnel-release-windows.ps1 -Sign <the signing script>
+   ```
+
+   That writes `dist\kosmos-tunnel.exe` with `.commit` and `.sha256` beside it. The Kosmos build
+   reads it from `~/work/kosmos-relay/dist/kosmos-tunnel.exe`, or from `KOSMOS_TUNNEL_BIN`, and
+   refuses one that is missing, unsigned, or does not match its sidecars.
+
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
    **last**, and reads every file back through installkosmos.com. Prod does not move. Everything
