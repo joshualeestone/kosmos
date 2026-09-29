@@ -465,8 +465,7 @@ function releaseHeld(id) {
 // The row is removed, not re-statused: it was never public, so there is nothing to take down,
 // and a discarded row kept in the queue would come back as work. A discarded post takes ALL its
 // comments with it, published ones included: a comment shows only under a published post, and
-// this post never was one. A discard credits
-// nobody and demotes nobody: it is "not this one", not a judgement on the agent (revokeTrust
+// this post never was one. A discard credits nobody and demotes nobody: it is "not this one", not a judgement on the agent (revokeTrust
 // is the demotion, and a human-caught leak is what calls it). Returns the removed row.
 function discardHeld(id) {
   const key = String(id);

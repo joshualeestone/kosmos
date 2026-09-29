@@ -28801,7 +28801,10 @@ function communityHeldAgent(r) {
 }
 function communityHeldIsComment(r) { return Boolean(r.postId || r.remotePostId); }
 /* A comment has no title, so it is named by its agent: every row's buttons must say which row they act on. */
-function communityHeldTitle(r) {
+function communityHeldTitle(r, stopped) {
+  /* A stopped post's topic is scanned like its body (engine/feedguard.js), so it may be what stopped it:
+     a stopped row is named neutrally, and its topic shows only with its words, when asked for. */
+  if (stopped) return (communityHeldIsComment(r) ? 'A comment' : 'A post') + (communityHeldAgent(r) ? ' by ' + communityHeldAgent(r) : '');
   if (communityHeldIsComment(r)) return communityHeldAgent(r) ? 'A comment by ' + communityHeldAgent(r) : 'A comment';
   return r.topic || 'Untitled post';
 }
@@ -28828,18 +28831,25 @@ function communityHeldPaint(rows, full) {
   list.hidden = rows.length === 0;
   empty.hidden = rows.length > 0;
   empty.textContent = 'Nothing is waiting for you.';
-  if (full) {
+  if (full && (full.held || full.stopped)) {
     empty.hidden = false;
-    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped are shown. There may be more; they show here as you release or discard these.';
+    const which = full.held && full.stopped ? 'waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped' : full.held ? 'waiting' : 'stopped';
+    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' ' + which + ' are shown. There may be more; they show here as you release or discard these.';
   }
+  const heldPosts = new Set(rows.filter((r) => r.status === 'held' && !communityHeldIsComment(r)).map((r) => r.id));
   for (const r of rows) {
     const stopped = r.status === 'quarantined';
     const isComment = communityHeldIsComment(r);
-    const name = communityHeldTitle(r);
+    const name = communityHeldTitle(r, stopped);
     /* The buttons' names: a post's title, or for a comment its agent plus how it starts, since
-       one agent can have several comments waiting. */
+       one agent can have several comments waiting. A stopped row's words must not be spoken either
+       (a screen reader reads a button's name aloud), so it is told apart by its place in the list. */
     const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
-    const label = isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
+    const label = stopped ? name + ' (row ' + (rows.indexOf(r) + 1) + ')'
+      : isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
+    /* A comment under a post that is itself still waiting: releasing it now changes nothing anyone can see
+       (a comment shows only under a published post), so Release is not offered until the post is released. */
+    const underHeld = isComment && !stopped && r.postId && heldPosts.has(r.postId);
     const li = document.createElement('li');
     li.className = 'community-mine-row community-held-row';
     li.dataset.id = r.id;
@@ -28848,7 +28858,8 @@ function communityHeldPaint(rows, full) {
     title.textContent = name;
     const body = document.createElement('p');
     body.className = 'dhint community-held-body';
-    body.textContent = typeof r.body === 'string' ? r.body : '';
+    body.textContent = (stopped && !isComment && typeof r.topic === 'string' && r.topic ? r.topic + '\n' : '')
+      + (typeof r.body === 'string' ? r.body : '');
     /* A stopped row is stored exactly as the agent wrote it, and what stopped it may be a key or a
        card number, so its words stay hidden until asked for (a shared screen must not show them). */
     if (stopped) body.hidden = true;
@@ -28858,7 +28869,8 @@ function communityHeldPaint(rows, full) {
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* The send sweep sends posts only, so a released comment is published on this board and
          goes no further yet. The row must not promise the community. */
-      + (isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
+      + (underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
        service's id for it, so the row links out to that post. Only a plain id is linked.
@@ -28888,7 +28900,7 @@ function communityHeldPaint(rows, full) {
     li.append(text);
     const acts = document.createElement('div');
     acts.className = 'community-held-acts';
-    if (!stopped) {
+    if (!stopped && !underHeld) {
       const rel = document.createElement('button');
       rel.className = 'btn community-held-release';
       rel.type = 'button';
@@ -28954,7 +28966,7 @@ async function refreshCommunityHeld() {
     const [held, stopped] = await Promise.all([ask('held'), ask('quarantined')]);
     if (mine !== COMMUNITY_HELD_EPOCH) return;
     if (!held || !stopped) { communityHeldPaint(null); return; }
-    communityHeldPaint(held.concat(stopped), held.length >= COMMUNITY_HELD_MAX || stopped.length >= COMMUNITY_HELD_MAX);
+    communityHeldPaint(held.concat(stopped), { held: held.length >= COMMUNITY_HELD_MAX, stopped: stopped.length >= COMMUNITY_HELD_MAX });
   } catch {
     if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(null);
   }

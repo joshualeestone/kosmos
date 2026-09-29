@@ -125,10 +125,13 @@ const LONG = 'Today I moved the weekly report onto the new template.\nIt took th
 const REMOTE = '1b2c3d4e-0000-4000-8000-000000000001';
 const QUEUE = [
   { id: 'p1', status: 'held', agent: 'Nova', author: { type: 'agent', name: 'Nova' }, topic: 'Moving the weekly report', body: LONG, receivedAt: '2026-09-29T08:00:00Z' },
-  { id: 'p2', status: 'quarantined', agent: 'Nova', author: { type: 'agent', name: 'Nova' }, topic: 'Who to ask', body: 'Write to the team lead.', findings: [{ cls: 'email', field: 'body', why: 'email address (PII)' }], receivedAt: '2026-09-29T08:01:00Z' },
+  // Stopped for what is in its TOPIC: the topic is scanned like the body, so it must not be the row's title.
+  { id: 'p2', status: 'quarantined', agent: 'Nova', author: { type: 'agent', name: 'Nova' }, topic: 'Ask lead@example.test', body: 'Write to the team lead.', findings: [{ cls: 'email', field: 'topic', why: 'email address (PII)' }], receivedAt: '2026-09-29T08:01:00Z' },
   { id: 'c1', status: 'held', postId: 'p9', author: { type: 'agent', name: 'Ava' }, body: 'Same here, templates help.', receivedAt: '2026-09-29T08:02:00Z' },
   // remotePostId is #4373 part B's field (its branch, not main): this row is that branch's shape.
   { id: 'c2', status: 'held', remotePostId: REMOTE, author: { type: 'agent', name: 'Ava' }, body: 'This worked for me too.', receivedAt: '2026-09-29T08:03:00Z' },
+  // A comment under p1, which is itself still waiting: releasing it alone would change nothing anyone can see.
+  { id: 'c3', status: 'held', postId: 'p1', author: { type: 'agent', name: 'Ava' }, body: 'Nice write-up.', receivedAt: '2026-09-29T08:04:00Z' },
 ];
 
 async function shot(pg, name) {
@@ -200,16 +203,25 @@ async function run() {
       const R = (id) => r.rows.find((x) => x.id === id) || {};
       if (scheme === 'light') {
         check('ROWS: the list exists and its heading shows below the Community switch', r.found && r.headShown && r.belowSwitch, JSON.stringify(r));
-        check('ROWS: four rows are listed', r.rows.length === 4, JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: five rows are listed', r.rows.length === 5, JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: the list asks for held and stopped rows separately, each at the route\'s full page (limit=200)',
           asked.length >= 2 && asked.every((u) => /[?&]limit=200\b/.test(u)) && asked.some((u) => /status=held\b/.test(u)) && asked.some((u) => /status=quarantined\b/.test(u)), JSON.stringify(asked));
-        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","c3","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: with the switch on there is no switch-off note', r.offNote === false);
         check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', R('p2').bodyShown === false && R('p2').reveal === true && R('p1').bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
+        const leak = await p1.evaluate(() => {
+          const li = document.querySelector('li[data-id="p2"]');
+          const labels = [...li.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')).join(' | ');
+          return { visible: li.innerText, labels, title: li.querySelector('b').textContent };
+        });
+        check('ROWS: a stopped post is titled neutrally; its topic (what stopped it) is not on screen or in a button name',
+          leak.title === 'A post by Nova' && !/lead@example/.test(leak.visible) && !/lead@example|team lead/.test(leak.labels), JSON.stringify(leak));
+        check('ROWS: a comment under a post that is still waiting has no Release and says to release the post first',
+          R('c3').release === false && R('c3').discard === true && /release the post first, then this comment/.test(R('c3').text), R('c3').text);
         check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));
-        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["p2",false]]', JSON.stringify(r.rows));
+        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["c3",false],["p2",false]]', JSON.stringify(r.rows));
         check('ROWS: every row can be discarded', r.rows.every((x) => x.discard), JSON.stringify(r.rows));
         check('ROWS: the stopped row says why in words, and that it cannot be released',
           /contains an email address, so it cannot be released\./.test(R('p2').why) && !/email address \(PII\)/.test(R('p2').text), R('p2').why);
@@ -222,7 +234,8 @@ async function run() {
         await p1.click('li[data-id="p1"] .community-held-more');
         await p1.click('li[data-id="p2"] .community-held-reveal');
         const shown = ((await readList(p1)).rows.find((x) => x.id === 'p2') || {}).bodyShown;
-        check('ROWS: Show what it said reveals a stopped row\'s words', shown === true);
+        const said = await p1.evaluate(() => document.querySelector('li[data-id="p2"] .community-held-body').innerText);
+        check('ROWS: Show what it said reveals a stopped row\'s words, its topic included', shown === true && /Ask lead@example\.test/.test(said) && /Write to the team lead\./.test(said), said);
         await p1.click('li[data-id="p2"] .community-held-reveal');
       }
       await shot(p1, 'community-held-4525-' + scheme + '.png');
@@ -272,7 +285,7 @@ async function run() {
     await pf.route(MOD, mod(Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i }))));
     await openAutomation(pf);
     const fl = await readList(pf);
-    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200 waiting and the oldest 200 stopped are shown\. There may be more/.test(fl.empty), fl.empty);
+    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /Only the oldest 200 waiting are shown\. There may be more/.test(fl.empty), fl.empty);
     await pf.close();
 
     // FULL-STOPPED: 200 OLDER stopped rows cannot push a newer releasable post out of sight (it is listed first).
@@ -281,7 +294,7 @@ async function run() {
       ...Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[1], id: 'q' + i, receivedAt: '2026-09-29T08:' + String(i % 60).padStart(2, '0') + ':' + String(Math.floor(i / 60)).padStart(2, '0') + 'Z' }))]));
     await openAutomation(pq);
     const fq = await readList(pq);
-    check('FULL-STOPPED: 200 stopped rows do not hide a releasable post, which comes first', fq.rows.length === 201 && fq.rows[0].id === 'p1' && fq.rows[0].release === true && /There may be more/.test(fq.empty), JSON.stringify([fq.rows.length, fq.rows[0] && fq.rows[0].id, fq.empty]));
+    check('FULL-STOPPED: 200 stopped rows do not hide a releasable post, which comes first', fq.rows.length === 201 && fq.rows[0].id === 'p1' && fq.rows[0].release === true && /Only the oldest 200 stopped are shown\. There may be more/.test(fq.empty), JSON.stringify([fq.rows.length, fq.rows[0] && fq.rows[0].id, fq.empty]));
     await pq.close();
 
     // EMPTY

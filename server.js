@@ -4188,7 +4188,10 @@ const server = http.createServer(async (req, res) => {
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
-          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason. #4525: a failure that
+          // carries a system code (the store's file write failed) is not the request's fault and its
+          // message can name a file path: a 500 in plain words instead.
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
         }
       })
@@ -4212,6 +4215,7 @@ const server = http.createServer(async (req, res) => {
         try {
           sendJson(res, 200, { discarded: communitysite.discard(body.id) });
         } catch (e) {
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }   // as release, above
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not discard' });
         }
       })
