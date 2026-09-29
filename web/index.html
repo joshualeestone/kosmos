@@ -3858,7 +3858,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* #4345: the Agents view (org chart or card grid) relocated into the consolidated display column,
    the same placement the relocated Tasks panel uses. The agents list stays the rail beside it. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-agents { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
-  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+/* #4506: the pane reserves its own scrollbar gutter. The org chart is fitted to its width and its height follows,
+   so a scrollbar that came and went with the chart's height took 15px of width, the chart's width watcher repainted
+   it smaller, the scrollbar went, and the width came back: a repaint every frame in a band of window heights with a
+   big fleet. A fixed gutter gives the chart one width. render-gutter-return-4506 G3. */
 /* #4377: the full projects page in the consolidated display column, placed like the Agents view. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-projects { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }

@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: orgWatchWidth pjMentionWatchWidth orgview pj-post pj-post-mirror boot-cover
+// Browser-check-surface: orgWatchWidth pjMentionWatchWidth orgview pj-post pj-post-mirror boot-cover panel-cons-agents
 // (#2518) the distinctive web/index.html tokens this check asserts: the two width watchers #4506 added, the boxes
 // they watch, and the boot cover whose gutter drop the check drives.
 /* kosmos#4506: the tab layout's scrollbar gutter (#1309) is dropped while the boot cover (and the first-run and update
@@ -8,6 +8,10 @@
  * goes stale. Two such fits, each watched by its own ResizeObserver since this card:
  *   G1  the org chart (orgWatchWidth): it is fitted to #orgview's width, recorded as ORG_VIEW_W at each paint.
  *   G2  the @mention mirror in a project room (pjMentionWatchWidth): it copies #pj-post's width.
+ *   G3  the org chart's watcher must not LOOP: in the consolidated Agents view the pane scrolls on its own, and with a
+ *       big fleet the chart's height follows its width, so a pane scrollbar that comes and goes with the height fed
+ *       the width watcher every frame (40 to 144 repaints a second in a band of window heights). The pane now
+ *       reserves its gutter; G3 sweeps that band and counts repaints.
  * G1 fits under the boot cover (no gutter), lifts it, and asserts the fit followed the box. G2 drops the gutter with
  * the same two root properties the overlays set (opening a room lifts the boot cover itself), types, and restores it. Each has a
  * precondition that the box really changed width, so a harness with no gutter cannot pass it vacuously.
@@ -21,6 +25,7 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-gutter-return-4506.js
  *      (HEADED=0 on a machine with no console session)
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -93,6 +98,47 @@ function chk(ok, label, extra) {
     chk(g1c.gutter === 15 && g1c.painted === g1c.box && g1c.box === g1a.box, 'G1 once the cover lifts the chart repaints back to its box, with no window resize', JSON.stringify(g1c));
     await page.unroute('**/api/status*');
     for (const r of held) await r.continue().catch(() => {});
+
+    // G3 (run before G2 makes a project: with a project on the board, driving the view this way hands a resize back
+    // to the projects view, and the chart is not on screen to measure). No repaint loop in the consolidated Agents view. Its own page, with timers stubbed so only the watcher can
+    // repaint, a 60-agent fleet (big enough that the chart is fitted to its width, and so its height follows it),
+    // and the band of window heights where the pane's scrollbar used to come and go (measured: 924 to 936 at 1280).
+    // One fresh page per height, each loaded at that size, of web/index.html itself (file://, as render-agent-sort-4428
+    // and others do): a served board opens its Getting started project by itself and takes the chart off screen.
+    // Timers are stubbed so only the watcher can repaint.
+    const ctx3 = await browser.newContext();
+    const g3 = [];
+    for (let h = 920; h <= 940; h += 4) {
+      const p3 = await ctx3.newPage();
+      await p3.setViewportSize({ width: 1280, height: h });
+      p3.on('pageerror', (e) => errs.push(e.message));
+      await p3.addInitScript(() => { window.setInterval = () => 0; });
+      await p3.goto('file://' + path.join(__dirname, '..', '..', 'web', 'index.html'));
+      g3.push(await p3.evaluate(async () => {
+        const st = document.createElement('style');
+        st.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #999; }';
+        document.head.appendChild(st);
+        const mk = (i) => ({ name: 'A' + i, sessionName: 'a' + i, running: false, state: 'idle', role: null, profile: {}, dmUnread: 0, isGuide: false });
+        LAST = Array.from({ length: 60 }, (_, i) => mk(i));
+        BOARD_SEEN = true;
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+        document.getElementById('boot-cover').hidden = true;
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
+        openConsolidatedAgents();
+        document.querySelector('#panel-cons-agents [data-conslay="org"]').click();
+        await new Promise((r) => setTimeout(r, 500));
+        let n = 0; const orig = window.paintOrg; window.paintOrg = function () { n++; return orig.apply(this, arguments); };
+        const widths = new Set(), t0 = performance.now();
+        while (performance.now() - t0 < 1000) { widths.add(document.getElementById('orgview').clientWidth); await new Promise((r) => requestAnimationFrame(r)); }
+        const pa = document.getElementById('panel-cons-agents');
+        return { h: innerHeight, paints: n, widths: [...widths], fitted: ORG_VIEW_W === document.getElementById('orgview').clientWidth, cons: document.body.classList.contains('consolidated'), pane: pa ? (pa.hidden ? 'hidden' : pa.clientWidth) : 'none' };
+      }));
+      await p3.close();
+    }
+    chk(g3.every((x) => x.cons && x.fitted), 'G3 precondition: the consolidated Agents view, with the chart fitted to its box at every height', JSON.stringify(g3));
+    chk(g3.every((x) => x.paints <= 1 && x.widths.length === 1), 'G3 the org chart settles: no repaint loop, one width, at every height in the band', JSON.stringify(g3));
+    await ctx3.close();
 
     // G2: the @mention mirror in a project room.
     const made = await page.evaluate(async () => {
