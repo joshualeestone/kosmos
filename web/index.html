@@ -7078,7 +7078,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   box-sizing: border-box; margin: 0; padding: 0; border: 0; }
 #pj-post-mirror .pj-mirror-in { box-sizing: border-box; font: inherit; font-size: .9375rem;
   line-height: 1.5; padding: 9px 4px; margin: 0; color: var(--k-ink);
-  white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+  white-space: pre-wrap; overflow-wrap: break-word; }
+/* #4585 (Josh, 2026-09-29 11:33: the caret sat a few characters right of the text). The textarea draws the
+   caret and wraps the text; the mirror draws the text the person sees. They must lay out identically, or
+   the mirror wraps a word onto a line the textarea has not (the caret then sits where the textarea's text
+   is, not where the visible text is). Two properties differed: letter-spacing (a form control does not
+   inherit the body's -0.006em, the mirror did, so its words were narrower and fitted more on a line) and
+   word-break (break-word on the mirror only). Both are set, on both, to the textarea's own values. */
+#pj-post, #pj-post-mirror .pj-mirror-in { letter-spacing: normal; word-spacing: normal; word-break: normal; }
 .pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
 /* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
@@ -57669,7 +57676,14 @@ function pjMentionPaint() {
   inner.innerHTML = pjMentionHighlightHTML(val, pjMentionKeys(pjById(PJ_CURRENT)));
   mirror.style.left = input.offsetLeft + 'px';
   mirror.style.top = input.offsetTop + 'px';
-  mirror.style.width = input.offsetWidth + 'px';
+  /* #4585: the textarea's REAL width, not offsetWidth (whole pixels, so the mirror was up to 1px narrower
+     and could wrap a word the textarea did not), less any scrollbar the textarea is showing (a Mac set to
+     show scroll bars always gives it one once it scrolls; its text then wraps inside that narrower box). */
+  const inW = input.getBoundingClientRect().width;
+  const csIn = getComputedStyle(input);
+  const bordersIn = (parseFloat(csIn.borderLeftWidth) || 0) + (parseFloat(csIn.borderRightWidth) || 0);
+  const scrollbarIn = Math.max(0, input.offsetWidth - input.clientWidth - bordersIn);
+  mirror.style.width = Math.max(0, inW - scrollbarIn) + 'px';
   mirror.style.height = input.offsetHeight + 'px';
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 }
