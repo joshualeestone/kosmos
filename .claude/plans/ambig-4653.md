@@ -16,7 +16,9 @@ reads exactly as before.
   sentence. Display names lose quotes, backslashes, C0 and C1 controls, zero-widths, bidi controls and lone
   surrogates: the CLI's sed read holds, and the name is safe to print to a terminal. The
   post's delivery answer carries it as `ambiguousNote`, only when non-empty. The log row keeps
-  `ambiguousMentions` (the words, less trailing punctuation).
+  `ambiguousMentions`: every distinct spelling, less trailing punctuation (the note groups spellings of one
+  name; the log does not, so each stays findable). A handle is offered as the name to type only if it is
+  typeable as it stands; otherwise that agent is shown by display name alone.
 - install/kosmos: `kosmos post` prints the sentence after its verdict (placed or unconfirmed), exit codes
   unchanged. Read with sed anchored on the end of the answer (`"}}`): the engine keeps the note the last key
   (a test pins it; /api/post answers `{ delivery }` alone and federateOut only reads it), so an `outcomes` key

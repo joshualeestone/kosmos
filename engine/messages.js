@@ -1499,6 +1499,7 @@ function mentionedMembers(cleaned, recipients, roster) {
   }
   const mentioned = new Set();
   const ambiguous = new Map();
+  const ambiguousWords = new Set();   // every spelling, for the log row; the note groups them by name
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
     if (recipients.includes(token)) { mentioned.add(token); continue; }
@@ -1507,9 +1508,12 @@ function mentionedMembers(cleaned, recipients, roster) {
     const key = mentionKey(token);
     const hit = byKey.get(key);
     if (hit && hit.size === 1) mentioned.add([...hit][0]);
-    else if (hit && !ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
+    else if (hit) {
+      ambiguousWords.add(stripped || token);
+      if (!ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
+    }
   }
-  return { mentioned, ambiguous, shown };
+  return { mentioned, ambiguous, ambiguousWords, shown };
 }
 
 /* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
@@ -1525,10 +1529,10 @@ function ambiguousNote(ambiguous, mentioned, shown) {
      paragraph separators, bidi controls, the BOM and lone surrogates: the name is printed straight to an
      agent's terminal. */
   const clean = (s) => String(s == null ? '' : s)
-    .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
-  const handle = (m) => clean(m);
-  /* A handle that cleans to nothing (an adopted session name made only of stripped characters) is shown
-     by its display name alone and never offered as the one to type. */
+    .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
+  /* A handle is offered only if it is typeable as it stands (the tokenizer's charset): an adopted session
+     name outside it would be a name that reaches nobody, so that agent is shown by display name alone. */
+  const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(String(m)) ? String(m) : '');
   const who = (m) => {
     const n = clean(shown && shown.get(m)); const h = handle(m);
     if (!h) return n || 'an agent with no printable name';
@@ -1863,7 +1867,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous, shown } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, ambiguousWords, shown } = mentionedMembers(cleaned, recipients, roster);
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2199,7 +2203,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          one. */
       ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous.values()].map((a) => a.word) } : {}),
+      ...(ambiguousWords.size ? { ambiguousMentions: [...ambiguousWords] } : {}),
       ...(operator === true ? { operator: true } : {}),
       /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
          "this was an acknowledgement, no reply was requested". Omitted for the default/true case so

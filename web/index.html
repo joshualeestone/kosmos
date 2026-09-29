@@ -62286,6 +62286,9 @@ async function loadRoom() {
   paintRoom(body);
 }
 
+/* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
+   and only that one (the input listener below). */
+let PJ_AMBIG_NOTE = '';
 async function pjPostSend(attachment) {
   const pendingIds = attachment ? [attachment] : attachList(ATTACH_ROOM).map((r) => r.id);
   if (PJ_POSTING) return;
@@ -62485,8 +62488,8 @@ function mentionPick(i) {
 
 document.getElementById('pj-post').addEventListener('input', mentionRefresh);
 /* #4653: the ambiguous-mention note is about the post just sent; once the person types the next one it is
-   stale, so the first edit takes it away. Only that note: any other line under the box keeps its own rules. */
-let PJ_AMBIG_NOTE = '';
+   stale, so the first edit takes it away. Only that note: any other line under the box keeps its own rules.
+   PJ_AMBIG_NOTE is declared above pjPostSend, which sets it. */
 document.getElementById('pj-post').addEventListener('input', () => {
   const msg = document.getElementById('pj-room-msg');
   if (PJ_AMBIG_NOTE && msg && msg.textContent === PJ_AMBIG_NOTE) msg.textContent = '';
