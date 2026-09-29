@@ -10233,21 +10233,21 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      Profile's to explain; here the state stays, smaller. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
+  /* #4661: one row the page's width, every button whole. It was a sideways-scrolling row, and with nothing to
+     show it scrolled, "AI Settings" was cut mid-word at 393 and 375 wide, so the row read as broken. Equal
+     columns, icon above a small label, keep the row's 44px height (the conversation needs the room) with no
+     scrolling. Direct Message keeps its full words; a fourth button (a swarm) may wrap a label to two lines. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
-    flex: none;
-    flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
-    margin: 0 -2px; padding: 4px 32px 4px 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain;
-    /* The same "there is more" cue as the phone Settings row (#s-nav). */
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
+    flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px;
+    margin: 0; padding: 4px 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
-    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px; scroll-snap-align: center;
-    padding: 0 14px; border-radius: 22px; font-size: .875rem; }
+    width: auto; min-width: 0; min-height: 44px; flex-direction: column; gap: 2px;
+    padding: 4px 4px; border-radius: 14px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab {
+    font-size: .75rem; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; text-wrap: balance; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */

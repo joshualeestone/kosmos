@@ -107,6 +107,17 @@ function measure() {
     threadScrolls: th.scrollHeight > th.clientHeight, threadH: th.clientHeight,
     head: R('.dhead'), label: R('#d-talk-label'),
     tabsRow: getComputedStyle(document.getElementById('d-nav')).flexDirection,
+    /* #4661: one row by GEOMETRY, and every button whole: the row was a sideways scroller whose third button
+       was cut mid-word, which a flex-direction reading could not see. */
+    tabsGeo: (() => {
+      const bs = [...document.querySelectorAll('#d-nav button')].filter((b) => !b.hidden && b.getBoundingClientRect().height > 0);
+      const rs = bs.map((b) => b.getBoundingClientRect()); const vw = document.documentElement.clientWidth;
+      const nav = document.getElementById('d-nav');
+      return { n: bs.length, oneRow: rs.length > 0 && rs.every((r) => Math.abs(r.top - rs[0].top) < 1),
+        whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5),
+        labelsWhole: bs.every((b) => { const l = b.querySelector('.dnav-lab'); return !l || l.scrollWidth <= l.clientWidth + 1; }),
+        scrolls: nav.scrollWidth > nav.clientWidth + 1, h: Math.round(Math.max(...rs.map((r) => r.height))) };
+    })(),
     bodyOverflow: getComputedStyle(document.body).overflowY,
     visibleVar: getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim(),
     boxMinH: getComputedStyle(document.getElementById('d-talk-box')).minHeight,
@@ -150,7 +161,9 @@ function measure() {
         const ring = await page.evaluate(() => { const r = document.getElementById('d-ring').getBoundingClientRect(); const h = document.querySelector('.dhead').getBoundingClientRect(); const svg = document.querySelector('#d-ring svg'); return { drawn: !!svg, w: r.width, left: r.left, right: r.right, top: r.top, bottom: r.bottom, hl: h.left, hr: h.right, ht: h.top, hb: h.bottom }; });
         chk(ring.drawn && ring.w <= 60 && ring.left >= ring.hl - 0.5 && ring.right <= ring.hr + 0.5 && ring.top >= ring.ht - 0.5 && ring.bottom <= ring.hb + 0.5, `${t} the memory ring is sized to the compact avatar and sits inside the header`, JSON.stringify(ring));
         chk(Math.abs(m.boxLeft) <= 0.5, `${t} the conversation box runs edge to edge (its negative margin matches the page gutter)`, `left=${m.boxLeft} bodyPad=${m.bodyPadLeft}`);
-        chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
+        chk(m.tabsGeo.oneRow && m.tabsGeo.n >= 3, `${t} the section tabs are one row`, JSON.stringify(m.tabsGeo));
+        chk(m.tabsGeo.whole && m.tabsGeo.labelsWhole && !m.tabsGeo.scrolls, `${t} #4661: every section tab and its label is whole on screen, and the row does not scroll`, JSON.stringify(m.tabsGeo));
+        chk(m.tabsGeo.h >= 44 && m.tabsGeo.h <= 56, `${t} #4661: the row keeps a 44px tap height without growing (the conversation needs the room)`, String(m.tabsGeo.h));
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
         chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
