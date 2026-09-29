@@ -497,8 +497,9 @@ kosmos_refuse_if_suite_live() {
 # 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
 #   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
 #   2. two suites freed by the same finish would start together, the overlap this exists to stop.
-# So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, the same
-# recycled-pid check as the run markers), the suite check skips a waiter (and its direct subshells),
+# So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, line 3 its start time in
+# the writer's local form and, since #4574, line 4 the same in UTC and the C locale; the same recycled-pid check as the
+# run markers), the suite check skips a waiter (and its direct subshells),
 # and only the OLDEST waiter may go. When it goes it drops its marker and asks once more: a harness
 # that started in the moment it was still marked (it skipped this waiter) is seen by that second ask,
 # and the suite goes back to waiting in its old place. A harness process exists before it asks, so
@@ -692,6 +693,7 @@ kosmos_wait_until_clear() {
       fi
       return 1
     fi
+    # ts is a queue position, compared with other runs' positions, so it takes the real clock, not the wait's seam.
     if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2

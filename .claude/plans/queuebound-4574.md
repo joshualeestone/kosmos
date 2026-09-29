@@ -170,3 +170,9 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
 - (N, taken) run-tests.sh names the 3-hour ceiling; an arm pins the default ceiling at four bounds (x5 reds it); the
   time-zone arm's writer also uses fr_FR, so the locale half of the pin is guarded (dropping LC_ALL=C reds it); the
   refusal's comment says it walks every marker.
+
+## Review iteration 12 (blind, sonnet): nothing at BLOCKER or WARNING
+Its CONVENTION line only confirms the plan exists and matches the code (not a finding). NITs taken, comments only: the
+#4498 queue note now describes all four marker lines; ts says why it uses the real clock. NITs left: the first-pass
+early restart (documented, bounded by the ceiling); q_ready can fail under heavy load (by name, as intended).
+Because the two comment edits changed the diff, one more blind round follows.
