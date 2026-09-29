@@ -288,6 +288,11 @@ test('task message: a pane held by a stranger is not taken for our agent; an unr
   const u = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'while unreadable' } });
   assert.equal(u.code, 503, 'an unreadable project list was not a 503: ' + u.code + ' ' + u.text.slice(0, 160));
   assert.deepEqual(said, ['from a stranger pane']);
+  /* An UNIDENTIFIED caller is not held to membership, so it is recorded; the project list is read once, before the
+     record, so a failed read cannot turn a recorded message into a 400 afterwards. */
+  const anon = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'unnamed while unreadable' } });
+  assert.equal(anon.code, 200, 'a recorded message answered ' + anon.code + ': ' + anon.text.slice(0, 160));
+  assert.deepEqual(said, ['from a stranger pane', 'unnamed while unreadable']);
 });
 
 test('task message does not tell an assignee that has left the project, and says so (#4491 slice 3)', async (t) => {

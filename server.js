@@ -16584,8 +16584,8 @@ const server = http.createServer(async (req, res) => {
         if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
         /* The caller: the token's card, else the pane. A pane that IS a roster target (session:w.p) is that card,
            as this route has always read it; otherwise it goes through messages.resolveSender, as task built does,
-           because the CLI sends tmux's %N, which no roster target equals. A pane nobody could look up is said so,
-           as for a token. */
+           because the CLI sends tmux's %N, which no roster target equals. If the roster itself cannot be read, a pane
+           caller is told so (503); a pane that does not resolve leaves the caller unnamed (advisory, as task built). */
         const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
         if (roster === null && fromPane && !viaScreen) {
           sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
@@ -16604,7 +16604,7 @@ const server = http.createServer(async (req, res) => {
         let memberRecord = null;
         let unreadable = false;
         try { memberRecord = projects.readAll().find((x) => x.id === id) || null; } catch { unreadable = true; }
-        if (!viaScreen && senderCard && senderCard.sessionName) {
+        if (!viaScreen && senderCard) {   // an identified card with no name is refused below, as task built refuses it
           if (unreadable) {
             sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' });
             return;
@@ -16640,7 +16640,7 @@ const server = http.createServer(async (req, res) => {
            that notifies people goes through the same roster. */
         const named = tasks.whoOf(t);
         const chat = require('./engine/chat');
-        const proj = projects.get(id);
+        const proj = memberRecord;   // read once above; never re-read after the message is recorded (a failed read here would answer 400 for a recorded message)
         /* Strip the framing double-quote (and newlines defensively) from anything
            that rides inside the delivered line's own quotes, the same guard the
            sibling delivery path heardBy uses: chat.cleanMessage collapses newlines
