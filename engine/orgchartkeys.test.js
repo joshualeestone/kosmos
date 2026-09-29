@@ -228,6 +228,9 @@ test('#4560: readApiKey reads each provider\'s stored key, and nothing for a sig
   assert.equal(oa.readApiKey(odir), 'sk-test-oa');
   fs.writeFileSync(path.join(odir, 'auth.json'), JSON.stringify({ tokens: { id_token: 'x' } }));
   assert.equal(oa.readApiKey(odir), null, 'a ChatGPT sign-in has no key to send');
+  fs.writeFileSync(path.join(odir, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', OPENAI_API_KEY: 'sk-stray', tokens: { id_token: 'x' } }));
+  assert.equal(oa.readApiKey(odir), null, 'a file the account list calls a ChatGPT sign-in hands out no key, even with a key field');
+  assert.equal(oa.identityOf(odir).authMode, 'chatgpt', 'CONTROL: the list classifies that file as a sign-in');
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4560-none-'));
   assert.equal(gem.readApiKey(empty), null);
   assert.equal(grok.readApiKey(empty), null);
@@ -315,7 +318,7 @@ test('#4560: a redirect is refused, never followed: the key and the file reach n
   } finally { second.close(); }
 });
 
-test('#4560: a URL override is honoured only for https or this computer, so a key never goes out in the clear', () => {
+test('#4560: a URL override is honoured only to this computer, so a key never goes to another host', () => {
   const name = 'AGENT_WORKFORCE_ORGCHART_TEST_URL';
   const def = 'https://api.example.com/v1';
   process.env[name] = 'http://evil.example.com/v1'; assert.equal(keys.urlFrom(name, def), def);
@@ -389,4 +392,25 @@ test('#4560: why there is no reader comes from the same look at the accounts as 
     assert.equal(o.currentReader().kind, 'claude');
     assert.equal(o.whyNoReader(), null, 'Claude reads it: no Gemini reason may be left over');
   } finally { o.setReaderForTest(null); keys.setEnabled({ openai: true, google: true, xai: true }); }
+});
+
+test('#4560: the person\'s own Stop, and a refusal made before anything is sent, leave no "read failed" line', async () => {
+  const lines = [];
+  const warn = console.warn;
+  console.warn = (m) => lines.push(String(m));
+  try {
+    only('xai');
+    await o.readWithModel('chart.pdf', PDF);   // refused before sending: Grok and a PDF
+    only('openai');
+    reply = () => ({ status: 200, body: ANSWER.openai(), delay: 2000 });
+    const ctl = new AbortController();
+    const pending = o.readWithModel('chart.png', PNG, { signal: ctl.signal });
+    await new Promise((ok) => setTimeout(ok, 150));
+    ctl.abort();
+    await pending;
+    reply = () => ({ status: 500, body: {} });
+    await o.readWithModel('chart.png', PNG);   // CONTROL: a real boundary failure is logged
+  } finally { console.warn = warn; }
+  assert.equal(lines.length, 1, JSON.stringify(lines));
+  assert.match(lines[0], /OpenAI read failed: OpenAI could not read the chart \(500\)/);
 });

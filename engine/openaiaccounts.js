@@ -128,8 +128,12 @@ function readAuthFile(dir) {
    chart reader), or null for a ChatGPT sign-in or anything unreadable. Never logged or returned elsewhere. */
 function readApiKey(dir) {
   const got = readAuthFile(dir);
-  const key = got.kind === 'ok' && typeof got.data.OPENAI_API_KEY === 'string' ? got.data.OPENAI_API_KEY.trim() : '';
-  return key || null;
+  if (got.kind !== 'ok') return null;
+  // The same rule the account list uses (identityFromData), so a file listed as a ChatGPT sign-in never hands out a
+  // key, even one that also carries an OPENAI_API_KEY field.
+  const who = identityFromData(got.data);
+  if (!who || who.authMode !== 'apikey') return null;
+  return got.data.OPENAI_API_KEY.trim() || null;
 }
 
 /** Pure: turns an already-parsed auth.json object into an identity, or null

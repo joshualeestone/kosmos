@@ -6499,7 +6499,7 @@ const server = http.createServer(async (req, res) => {
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
      picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
-     Claude, by a key-connected OpenAI or Grok over plain HTTP, which declares no tools (engine/orgchartkeys.js,
+     Claude, by a key-connected OpenAI or Grok in a direct HTTPS API call, which declares no tools (engine/orgchartkeys.js,
      #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
      `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
      keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing

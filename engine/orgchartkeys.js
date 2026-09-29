@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4560: read an org chart picture or PDF with a KEY-connected OpenAI, Gemini or Grok, over plain HTTP.
+ * #4560: read an org chart picture or PDF with a KEY-connected OpenAI, Gemini or Grok, in a direct HTTPS API call.
  *
  * #4559 reads one with Claude Code (every tool switched off by flags). A key is a direct API call, so no tools is
  * true by construction: no request here ever carries a `tools`, `functions` or `tool_choice` field, and a test
@@ -267,7 +267,8 @@ function refusal(p, status, body) {
  */
 async function read(reader, prompt, name, media, buf, signal) {
   const got = await readOnce(reader, prompt, name, media, buf, signal);
-  if (!got.ok) {
+  // Not logged: the person's own Stop, and a refusal made before anything was sent (no boundary was crossed).
+  if (!got.ok && !got.local && !(signal && signal.aborted)) {
     const who = (reader && PROVIDERS[reader.provider] && PROVIDERS[reader.provider].name) || 'a key provider';
     console.warn('[orgchart] ' + who + ' read failed: ' + String(got.because).slice(0, 300));
   }
@@ -277,9 +278,9 @@ async function read(reader, prompt, name, media, buf, signal) {
 async function readOnce(reader, prompt, name, media, buf, signal) {
   const p = reader && PROVIDERS[reader.provider];
   if (!p) return { ok: false, because: 'no provider can read this file' };
-  if (!enabled[reader.provider]) return { ok: false, because: OFF_WHY[reader.provider] || p.name + ' does not read org charts in Kosmos.' };
+  if (!enabled[reader.provider]) return { ok: false, local: true, because: OFF_WHY[reader.provider] || p.name + ' does not read org charts in Kosmos.' };
   const cannot = cannotRead(reader.provider, media);
-  if (cannot) return { ok: false, because: cannot };
+  if (cannot) return { ok: false, local: true, because: cannot };
   const key = keyFor(reader);
   if (!key) return { ok: false, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
   /* The person's Stop and the timeout hold until the WHOLE answer is read, not only its headers: a provider that

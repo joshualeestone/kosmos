@@ -46774,7 +46774,7 @@ async function orgchartSendFile(file, consent, seq, reader) {   // reader: the i
   const gen = ORGCHART_GEN;
   const current = () => gen === ORGCHART_GEN && seq === ORGCHART_FILE_SEQ;
   msg.hidden = false;
-  msg.textContent = consent ? 'Reading your chart. This can take a minute.' : 'Reading ' + file.name + '…';
+  msg.textContent = consent ? 'Reading your chart. This can take a few minutes.' : 'Reading ' + file.name + '…';
   let out = null;
   /* While a picture or PDF is being read, Stop reading ends it: the page drops the request, and the board stops
      the model call when the request closes (Liu Kang's condition 1: cancel holds after sending too). */
