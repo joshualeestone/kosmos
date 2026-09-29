@@ -111,6 +111,13 @@ function resolveCap(deps, env) {
   return Math.min(cap, MAX_TEAM_CAP);
 }
 
+/* The fields of a create request an agent may send. The rest of what create reads is launch mechanics (which
+   binary runs, which folder, which platform, the person's own pick) or set by the team itself (createdBy,
+   purpose); team.newrole-4474.test.js sorts every field create reads into one of those, so a new one is decided. */
+const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind',
+  'reportsTo', 'maxHelpers', 'dailyTokenLimit', 'dailyAllowancePct'];
+const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*(?=[,.:;\s-])/;
+const RULES_HEADING = defaults.RULES_PHRASE;   // the one phrase appendTo keys on (defaults.js)
 /**
  * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
  * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
@@ -132,13 +139,6 @@ function resolveCap(deps, env) {
  *     the agent's name, status.readIdentity).
  * Returns { member } (a copy with only the allowed fields, possibly with its text completed) or { because }.
  */
-/* The fields of a create request an agent may send. The rest of what create reads is launch mechanics (which
-   binary runs, which folder, which platform, the person's own pick) or set by the team itself (createdBy,
-   purpose); team.newrole-4474.test.js sorts every field create reads into one of those, so a new one is decided. */
-const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind',
-  'reportsTo', 'maxHelpers', 'dailyTokenLimit', 'dailyAllowancePct'];
-const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*(?=[,.:;\s-])/;
-const RULES_HEADING = 'How you work, whatever the job';
 function vetAgentMember(member, opts) {
   const fromGuide = !!(opts && opts.fromGuide === true);
   /* The role exactly as create reads it, through its own create.roleKeyOf: a role sent as ["setup"] is not the
@@ -178,7 +178,7 @@ function vetAgentMember(member, opts) {
   let text = member.instructions.replace(/\r\n?/g, '\n').split('{{NAME}}').join(name);
   /* This stops edits INSIDE the shared rules; text elsewhere can still say otherwise, as any role's text can. */
   if (text.includes(RULES_HEADING) && !text.includes(defaults.block().trim())) {
-    return { because: 'the shared working rules (under "' + RULES_HEADING + '") are edited; leave that section as kosmos agent role-draft --to writes it, or delete the whole section and Kosmos adds it back' };
+    return { because: 'the text names the shared working rules ("' + RULES_HEADING + '") but does not carry them as Kosmos wrote them; leave that section as kosmos agent role-draft --to writes it, or delete it whole and Kosmos adds it back' };
   }
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
      it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be

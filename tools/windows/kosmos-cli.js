@@ -716,6 +716,8 @@ async function agentRoles(ctx) {
 async function agentRoleDraft(ctx, args) {
   const to = args && args[0] === '--to' ? args[1] : null;
   if (args && args[0] === '--to' && !to) { ctx.err('Usage: kosmos agent role-draft [--to <file>]'); return 2; }
+  // A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
+  if (to && ctx.fileExists(to)) { ctx.err(to + ' already exists, and it may hold another role. Pick another name, or move it first.'); return 2; }
   const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('get the role text');
   const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
@@ -1052,6 +1054,7 @@ async function main(argv, io) {
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
     writeFile: o.writeFile || ((f, text) => fs.writeFileSync(f, text, 'utf8')),   // #4474: agent role-draft --to
+    fileExists: o.fileExists || ((f) => fs.existsSync(f)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),

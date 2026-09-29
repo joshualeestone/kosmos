@@ -43,7 +43,8 @@ const HANDS_OFF_LINES = [
 const NEW_ROLE_LINES = [
   '  If no role on that list fits, write one, in a file named for it: run',
   '  `kosmos agent role-draft --to role-<short-name>.md`, make it say what this',
-  '  agent is for and how it works (its first line too), then tell the operator the role\'s',
+  '  agent is for and how it works (keep its first line, the one that starts',
+  '  `You are`, and say there what the agent is), then tell the operator the role\'s',
   '  name and what it does, and only after they say yes run `kosmos agent create',
   '  "<name>" --new-role "<role name>" --from role-<short-name>.md "<why>"`. To make',
   '  another agent with that role later, use the same file.',

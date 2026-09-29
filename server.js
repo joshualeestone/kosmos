@@ -6472,6 +6472,7 @@ const server = http.createServer(async (req, res) => {
            DEFINITIVELY dead is collected here and removed from the set handed to
            createTeam; everything else proceeds. */
         const livenessRefused = [];
+        const fromGuide = callerKind === 'agent' && isSetupGuide(effectiveCreator);   // #4474: the guide writes no roles
         let liveMembers = members;
         if (members && members.length && !overCap) {
           // The sweep fans out one verdict per member concurrently. Its
@@ -6479,8 +6480,16 @@ const server = http.createServer(async (req, res) => {
           // over-cap skip above -- so at most `cap` accountConnectable calls
           // (each possibly a real `claude -p` / `/v1/models` probe) run at once,
           // never an unbounded fan-out from the request body.
-          const verdicts = await Promise.all(members.map(async (m) => {
+          const verdicts = await Promise.all(members.map(async (asked) => {
+            let m = asked;
             if (!m || typeof m !== 'object' || Array.isArray(m)) return { m, dead: false };
+            /* #4474: an agent's member is vetted FIRST, so one the vetting refuses is never probed (a real account
+               check) nor counted against the per-creator cap. createTeam vets again; the vetting is idempotent. */
+            if (callerKind === 'agent') {
+              const vet = team.vetAgentMember(m, { fromGuide });
+              if (vet.because) return { m, dead: true, because: vet.because };
+              m = vet.member;
+            }
             if (create.nameProblem(m.name)) return { m, dead: false };
             try {
               const liveness = await create.accountConnectable({ provider: m.provider, accountDir: m.account });
@@ -6565,7 +6574,7 @@ const server = http.createServer(async (req, res) => {
           purpose: body.purpose,
           members: overCap ? members : liveMembers,
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
-          fromGuide: callerKind === 'agent' && isSetupGuide(effectiveCreator),   // and the guide writes no roles
+          fromGuide,
         };
         let result;
         if (callerKind === 'agent') {

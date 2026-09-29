@@ -119,3 +119,12 @@ test('#4474 role-draft --to writes the default text to the file as UTF-8, not th
   const bad = await cli(port, ['agent', 'role-draft', '--to']);
   assert.equal(bad.code, 2, 'role-draft --to with no file did not say how');
 }));
+
+test('#4474 role-draft --to never replaces an existing file (it may hold another role)', () => withStub(MADE, async (port) => {
+  const file = path.join(HOME, 'role-taken.md');
+  fs.writeFileSync(file, 'another role\n');
+  const r = await cli(port, ['agent', 'role-draft', '--to', file]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /already exists, and it may hold another role/);
+  assert.equal(fs.readFileSync(file, 'utf8'), 'another role\n', 'the existing role file was replaced');
+}));

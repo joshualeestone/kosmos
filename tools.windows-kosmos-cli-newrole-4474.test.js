@@ -93,8 +93,19 @@ test('#4474 Windows role-draft --to writes the file itself (UTF-8, the text\'s o
   const written = {};
   const h = harness({ answer: () => [200, { roles: [], own: { key: 'own', instructions: OWN } }] });
   h.io.writeFile = (f, text) => { written[f] = text; };
+  h.io.fileExists = (f) => Object.prototype.hasOwnProperty.call(written, f);
   assert.equal(await cli.main(['agent', 'role-draft', '--to', 'C:\\role-writer.md'], h.io), 0, h.lines.err.join('\n'));
   assert.equal(written['C:\\role-writer.md'], OWN);
   assert.match(h.lines.out.join('\n'), /Wrote the default role text to C:\\role-writer\.md/);
   assert.equal(await cli.main(['agent', 'role-draft', '--to'], h.io), 2, 'role-draft --to with no file did not say how');
+});
+
+test('#4474 Windows role-draft --to never replaces an existing file', async () => {
+  let wrote = false;
+  const h = harness({ answer: () => [200, { roles: [], own: { key: 'own', instructions: OWN } }] });
+  h.io.writeFile = () => { wrote = true; };
+  h.io.fileExists = () => true;
+  assert.equal(await cli.main(['agent', 'role-draft', '--to', 'C:\\role-taken.md'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /already exists, and it may hold another role/);
+  assert.equal(wrote, false, 'an existing role file was replaced');
 });

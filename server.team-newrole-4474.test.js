@@ -138,3 +138,17 @@ test('#4474 CONTROL: the same built-in-role-with-a-label request from the operat
     assert.equal(r.json.outcome, 'created', 'the operator path was vetted as an agent: ' + JSON.stringify(r.json));
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
+
+test('#4474: a member the vetting refuses is never probed for its account (vetted before the liveness sweep)', async () => {
+  const wasProbe = create.accountConnectable;
+  let probed = 0;
+  create.accountConnectable = async (...a) => { probed++; return wasProbe(...a); };
+  try {
+    const r = await asAgent('pmseven', [{ name: 'Sam', role: 'setup' }]);
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.equal(probed, 0, 'a member the vetting refuses was probed for its account');
+    // CONTROL: an allowed member is probed, so the count can move.
+    await asAgent('pmseven', [{ name: 'Sal', role: 'pm' }]);
+    assert.ok(probed > 0, 'CONTROL: no member is probed at all, so the arm above proves nothing');
+  } finally { create.accountConnectable = wasProbe; }
+});

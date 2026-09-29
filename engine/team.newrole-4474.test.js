@@ -135,7 +135,7 @@ test('#4474: the shared working rules stay as Kosmos wrote them; served whole, o
     { name: 'No', role: 'own', label: 'Writer', instructions: base },
   ]);
   assert.deepEqual(got.map((o) => o.name), ['Wh', 'No'], 'edited shared rules reached create');
-  assert.match(out.refused[0].because, /shared working rules .* are edited/);
+  assert.match(out.refused[0].because, /names the shared working rules .* but does not carry them as Kosmos wrote them/);
 });
 
 test('#4474: an identity line ending in a period or a dash is recognised, and its name corrected', () => {
@@ -182,4 +182,10 @@ test('#4474: the member create receives carries the role as vetted (a string), n
   const { got } = build([{ name: 'Lis', role: ['pm'] }, { name: 'Pad', role: '  pm  ' }]);
   assert.equal(got[0].role, 'pm', 'a role sent as a list reached create as a list');
   assert.equal(got[1].role, 'pm');
+});
+
+test('#4474: the rules phrase the vetting keys on is the one defaults.appendTo keys on', () => {
+  const defaults = require('./defaults');
+  assert.ok(defaults.block().includes(defaults.RULES_PHRASE), 'the shared block no longer carries the phrase both key on');
+  assert.equal(defaults.appendTo('x ' + defaults.RULES_PHRASE), 'x ' + defaults.RULES_PHRASE, 'appendTo keys on another phrase');
 });

@@ -818,11 +818,13 @@ function missingFrom(text) {
  * block, so an agent whose person has edited a word of it still counts as
  * having it.
  */
+/* #4474: the phrase appendTo keys on, exported so team.vetAgentMember reads the same one (BLOCK's first heading). */
+const RULES_PHRASE = 'How you work, whatever the job';
 function appendTo(text) {
   const body = String(text == null ? '' : text);
-  if (body.includes('How you work, whatever the job')) return body;
+  if (body.includes(RULES_PHRASE)) return body;
   const sep = body.endsWith('\n') ? '\n' : '\n\n';
   return `${body}${sep}${BLOCK}\n`;
 }
 
-module.exports = { block, appendTo, DOCTRINE_VERSION, sections, missingFrom };
+module.exports = { block, appendTo, DOCTRINE_VERSION, sections, missingFrom, RULES_PHRASE };

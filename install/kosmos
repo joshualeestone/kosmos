@@ -2653,7 +2653,9 @@ cmd_agent() {
       fi ;;
     roles) : ;;
     role-draft)
-      if [ "${1:-}" = "--to" ] && [ -z "${2:-}" ]; then say "Usage: kosmos agent role-draft [--to <file>]"; exit 2; fi ;;
+      if [ "${1:-}" = "--to" ] && [ -z "${2:-}" ]; then say "Usage: kosmos agent role-draft [--to <file>]"; exit 2; fi
+      # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
+      if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
       say "Unknown: kosmos agent $sub. Try: create, roles, role-draft"
       exit 2 ;;
