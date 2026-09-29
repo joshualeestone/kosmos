@@ -24,12 +24,24 @@ It found two blockers, both real:
 Both come from writing a derived fact into a store whose whole rule is "an empty list only counts as an assertion".
 The redesign writes nothing, so neither can happen.
 
-Rejected: writing the record (above); dropping the commitments gate entirely (an agent that stated work would be
-given more); a CLI verb or instruction the agent must remember (the same never-fires failure).
+Said plainly (review round 3): on a real board today this acts like dropping the commitments gate, because nothing
+shipped writes the record, so every real agent reads never-reported and is free. The gate still refuses an agent
+that has stated work, but no shipped path lets an agent state it. The card rejected dropping the gate "so a restart
+cannot hand new work to an agent holding unreported work"; that protection never worked on a real board, since the
+same missing writer that stopped the Assigner also means no work was ever reported. The Assigner is on by default.
+Also rejected: writing the record (above); a CLI verb or instruction the agent must remember (the same never-fires
+failure).
+
+Uneven over time, on purpose: a never-reported agent is free for as long as it stays idle, while one that once stated
+a list naming work stays not-free until it reports again, however long ago that was. The cautious direction.
 
 Weakest premise: an agent that stopped mid-promise without ever stating it, whose card reads idle and which holds no
-task part, is now free for new work (it was never given any before). That is the card's point and April's measured
-fix. What would change my mind: a promise dropped because the Assigner handed the agent something else.
+task part, is now free for new work (it was never given any before). The concrete common case (review round 3): an
+agent sitting at its prompt while a background shell job runs (a CI watch, a loop) reads idle, because status.js
+reads only the "Waiting for N background agent" line as working. After 20 minutes it would be given a task. How to
+observe it after release: the server log's `assigner:` lines, checked against agents that had a background job
+running. What would change my mind: a promise or a background job dropped because the Assigner handed the agent
+something else.
 
 ## Verified
 - engine/assigner-free-4552.test.js, the runner's own tick over real cards, the real commitments reader and real
@@ -51,3 +63,11 @@ fix. What would change my mind: a promise dropped because the Assigner handed th
 - CONVENTION fixed: the server's Assigner runner comment said "commitments read clear"; it now names commitmentsFree.
 - NIT taken: a direct step test that 'free' is given like 'clear', with 'unknown' still not given.
 - NIT noted: future-dated with a non-empty list falls to not-free by the same path as the tested empty one.
+### Iteration 3 (opus)
+- BLOCKER fixed: the Settings hint said the Assigner gives work to an agent that "has recently said it is holding no
+  work"; the main case is now an agent that never said anything. Now "has not told Kosmos it is still holding work".
+- WARNING fixed in the plan: said plainly that this acts like dropping the gate on a real board today, and named the
+  background-shell-job case as the concrete weakest premise with how to observe it.
+- CONVENTION fixed: commitments.js names the Assigner as the one deliberate exception to "unknown is never safe".
+- CONVENTION fixed: the future-dated arm now has its control (present-dated empty list is given).
+- NITs taken: future-dated added to the Assigner's "does not" list; the uneven-over-time rule stated in the plan.

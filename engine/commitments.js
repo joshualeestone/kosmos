@@ -22,6 +22,13 @@
  * Everything below follows from that.
  */
 
+/*
+ * #4552: ONE DELIBERATE EXCEPTION, the Assigner. assigner.commitmentsFree treats a record that states nothing
+ * (never reported, or an empty list that has only aged, `stale: true`) as leaving an idle agent free for new work,
+ * because nothing shipped writes this record and requiring an assertion meant the Assigner never acted. Everything
+ * above still holds for every other reader, the restart confirmation first: `unknown` is never shown as safe.
+ */
+
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');

@@ -138,6 +138,8 @@ test('a record dated in the future is not free', () => {
     age(w.who, -60 * 60 * 1000);
     assert.equal(commitments.read(w.who).state, 'unknown', 'fixture: future-dated reads unknown');
     assert.equal(ticks(w).length, 0);
+    commitments.report(w.who, []);
+    assert.equal(ticks(w).length, 1, 'control: the same agent with a present-dated empty list is given');
   } finally { w.restore(); }
 });
 
@@ -190,4 +192,10 @@ test('the goal ask reaches a never-reported agent too (same "no work" judgement)
     a.tick({ prev: f2.next, now: T0 + a.IDLE_MS, ...o2 });
     assert.deepEqual(asked2, [], 'an agent holding stated work was asked to draft tasks');
   } finally { board.restore(); }
+});
+
+test('the Settings hint describes the rule as it now is (the one place the person reads when the Assigner acts)', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /has had nothing to do for 20 minutes and has not told Kosmos it is still holding work/);
+  assert.doesNotMatch(page, /has recently said it is holding no work/, 'the hint describes the old clear-only rule');
 });

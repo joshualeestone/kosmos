@@ -10,7 +10,7 @@
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
  * a project, never touches a task somebody is already on, and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
- * read, is left alone.
+ * read or is dated in the future, is left alone.
  *
  * PURE. step() takes the previous memory, the board roster, the setting, the project records,
  * each idle agent's commitments state and a clock, and returns what to assign plus the next
