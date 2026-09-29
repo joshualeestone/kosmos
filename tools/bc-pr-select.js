@@ -34,7 +34,7 @@
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
- *              from the page. #3828 changed only the body of asbAvatar(); its lines never name it, and
+ *              from the page, or its end cannot be found (it then selects on every page diff). #3828 changed only the body of asbAvatar(); its lines never name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -101,8 +101,10 @@ function functionRange(page, name) {
   for (let i = 0; i < lines.length; i += 1) {
     const m = decl.exec(lines[i]);
     if (!m) continue;
-    const opens = (lines[i].match(/\{/g) || []).length;
-    if (opens > 0 && opens === (lines[i].match(/\}/g) || []).length) return [i + 1, i + 1];
+    // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
+    const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
+    const opens = (code.match(/\{/g) || []).length;
+    if (opens > 0 && opens === (code.match(/\}/g) || []).length) return [i + 1, i + 1];
     const close = new RegExp(`^${m[1]}\\}\\s*;?\\s*(//.*)?$`);
     // Another declaration at this indentation first means this one's closer was missed: stop there, rather
     // than run on to that function's own `}` and claim its body too.

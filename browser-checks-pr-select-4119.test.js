@@ -321,6 +321,13 @@ test('functionRange: a closing line may carry ; or a comment, a one-line functio
   // c has no closer before d's: it is 'unclosed', never stretched over d (d's own `}` is at the same indentation).
   assert.equal(sel.functionRange(page, 'c'), 'unclosed');
   assert.equal(sel.functionRange(page, 'nope'), null);
+  // A brace in a string or a trailing comment does not make a one-line function; indentation and a
+  // destructured parameter's braces are handled.
+  const more = ['function f() { const s = "}"', '  g();', '}', 'function h() { return 1; } // {',
+    '  function k({a} = {}) {', '    q();', '  }'].join('\n');
+  assert.deepEqual(sel.functionRange(more, 'f'), [1, 3]);
+  assert.deepEqual(sel.functionRange(more, 'h'), [4, 4]);
+  assert.deepEqual(sel.functionRange(more, 'k'), [5, 7]);
 });
 
 test('through select(): an unclosed declared function selects its check with its own reason, not "not on the page"', () => {
