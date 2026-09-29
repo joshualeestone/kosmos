@@ -454,21 +454,27 @@ test('a flood the minute bound drops does not spend the room\'s day: the next mi
 test('a refusal about this Mac (not the edge) keeps nothing on the link and says to sign in again', async () => {
   federation.recordLink('proj-macl', { role: 'owner', ref: 'ref-macl' });
   federation.recordLink('proj-macm', { role: 'member', edge_id: 'edge-macm' });
+  federation.recordLink('proj-macc', { role: 'member', edge_id: 'edge-macc' });   // #4645: the retired answer's other wording
   const h = harness({ edges: [{ id: 'edge-o1', project_ref: 'ref-macl', status: 'active' }] });
   await fedseats.ensure('proj-macl');
   await fedseats.ensure('proj-macm');
-  const [owner, member] = h.spawned;
+  await fedseats.ensure('proj-macc');
+  const [owner, member, memberNew] = h.spawned;
   say(owner, { event: 'ended', because: 'Kosmos+ refused this Mac: unknown mac (HTTP 401 on /v1/mac/federation/room-ticket)' });
   say(member, { event: 'ended', because: 'Kosmos+ refused this Mac: this Mac was retired (HTTP 401 on /v1/mac/federation/room-ticket)' });
+  say(memberNew, { event: 'ended', because: 'Kosmos+ refused this computer: this computer was retired (HTTP 401 on /v1/mac/federation/room-ticket)' });
   await tick();
   owner.emit('exit', 3);
   member.emit('exit', 3);
+  memberNew.emit('exit', 3);
   assert.strictEqual(federation.linkFor('proj-macl').refused, undefined, 'the edge was refused for a Mac-level reason');
   assert.strictEqual(federation.linkFor('proj-macm').ended, undefined, 'the membership was ended for a Mac-level reason');
   assert.strictEqual(fedseats.statusOf('proj-macm'), 'reconnecting', 'a Mac-level refusal is a slow retry, not an ending');
   const notes = h.notes.filter((n) => n.projectId === 'proj-macm');
   assert.ok(notes.some((n) => /Sign in to Kosmos\+ again/.test(n.text)), JSON.stringify(notes));
   assert.ok(!notes.some((n) => /ask the owner/.test(n.text)), 'told to ask for a new code when signing in fixes it');
+  assert.strictEqual(federation.linkFor('proj-macc').ended, undefined, '"this computer was retired" ended the membership');
+  assert.strictEqual(fedseats.statusOf('proj-macc'), 'reconnecting', '"this computer was retired" is not read as the same answer');
 });
 
 test('a real child is handled on close, after its last line, not on exit', async () => {

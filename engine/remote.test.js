@@ -54,6 +54,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
   if (flag('--code') === '000000') {
@@ -168,6 +169,7 @@ if (args[0] === 'signin') {
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
+    if (mode.includes('register-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a computer on this account, at ' + name + '.kosmos.invalid. If that is this computer, it is already signed in. If it is a different computer, turn it off there first, or pick another name.\\n'); process.exit(1); }
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
     // A rename whose certificate step fails: the new key, id and address are
     // written (write_registration), then the fetch fails.
@@ -1850,6 +1852,10 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     assert.match(stranded.because, /earlier sign-in on this computer/, 'a stranded attempt read as another Mac: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
+    // #4645: the same answer in the wording the coordinator can move to reads the same.
+    const strandedNew = await halfThen('retire-refused,register-409-computer');
+    assert.match(strandedNew.because, /earlier sign-in on this computer/, '"a computer on this account" read as another computer: ' + strandedNew.because);
+    assert.doesNotMatch(strandedNew.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + strandedNew.because);
     // A definite refusal is final, not "try again": with the name free, it registers.
     // Each arm below ends set up at "hers"; start the next from a forgotten Mac.
     const fresh = async () => {
@@ -2088,6 +2094,19 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     assert.equal(r.ok, false, 'fixture: the name is still held');
     assert.match(r.because, /The name hers may be held by an earlier sign-in on this computer/, r.because);
     assert.doesNotMatch(r.because, /nothing more to do/, 'the setup sentence (false here) was kept');
+    // #4645: the same in the wording the coordinator can move to, from the same stranded start.
+    process.env.FAKE_TUNNEL_MODE = '';
+    await remote.forget();
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture (computer wording): the register was killed by its bound');
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    await remote.setupStart('her@example.com');
+    process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409-computer';
+    const rNew = await remote.setupComplete('123456', 'hers');
+    assert.match(rNew.because, /The name hers may be held by an earlier sign-in on this computer/, rNew.because);
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;

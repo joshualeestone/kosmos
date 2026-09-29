@@ -1798,8 +1798,10 @@ const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this co
 function explainStranded(result, half, name) {
   const stranded = half && half.stranded;
   // Only the same-account answer: another account's name ("that name is taken")
-  // or this account's own name rule is not this computer's doing.
-  if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
+  // or this account's own name rule is not this computer's doing. #4645: "a Mac" is
+  // the coordinator's wording today and "a computer" the wording it can move to once
+  // installs carry this reader; both are the same answer.
+  if (!stranded || !result || result.ok || !/already in use by a (?:Mac|computer) on this account/i.test(String(result.because || ''))) return result;
   // Replaced, not added to: the coordinator's sentence ("If that is this Mac, it
   // is already signed in / set up") is false here. The retire's reason went to
   // the log in clearHalfIdentity.
