@@ -4038,6 +4038,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4466: the CLI's health probe. `kosmos` used to fetch the whole app page (web/index.html, a few
+     hundred KB) with a 2 s cap, so a board busy with 25 agents read as "not running" and agents
+     restarted a healthy board into minute-long blackouts. This answers in a few bytes, as early as a
+     route can, and carries no account data (a fixed body), so it is answered BEFORE the board-token
+     gate below, on purpose, the same low-sensitivity reasoning as PUBLIC_WORLD_ROUTES: an enforcing
+     board must still be identifiable as Kosmos without a token. `"app":"kosmos"` is the identity the
+     CLI matches, so a stranger on the port is not taken for the board. GET and HEAD only. */
+  if (pathname === '/api/health' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const body = '{"app":"kosmos","ok":true}';
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+
   /* #1704 PR2: BEFORE the board-token gate below, on purpose. A kept-running
      agent presents ITS Kosmos's board token, which this board would refuse as
      another account's (403) and the send would be lost; answering "wrong world"
