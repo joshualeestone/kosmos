@@ -30648,7 +30648,7 @@ function orgPlace(nodes) {
        rising, so a manager's own line and its reports' lines meet only at the manager. A team in the wide
        window (#4499) has no such cap: there an exact test against every line already drawn, and no report line
        within ORG_HUB_CLEAR of the hub, are what rule crossings out. web.org-sectors-4434.test.js counts crossings.
-     - ORG_LINE_CLEAR (12px from a line to a face that is not its own) is MEASURED, not guaranteed: a team whose
+     - ORG_LINE_CLEAR (12px from a line to the CENTRE of a face that is not its own) is MEASURED, not guaranteed: a team whose
        clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
        nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
        report's straight-out ray). The team spacing and no crossings ARE guaranteed (first-ring lanes are kept apart by the
@@ -30830,6 +30830,7 @@ function orgPlace(nodes) {
     const ring = [];
     for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
     if (!ring.length) break;
+    // `wide`: the #4499 wide window (no tangent cap, flatter shares), tried only where the capped one does not fit.
     const lay = (r, team, wide) => {
       const out = new Map();
       for (const p of team) {
