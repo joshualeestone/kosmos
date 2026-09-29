@@ -43245,12 +43245,19 @@ async function plusSiDoRegister(name, owned) {
   const foot = document.getElementById('plus-si-cancel');
   plusSiMsg('');
   btn.disabled = true;
-  /* #4608: while the register runs, the heading says what is happening and the ring loader turns; both go
-     back however it ends (the connected flow takes the pane on success, the heading is restored on a failure). */
+  /* #4608: while the register runs, the heading says what is happening and, for the automatic register, the
+     ring loader turns (a chosen name has no loader line, so it says so in the live status line instead). They
+     are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
+     may be showing them by then; its own steps restore the heading). */
   const siTitle = document.getElementById('plus-si-title');
   const siSpin = document.getElementById('plus-si-spin');
   if (siTitle) siTitle.textContent = 'Signing in...';
   if (siSpin) siSpin.hidden = !owned;
+  if (!owned) plusSiMsg('Signing in...');
+  const siRestore = () => {
+    if (siSpin) siSpin.hidden = true;
+    if (siTitle && siTitle.textContent === 'Signing in...') siTitle.textContent = 'Sign in to activate Kosmos+';
+  };
   if (owned) {
     /* Review: an automatic register cannot be taken back once the connector has written this computer's
        identity, so no "Sign out" is offered while it runs (it would not sign out). The words say what is
@@ -43264,11 +43271,13 @@ async function plusSiDoRegister(name, owned) {
   /* #3827: a register includes the certificate (about a minute; the engine bounds it at
      five, plus a minute to retire an earlier half sign-in), so the page must not give up
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
-  const r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS);
+  let r;
+  try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
+  catch (e) { siRestore(); throw e; }
   PLUS_SI_REGISTERING = false;
-  if (siSpin) siSpin.hidden = true;
-  if (siTitle && siTitle.textContent === 'Signing in...') siTitle.textContent = 'Sign in to activate Kosmos+';
   if (r.stale) return;
+  siRestore();
+  if (!owned && r.ok) plusSiMsg('');
   btn.disabled = false;
   if (owned && foot && foot.parentElement) foot.parentElement.hidden = false;
   /* A coordinator that does not yet send account_address: its refusal names the account's one name
