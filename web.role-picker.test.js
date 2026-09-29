@@ -14,7 +14,7 @@ const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 test('the rows carry a check mark and keep their radio for the keyboard; the description sits beside every row', () => {
   const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
-  assert.match(body, /<h2 id="cstep-role-title">What should this agent do\?<\/h2>\s*<p class="dhint"[^>]*>You can change any of this later\.<\/p>/);
+  assert.match(body, /<h2 id="cstep-role-title" tabindex="-1">What should this agent do\?<\/h2>\s*<p class="dhint"[^>]*>You can change any of this later\.<\/p>/);
   for (const id of ['pick-pm', 'pick-list', 'pick-own']) {
     const at = body.indexOf('id="' + id + '"');
     const row = body.slice(at, body.indexOf('</label>', at));

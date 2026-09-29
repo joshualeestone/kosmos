@@ -150,8 +150,9 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       ok(t + ' K5 Upload an org chart opens its panel on the Team screen', await visible(page, '#orgchart-text'));
 
       // K6: Team with a catalogue; Create hands the key to openTeamCreate.
-      SEEDED = [{ key: 'marketing', label: 'Marketing team', blurb: 'A CMO and four reports.', kind: 'business', rank: 1, count: 5 },
-        { key: 'home', label: 'Home and personal life', blurb: 'Your household.', kind: 'personal', rank: 2, count: 4 }];
+      // #4555's shape: members, not a count (the count is derived from them).
+      SEEDED = [{ key: 'marketing', label: 'Marketing team', blurb: 'A CMO and four reports.', kind: 'business', rank: 1, members: ['cmo', 'a', 'b', 'c', 'd'] },
+        { key: 'home', label: 'Home and personal life', blurb: 'Your household.', kind: 'personal', rank: 2, members: ['a', 'b', 'c', 'd'] }];
       await page.evaluate(() => { SEEDED_TEAMS = null; window.__opened = null; window.openTeamCreate = (k) => { window.__opened = k; }; openCreate(); });
       await page.click('#cstep-kind [data-path="team"]');
       await page.waitForFunction(() => !document.getElementById('team-seeded').disabled, null, { timeout: 5000 }).catch(() => {});
