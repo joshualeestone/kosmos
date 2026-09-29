@@ -31267,9 +31267,11 @@ let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being 
 let ORG_FLIP_FROM = 0, ORG_FLIP_AT = 0, ORG_FLIPS = 0;
 function orgFlipLoop(w) {   // true: skip this repaint (the second flip in a row); false: paint, and remember it
   const now = performance.now();
-  const flip = w === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 20 && now - ORG_FLIP_AT < 500;
+  // 32: a 15px scrollbar measures 15/zoom CSS px, so this still matches down to about 50% page zoom.
+  const flip = w === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 32 && now - ORG_FLIP_AT < 500;
   ORG_FLIPS = flip ? ORG_FLIPS + 1 : 0;
-  if (ORG_FLIPS >= 2) return true;
+  // In the loop, rest on the NARROWER width: a chart painted wider than its box is clipped, one painted narrower fits.
+  if (ORG_FLIPS >= 2 && w >= ORG_VIEW_W) return true;
   ORG_FLIP_FROM = ORG_VIEW_W; ORG_FLIP_AT = now;
   return false;
 }

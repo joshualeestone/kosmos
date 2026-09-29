@@ -135,7 +135,12 @@ function chk(ok, label, extra) {
         const widths = new Set(), t0 = performance.now();
         while (performance.now() - t0 < 1000) { widths.add(document.getElementById('orgview').clientWidth); await new Promise((r) => requestAnimationFrame(r)); }
         const pa = document.getElementById('panel-cons-agents');
-        return { h: innerHeight, paints: n, widths: [...widths], fitted: ORG_VIEW_W === document.getElementById('orgview').clientWidth, cons: document.body.classList.contains('consolidated'), pane: pa ? (pa.hidden ? 'hidden' : pa.clientWidth) : 'none', gutter: pa ? pa.offsetWidth - pa.clientWidth : -1, scrolls: pa ? pa.scrollHeight > pa.clientHeight : null };
+        // A status poll tick repaints the chart directly (timers are stubbed here, so do it by hand): the guard must
+        // not let that restart a loop, and wherever it rests the chart must FIT its box (never painted wider).
+        const measured = n;
+        n = 0; paintOrg(); await new Promise((r) => setTimeout(r, 800));
+        const afterTick = { paints: n, fits: ORG_VIEW_W <= document.getElementById('orgview').clientWidth };
+        return { h: innerHeight, paints: measured, afterTick, widths: [...widths], fitted: ORG_VIEW_W === document.getElementById('orgview').clientWidth, cons: document.body.classList.contains('consolidated'), pane: pa ? (pa.hidden ? 'hidden' : pa.clientWidth) : 'none', gutter: pa ? pa.offsetWidth - pa.clientWidth : -1, scrolls: pa ? pa.scrollHeight > pa.clientHeight : null };
       }, noGutter));
       await p3.close();
     }
@@ -143,6 +148,7 @@ function chk(ok, label, extra) {
     chk(g3.every((x) => x.paints <= 1 && x.widths.length === 1), 'G3 the org chart settles: no repaint loop, one width, at every height in the band', JSON.stringify(g3));
     chk(g3b.some((x) => x.scrolls) && g3b.some((x) => !x.scrolls), 'G3b precondition: with no reserved gutter the band really straddles the pane starting to scroll', JSON.stringify(g3b));
     chk(g3b.every((x) => x.paints <= 2), 'G3b with no reserved gutter (Safari before 18.2) the chart\'s own guard stops the loop: at most 2 repaints a second', JSON.stringify(g3b));
+    chk(g3b.every((x) => x.afterTick.paints <= 5 && x.afterTick.fits), 'G3b after a status-poll repaint the loop stops within a few paints and the chart rests FITTING its box', JSON.stringify(g3b.map((x) => ({ h: x.h, tick: x.afterTick }))));
     await ctx3.close();
 
     // G2: the @mention mirror in a project room.
