@@ -9,6 +9,8 @@ const os = require('os');
 const path = require('path');
 const { personalInstructions, sourcesFor, RULES_MAX_DEPTH, RULES_MAX_ENTRIES } = require('./personalinstr');
 
+const NO_SYMLINKS = process.platform === 'win32' && 'a symlink needs a privilege on Windows';
+
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'personalinstr-4446-'));
   const prev = process.env.AGENT_WORKFORCE_HOME;
@@ -60,7 +62,7 @@ test('a per-account Claude agent reads ITS account dir, not ~/.claude', (t) => {
   assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' });
 });
 
-test('a symlinked account CLAUDE.md counts, an empty one and a directory do not', (t) => {
+test('a symlinked account CLAUDE.md counts, an empty one and a directory do not', { skip: NO_SYMLINKS }, (t) => {
   const s = sandbox();
   t.after(() => s.done());
   const acct = path.join(s.root, '.claude-account-b');
@@ -159,7 +161,7 @@ test('Claude: a *.md in the config dir\'s rules/ counts, in a subfolder too', (t
   assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' });
 });
 
-test('Claude rules: CLAUDE.md answers without walking rules/, and the walk is bounded', (t) => {
+test('Claude rules: CLAUDE.md answers without walking rules/, and the walk is bounded', { skip: NO_SYMLINKS }, (t) => {
   const s = sandbox();
   t.after(() => s.done());
   const acct = path.join(s.root, '.claude-account-b');
@@ -175,7 +177,7 @@ test('Claude rules: CLAUDE.md answers without walking rules/, and the walk is bo
   fs.rmSync(path.join(acct, 'CLAUDE.md'));
   fs.rmSync(path.join(rules, 'a.md'));
   fs.symlinkSync(rules, path.join(rules, 'loop'));   // a folder that contains itself
-  assert.strictEqual(personalInstructions('ann', { create }), null, 'a symlink loop ends, and says nothing');
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'a symlink loop (followed, like the CLI) ends at the depth cap and says nothing');
 
   let deep = rules;
   for (let i = 0; i <= RULES_MAX_DEPTH; i++) deep = path.join(deep, 'd' + i);
@@ -216,4 +218,20 @@ test('whitespace-only files and path-scoped Claude rules are not reported', (t) 
   write(path.join(s.root, '.grok-work', 'rules', 'api.md'), '---\npaths:\n  - "x"\n---\nx\n');
   assert.deepStrictEqual(personalInstructions('ann', { create: grok }), { tool: 'Grok' },
     'only Claude rules are checked for paths: front matter');
+});
+
+test('Claude rules: a symlinked folder is followed; long front matter still reads as scoped', { skip: NO_SYMLINKS }, (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  const shared = path.join(s.root, 'shared-rules');
+  write(path.join(shared, 'team.md'), 'short answers\n');
+  fs.mkdirSync(path.join(acct, 'rules'), { recursive: true });
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'nothing linked yet');
+  fs.symlinkSync(shared, path.join(acct, 'rules', 'team'));
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' }, 'the linked folder\'s rule counts');
+  fs.rmSync(path.join(acct, 'rules', 'team'));
+  write(path.join(acct, 'rules', 'long.md'), '---\npaths:\n' + '  - "src/' + 'x'.repeat(5000) + '"\n---\nbody\n');
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'front matter past the head is still read as path-scoped');
 });

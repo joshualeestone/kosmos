@@ -40,21 +40,25 @@ function sourcesFor(runner, configDir, create) {
   return { files: [], rules: [] };
 }
 
-/* Runs synchronously on every Instructions read. Symlinked folders are not entered. */
+/* Runs synchronously on every Instructions read. */
 const RULES_MAX_DEPTH = 4;
 const RULES_MAX_ENTRIES = 500;
 
 function rulesHaveContent(dir, deep, scoped, has) {
   let seen = 0;
+  let stopped = false;
   const walk = (d, depth) => {
+    if (stopped) return false;
     let ents;
     try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
     ents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));   // same answer on every filesystem
     const sub = [];
     for (const e of ents) {
-      if (++seen > RULES_MAX_ENTRIES) return false;
+      if (++seen > RULES_MAX_ENTRIES) { stopped = true; return false; }
       const p = path.join(d, e.name);
-      if (e.isDirectory()) { if (deep && depth < RULES_MAX_DEPTH) sub.push(p); continue; }
+      let isDir = e.isDirectory();
+      if (!isDir && deep && e.isSymbolicLink()) { try { isDir = fs.statSync(p).isDirectory(); } catch { isDir = false; } }
+      if (isDir) { if (deep && depth < RULES_MAX_DEPTH) sub.push(p); continue; }
       if (e.name.endsWith('.md') && has(p) && !(scoped && pathScoped(p))) return true;
     }
     return sub.some((p) => walk(p, depth + 1));
@@ -90,8 +94,9 @@ function hasContent(file) {
    files, so it is not reported as always followed. */
 function pathScoped(file) {
   const h = headOf(file);
-  const fm = h && /^---\r?\n([\s\S]*?)\r?\n---/.exec(h.text);
-  return !!fm && /^paths\s*:/m.test(fm[1]);
+  if (!h || !/^---\r?\n/.test(h.text)) return false;
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(h.text);
+  return /^paths\s*:/m.test(fm ? fm[1] : h.text);   // front matter longer than the head: what we have of it
 }
 
 /* `{ tool }` when the agent's CLI will load a personal instructions file, else null.
