@@ -87,6 +87,13 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   every identical retry forever).
 - NIT: the CLAUDE.md #4466 row lists the #4580 test arms.
 
+## Rebase onto main after #4539 merged (2026-09-29 12:2x)
+- Main had gained #4491 since: `msg` and `post` send the agent's own token (`_tok`) so the board can tell agent from
+  person. My retry curls passed an EMPTY token, so on main the retry went out WITHOUT the agent's identity. Both
+  retries now pass `$_tok` (folded into the resolved iteration-4 commit). Arm "the retry carries the agent's own
+  token": red with the msg retry's token removed (the stub saw [token, -]). Windows needed no change: its retry
+  repeats the same ctx.call, headers included.
+
 ## Weakest premise
 An agent that MEANS to send the identical text twice within two minutes, to the same place, answering the same
 message, with nothing said in that conversation in between (by anyone, the sender included), within five minutes, gets one copy. After round 3 that is narrow: the realistic case is a
