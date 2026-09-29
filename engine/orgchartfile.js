@@ -140,12 +140,31 @@ function unzip(buf) {
 
 /* A character reference outside Unicode is dropped rather than failing the whole sheet. */
 const codePoint = (n) => (Number.isInteger(n) && n >= 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : '');
+/* ⚠️ LINEAR ONLY in this reader (Sonya Blade, #4598): a tag pattern is `<[^<>]*>`, never `<[^>]*>`. With `[^>]`, every
+   `<` that has no `>` after it scans to the end of the text, so N of them cost N squared: an 848-byte workbook froze
+   the board for 8.8 s. `[^<>]` stops each scan at the next `<`, so the scans never overlap. A block's inner text is
+   found with indexOf (innerOf), never a lazy `([\s\S]*?)</x>`, which is the same trap. Guarded by the growth tests in
+   engine/orgchartfile.test.js. */
 const xmlText = (s) => String(s)
-  .replace(/<[^>]+>/g, '')
+  .replace(/<[^<>]*>/g, '')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
   .replace(/&#(\d+);/g, (_, d) => codePoint(Number(d)))
   .replace(/&#x([0-9a-f]+);/gi, (_, h) => codePoint(parseInt(h, 16)))
   .replace(/&amp;/g, '&');
+/* The text inside the first <name ...>...</name> of `text`, or null when there is none: one indexOf pass. The first
+   opener is the only one worth trying, since a later opener's closer would also be the first one's. A self-closing
+   <name/> is empty. */
+function innerOf(text, name) {
+  const open = '<' + name;
+  let i = text.indexOf(open);
+  while (i >= 0 && !/[\s>/]/.test(text[i + open.length] || '')) i = text.indexOf(open, i + 1);
+  if (i < 0) return null;
+  const gt = text.indexOf('>', i);
+  if (gt < 0) return null;
+  if (text[gt - 1] === '/') return '';
+  const close = text.indexOf('</' + name + '>', gt + 1);
+  return close < 0 ? null : text.slice(gt + 1, close);
+}
 const attr = (tag, name) => { const m = new RegExp(`\\b${name}="([^"]*)"`).exec(tag); return m ? m[1] : null; };
 /* Excel's own last column is XFD (16,384 columns). A cell reference past it is refused: a crafted `r="ZZZZZ1"`
    would otherwise make a row millions of cells long (measured: 200 such rows took about 1 GB of heap from a
@@ -220,11 +239,11 @@ function readXlsx(buf) {
   const get = unzip(buf);
   const wb = get('xl/workbook.xml');
   if (!wb) throw new Error('this is not an Excel workbook (no workbook part)');
-  const firstSheet = /<(?:\w+:)?sheet\b[^>]*>/.exec(wb);
+  const firstSheet = /<(?:\w+:)?sheet\b[^<>]*>/.exec(wb);
   const rid = firstSheet && (attr(firstSheet[0], 'r:id') || attr(firstSheet[0], 'id'));
   const rels = get('xl/_rels/workbook.xml.rels') || '';
   let target = null;
-  for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+  for (const m of rels.matchAll(/<Relationship\b[^<>]*>/g)) {
     if (attr(m[0], 'Id') === rid) { target = attr(m[0], 'Target'); break; }
   }
   if (!target) target = 'worksheets/sheet1.xml';
@@ -235,7 +254,7 @@ function readXlsx(buf) {
   const sst = get('xl/sharedStrings.xml');
   if (sst) for (const si of blocks(sst, 'si')) {
     /* A rich-text string is several <t> runs; phonetic hints (<rPh>) are not part of the text. */
-    shared.push(xmlText(stripBlocks(si, 'rPh').replace(/<\/t>\s*<t[^>]*>/g, '')));
+    shared.push(xmlText(stripBlocks(si, 'rPh').replace(/<\/t>\s*<t[^<>]*>/g, '')));
     if (shared.length > MAX_ROWS * 64) break;
   }
   const rows = [];
@@ -251,9 +270,9 @@ function readXlsx(buf) {
       const type = attr(tag, 't');
       const inner = cell.inner;
       let v = '';
-      if (type === 'inlineStr') v = xmlText((/<is\b[^>]*>([\s\S]*?)<\/is>/.exec(inner) || [])[1] || '');
+      if (type === 'inlineStr') v = xmlText(innerOf(inner, 'is') || '');
       else {
-        const raw = (/<v\b[^>]*>([\s\S]*?)<\/v>/.exec(inner) || [])[1];
+        const raw = innerOf(inner, 'v');
         if (raw != null) v = type === 's' ? (shared[Number(raw)] || '') : xmlText(raw);
       }
       row[i] = v.trim();
