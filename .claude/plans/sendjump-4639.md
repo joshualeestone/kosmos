@@ -38,7 +38,8 @@ A browser check per surface proves each of those, and goes red with the send's j
   has no follow-the-tail rule to extend.
 - The agent side panel (`asbSend`): already pins while `ASB.sending`.
 - The Terminal tab's send (`sendTerm`): the DM thread is in a hidden section while that tab is open, and
-  `pinToBottom` arms nothing on a hidden box; coming back to Talk already lands on the newest row.
+  `pinToBottom` arms nothing on a hidden box. It is a message to the agent's session, not one landing in the
+  conversation in front of them.
 - Phone-width runs of the checks: the same boxes are the scrollers at phone width (overflow-y on `#d-dmthread`
   and `#pj-room`), and the code has no width branch. Not measured. In a very short window the fill-state CSS can
   make `#d-talk-box` the scroller instead; the existing no-jump rule shares that premise.
