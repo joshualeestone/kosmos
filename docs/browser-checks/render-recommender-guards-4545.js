@@ -5,11 +5,11 @@
  *
  * What this pins, and why each line can fail:
  *  - all three guards are on screen once the Recommender is on (counted, so an empty set fails),
- *  - every checkbox has the same x, and the list starts at the legend's x: the column is one
- *    left edge (the staggered layout had three different x's, measured 671 / 662 / 659),
+ *  - every checkbox has the same x (against the staggered layout this fails: three different
+ *    x's, 671 / 662 / 659 at 1400px), and the list starts at the legend's x,
  *  - each checkbox sits on the centre of its label's first line (within 1.5px),
- *  - each label spans the whole list, so the whole row ticks the box, and clicking the row's
- *    far end really toggles it,
+ *  - each label spans the whole list, so the whole row is the target, and clicking the row's
+ *    far end really toggles the box,
  *  - nothing scrolls sideways,
  * in light and dark, at 1400px and at a 390px phone.
  *
@@ -108,10 +108,11 @@ let ran = 0;
         chk(!g.wide, hook(`${tag} nothing scrolls sideways`), JSON.stringify(g.wide));
 
         /* The whole row is the target: a click near the row's far end, well past the words,
-           ticks the box (then puts it back, waiting for each save so no click races one). */
+           toggles the box (it starts ticked, so this unticks it), then a second click puts it
+           back, waiting for each save so no click races one. */
         const putDone = () => page.waitForResponse((r) => r.url().endsWith('/api/recommender-setting') && r.request().method() === 'PUT', { timeout: 8000 });
         /* Aimed at the LIST's right edge, not the label's: a label that shrinks to its words ends
-           short of it, and a click there must miss (the staggered layout did, measured). */
+           short of it, and a click there must miss (it does on the staggered layout at 1400px). */
         const far = await page.evaluate(() => {
           const fs = document.getElementById('rec-guards-row');
           const edge = (fs.querySelector('.rec-guard-list') || fs).getBoundingClientRect().right;
@@ -121,7 +122,7 @@ let ran = 0;
         // A click that misses saves nothing, so a missing save is a result here, not a crash.
         await Promise.all([putDone().catch(() => null), page.mouse.click(far.x, far.y)]);
         const after = await page.evaluate(() => document.getElementById('rec-guard-delete').checked);
-        chk(after === false, hook(`${tag} a click at the row's far end ticks the box`), String(after));
+        chk(after === false, hook(`${tag} a click at the row's far end toggles the box`), String(after));
         if (after === false) await Promise.all([putDone(), page.mouse.click(far.x, far.y)]);
         await page.mouse.move(1, 1);
         if (SHOTS) {
