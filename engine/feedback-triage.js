@@ -62,13 +62,27 @@ const ACTION = new Set([
 
 /** kosmos#4415: words that NEGATE an action word shortly after them. "Nothing appears broken", "no errors", "did not
  *  crash" name a thing that went RIGHT; counting the action word made a clean report the top candidate (raised 7
- *  times in the live store). An action word within NEGATION_REACH words after one of these does not count. */
+ *  times in the live store). An action word within NEGATION_REACH words after one of these, IN THE SAME CLAUSE, does
+ *  not count; a comma, a full stop, "and" or "but" ends a negation's reach ("never finishes, stuck forever" is a bug:
+ *  the comma keeps `never` off `stuck`). A negated word is neutral, not evidence of a clean report: only the CLEAN
+ *  phrases below say that ("didn't load" is a failure, not a success). */
 const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
-  'werent', 'nor', 'neither', 'free', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
+  'werent', 'nor', 'neither', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
 const NEGATION_REACH = 4;   // 4, not 3: "rather than stuck or blocked" puts `blocked` four words after `rather`
+const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
+
+/** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
+ *  of their own. Matched exactly, not by shape: a short line ending in "?" is often a real report ("Why does export
+ *  crash?"). feedback-triage.test.js holds this list equal to roles.js. */
+const FORM_QUESTIONS = [
+  'What bugs did you hit today, or what did your user ask for that is not wired up yet?',
+  'Is anything broken?',
+  'What would make the app better, on the technical side or for the people using it?',
+  'How are tasks going?',
+];
 
 /** kosmos#4415: an item made only of this kind of statement reports that nothing was wrong. */
-const CLEAN = /\b(?:worked|works|working) (?:as expected|fine|correctly|well)\b|\bno (?:issues?|problems?|errors?|bugs?|crashes?)\b|\bnothing (?:appears |seemed |seems |was |is )?(?:broken|wrong|failed|off)\b|\bwithout (?:any )?(?:issues?|errors?|problems?)\b/;
+const CLEAN = /\b(?:worked|works|working) (?:as expected|fine|correctly|well)\b|\bno (?:issues?|problems?|errors?|bugs?|crashes?)\b|\bnothing (?:appears |seemed |seems |was |is )?(?:broken|wrong|failed|off)\b|\bwithout (?:any )?(?:issues?|errors?|problems?)\b|\brather than (?:stuck|blocked|broken|failing|failed)\b/;
 
 /** Stop-words removed before token overlap so two phrasings of one issue match. */
 const STOP = new Set([
@@ -168,6 +182,14 @@ function parseItems(body) {
  * is more than a fragment, and is not pure sentiment. Scores are advisory and
  * carry their reasons so a reviewer can override; nothing is dropped silently.
  */
+/** kosmos#4415: an item that is one of the report form's questions, or the start of one (a question wrapped over two
+ *  lines arrives as two items). A question followed by an answer is NOT one. */
+function isFormQuestion(item) {
+  const n = normalize(item);
+  if (!n) return false;
+  return FORM_QUESTIONS.some((q) => { const qn = normalize(q); return qn === n || (qn.startsWith(n) && n.split(' ').length >= 3); });
+}
+
 function classify(item) {
   const norm = normalize(item);
   const words = norm ? norm.split(' ') : [];
@@ -180,17 +202,27 @@ function classify(item) {
     return { score: 0, reasons };
   }
 
-  /* kosmos#4415: a negated action word is not an action ("no errors", "nothing broken"). */
-  const negated = (i) => words.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x));
-  const actionHits = words.filter((w, i) => ACTION.has(w) && !negated(i));
-  const negatedHits = words.filter((w, i) => ACTION.has(w) && negated(i));
-  /* kosmos#4415: the report form's own questions ("Is anything broken?", "What would make it better:") come back as
-     items of their own; a short line ending in ? or : is a heading, not a report. */
-  if (words.length <= 8 && /[?:]\s*$/.test(String(item).trim())) {
+  if (isFormQuestion(item)) {
     reasons.push('a question from the report form, not an answer');
     return { score: 0, reasons };
   }
-  if (!actionHits.length && (negatedHits.length || CLEAN.test(norm))) {   // its only problem words are negated
+  /* kosmos#4415: an action word negated in its own clause does not count ("no errors", "nothing broken"). */
+  const actionHits = [];
+  for (const clause of String(item).split(CLAUSE_BREAK)) {
+    const cw = normalize(clause).split(' ').filter(Boolean);
+    cw.forEach((w, i) => {
+      if (ACTION.has(w) && !cw.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x))) actionHits.push(w);
+    });
+  }
+  /* A short line ending in ":" that starts like a question is an agent's own heading ("What would make it better:"),
+     written in its own words so no exact list can hold it; a lead-in that does not ("Export fails with this error:")
+     is a report and is kept. A line ending in "?" is only dropped when it is the form's own question (above). */
+  if (words.length <= 8 && /:\s*$/.test(String(item).trim())
+    && /^(?:what|how|is|are|any|anything|which|where|when|who|why)\b/.test(norm)) {
+    reasons.push('a heading, not a report');
+    return { score: 0, reasons };
+  }
+  if (!actionHits.length && CLEAN.test(norm)) {
     reasons.push('reports that nothing was wrong');
     return { score: 0, reasons };
   }
@@ -316,9 +348,7 @@ function triage(reports, opts) {
   // Flatten every report into dated entries.
   const entries = [];
   for (const r of reports || []) {
-    /* kosmos#4415: a pulled report starts with its frontmatter (date, install, generated_at); left in, it was glued
-       onto the first item and put an install id into the digest. */
-    const body = String((r && r.body) || '').replace(/^\s*---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '');
+    const body = String((r && r.body) || '');
     for (const text of parseItems(body)) {
       entries.push({ text, date: (r && r.date) || null });
     }
@@ -449,15 +479,21 @@ function digestFor(reports, cardsText) {
  * cannot be placed on either side of the last post. Pure; the daily job (tools/feedback-digest-daily.sh) reads
  * the files and hands them in as { name, body }.
  */
-function freshSince(files, sinceSec) {
+function freshSince(files, sinceSec, nowSec) {
   const since = Number(sinceSec);
+  /* A generated_at is the install's own clock. One running fast would be "new" in every digest until that time came,
+     so a stamp more than ten minutes ahead of this run is left out, like an undated one. */
+  const latest = (Number.isFinite(Number(nowSec)) ? Number(nowSec) : Date.now() / 1000) + 600;
+  const { stripFrontmatter } = require('./feedback');
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
     const body = String((f && f.body) || '');
     const m = /(?:^|\n)generated_at:\s*(\S+)/.exec(body);
     const at = m ? Date.parse(m[1]) : NaN;
-    if (Number.isFinite(at) && Number.isFinite(since) && at / 1000 > since) {
-      out.push({ date: String((f && f.name) || '').slice(0, 10), body });
+    if (Number.isFinite(at) && Number.isFinite(since) && at / 1000 > since && at / 1000 <= latest) {
+      /* The pulled frontmatter (date, install, generated_at) comes off here, as the CLI's reportsForTriage does:
+         left in, it was glued onto the first item and put an install id into #admin. */
+      out.push({ date: String((f && f.name) || '').slice(0, 10), body: stripFrontmatter(body) });
     }
   }
   return out;
@@ -476,14 +512,17 @@ function adminSummary(reports, cardsText, adminUrl) {
   const res = triage(fresh, { openCards });
   const lines = ['Daily reports: ' + fresh.length + ' new since the last digest. ' + res.candidates.length + ' to review, '
     + res.duplicatesOfOpenCards.length + ' look already carded, ' + res.noise.length + ' below the bar.'];
-  for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- ' + String(c.text).replace(/\s+/g, ' ').slice(0, 220));
+  /* Report text is written by any install on the internet and lands where agents read, under the bot's name: each
+     line goes in as inline code (backticks swapped out), so a markdown link does not render and nothing reads as the
+     bot's own words. */
+  for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- `' + String(c.text).replace(/\s+/g, ' ').replace(/`/g, "'").slice(0, 220) + '`');
   if (res.candidates.length > ADMIN_TOP) lines.push('...and ' + (res.candidates.length - ADMIN_TOP) + ' more.');
   lines.push('Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
-  return lines.join('\n');
+  return lines.join('\n').slice(0, 1900);   // one Discord message
 }
 
 module.exports = {
   normalize, tokens, parseItems, classify, similarity,
   groupDuplicates, matchOpenCard, triage, renderDigest, digestFor,
-  freshSince, adminSummary, // kosmos#4415
+  freshSince, adminSummary, FORM_QUESTIONS, // kosmos#4415
 };

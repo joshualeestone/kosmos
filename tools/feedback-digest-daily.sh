@@ -36,6 +36,9 @@ mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE
 WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
+# The watermark this run writes on success: its START, before the pull, so a report that arrives while the run is
+# pulling and posting is not older than the next watermark and skipped for good.
+RUN_START=$(date +%s)
 since=0
 [ -f "$STATE/last-posted" ] && read -r since < "$STATE/last-posted"
 case "$since" in ''|*[!0-9]*) since=0 ;; esac
@@ -50,7 +53,7 @@ else
 fi
 
 cat > "$WORK/digest.js" <<'JS'
-const [engine, pullDir, dir, since, adminUrl, cardsFile] = process.argv.slice(2);
+const [engine, pullDir, dir, since, adminUrl, cardsFile, runStart] = process.argv.slice(2);
 const fs = require('fs'), path = require('path');
 (async () => {
   let from = pullDir;
@@ -62,17 +65,17 @@ const fs = require('fs'), path = require('path');
   const t = require(path.join(engine, 'feedback-triage'));
   const files = fs.readdirSync(from).filter((f) => f.endsWith('.md'))
     .map((name) => ({ name, body: fs.readFileSync(path.join(from, name), 'utf8') }));
-  process.stdout.write(t.adminSummary(t.freshSince(files, since), fs.readFileSync(cardsFile, 'utf8'), adminUrl));
+  process.stdout.write(t.adminSummary(t.freshSince(files, since, runStart), fs.readFileSync(cardsFile, 'utf8'), adminUrl));
 })().catch((e) => { console.error(String(e && e.message)); process.exit(3); });
 JS
 mkdir -p "$WORK/pulled"
-summary="$("$NODE" "$WORK/digest.js" "$ENGINE" "${FEEDBACK_DIGEST_PULL_DIR:-}" "$WORK/pulled" "$since" "$ADMIN_URL" "$WORK/cards")" \
+summary="$("$NODE" "$WORK/digest.js" "$ENGINE" "${FEEDBACK_DIGEST_PULL_DIR:-}" "$WORK/pulled" "$since" "$ADMIN_URL" "$WORK/cards" "$RUN_START")" \
   || { log "FAILED: pull or triage (see above)"; exit 2; }
 
 if [ -z "$summary" ]; then log "no new reports since $(date -r "$since" '+%Y-%m-%d %H:%M'); nothing posted"; exit 0; fi
 if [ -n "$DRY" ]; then log "DRY RUN, would post:"; printf '%s\n' "$summary"; exit 0; fi
 
-printf '%s' "$summary" | cut -c1-1900 | jq -Rs '{content: ., allowed_mentions: {parse: []}}' > "$WORK/payload" \
+printf '%s' "$summary" | jq -Rs '{content: ., allowed_mentions: {parse: []}}' > "$WORK/payload" \
   || { log "FAILED: could not build the message"; exit 2; }
 if [ -n "${FEEDBACK_DIGEST_POST_CMD:-}" ]; then
   code=$($FEEDBACK_DIGEST_POST_CMD "$WORK/payload")
@@ -83,5 +86,5 @@ else
   code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' -X POST -H @"$hdr" -H 'Content-Type: application/json' \
     --data-binary @"$WORK/payload" "https://discord.com/api/v10/channels/$CHANNEL/messages")
 fi
-if [ "$code" = 200 ]; then date +%s > "$STATE/last-posted"; log "posted to #admin"; exit 0; fi
+if [ "$code" = 200 ]; then echo "$RUN_START" > "$STATE/last-posted"; log "posted to #admin"; exit 0; fi
 log "FAILED: Discord answered '$code'; will try again next run"; exit 2

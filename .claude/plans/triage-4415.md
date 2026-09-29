@@ -19,6 +19,15 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   list and the post, driven by tools/test-feedback-digest-daily.sh (wired into test:shell).
 - engine/createdbeacon.js: a comment only, now that the site counts versions (chaoskosmos-site#169).
 
+- Review iteration 1 (Opus) found the negation rule too eager and fixed here: a negation reaches only within its own
+  clause (a comma, full stop, "and" or "but" ends it), a negated word is neutral rather than proof of a clean report,
+  and only explicit clean phrases ("no errors", "worked fine", "rather than stuck") mark an item clean. The form's
+  questions are matched exactly (roles.js, pinned by a test); a short line ending in ":" that starts like a question
+  is a heading. Re-measured on the 39 live reports: 108 candidates (105 before), the top ones real bugs, 21 clean.
+- The daily job writes the RUN START as its watermark, drops reports stamped over ten minutes in the future (an
+  install's clock), strips the pulled frontmatter itself (triage() no longer does it for every caller), and posts
+  report text as inline code so a markdown link cannot render in #admin.
+
 ## Rejected
 - Opening cards from the digest: a person decides (#2246).
 - A digest over all reports every day: the same wall each morning. Only what arrived since the last post.

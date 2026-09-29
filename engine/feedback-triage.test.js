@@ -167,18 +167,68 @@ test('#4415: a negated action word is not an action; a report that nothing went 
     assert.equal(t.classify(clean).score, 0, clean + ' scored as a candidate');
   }
   assert.ok(t.classify('The room scroll is broken: it lands higher up on every return.').score > 0, 'control: a real report still scores');
-  assert.ok(t.classify('Nothing loads: the Files panel is broken on a fresh install.').score > 0,
-    'control: "broken" four words after "nothing" is outside the negation reach, so a real report is not silenced');
 });
 
-test('#4415: the report form\'s own questions are not items, and frontmatter is not glued onto the first one', () => {
+test('#4415: a negation reaches only within its own clause, and a negated word is neutral, not proof of a clean report', () => {
   const t = require('./feedback-triage');
-  assert.equal(t.classify('Is anything broken?').score, 0);
-  assert.equal(t.classify('What would make it better:').score, 0);
-  const r = t.triage([{ date: '2026-09-28', body: '---\ndate: 2026-09-28\ninstall: aad22250-b483-4e07\ngenerated_at: x\n---\n\nBug: the weekly limit never records a reset, so the board stays stale for days.\n' }], {});
-  const all = JSON.stringify(r);
-  assert.ok(!all.includes('aad22250'), 'the install id from the frontmatter reached the digest');
-  assert.ok(all.includes('weekly limit never records a reset'), 'control: the report itself is still read');
+  /* Each problem word must COUNT, not merely leave the item a candidate by its length: "score > 0" alone passed with
+     the clause rule removed, because a long neutral item still earns the detail point. */
+  for (const [bug, word] of [['Update never finishes, stuck forever on the progress bar.', 'stuck'],
+    ['Kosmos quit without saving and I lost my draft.', 'lost'],
+    ['No response from the agent, stuck on thinking for ten minutes.', 'stuck'],
+    ['Nothing loads: the Files panel is broken on a fresh install.', 'broken']]) {
+    assert.match(t.classify(bug).reasons.join(' | '), new RegExp('names something to change or fix \\([^)]*\\b' + word + '\\b'),
+      bug + ': the negation reached across a clause, so "' + word + '" did not count');
+  }
+  const reasons = (s) => t.classify(s).reasons.join(' | ');
+  // The reach, exactly: normalize keeps every word, so `stuck` is 4 words after `never` here (inside the reach) ...
+  assert.doesNotMatch(reasons('never alpha bravo charlie stuck in the build queue today'), /\(stuck/, 'a negation 4 words back did not reach');
+  // ... and 5 words after it here (outside the reach).
+  assert.match(reasons('never alpha bravo charlie delta stuck in the build queue today'), /\(stuck/, 'a negation 5 words back still reached');
+  assert.doesNotMatch(reasons('The build never alpha bravo charlie stuck, and that is all.'), /reports that nothing was wrong/,
+    'a negated word alone made the item clean');
+});
+
+test('#4415: the report form\'s own questions are not items, matched exactly, and a real question still scores', () => {
+  const t = require('./feedback-triage');
+  const roles = require('fs').readFileSync(require('path').join(__dirname, 'roles.js'), 'utf8');
+  const flat = roles.replace(/'\s*,\s*\n\s*'/g, ' ').replace(/\s+/g, ' ');
+  for (const q of t.FORM_QUESTIONS) {
+    assert.ok(flat.includes(q.replace(/\?$/, '')), 'FORM_QUESTIONS has drifted from roles.js: ' + q);
+    assert.equal(t.classify(q).score, 0, q);
+  }
+  assert.equal(t.classify('What bugs did you hit today, or what did your user ask').score, 0, 'the first line of a wrapped question');
+  assert.ok(t.classify('Why does the export crash every time on a large project?').score > 0, 'control: a real question is a report');
+  assert.equal(t.classify('What would make it better:').score, 0, 'an agent\'s own heading, in its own words');
+  assert.ok(t.classify('Export fails with this error:').score > 0, 'control: a lead-in with a problem word is a report');
+  assert.ok(t.classify('Is anything broken? Yes: the export crashes every time on a large project.').score > 0,
+    'control: a question followed by its answer is an answer');
+});
+
+test('#4415: the daily digest strips the pulled frontmatter, so no install id reaches #admin', () => {
+  const t = require('./feedback-triage');
+  const now = Date.parse('2026-09-28T14:00:00Z') / 1000;
+  const fresh = t.freshSince([{ name: '2026-09-28__x.md', body: '---\ndate: 2026-09-28\ninstall: aad22250-b483-4e07\ngenerated_at: 2026-09-28T13:00:00Z\n---\n\nBug: the weekly limit never records a reset, so the board stays stale for days.\n' }], now - 7200, now);
+  const out = t.adminSummary(fresh, '', 'https://x/admin') + JSON.stringify(t.triage(fresh, {}));
+  assert.ok(!out.includes('aad22250'), 'the install id from the frontmatter reached the digest');
+  assert.ok(out.includes('weekly limit never records a reset'), 'control: the report itself is still read');
+});
+
+test('#4415: a report stamped more than ten minutes in the future is left out, as an undated one is', () => {
+  const t = require('./feedback-triage');
+  const now = Date.parse('2026-09-28T14:00:00Z') / 1000;
+  const f = (at) => ({ name: '2026-09-28__x.md', body: '---\ngenerated_at: ' + at + '\n---\n- a line\n' });
+  assert.equal(t.freshSince([f('2026-09-30T00:00:00Z')], now - 7200, now).length, 0, 'a clock running fast is new in every digest');
+  assert.equal(t.freshSince([f('2026-09-28T14:05:00Z')], now - 7200, now).length, 1, 'control: a few minutes of skew is kept');
+});
+
+test('#4415: the #admin post quotes report text as inline code, so a markdown link in a report does not render', () => {
+  const t = require('./feedback-triage');
+  const body = '---\ndate: 2026-09-28\n---\n- The export button is broken, see [click here](https://evil.example) and `rm` it.\n';
+  const out = t.adminSummary([{ date: '2026-09-28', body }], '', 'https://x/admin');
+  const line = out.split('\n').find((l) => l.startsWith('- '));
+  assert.ok(line && line.startsWith('- `') && line.endsWith('`'), 'the report line is not inline code: ' + line);
+  assert.equal((line.match(/`/g) || []).length, 2, 'a backtick in the report broke out of the code span');
 });
 
 test('#4415: freshSince keeps only reports that arrived after the last post, and never guesses an undated one', () => {
