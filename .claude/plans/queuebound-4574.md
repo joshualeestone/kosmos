@@ -297,3 +297,14 @@ markers under ".../x.tmp.y/markers" and the path form reds it. Also: the live-ma
 Left, noted: if this run's own marker can never be written (an unwritable marker dir), every pass after the first skips
 the count, so the bound never restarts and a queued run gives up 2700 s after joining: safe, no worse than before.
 Because the name fix is code, one more blind round follows.
+
+## Review iteration 22 (blind, sonnet)
+0 BLOCKER, 2 WARNING:
+- (W, SELF, taken) "without ending a healthy deep queue" was stronger than the code: the ceiling is sized from the
+  first count, which a failed ps can make too low. Both comments now say a healthy deep queue NORMALLY stays inside it,
+  and name that safe-side exception (it gives up sooner).
+- (W, DEFERRED) test-install.sh now reads the clock through the KOSMOS_WAIT_NOW seam, so a stray value in an operator's
+  shell would reach it. It is a test seam, and test-install.sh already honoured the sibling seam KOSMOS_WAIT_SLEEP the
+  same way before this branch: not a new class.
+- (N, left) a waiter killed between printf and mv leaves a .tmp nobody reads; stand-in sleeps outlive an interrupted
+  file by up to 5 minutes; a second wait by the same process would reuse its live marker (no caller does).
