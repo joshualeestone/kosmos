@@ -155,7 +155,9 @@ function readStdin() {
    seconds are each optional, but at least one must be present. */
 function quotaResetMs(error) {
   const e = typeof error === 'string' ? error : '';
-  if (!/RESOURCE_EXHAUSTED/.test(e)) return null;
+  // The quota, not any RESOURCE_EXHAUSTED: a short per-minute limit with its own "Resets in" is not the account's
+  // quota being used up (review 4). The measured text says "Individual quota reached".
+  if (!/RESOURCE_EXHAUSTED/.test(e) || !/quota/i.test(e)) return null;
   // `m(?!s)`: the minutes of "Resets in 5m", never the m of a "500ms" (review 1).
   const m = /Resets in\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?/i.exec(e);
   if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined)) return null;

@@ -77,7 +77,8 @@ function accountProblemOf(card) {
      hook (status.js quotaPauseUntil), so it is firm. Every agy agent on this computer is signed in to that one account,
      so they share it. Said without "add credits": this is a subscription's allowance. */
   if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
-    const hhmm = new Date(Date.parse(card.quotaUntil)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    const resetAt = Date.parse(card.quotaUntil);
+    const hhmm = new Date(resetAt).toLocaleString([], { ...(resetAt - Date.now() > 20 * 3600 * 1000 ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
     const text = `${who} has used up its Google account's Antigravity quota, which any other Antigravity agent signed in to`
       + ` the same Google account shares, so it has stopped. The quota resets at ${hhmm}.`;
     /* notify: false (review 2). The manager notice asks it to tell the person "so they can fix it", and this clears by

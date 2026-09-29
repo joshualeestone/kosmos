@@ -18197,7 +18197,9 @@ function stateReason(a, opts) {
      comes a little after the reset. */
   const resetAt = typeof a.quotaUntil === 'string' ? Date.parse(a.quotaUntil) : NaN;
   if (Number.isFinite(resetAt)) {
-    return 'Usage limit reached. The Google quota resets at ' + new Date(resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) + '.';
+    // The day too when it is not within the next 20 hours: Google's weekly window can put it days out (review 4).
+    const far = resetAt - Date.now() > 20 * 3600 * 1000;
+    return 'Usage limit reached. The Google quota resets at ' + new Date(resetAt).toLocaleString([], { ...(far ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) + '.';
   }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
@@ -65207,7 +65209,10 @@ const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok',
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
-  const fix = f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
+  /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
+     a subscription allowance that refills by itself: no "add credits" (review 4). */
+  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' Its Google quota refills by itself; until then, I am helping here.'
+    : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;
   return `Your ${p} account isn't answering right now, so I'm helping on Kosmos's backup.` + fix;

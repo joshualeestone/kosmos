@@ -28,3 +28,13 @@ test('#4588: CONTROLS: no quotaUntil, or an unreadable one, keeps the existing w
   assert.equal(reasonOf({ state: 'rate_limited', stateConfidence: 'reported', quotaUntil: 'soon' }), 'Usage limit reached');
   assert.equal(reasonOf({ state: 'idle', quotaUntil: '2026-09-28T22:11:54.000Z' }), '', 'only a paused card says it');
 });
+
+test('#4588: the guide fallback does not tell an Antigravity guide to add credits (review 4)', () => {
+  const wordsOf = (f) => new Function('f', `${page.lift(SCRIPT, 'asbFallbackWords').replace(/^/, `const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google' };\n`)}\nreturn asbFallbackWords(f);`)(f);
+  const agy = wordsOf({ problem: 'rate_limited', runner: 'antigravity' });
+  assert.match(agy, /Google quota refills by itself/);
+  assert.doesNotMatch(agy, /credits/);
+  // CONTROL: every other runner keeps its existing advice.
+  assert.match(wordsOf({ problem: 'rate_limited', runner: 'gemini' }), /Add credits with Gemini/);
+});
+

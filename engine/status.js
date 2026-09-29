@@ -6519,7 +6519,8 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (quotaAt !== null) {
     const now = Number.isFinite(nowMs) ? nowMs : Date.now();
     // With its zone: this sentence is formatted on the board's machine and can be read from another (review 2).
-    const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    // The day too when it is not within 20 hours of now (Google's weekly window, review 4).
+    const hhmm = new Date(quotaAt).toLocaleString([], { ...(Math.abs(quotaAt - now) > 20 * 3600 * 1000 ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
     if (quotaPauseUntil(reported, now) !== null) {
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
     }

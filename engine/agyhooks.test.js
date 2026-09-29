@@ -481,10 +481,10 @@ const QUOTA = 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reache
 
 test('#4588: quotaResetMs reads the reset from the quota error, in every unit mix', () => {
   assert.equal(bridge.quotaResetMs(QUOTA), (24 * 60 + 54) * 1000);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 2h50m.'), (2 * 3600 + 50 * 60) * 1000);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 37m'), 37 * 60 * 1000);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 1h0m5s'), 3605 * 1000);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 9s'), 9000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Individual quota reached. Resets in 2h50m.'), (2 * 3600 + 50 * 60) * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota ... Resets in 37m'), 37 * 60 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota ... Resets in 1h0m5s'), 3605 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota ... Resets in 9s'), 9000);
 });
 
 test('#4588: quotaResetMs is null for anything that is not the quota with a reset', () => {
@@ -492,10 +492,13 @@ test('#4588: quotaResetMs is null for anything that is not the quota with a rese
   assert.equal(bridge.quotaResetMs('API error: INTERNAL (code 500)'), null);
   assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED (code 429): Individual quota reached.'), null);
   assert.equal(bridge.quotaResetMs('Something else. Resets in 5m.'), null);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in soon'), null);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in 0s'), null);
-  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in 500ms'), null, 'the m of ms is not minutes (review 1)');
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota Resets in soon'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota Resets in 0s'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota Resets in 500ms'), null, 'the m of ms is not minutes (review 1)');
   assert.equal(bridge.quotaResetMs(undefined), null);
+  // Review 4: a RESOURCE_EXHAUSTED that is not the quota (a per-minute limit with its own reset) is not the account's
+  // shared quota being used up.
+  assert.equal(bridge.quotaResetMs('API error: RESOURCE_EXHAUSTED (code 429): Too many requests per minute. Resets in 30s.'), null);
 });
 
 test('#4588: a quota stop is still idle, and carries the reset time in until', () => {

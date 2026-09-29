@@ -26,7 +26,8 @@ const STAGGER_MS = 55 * 1000;
 /* A reset older than this is left alone: the book lives in memory, so without it every board restart would type the
    carry-on line again into an agent whose last report is still an old quota stop (review 1). The one constant the card's
    wording also uses (status.js QUOTA_RESUME_WINDOW_MS, review 3). */
-const MAX_AGE_MS = require('./status').QUOTA_RESUME_WINDOW_MS;
+const status = require('./status');
+const MAX_AGE_MS = status.QUOTA_RESUME_WINDOW_MS;
 const MAX_TRIES = 3;
 const NUDGE_TEXT = 'The Google quota for this account has reset. Please carry on with what you were doing.';
 /* The stagger stamp, kept in the same book under a key no session name can equal (review 2). */
@@ -35,7 +36,7 @@ const LAST = Symbol('lastNudgeAt');
 /* The reset an agent is paused until, from its latest report, in epoch ms; null when it is not paused on the quota.
    status.js's own reading, not a copy of it (review 3). */
 function pausedUntil(report) {
-  return require('./status').quotaResetOf(report);
+  return status.quotaResetOf(report);
 }
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
    connection, which the board's screen reading ranks above the quota report (review 3). */
