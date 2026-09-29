@@ -88,7 +88,9 @@ test('specs: lead first; reports report to the lead by its machine name, however
   assert.equal(r.specs[2].spec.reportsTo, 'maya-okafor');
   assert.deepEqual(r.specs.map((s) => s.spec.name), ['Maya Okafor', 'Leo', 'Ana']);
   assert.deepEqual(r.specs.map((s) => s.spec.label), ['Chief Marketing Officer', 'Content Writer', 'Social Media Manager']);
-  assert.deepEqual(r.specs.map((s) => s.spec.role), ['own', 'copy', 'social'] /* #4557: cmo is not a Kosmos role, so it gets the general template (layered, not refused) */);
+  // The catalogue's role when this version has it, else the general one (layered, not refused).
+  const roles = require('./roles');
+  assert.deepEqual(r.specs.map((s) => s.spec.role), ['cmo', 'copy', 'social'].map((k) => (roles.byKey(k) ? k : 'own')));
 });
 
 test('specs: the team brief is the catalogue\'s, built with the CHOSEN names for every slot', () => {
@@ -150,4 +152,33 @@ test('the injected catalogue is what catalogue() returns, and null restores the 
   try { assert.equal(teamseed.catalogue(), cat); } finally { teamseed.setCatalogue(null); }
   // The other half of the title (round 1): null really restores the lazy load, whether or not the seed is installed.
   assert.notEqual(teamseed.catalogue(), cat, 'setCatalogue(null) left the injected catalogue in place');
+});
+
+test('specs refuses with the catalogue\'s own reason (memberProblem) before making anything, and never sends a member with no brief', () => {
+  const cat = fixture();
+  cat.memberProblem = (teamKey, slot) => (slot === 'social' ? 'the Social Media Manager needs the role "social", which this version does not have' : null);
+  const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya Okafor', content: 'Leo', social: 'Ana' } }, cat);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /needs the role "social"/);
+  const nullBrief = fixture();
+  nullBrief.memberInstructions = () => null;
+  const r2 = teamseed.specs({ team: 'marketing', names: { lead: 'Maya Okafor', content: 'Leo', social: 'Ana' } }, nullBrief);
+  assert.equal(r2.ok, false, 'a member with no brief is not handed to create');
+  assert.match(r2.because, /instructions could not be made/);
+});
+
+test('specs against the REAL seeded catalogue: every prebuilt team makes one spec per member, each with a brief', () => {
+  teamseed.setCatalogue(null);
+  const cat = teamseed.catalogue();
+  assert.ok(cat, 'the seed is installed on this build (#4555)');
+  const all = cat.teams();
+  assert.ok(all.length >= 1);
+  for (const t of all) {
+    const names = {};
+    for (const m of t.members) names[m.slot] = m.name;
+    const r = teamseed.specs({ team: t.key, names }, cat, { taken: () => false });
+    assert.equal(r.ok, true, t.key + ': ' + r.because);
+    assert.equal(r.specs.length, t.members.length, t.key);
+    for (const s of r.specs) assert.ok(typeof s.spec.teamInstructions === 'string' && s.spec.teamInstructions.length > 0, t.key + '/' + s.slot);
+  }
 });

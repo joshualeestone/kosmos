@@ -140,6 +140,16 @@ function specs(req, cat, deps) {
     names[m.slot] = raw;
   }
 
+  /* April (#4555): the catalogue's own reason, per member, for anything it would refuse (a role this
+     version lacks among them), so a member is never made with its team brief silently missing. */
+  const briefs = {};
+  for (const m of membersOf(team)) {
+    const why = typeof c.memberProblem === 'function' ? c.memberProblem(team.key, m.slot, names) : null;
+    if (why) return { ok: false, because: why };
+    briefs[m.slot] = c.memberInstructions(team.key, m.slot, names);
+    if (typeof briefs[m.slot] !== 'string' || !briefs[m.slot]) return { ok: false, because: 'the ' + m.title + '\'s instructions could not be made' };
+  }
+
   const project = (req && typeof req.project === 'string' && req.project.trim()) ? req.project.trim() : null;
   const out = ordered(team).map((m) => ({
     slot: m.slot,
@@ -151,7 +161,7 @@ function specs(req, cat, deps) {
       // instructions (teamInstructions), never sent as `instructions`, which would replace them.
       role: roles.byKey(m.role) ? m.role : 'own',
       label: m.title,
-      teamInstructions: c.memberInstructions(team.key, m.slot, names),
+      teamInstructions: briefs[m.slot],
       reportsTo: m.slot === lead ? null : create.slugFor(names[lead]),
       ...(project ? { projects: [project] } : {}),
     },
