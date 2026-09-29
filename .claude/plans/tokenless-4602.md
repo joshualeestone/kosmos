@@ -20,7 +20,7 @@ Card: joshualeestone/kosmos#4602 (the Meta agent's finding in Josh's Five Famili
 ## Out of scope (review iteration 1)
 - The report, report-show and reply handlers' own no-credential refusal (`denyPaneFallback`) says "this board only
   ... from the account that started it". Same class, different code path, reached after the gate; left for a
-  follow-up so this change stays the gate the Meta agent hit.
+  follow-up so this change stays the gate the Meta agent hit: filed as #4606.
 
 - Wording is chosen from a client-sent header (Sec-Fetch-Site), so it can be spoofed; it changes words only,
   never access (review iteration 2, accepted).
@@ -30,4 +30,4 @@ That no agent calls the board through a real browser engine without a token. A P
 the person's sentence, which is still accurate, only less specific.
 
 ## Tests
-server.tokenless-refusal-4602.test.js (5): the two "missing" arms fail on main (control measured), the rest pass on both.
+server.tokenless-refusal-4602.test.js; the "missing" arms were measured failing on main before the review rounds.
