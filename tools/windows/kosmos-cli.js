@@ -508,8 +508,19 @@ async function verbPost(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
-  if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+  /* #4653 parity with install/kosmos: an @-word that named two members reached neither as a request, and
+     the board's sentence saying so follows the verdict, on the same stream. */
+  const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
+  if (d.state === 'placed') {
+    ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    if (ambig) ctx.out(ambig);
+    return 0;
+  }
+  if (d.state === 'unconfirmed') {
+    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    if (ambig) ctx.err(ambig);
+    return code;
+  }
   if (d.code === 'room_held') {
     /* #4934: the loop guard. A LIVE post it refuses is not kept and never delivered later; an agent that read "not sent"
        and sent it by direct message as well, then posted it again once the room opened, reached people twice. After the

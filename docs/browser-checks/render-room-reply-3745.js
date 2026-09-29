@@ -502,7 +502,7 @@ function chk(ok, label, extra) {
     // #4653: a post whose @-word named two agents reached neither as a request; the engine's sentence stays
     // under the composer. The board's answer is stubbed for this one post (a real clash needs two agents
     // whose names read alike; the engine test builds that and pins the sentence), then the route is removed.
-    const NOTE_4653 = '@Sub-Zero could mean frost or subzero, so it reached neither as a request. To ask one of them, use its exact name, like @frost.';
+    const NOTE_4653 = '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.';
     const roomPost4653 = (route) => (route.request().method() === 'POST'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ delivery: { state: 'placed', because: null, id: 'm999950', outcomes: { roomer: 'placed' }, text: '@Sub-Zero look', ambiguousNote: NOTE_4653 } }) })
       : route.continue());

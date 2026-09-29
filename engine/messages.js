@@ -1476,10 +1476,10 @@ function _roomMembers(members) {
 /* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
    and the @-words that named more than one member and so addressed none (`ambiguous`: normalised name ->
    { word as typed less trailing . _ -, the members it could mean }; logged on the post, and told to the
-   sender by ambiguousNote, #4653), and each member's display name (`shown`). Display names come from the roster card's `name`, the same
-   safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
-   agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
-   pjMentionResolve to it. */
+   sender by ambiguousNote, #4653), and each member's display name (`shown`). Display names come from
+   the roster card's `name`, the same safeRoster() card that /api/projects hands the page
+   (engine/projects.js), so the page's blue and this agree on who a display name is. Exported so
+   web.mention-parity-4642.test.js can hold the page's pjMentionResolve to it. */
 function mentionedMembers(cleaned, recipients, roster) {
   const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map();   // normalised name -> the members it could mean
@@ -1519,7 +1519,10 @@ function mentionedMembers(cleaned, recipients, roster) {
    reads the sentence out of JSON with sed, so a display name loses any quote, backslash or control
    character here; the words and handles are [A-Za-z0-9._-] already. '' when there is nothing to say. */
 function ambiguousNote(ambiguous, mentioned, shown) {
-  const clean = (s) => String(s == null ? '' : s).replace(/["\\\u0000-\u001f\u007f]/g, '').trim();
+  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths, bidi controls and
+     lone surrogates: the name is printed straight to an agent's terminal. */
+  const clean = (s) => String(s == null ? '' : s)
+    .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
   const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== m ? n + ' (@' + m + ')' : '@' + m; };
   const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);
   const out = [];

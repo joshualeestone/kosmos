@@ -13,13 +13,16 @@ reads exactly as before.
   Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the
   exact name, like @frost."). Members are shown by display name with the handle to type. When the post also
   named one of them exactly, the sentence names only those not asked; when it named all of them, there is no
-  sentence. Display names lose quotes, backslashes and control characters, so the CLI's sed read holds. The
+  sentence. Display names lose quotes, backslashes, C0 and C1 controls, zero-widths, bidi controls and lone
+  surrogates: the CLI's sed read holds, and the name is safe to print to a terminal. The
   post's delivery answer carries it as `ambiguousNote`, only when non-empty. The log row keeps
   `ambiguousMentions` (the words, less trailing punctuation).
 - install/kosmos: `kosmos post` prints the sentence after its verdict (placed or unconfirmed), exit codes
   unchanged. Read with sed anchored on the end of the answer (`"}}`): the engine keeps the note the last key
   (a test pins it; /api/post answers `{ delivery }` alone and federateOut only reads it), so an `outcomes` key
   or the post's words can never be read as the note, and a reordered answer reads as silence.
+- tools/windows/kosmos-cli.js: the Windows `kosmos post` prints the note after its verdict too (placed on
+  stdout, unconfirmed on stderr with the verdict), exit codes unchanged.
 - web/index.html: pjPostSend leaves the sentence under the composer (#pj-room-msg) and appends it to the
   receipt the screen reader hears.
 
@@ -34,6 +37,8 @@ reads exactly as before.
   control: no note prints nothing extra and still exits 0 (it caught `[ ] && say` leaking exit 1);
   control: post text quoting the field name is never read as the note; control: an outcome keyed
   `ambiguousNote` is never read as the note (red with the unanchored read).
+- tools.windows-kosmos-cli-ambig-4653.test.js: placed prints verdict then note (exit 0); unconfirmed keeps
+  exit 3 with the note last; control: no, empty or non-string note prints only the verdict.
 - docs/browser-checks/render-room-reply-3745.js: a stubbed answer carrying the note leaves it under the
   composer and in the announcement, and the box still clears.
 

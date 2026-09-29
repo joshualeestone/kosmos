@@ -13,7 +13,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
-const NOTE = '@Sub-Zero could mean sub-zero or subzero, so it reached neither as a request. To ask one of them, use its exact name, like @sub-zero.';
+const NOTE = '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.';
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -51,13 +51,13 @@ function postAgainst(delivery) {
 test('#4653: a placed post with an ambiguous mention prints the verdict, then the sentence', async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: '@Sub-Zero please look', ambiguousNote: NOTE });
   assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.match(out.stdout, /Posted to proj\. Everyone on it has it waiting\.\n.*@Sub-Zero could mean sub-zero or subzero, so it reached neither as a request\./);
+  assert.match(out.stdout, /Posted to proj\. Everyone on it has it waiting\.\n.*@Sub-Zero could mean Sub Zero \(@frost\) or Sub-Zero \(@subzero\), so it reached neither as a request\./);
 });
 
 test('#4653: an unconfirmed post says it too, and keeps its exit 3', async () => {
   const out = await postAgainst({ state: 'unconfirmed', because: 'one pane did not answer', id: 'm1', outcomes: {}, text: 'x', ambiguousNote: NOTE });
   assert.equal(out.code, 3);
-  assert.match(out.stdout, /could mean sub-zero or subzero/);
+  assert.match(out.stdout, /could mean Sub Zero \(@frost\)/);
 });
 
 test('#4653 control: a post with no ambiguous mention prints only the verdict', async () => {
@@ -73,8 +73,9 @@ test('#4653 control: an outcome keyed ambiguousNote is never read as the note (t
   assert.equal(out.code, 0);
 });
 
-test('#4653 control: the words of the post itself are never read as the note', async () => {
-  // The post text quotes the field name; JSON escapes its quotes, so it must not be taken for the note.
+/* A plain regression check, not a guard on the anchor: JSON escapes the quotes in the post's words, so
+   no form of the read can match them. The outcome-key control above is the one that guards the anchor. */
+test('#4653: post words that quote the field name print nothing extra', async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'a "ambiguousNote":"fake note" here' });
   assert.doesNotMatch(out.stdout, /fake note/);
 });
