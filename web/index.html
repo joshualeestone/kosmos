@@ -7918,6 +7918,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+  border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 .orgchart-nameopt { display: flex; align-items: center; gap: 8px; margin-top: 8px;
   font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
@@ -15372,6 +15375,18 @@ window.kosmosMeasureScrollbarWidth();
                 aria-describedby="pj-add-desc-hint"
                 placeholder="Renewing the Henderson lease before October."></textarea>
       <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
+    </div>
+
+    <!-- #4583 (#4580, the Five Families finding): what done looks like, asked here so a team does not
+         assemble before anyone knows what finished is. Skippable: left blank, the brief says "Not set yet",
+         the project shows "Done not set", and its Project Manager asks first. Same cap as the description. -->
+    <div class="field">
+      <span class="flabel">Done looks like</span>
+      <p class="fhint" id="pj-add-done-hint">Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first.</p>
+      <textarea class="tk-inp" id="pj-add-done" rows="2"
+                aria-label="What done looks like"
+                aria-describedby="pj-add-done-hint"
+                placeholder="The new lease is signed and filed."></textarea>
     </div>
 
     <!-- #2458 sub-projects: choose a parent project AT creation (optional; blank =
@@ -50160,6 +50175,9 @@ function projectCard(p, unreadable, depth, childCount) {
     + unreadBadge(p.id === PJ_CURRENT ? 0 : p.unread) + '</span>'
     + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
+    /* #4583: the brief does not say what done looks like yet. Only a definite false shows it; null (no folder
+       to read) says nothing here, the folder warning below already speaks. */
+    + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
@@ -58592,6 +58610,7 @@ function openAddProject() {
   name.value = '';
   name.dataset.auto = '1';
   document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
+  document.getElementById('pj-add-done').value = ''; // #4583: nor between the done boxes
   document.getElementById('pj-add-msg').textContent = '';
   // #2606: clear the field-level errors so a reopened form is not pre-flagged.
   pjFieldOk('pj-name', 'pj-name-err');
@@ -59207,6 +59226,9 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         /* #551: absent when blank, same absent-not-null discipline as folder. */
         ...(document.getElementById('pj-add-desc').value.trim()
           ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),
+        /* #4583: absent when blank, the same discipline; the engine then writes "Not set yet" in the brief. */
+        ...(document.getElementById('pj-add-done').value.trim()
+          ? { done: document.getElementById('pj-add-done').value.trim() } : {}),
         /* #2458: the chosen parent, absent when blank (top-level) -- same
            absent-not-null discipline as folder/description; the engine refuses a
            missing/non-string parent and blank means top-level, so sending nothing is

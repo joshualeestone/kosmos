@@ -15022,7 +15022,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -15112,13 +15112,18 @@ const server = http.createServer(async (req, res) => {
         try {
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
             messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder)) {
+            // #4583: a goal but no "done looks like": the same one-asks note, for done.
+            messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
+        // #4583: made with two coordinators already on it: the same warning as adding the second one.
+        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -16885,7 +16890,9 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
+    // #4583: a second coordinator joining is warned about, never refused.
+    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}) });
     return;
   }
 

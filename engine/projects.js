@@ -1128,6 +1128,9 @@ function describe(project, roster, all) {
     // Who this project's thread opens on. Published rather than left to the
     // caller for the reason given above the `chat` require.
     defaultAgent: chat.defaultAgentFor(members),
+    /* #4583: whether the brief says what done looks like: false shows a "Done not set" badge, null means the
+       folder is not there to read (its own warning already says so), true is set. */
+    doneSet: (typeof project.folder === 'string' && project.folder && fs.existsSync(project.folder)) ? !doneIsPending(project.folder) : null,
     // ⚠️ Deliberately NOT a health summary. It counts what is on screen so the
     // list row can say "1 needs you" the way the page does, and it carries
     // `unseen` beside the counts so a row can never quietly report that
@@ -1271,6 +1274,16 @@ function cleanName(name) {
  * Capped at 1000 characters: the design renders one line under the title, and
  * Josh's own twelve fixture descriptions top out under half that.
  */
+/* #4583: 'Done looks like', typed on the create form. The description's rules (absent is blank, one line,
+   1000 code points), with its own words in the refusal so the person is told which box to fix. */
+function cleanDone(text) {
+  if (text === undefined || text === null || text === '') return '';
+  if (typeof text !== 'string') throw new Error('what done looks like has to be words');
+  const flat = oneLine(text);
+  if (Array.from(flat).length > 1000) throw new Error('keep what done looks like to 1000 characters');
+  return flat;
+}
+
 function cleanDescription(text) {
   // Absent is a legitimate blank; anything present has to BE words. String()
   // here turned {description: {}} into "[object Object]" on one route while
@@ -1818,7 +1831,7 @@ function trueChildName(parent, name) {
  *   which is still fully supported and is the only way to reach work that lives
  *   somewhere else.
  */
-function create({ name, folder, agents, roster, description, made, parent } = {}) {
+function create({ name, folder, agents, roster, description, made, parent, done } = {}) {
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
   // is the sentence the person has been reading: the preview line under the
@@ -1837,6 +1850,8 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // I/O-failure case below, nothing adopts it: a caller refused for a bad
   // body does not retry with the same bad body.
   const desc = cleanDescription(description);
+  // #4583: what done looks like, asked on the create form and skippable. Same rules as the description.
+  const doneText = cleanDone(done);
   // #2458: parent is a BODY refusal, so like name and description it validates
   // BEFORE makeFolder (the principle just above), not after. A folderless caller
   // -- create({ name, parent }) with no folder -- whose parent is bad would
@@ -1933,7 +1948,7 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // project EXISTS from writeAll above, and a folder we could not write a stub into
   // (read-only, or one that already holds the person's own brief) is not a reason to
   // report "we could not create that project".
-  seedBriefStub(given, { name: title, description: desc });
+  seedBriefStub(given, { name: title, description: desc, done: doneText });
   return project;
 }
 
@@ -1956,14 +1971,21 @@ const BRIEF_STUB_FILENAME = 'BRIEF.md';
    A second copy would drift the first time the wording changed and silently break the
    pending detection. */
 const BRIEF_GOAL_PLACEHOLDER = '_What is this project for? Replace this line._';
-function briefStubContent({ name, description } = {}) {
+/* #4583: the Done placeholder, named for the same reason as the Goal's: doneIsPending detects it. It says
+   "Not set yet" in bold, so a person or an agent reading BRIEF.md sees at once that done is not decided.
+   BRIEF_DONE_PLACEHOLDERS also holds the wording written before #4583, so briefs made before it are
+   still read as not set. */
+const BRIEF_DONE_PLACEHOLDER = '**Not set yet.** _How will everyone know this is finished? Replace this line._';
+const BRIEF_DONE_PLACEHOLDERS = Object.freeze([BRIEF_DONE_PLACEHOLDER, '_How will everyone know this is finished? Replace this line._']);
+function briefStubContent({ name, description, done } = {}) {
   const goal = (typeof description === 'string' && description.trim())
     ? description.trim()
     : BRIEF_GOAL_PLACEHOLDER;
+  const doneLine = (typeof done === 'string' && done.trim()) ? done.trim() : BRIEF_DONE_PLACEHOLDER;
   return `# ${String(name || 'This project')}\n\n`
     + `## Goal\n\n${goal}\n\n`
     + '## Done looks like\n\n'
-    + '_How will everyone know this is finished? Replace this line._\n\n'
+    + doneLine + '\n\n'
     + '---\n\n'
     + 'Kosmos added this brief when the project was created, so everyone on it shares '
     + 'one source of truth instead of a chat message that scrolls away. Edit it freely.\n';
@@ -1978,14 +2000,14 @@ function briefStubContent({ name, description } = {}) {
    markWelcomeSeeded, because the project already exists and a missing stub is a smaller
    harm than a failed creation. Returns true only when it actually wrote one (for tests
    and callers that want to know), false otherwise. */
-function seedBriefStub(folder, { name, description } = {}) {
+function seedBriefStub(folder, { name, description, done } = {}) {
   try {
     if (!folder || !path.isAbsolute(folder)) return false;
     const dest = path.join(folder, BRIEF_STUB_FILENAME);
     // `wx` writes only when the file does not exist and fails (EEXIST) otherwise, so the
     // existence check and the write are one atomic step - a separate existsSync + write
     // has a window where a concurrent creator lands between them, and this closes it.
-    fs.writeFileSync(dest, briefStubContent({ name, description }), { encoding: 'utf8', flag: 'wx' });
+    fs.writeFileSync(dest, briefStubContent({ name, description, done }), { encoding: 'utf8', flag: 'wx' });
     return true;
   } catch { return false; }
 }
@@ -2016,6 +2038,44 @@ function briefIsPending(folder) {
   } catch { return false; }
 }
 
+/* #4583: is this project's "Done looks like" still unset? True when the brief is absent (as briefIsPending)
+   or still holds a Done placeholder; false for a brief the person wrote themselves (no placeholder), and
+   false when the brief cannot be read, for briefIsPending's reason: never contradict a real brief. */
+function doneIsPending(folder) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    let text;
+    try { text = fs.readFileSync(path.join(folder, BRIEF_STUB_FILENAME), 'utf8'); }
+    catch (err) { return !!(err && err.code === 'ENOENT'); }
+    return BRIEF_DONE_PLACEHOLDERS.some((p) => text.includes(p));
+  } catch { return false; }
+}
+
+/* #4583 (the Five Families finding, #4580): two agents with a coordinating role (two Project Managers)
+   on one project negotiated ownership by hand. Returns a warning naming them and suggesting the split
+   those PMs chose, or null. Warns, never refuses: a person may want two. "Coordinating" is the rule the
+   project room already uses to pick who answers (chat.looksLikeManager). `project` is a projects.get()
+   read; `joining` (a machine name) limits the warning to a change that brought a coordinator in. */
+function coordinatorWarning(project, joining) {
+  const members = (project && Array.isArray(project.agents)) ? project.agents : [];
+  const coords = members.filter((m) => m && chat.looksLikeManager(m.role));
+  if (coords.length < 2) return null;
+  if (joining && !coords.some((m) => m.sessionName === joining)) return null;
+  const names = coords.map((m) => m.name || m.sessionName);
+  const list = names.length === 2 ? names[0] + ' and ' + names[1] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  return list + ' all have a coordinating role on this project. So they do not split the work by hand, '
+    + 'decide who owns what now: one owns the brief (BRIEF.md) and the other owns the task queue.';
+}
+
+/* #4583: the room note when a project is staffed with its goal written but "Done looks like" not set. The
+   same shape as BRIEF_PENDING_NOTE (#2707): one of you asks, the Project Manager if there is one, and the
+   answer goes into BRIEF.md so the task queue has something to aim at. Agents only, like that note. */
+const DONE_PENDING_NOTE = 'This project\'s brief has a goal but does not say what done looks like yet. '
+  + 'Before anyone starts: if this project has a Project Manager, that agent asks the person, here, how everyone '
+  + 'will know it is finished; otherwise ONE of you asks (read this room first). Write the answer into the '
+  + '"Done looks like" section of BRIEF.md in the project folder, then plan the tasks toward it. One question to '
+  + 'the operator, not several.';
+
 /* #2707: the single shared "brief pending" note posted into a brief-less project's room,
    so seven agents staffed at once do not each ask the same "what is the goal?" question and
    buzz the operator seven times (the Mortals dogfood finding). It names the coordination the
@@ -2028,9 +2088,9 @@ function briefIsPending(folder) {
    audience are matched by BRIEF_PENDING_NOTES_BEFORE_AUDIENCE below, which is frozen. */
 const BRIEF_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
   + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
-  + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
-  + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
-  + 'question to the operator, not seven.';
+  + 'ONE of you (the Project Manager, if this project has one) ask here what the goal is and what done '
+  + 'looks like; once you hear them, write both into BRIEF.md in the project folder so everyone shares '
+  + 'them. Everyone else: hold, and start once the brief is set. One question to the operator, not seven.';
 /* The exact text of the note as it was written before notes carried an audience (#2707 until
    brief-note-agents). Those rows are untagged, so the room route recognises them by this text.
    FROZEN: never edit to follow BRIEF_PENDING_NOTE; add a new entry only if a new untagged
@@ -3012,6 +3072,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, cleanDone, coordinatorWarning,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
