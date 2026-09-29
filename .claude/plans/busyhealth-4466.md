@@ -273,6 +273,23 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   exec (install/kosmos, cmd_board_run), and every watchdog kickstart relaunches through board-run (round 16).
 - DUPLICATES: the 20 s busy wait on agent verbs (by design, "busy, retrying" on stderr); Windows
   `lastTimedOut` shared state (rounds 13, 16, 19).
+- 6g on 4d81fa6da: GREEN.
+
+## Review round 23 (fable): 1 NEW CONVENTION + 2 NEW NITs fixed; loop continues
+- FIXED (CONVENTION): the watchdog header said it "adds no destructive action of its own"; past BUSY_GRACE
+  it now grants the #3079 reclaim (`KOSMOS_RECLAIM_BUSY=1 kosmos start --force`), and the header says so.
+- FIXED (NIT, comment): a board that alternates busy and down every tick is never restarted and raises no
+  crash-loop alert (round 22's clock reset made that shape); accepted, same as the old up/down flap.
+- FIXED (NIT, plan): the weakest premise's watchdog tick time (about a minute, not 20 s).
+- DUPLICATE (W): `--force` is not discoverable for a person typing into an agent's pane. Recorded as the
+  cost of never printing it (Rejected: "Refusing --force from agents"); `kosmos help` is read by agents
+  too, so naming it there would undo the deterrent.
+- DEFERRED: `healthy --once` on the `KOSMOS_RECLAIM_BUSY` start path. The full wait is the last chance for
+  a board that has just come back before the reclaim kills it; 18 s on a wedged board's recovery is cheap.
+- DEFERRED: a distinct sentence when the claim cannot be written (unwritable KOSMOS_HOME): the CLI is
+  broken in that state anyway, and "another agent is starting it" still refuses, the safe direction.
+- DEFERRED: the --auto report arm measures from spawn on purpose: Claude Code's 15 s hook timeout is
+  wall-clock from spawn too, so that is the number that must stay under it.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
@@ -288,9 +305,11 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - **The agent guard is a DETERRENT, not enforcement.** An agent that passes `--force` or clears its
   environment gets through. It exists to stop an agent that follows the CLI's own advice (the 140-restart
   case); nothing a process running as the same user does can be stopped by that same user's CLI.
-- **The watchdog's `kosmos status` can now take up to 20 s** on a busy board. It is a launchd job with
-  StartInterval 30, and launchd never starts a second instance of a job while one runs, so ticks cannot
-  stack on a busy board.
+- **A watchdog tick can take about a minute on a busy board**: `kosmos status` waits its 20 s busy budget,
+  and past BUSY_GRACE the reclaim start runs its own full `healthy()` (another 20 s), then the kill waits
+  (up to 7 s) and the come-up loop. It is a launchd job with StartInterval 30, and launchd never starts a
+  second instance of a job while one runs, so ticks cannot stack on a busy board. (Round 23 corrected the
+  number, which said 20 s.)
 - **A slow dev board reads as a stranger** (round 8): the busy verdict needs "kosmos" in the listener's
   command line, which an installed board always has.
 - **Agent detection is by environment.** An agent run by some other harness, with none of the three

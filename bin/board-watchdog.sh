@@ -15,7 +15,11 @@
 #
 # It delegates recovery entirely to `kosmos start` (idempotent: no-ops when the
 # board is already answering, refuses cleanly when a stranger holds the port), so
-# it adds no destructive action of its own.
+# it adds no destructive action of its own, with ONE exception (#4466): past
+# BUSY_GRACE it runs `KOSMOS_RECLAIM_BUSY=1 kosmos start --force`, which authorises
+# the #3079 reclaim (a kill) of this user's own Kosmos that holds the port and has
+# not answered for BUSY_GRACE. `kosmos start` still does the kill; the watchdog
+# grants it. See the busy-grace block below.
 #
 # THREE things gate a recovery, and all three must hold:
 #   1. the user has NOT deliberately stopped the board (no stop-marker), AND
@@ -173,6 +177,9 @@ elif [ -n "$BUSY_SINCE_RAW" ]; then
   # Busy, now plainly down: the process that held the port is gone and launchd may be relaunching it.
   # That is a NEW down streak, so the busy clock stops and the down clock restarts (a fresh GRACE):
   # the old down_since would kick at once and kickstart -k could kill the board mid-boot.
+  # Accepted: a board that alternates busy and down on EVERY tick resets a clock each time and so is
+  # never restarted and never raises the crash-loop alert, the same as the up/down flap before it (a
+  # healthy reading clears everything). It is taking connections, so it is alive at least half the time.
   BUSY_SINCE_RAW=""; state_put "$NOW" "$LAST_KICK" "$FAILS"; exit 0
 fi
 
