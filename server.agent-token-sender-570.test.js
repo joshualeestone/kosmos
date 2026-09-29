@@ -138,26 +138,26 @@ test('sendPost and send use a sender the route already resolved, and resolve fro
   assert.match(bare.because, /cannot tell which agent/, 'control: with no sender and no pane the old refusal stands');
 });
 
-test('msg, post and react: never exempt for a network peer or with NO credential; msg and post only with a valid header agent token (#4491)', () => {
+test('msg, post and react: never exempt for a network peer or with NO credential; only with a valid header agent token (#4491)', () => {
   /* #4491 changed this invariant on purpose. msg and post pass the board-token gate ONLY with
      a valid agent token in the header (AGENT_TOKEN_ROUTES, checked at the gate), so an agent
      need not hold the person's credential. They must never join REMOTE_AGENT_ROUTES (a network
-     peer) or LOOPBACK_AGENT_ROUTES (exempt before any token is checked), and react is not
-     exempt at all yet. AGENT_TOKEN_ROUTES is pinned exactly, so widening it is a deliberate
+     peer) or LOOPBACK_AGENT_ROUTES (exempt before any token is checked). #4491 slice 2 added react,
+     whose handler identifies the caller from the token. Community post stays out: it writes the public feed. AGENT_TOKEN_ROUTES is pinned exactly, so widening it is a deliberate
      edit here, never a silent one. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const lineOf = (set) => (src.match(new RegExp('const ' + set + ' = new Set\\(\\[[^\\]]*\\]\\)')) || [''])[0];
   for (const set of ['REMOTE_AGENT_ROUTES', 'LOOPBACK_AGENT_ROUTES']) {
     const line = lineOf(set);
     assert.ok(line, set + ' moved; this pin reads nothing');
-    for (const route of ['/api/msg', '/api/post', '/api/react', '/api/whoami']) {
+    for (const route of ['/api/msg', '/api/post', '/api/react', '/api/whoami', '/api/community/post']) {
       assert.ok(!line.includes(route), route + ' is now exempt from the board token via ' + set);
     }
   }
   const agentOnly = lineOf('AGENT_TOKEN_ROUTES');
   assert.ok(agentOnly, 'AGENT_TOKEN_ROUTES moved; this pin reads nothing');
   const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
-  assert.deepEqual(routes, ['POST /api/msg', 'POST /api/post', 'POST /api/whoami'],
+  assert.deepEqual(routes, ['POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every route added here must be checked to identify its caller from the header token');
   assert.match(src, /AGENT_TOKEN_ROUTES\.has\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
 });

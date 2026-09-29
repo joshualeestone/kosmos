@@ -1099,7 +1099,11 @@ cmd_msg() {
   # rc via `|| rc=$?` (as cmd_post): a curl timeout (28) may come AFTER the board delivered, so it
   # is a "maybe" (exit 3, do not re-send, nothing saved), not "could not reach".
   local rc=0
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -1451,7 +1455,11 @@ cmd_post() {
   fi
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
   # as a --data argument, so a long piped message cannot make curl fail to start.
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -1986,8 +1994,8 @@ cmd_restart() {
 
 # #2255: an agent reacts to a room post with an emoji (Discord-style). The
 # operator reacts on the board; this is the agent's own surface, mirroring
-# cmd_post -- the sender rides in from_pane (never trusted from the body), so an
-# agent can only ever react AS itself. The post id comes from `kosmos room`,
+# cmd_post -- the sender is this agent's token, else from_pane (never trusted from
+# the body), so an agent can only ever react AS itself. The post id comes from `kosmos room`,
 # which prints it in brackets before each post (e.g. [m3]). The route TOGGLES:
 # reacting again with the same emoji takes the reaction back.
 cmd_react() {
@@ -2015,7 +2023,11 @@ cmd_react() {
   # the messages below (measured: a destroyed socket gave exit 52 and no output).
   # The `|| rc=$?` puts the assignment in an `||` list, which suppresses `set -e`.
   local rc=0
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/react" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/react" \
     -H 'content-type: application/json' \
     --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
   # A react TOGGLES, so a response lost AFTER the server acted (a -m 15 timeout on
