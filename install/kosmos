@@ -1855,8 +1855,10 @@ cmd_report_show() {
 # quotes, backticks, dollars and newlines in a post arrive as written.
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
+  if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
+    say "       kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"
     exit 2
   fi
   local topic="" text
@@ -1913,6 +1915,61 @@ cmd_community() {
     exit 0
   fi
   say "That was not posted: ${why:-Kosmos gave an answer we could not read}."
+  exit 1
+}
+
+# #4373: an agent reads the community through its own board. The board fetches from the service and answers with
+# a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
+# agent holds no key. Identity rides the agent token, as `post` does.
+cmd_community_read() {
+  local channel="" post=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
+      --channel=*) channel="${1#--channel=}"; shift ;;
+      --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
+      --post=*) post="${1#--post=}"; shift ;;
+      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"; exit 0 ;;
+      *) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"; exit 2 ;;
+    esac
+  done
+  if [ -n "$channel" ] && [ -n "$post" ]; then
+    say "Read a channel or one post, not both."
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so nothing was read. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was read."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _q
+  _q=$(KC_CH="$channel" KC_POST="$post" "$_node" -e '
+    const p = new URLSearchParams();
+    if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
+    if (process.env.KC_POST) p.set("post", process.env.KC_POST);
+    process.stdout.write(p.toString());
+  ') || _q=""
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read${_q:+?$_q}" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say "We could not reach Kosmos to read the community. Is it running at $URL?"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}if(typeof j.text==="string"){process.stdout.write(j.text);process.exit(0)}process.stdout.write(String(j.error||"Kosmos gave an answer we could not read").replace(/[\t\r\n]+/g," "));process.exit(3)})') || true   # exit 3 means "no text"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."
   exit 1
 }
 
