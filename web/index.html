@@ -30548,6 +30548,7 @@ function orgTreeOf(agents) {
 function orgPlace(nodes) {
   const placed = new Map();
   let maxR = ORG_R0;
+  const ORG_FIRST_LANE = 58;  // how much further out each lane of a crowded first ring sits (flat and tree alike)
   /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
      (nobody reports to anybody) keeps its ring layout: its lines all run straight out from the hub and cannot
      cross, and it is the first screen most people see. #4502 places those rings so an outer agent's line does
@@ -30565,7 +30566,7 @@ function orgPlace(nodes) {
        further out are spread evenly and turned to the offset that keeps their lines furthest from every inner
        face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
        room for one line), and the turn keeps the near passes to the fewest it can. */
-    const LANE_STEP = 58;    // how much further out each spill lane sits; the placement and the search read this one
+    const LANE_STEP = ORG_FIRST_LANE;  // each spill lane's step, shared with a tree's crowded first ring (#4499); the placement and the search read this one
     const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
     for (let lane = 0; lane < lanes; lane += 1) {
@@ -30684,7 +30685,6 @@ function orgPlace(nodes) {
   /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
      light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
   const ORG_SHARE_POWER = 0.85;
-  const ORG_FIRST_LANE = 58;  // the first ring's lane pitch when it spills: the flat layout's 58 above, kept equal on purpose
   const ORG_HUB_CLEAR = 74;   // #4499, from #4434's hub test: no report's line nearer the hub's centre than 52 + 22
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
@@ -30923,9 +30923,26 @@ function orgPlace(nodes) {
     };
     /* Whether a ring's spots are clear: no two faces nearer than ORG_MIN_ARC, and in a laned team the slots
        at least ORG_LANE_SLOT apart (the gap a line to the outer ring passes through). */
-    /* Accepted cost (review of the rebased branch): this visits every pair of a team on each try, so one very big team
-       lays out 5-7x slower than before #4472 (a lead with 1000 reports: ~83ms against ~12ms). Normal fleets stay well
-       under 10ms. #4499 visits only angular neighbours here (that lead: ~48ms). */
+    /* #4499: the first index in a sorted array at or after x (a lower-bound binary search). */
+    const firstAt = (sorted, x) => {
+      let lo = 0; let hi = sorted.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < x) lo = m + 1; else hi = m; }
+      return lo;
+    };
+    /* #4499: the run of angles, near `refAng`, over which the line from a (inside) to b is at radius `inner` or more,
+       widened by `around`. Distance from the hub along a segment is convex and a sits inside `inner`, so that part
+       runs from where the line crosses `inner` (the larger root) to b, sweeping its angles in order. clear() and
+       apart() both find a line's near faces with it. */
+    const arcWindow = (a, b, refAng, inner, around) => {
+      const dx = b[0] - a[0]; const dy = b[1] - a[1];
+      const qa = dx * dx + dy * dy; const qb = 2 * (a[0] * dx + a[1] * dy); const qc = a[0] * a[0] + a[1] * a[1] - inner * inner;
+      const disc = qb * qb - 4 * qa * qc;
+      const t0 = disc > 0 ? Math.max(0, Math.min(1, (-qb + Math.sqrt(disc)) / (2 * qa))) : 0;
+      const raw = Math.atan2(a[1] + t0 * dy, a[0] + t0 * dx);
+      const q = refAng + Math.atan2(Math.sin(raw - refAng), Math.cos(raw - refAng));
+      const end = refAng + Math.atan2(Math.sin(Math.atan2(b[1], b[0]) - refAng), Math.cos(Math.atan2(b[1], b[0]) - refAng));
+      return [Math.min(q, end) - around, Math.max(q, end) + around];
+    };
     const clear = (spots) => {
       /* #4499: by angle, so each check visits only near neighbours (a lead with 1000 reports visited every pair on every
          try: 200ms). The team lies in one contiguous run of angles round its manager, so a plain sort orders it. */
@@ -30951,20 +30968,13 @@ function orgPlace(nodes) {
          and a face further round than asin(ORG_LANE_SLOT / rMin) from that part's angles is too far (a point at
          radius q, d radians outside a run of angles, is q sin(d) from all of it). */
       const around = Math.asin(Math.min(1, ORG_LANE_SLOT / rMin));
-      const firstAt = (x) => { let lo = 0; let hi = angs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (angs[m] < x) lo = m + 1; else hi = m; } return lo; };
       for (let i = 0; i < all.length; i += 1) {
         if (!all[i].lane) continue;
         const m = placed.get(all[i].node.parent);
         const ax = Math.cos(m.ang) * m.r; const ay = Math.sin(m.ang) * m.r;
         const dx = xy[i][0] - ax; const dy = xy[i][1] - ay;
-        /* Where the line crosses radius rMin - ORG_LANE_SLOT (the larger root: the manager sits inside it). */
-        const inner = rMin - ORG_LANE_SLOT;
-        const qa = dx * dx + dy * dy; const qb = 2 * (ax * dx + ay * dy); const qc = ax * ax + ay * ay - inner * inner;
-        const disc = qb * qb - 4 * qa * qc;
-        const t0 = disc > 0 ? Math.max(0, Math.min(1, (-qb + Math.sqrt(disc)) / (2 * qa))) : 0;
-        const qAng = m.ang + Math.atan2(Math.sin(Math.atan2(ay + t0 * dy, ax + t0 * dx) - m.ang), Math.cos(Math.atan2(ay + t0 * dy, ax + t0 * dx) - m.ang));
-        const lo = Math.min(qAng, all[i].ang) - around; const hi = Math.max(qAng, all[i].ang) + around;
-        for (let j = firstAt(lo); j < all.length && angs[j] <= hi; j += 1) {
+        const [lo, hi] = arcWindow([ax, ay], xy[i], m.ang, rMin - ORG_LANE_SLOT, around);
+        for (let j = firstAt(angs, lo); j < all.length && angs[j] <= hi; j += 1) {
           if (j === i) continue;
           const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy || 1)));
           if (Math.hypot(xy[j][0] - ax - t * dx, xy[j][1] - ay - t * dy) < ORG_LANE_SLOT) return false;
@@ -31081,17 +31091,10 @@ function orgPlace(nodes) {
         const rMin = byAng.reduce((least, f) => Math.min(least, f.r), Infinity);
         const inner = rMin - ORG_LINE_CLEAR;
         const around = Math.asin(Math.min(1, ORG_LINE_CLEAR / rMin));
-        const firstAt = (x) => { let lo = 0; let hi = angsM.length; while (lo < hi) { const m = (lo + hi) >> 1; if (angsM[m] < x) lo = m + 1; else hi = m; } return lo; };
         for (const g of mineLines) {
           for (const f of teamFaces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
-          const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
-          const qa = dx * dx + dy * dy; const qb = 2 * (g.a[0] * dx + g.a[1] * dy); const qc = g.a[0] * g.a[0] + g.a[1] * g.a[1] - inner * inner;
-          const disc = qb * qb - 4 * qa * qc;
-          const t0 = disc > 0 ? Math.max(0, Math.min(1, (-qb + Math.sqrt(disc)) / (2 * qa))) : 0;
-          const qRaw = Math.atan2(g.a[1] + t0 * dy, g.a[0] + t0 * dx);
-          const qAng = g.angB + Math.atan2(Math.sin(qRaw - g.angB), Math.cos(qRaw - g.angB));
-          const lo = Math.min(qAng, g.angB) - around; const hi = Math.max(qAng, g.angB) + around;
-          for (let j = firstAt(lo); j < byAng.length && angsM[j] <= hi; j += 1) {
+          const [lo, hi] = arcWindow(g.a, g.b, g.angB, inner, around);
+          for (let j = firstAt(angsM, lo); j < byAng.length && angsM[j] <= hi; j += 1) {
             const f = byAng[j];
             if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
           }
