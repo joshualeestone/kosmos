@@ -60,6 +60,56 @@ test('a real release or browser-checks run in a checkout reads busy (control: wi
   assert.equal(run([]).code, 0);
 });
 
+/* #4410: a run-tests.sh started 3 minutes into Kano's install harness, both behind a clear gate,
+   and the harness's board-port checks went red. The harness boots real boards, so it is heavy. */
+test('#4410: a real install harness (tools/test-install.sh) reads busy (control: without it, clear)', () => {
+  for (const cmd of ['bash tools/test-install.sh', 'bash /Users/someone/work/kosmos/tools/test-install.sh']) {
+    const r = run([['111', WORK, cmd, 'zsh']]);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /COUNTS 111: .*script .*tools\/test-install\.sh/);
+  }
+  // A bare name run from tools/ (`cd tools && bash test-install.sh`) counts too.
+  assert.equal(run([['112', WORK + '/tools', 'bash test-install.sh', 'zsh']]).code, 1);
+  assert.equal(run([]).code, 0);
+});
+
+test('#4410: the install harness follows the shared fixture rule (controls: the same run in a checkout counts)', () => {
+  const kt = run([['113', KT, 'bash ' + KT + '/tools/test-install.sh --sleep 4', 'zsh']]);
+  assert.equal(kt.code, 0, kt.out);
+  assert.match(kt.out, /ignore 113: a unit-test fixture \(run-tests\.sh sandbox\)/);
+  // The shape tools/test-cut-guard.sh's stand-in really has: a normal cwd, the SCRIPT in the sandbox.
+  // Only the script-path half of the fixture rule drops it; without that, every agent's gate would
+  // read BUSY for 8 s during every suite (#4410 review 5).
+  const scriptOnly = run([['117', WORK, 'bash ' + KT + '/tools/test-install.sh --sleep 8', 'zsh']]);
+  assert.equal(scriptOnly.code, 0, scriptOnly.out);
+  assert.match(scriptOnly.out, /ignore 117: a unit-test fixture \(run-tests\.sh sandbox\)/);
+  const nodeTest = run([['114', WORK, 'bash tools/test-install.sh', ancs('bash', 'node --test tools.x.test.js')]]);
+  assert.equal(nodeTest.code, 0, nodeTest.out);
+  assert.match(nodeTest.out, /ignore 114: a unit-test fixture \(node --test ancestor\)/);
+  const mention = run([['115', WORK, 'bash -c pgrep -f tools/test-install.sh', 'zsh']]);
+  assert.equal(mention.code, 0, mention.out);
+  assert.match(mention.out, /ignore 115: mentions the name but does not run it/);
+  // The control differs from 117 only in the folder the script sits in.
+  assert.equal(run([['116', WORK, 'bash ' + WORK + '/tools/test-install.sh --sleep 4', 'zsh']]).code, 1);
+});
+
+test('#4410: --except-cwd never rules out an install harness, which collides with your own suite too (control: a browser run there is ruled out)', (t) => {
+  /* Under /tmp, not os.tmpdir(), for the reason the --except-cwd test below gives: inside
+     tools/run-tests.sh os.tmpdir() is the kt<pid> sandbox, and both rows would be ignored as
+     fixtures instead of testing the rule (the first version of this test did exactly that). */
+  const own = fs.mkdtempSync('/tmp/hg-own-');
+  t.after(() => fs.rmSync(own, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(own, '.git'));
+  const real = fs.realpathSync(own);
+  assert.doesNotMatch(real, /\/T\/kt[0-9]/, 'the own-run folder must sit outside the kt sandbox pattern');
+  const harness = run([['118', real, 'bash tools/test-install.sh', 'zsh']], { args: ['--except-cwd', own] });
+  assert.equal(harness.code, 1, harness.out);
+  assert.match(harness.out, /COUNTS 118/);
+  const browser = run([['119', real, 'bash tools/browser-checks.sh', 'zsh']], { args: ['--except-cwd', own] });
+  assert.equal(browser.code, 0, browser.out);
+  assert.match(browser.out, /ignore 119: your own run \(--except-cwd\)/);
+});
+
 test('a shell that only MENTIONS the names does not count (control: a real run beside them does)', () => {
   const mentions = [
     ['201', WORK, 'zsh -c for i in 1 2; do pgrep -f tools/browser-checks.sh; done', 'claude'],
@@ -419,6 +469,8 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
     ['931', '930', WORK, 'bash tools/run-tests.sh'],
     ['932', '931', WORK, 'sh -c x'],
     ['933', '932', WORK, 'bash tools/release.sh 0.6.9'],
+    /* #4410: a real install harness, so the live candidate filter (not only the seam) must pick it up */
+    ['950', '900', WORK, 'bash tools/test-install.sh'],
   ];
   assert.ok(rows.every((row) => row.every((v) => !v.includes('|'))), 'a value contains the table separator');
   const live = (table, extra = {}, args = []) => {
@@ -435,9 +487,14 @@ printf 'p%s\nfcwd\nn%s\n' "$pid" "$cwd"
   assert.match(r.out, /ignore 911: a unit-test fixture \(node --test ancestor\)/);
   assert.match(r.out, /ignore 920: mentions/);
   assert.match(r.out, /ignore 933: a unit-test fixture \(node --test ancestor\)/);
-  const without = live(rows.filter((row) => row[0] !== '901'));
+  assert.match(r.out, /COUNTS 950: a real run .*script tools\/test-install\.sh/);
+  const harnessOnly = live(rows.filter((row) => row[0] !== '901'));
+  assert.equal(harnessOnly.code, 1, harnessOnly.out);
+  assert.match(harnessOnly.out, /COUNTS 950/);
+  const quiet = rows.filter((row) => row[0] !== '901' && row[0] !== '950');
+  const without = live(quiet);
   assert.equal(without.code, 0, without.out);
-  const quietBox = live(rows.filter((row) => row[0] !== '901'), {}, ['--quiet-box']);
+  const quietBox = live(quiet, {}, ['--quiet-box']);
   assert.equal(quietBox.code, 1, quietBox.out);
   assert.match(quietBox.out, /COUNTS 940: a real run/);
   /* A table that cannot be read must never read as "nothing running". */

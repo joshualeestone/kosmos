@@ -19,6 +19,11 @@
 # The asymmetry, same as #2006: load manufactures false REDS, never false greens.
 # So waiting for a quiet box can only make a red MORE trustworthy, never hide one.
 #
+# #4458: read every KOSMOS_ variable here with the dollar sign directly before its
+# name (plain or braced), outside a comment. tools/test-cut-load-guard.sh lists
+# them from this file that way to clear them, and a new one needs a hostile value
+# there (its regression arm fails until it has one).
+#
 # Sourced by release.sh under `set -euo pipefail`; every command here is written
 # errexit-safe. bash 3.2 compatible (macOS system bash): no mapfile, no `((...))`
 # as a bare command, float compares via awk.

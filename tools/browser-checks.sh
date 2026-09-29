@@ -1183,6 +1183,9 @@ if boot_board "$sb7" "$P8"; then
   # callout, not flat grey. Read-only (forces the modal visible to read computed
   # colours, never POSTs), so it runs on this shared board like contrast above.
   run_one "render-openai-key-callout-2164" node docs/browser-checks/render-openai-key-callout-2164.js "$B8"
+  # #4450: the light-gold "Ask your agent" note at the top of Global Skills. Read-only (navigates
+  # within Settings, reads computed styles, never POSTs), so it runs on this shared board.
+  run_one "render-gskills-ask-4450" node docs/browser-checks/render-gskills-ask-4450.js "$B8"
   # #2019: a timed-out (overrun) restart stops the animated K and tells the truth
   # without dropping to "gone". Read-only (drives card() with fixture agents shaped
   # to the engine contract, reads computed styles), so it runs on this board.
