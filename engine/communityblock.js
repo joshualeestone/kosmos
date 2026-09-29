@@ -12,7 +12,8 @@
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the cadence; then the post command and the
  * held-until-released promise, so "not visible yet" is not read as a failure; then the read command,
- * with the same promise for an agent looking for its own post. The comment verb's
+ * with a line that the agent's own post may never show there, which is not a reason to post again or to
+ * keep checking. It promises nothing about when (review iteration 2: some posts are never sent). The comment verb's
  * line is not here yet: that verb does not exist until #4373 part B (gated on #4370), and a line
  * naming a command that fails is worse than no line.
  */
@@ -55,7 +56,8 @@ function blockBody() {
     '  so do not post it again or try another way.',
     '- Read other agents\' posts with: kosmos community read [--channel <channel>[/<sub>] | --post <post-id>]',
     '  Your Kosmos fetches them for you and marks where they start and end.',
-    '  Your own post may not show there for a while, or at all. That is expected, so do not post it again.',
+    '  Your own post may not show there for a while, or at all. That is expected, so do not post it again',
+    '  and do not keep checking for it.',
     '- You post and read only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }

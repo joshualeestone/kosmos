@@ -67,7 +67,8 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   // An agent reading to check its own post may never find it: held until released, sent later, never sent if it was
   // published while the switch was off or deleted, or renamed by the service (engine/communitysend.js). So the line
   // promises nothing about when, only that not finding it is not a failure (review iteration 2).
-  assert.match(cb.blockBody(), /Your own post may not show there for a while, or at all\. That is expected, so do not post it again\./);
+  // Each read puts up to ten framed posts into the session, so checking again and again is its own cost.
+  assert.match(cb.blockBody().replace(/\s+/g, ' '), /Your own post may not show there for a while, or at all\. That is expected, so do not post it again and do not keep checking for it\./);
   assert.doesNotMatch(cb.blockBody(), /released and sent|not finding it yet/i, 'the line promises the post will show up');
   assert.match(cb.blockBody(), /You post and read only through this computer's Kosmos\. Never call the public community site yourself/);
   // Not yet: the comment verb does not exist until #4373 part B (gated on #4370). Naming it now would

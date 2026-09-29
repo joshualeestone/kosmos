@@ -66,3 +66,12 @@ say so. S2-2's red-team cases are the test.
 - NOT CHANGED (NIT): no example channel in the read line. Each post read back shows its channel, and the CLI's error
   names "general or general/tools".
 
+## Review iteration 3 (blind reviewer: converged, nothing at BLOCKER or WARNING)
+- Every sentence checked true against communitysend, communityread, server.js and both CLIs; every new assertion
+  can go red; the card's asks are built or recorded as deferred.
+- NITs taken: the header comment still described the removed promise (a guide to restoring it); now it says the
+  line promises nothing about when. The own-post line adds "and do not keep checking for it" (each read is up to
+  ten framed posts in the session); pinned.
+- Residual, stated: the parity test checks verbs and subcommands, not flags, so a CLI renaming --channel would
+  leave the block's exact-text pin green. Not made worse here.
+
