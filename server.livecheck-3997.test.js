@@ -113,8 +113,11 @@ test('#3997 round 14: a ChatGPT check that finishes DURING the same read is "che
   grokAccounts.setFetcher(async () => { await new Promise((r) => setTimeout(r, 120)); return { status: 200 }; });
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
   const found = (await accounts()).find((a) => a.provider === 'openai');
-  assert.equal(found.connection.state, 'unknown', 'this read already showed the answer: the arm does not exercise the race');
-  assert.equal(found.connection.liveCheckPending, true, 'an answer that arrived during the read gets no follow-up read');
+  /* #4538: the answer that arrived during the read is recorded before the row is drawn, so the row's state now follows
+     it (connected, with its green badge) instead of contradicting it. liveCheckPending is only set on a row the list
+     read as not yet answered, so it is what proves this arm still exercises the race. */
+  assert.equal(found.connection.liveCheckPending, true, 'this read already showed the answer: the arm does not exercise the race (or it gets no follow-up read)');
+  assert.equal(found.connection.state, 'connected', 'the row contradicts the answer recorded during the read: ' + JSON.stringify(found.connection));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal((await accounts()).find((a) => a.provider === 'openai').connection.state, 'connected');
 });
