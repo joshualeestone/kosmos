@@ -6525,6 +6525,9 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
+        // #4560: a kind of file the reader here cannot take (a PDF with Grok, say) is said before the consent.
+        const cannot = orgchartfile.readerProblem(name);
+        if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }

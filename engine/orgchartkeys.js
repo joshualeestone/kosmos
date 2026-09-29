@@ -1,0 +1,243 @@
+'use strict';
+/**
+ * #4560: read an org chart picture or PDF with a KEY-connected OpenAI, Gemini or Grok, over plain HTTP.
+ *
+ * #4559 reads one with Claude Code (every tool switched off by flags). A key is a direct API call, so no tools is
+ * true by construction: no request here ever carries a `tools`, `functions` or `tool_choice` field, and a test
+ * reads the bytes sent to prove it. The rest of #4559's rules hold: the person is asked first (naming this
+ * provider and account), the file goes inline, the answer is JSON to a schema and is validated by
+ * orgchartfile.fromModel exactly as Claude's is.
+ *
+ * Every provider fact below is from its own current docs (2026-09-29; sources on #4560's plan and in the PR),
+ * not from memory: the endpoint, the model id, the inline file shape, the JSON-schema field, where the answer is,
+ * and `store`. All three providers STORE a request by default (OpenAI and xAI 30 days, Google 55 days paid), and
+ * an org chart names real employees, so every request says `store: false`.
+ *
+ * 🔑 THE KEY. Read from its account folder only when a read is sent (readApiKey), sent only in a header, and never
+ * put in a URL, argv, a log line, an error or anything returned. Errors are built from the status code and the
+ * provider's own error code field, never from a raw body or the request.
+ */
+
+const MAX_ANSWER_BYTES = 4 << 20;   // a real answer is a few kilobytes
+const TIMEOUT_MS = 120 * 1000;      // as the Claude read (orgchartfile MODEL_TIMEOUT_MS)
+
+/* The strict form of orgchartfile's SCHEMA: strict JSON-schema modes need every property required and no extra
+   ones, so `why` is required and may be null. fromModel reads both forms the same way. */
+const STRICT_SCHEMA = {
+  type: 'object',
+  properties: {
+    people: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          person: { type: 'string' },
+          title: { type: 'string' },
+          reportsTo: { type: ['string', 'null'] },
+          sure: { type: 'boolean' },
+          why: { type: ['string', 'null'] },
+        },
+        required: ['person', 'title', 'reportsTo', 'sure', 'why'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['people'],
+  additionalProperties: false,
+};
+
+const b64 = (buf) => Buffer.from(buf).toString('base64');
+const dataUrl = (media, buf) => 'data:' + media + ';base64,' + b64(buf);
+
+/* The Responses API answer (OpenAI and xAI): the `output` item of type "message" (a reasoning item may come
+   first), its output_text; a `refusal` content item is a refusal. */
+function responsesAnswer(body) {
+  const out = Array.isArray(body && body.output) ? body.output : [];
+  const msg = out.find((o) => o && o.type === 'message');
+  const parts = msg && Array.isArray(msg.content) ? msg.content : [];
+  if (parts.some((c) => c && c.type === 'refusal')) return { refused: true };
+  const text = parts.filter((c) => c && c.type === 'output_text' && typeof c.text === 'string').map((c) => c.text).join('');
+  return { text };
+}
+
+/* The providers, in the order Settings, AI Models lists them (after Claude, which orgchartfile tries first). */
+const PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    model: 'gpt-6-astra',
+    url: () => process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL || 'https://api.openai.com/v1/responses',
+    headers: (key) => ({ authorization: 'Bearer ' + key }),
+    // OpenAI's vision guide: PNG, JPEG, WEBP and non-animated GIF; PDFs through input_file.
+    reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'image/gif': 1, 'application/pdf': 1 },
+    body(prompt, name, media, buf) {
+      const file = media === 'application/pdf'
+        ? { type: 'input_file', filename: 'chart.pdf', file_data: dataUrl(media, buf) }
+        : { type: 'input_image', image_url: dataUrl(media, buf), detail: 'high' };
+      return {
+        model: this.model,
+        store: false,
+        input: [{ role: 'user', content: [file, { type: 'input_text', text: prompt }] }],
+        text: { format: { type: 'json_schema', name: 'org_chart', schema: STRICT_SCHEMA, strict: true } },
+      };
+    },
+    answer: responsesAnswer,
+  },
+  google: {
+    name: 'Google Gemini',
+    model: 'gemini-3.8-flash',
+    url: () => process.env.AGENT_WORKFORCE_ORGCHART_GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/interactions',
+    // In a header, never the ?key= query string the key check uses: a URL can end up in a log.
+    headers: (key) => ({ 'x-goog-api-key': key }),
+    // Google's image guide lists PNG, JPEG, WEBP, HEIC and HEIF (not GIF, which its API spec lists: not relied on).
+    reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'application/pdf': 1 },
+    body(prompt, name, media, buf) {
+      return {
+        model: this.model,
+        store: false,
+        input: [
+          { type: media === 'application/pdf' ? 'document' : 'image', data: b64(buf), mime_type: media },
+          { type: 'text', text: prompt },
+        ],
+        response_format: { type: 'text', mime_type: 'application/json', schema: STRICT_SCHEMA },
+      };
+    },
+    // The Interactions answer: the `steps` item of type "model_output" (a thought step may come first), its text.
+    answer(body) {
+      const steps = Array.isArray(body && body.steps) ? body.steps : [];
+      const out = steps.find((s) => s && s.type === 'model_output');
+      const parts = out && Array.isArray(out.content) ? out.content : [];
+      return { text: parts.filter((c) => c && c.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('') };
+    },
+  },
+  xai: {
+    name: 'xAI Grok',
+    model: 'grok-4.7',
+    url: () => process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL || 'https://api.x.ai/v1/responses',
+    headers: (key) => ({ authorization: 'Bearer ' + key }),
+    // xAI's docs: image input is jpg/jpeg or png; a PDF only by public URL or an uploaded file, and attaching one
+    // turns on a document-search tool, so it is not read here.
+    reads: { 'image/png': 1, 'image/jpeg': 1 },
+    body(prompt, name, media, buf) {
+      return {
+        model: this.model,
+        store: false,
+        input: [{ role: 'user', content: [{ type: 'input_image', image_url: dataUrl(media, buf), detail: 'high' }, { type: 'input_text', text: prompt }] }],
+        text: { format: { type: 'json_schema', name: 'org_chart', schema: STRICT_SCHEMA, strict: true } },
+      };
+    },
+    answer: responsesAnswer,
+  },
+};
+const ORDER = ['openai', 'google', 'xai'];
+
+/* What a provider cannot read, said as what to do instead. */
+function cannotRead(provider, media) {
+  const p = PROVIDERS[provider];
+  if (!p || p.reads[media]) return null;
+  if (media === 'application/pdf') return p.name + ' cannot read a PDF sent this way. Export the chart as a PNG or JPG picture, or use a CSV or Excel export.';
+  return p.name + ' cannot read this kind of picture. Save it as a PNG or JPG, or use a CSV or Excel export.';
+}
+
+/* The key-connected accounts, in Settings order, default first. Reads NO key: the rows carry authMode only. */
+function accountsFrom(mods) {
+  const out = [];
+  for (const provider of ORDER) {
+    let rows = [];
+    try { rows = mods[provider].list() || []; } catch { rows = []; }
+    rows = rows.filter((r) => r && r.authMode === 'apikey').sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
+    for (const r of rows) out.push({ provider, dir: r.dir, account: r.name || r.label || null });
+  }
+  return out;
+}
+const defaultAccounts = () => accountsFrom({ openai: require('./openaiaccounts'), google: require('./geminiaccounts'), xai: require('./grokaccounts') });
+let accountsFn = defaultAccounts;
+/** Tests only: replace the account list ([{provider, dir, account}]); null restores the real one. */
+function setAccounts(fn) { accountsFn = typeof fn === 'function' ? fn : defaultAccounts; }
+
+/* The key reader this computer would use, or null. */
+function chooseReader() {
+  let list = [];
+  try { list = accountsFn() || []; } catch { list = []; }
+  const r = list.find((a) => a && PROVIDERS[a.provider]);
+  return r ? { provider: r.provider, dir: r.dir, account: r.account || null } : null;
+}
+
+/* The consent line's words for a reader: the provider, and the account when it has a name. */
+function label(reader) {
+  const p = reader && PROVIDERS[reader.provider];
+  if (!p) return null;
+  return reader.account ? p.name + ' (' + reader.account + ')' : p.name;
+}
+
+function defaultKeyFor(reader) {
+  const mods = { openai: './openaiaccounts', google: './geminiaccounts', xai: './grokaccounts' };
+  try { return require(mods[reader.provider]).readApiKey(reader.dir); } catch { return null; }
+}
+let keyFor = defaultKeyFor;
+/** Tests only: replace the key lookup (reader -> key); null restores the real one. */
+function setKeyFor(fn) { keyFor = typeof fn === 'function' ? fn : defaultKeyFor; }
+
+/* A refusal as a sentence the person can act on. Built from the status and the provider's error code only. */
+function refusal(p, status, body) {
+  const err = body && typeof body === 'object' ? (body.error || body) : {};
+  const code = String((err && (err.code || err.status || err.type)) || '').toLowerCase().slice(0, 60);
+  if (status === 401 || /invalid_api_key|unauthenticated|api_key_invalid/.test(code)) {
+    return p.name + ' did not accept this key. Check it in Settings, AI Models, or use a CSV or Excel export.';
+  }
+  if (status === 403 || status === 404 || /model_not_found|permission|not_found/.test(code)) {
+    return 'This ' + p.name + ' key cannot use ' + p.model + ', the model that reads pictures and PDFs. '
+      + 'Check the key\'s access with ' + p.name + ', or use a CSV or Excel export.';
+  }
+  if (/image|unsupported|invalid_base64/.test(code)) return p.name + ' could not read this file. Try a PNG or JPG picture, or a CSV or Excel export.';
+  if (status === 429) return p.name + ' is busy or this key has reached its limit. Try again in a minute, or use a CSV or Excel export.';
+  return p.name + ' could not read the chart (' + (status || 'no answer') + (code ? ', ' + code.replace(/[^a-z0-9_.-]/g, '') : '') + '). Try again, or use a CSV or Excel export.';
+}
+
+/**
+ * Read one file with a key reader. Returns { ok: true, structured } or { ok: false, because }, like the Claude
+ * runner. `signal` aborts the request (the person stopped the read or left the page).
+ */
+async function read(reader, prompt, name, media, buf, signal) {
+  const p = reader && PROVIDERS[reader.provider];
+  if (!p) return { ok: false, because: 'no provider can read this file' };
+  const cannot = cannotRead(reader.provider, media);
+  if (cannot) return { ok: false, because: cannot };
+  const key = keyFor(reader);
+  if (!key) return { ok: false, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
+  const ctl = new AbortController();
+  const stop = () => ctl.abort();
+  if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(p.url(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...p.headers(key) },
+      body: JSON.stringify(p.body(prompt, name, media, buf)),
+      signal: ctl.signal,
+    });
+  } catch {
+    // The message of a network error can carry the URL; nothing of it is returned.
+    return { ok: false, because: signal && signal.aborted ? 'the read was stopped' : (ctl.signal.aborted ? 'reading the file took too long' : 'we could not reach ' + p.name) };
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', stop);
+  }
+  let body = null;
+  try {
+    const raw = await res.text();
+    if (raw.length > MAX_ANSWER_BYTES) return { ok: false, because: p.name + '\'s answer was too large to read' };
+    body = JSON.parse(raw);
+  } catch { body = null; }
+  if (!res.ok) return { ok: false, because: refusal(p, res.status, body) };
+  if (!body || (body.status && body.status !== 'completed')) {
+    return { ok: false, because: p.name + ' did not finish reading the chart' + (body && body.status ? ' (' + String(body.status).replace(/[^a-z_]/g, '') + ')' : '') + '. Try a clearer picture, or a CSV or Excel export.' };
+  }
+  const got = p.answer(body);
+  if (got.refused) return { ok: false, because: p.name + ' declined to read this chart. Try a CSV or Excel export.' };
+  let structured;
+  try { structured = JSON.parse(got.text); } catch { return { ok: false, because: p.name + ' did not answer with the list we asked for. Try again, or use a CSV or Excel export.' }; }
+  return { ok: true, structured };
+}
+
+module.exports = { accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

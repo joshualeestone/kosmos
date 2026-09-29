@@ -443,7 +443,7 @@ const MODEL_TYPES = {
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
-const NO_MODEL = 'Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.';
+const NO_MODEL = 'Reading a picture or PDF needs Claude, or an OpenAI, Gemini or Grok key, connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 const MODEL_TIMEOUT_MS = 120000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -574,6 +574,8 @@ function readAccount() {
 }
 /* Who the consent names: the provider, and the account when its address is known. */
 function providerLabel() {
+  const r = currentReader();
+  if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
   return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
@@ -585,11 +587,34 @@ function providerLabel() {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-let availability = claudeHere;
+/* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
+   KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+function currentReader() {
+  if (claudeHere()) return { kind: 'claude' };
+  let r = null;
+  try { r = require('./orgchartkeys').chooseReader(); } catch { r = null; }
+  return r ? { kind: 'key', ...r } : null;
+}
+const readerHere = () => Boolean(currentReader());
+let availability = readerHere;
 function modelAvailable() { return availability(); }
-function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : claudeHere; }
-let modelRunner = defaultModelRunner;
-function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : defaultModelRunner; }
+function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : readerHere; }
+/* What the reader here cannot read (Grok and a PDF, say), as what to do instead, or null. Asked before the consent,
+   so the person is not asked to send a file that could only be refused. */
+function readerProblem(name) {
+  const r = currentReader();
+  if (!r || r.kind !== 'key' || !forModel(name)) return null;
+  return require('./orgchartkeys').cannotRead(r.provider, MODEL_TYPES[extOf(name)].media);
+}
+/* The runner: a key reader calls its provider's API directly; otherwise the Claude read (#4559). A test runner
+   set with setModelRunner gets (line, signal, file) and replaces both. */
+function dispatchRunner(line, signal, file) {
+  const r = currentReader();
+  if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);
+  return defaultModelRunner(line, signal);
+}
+let modelRunner = dispatchRunner;
+function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : dispatchRunner; }
 
 /**
  * The model's answer into the preview shape, trusting nothing: plain one-line text with capped
@@ -639,11 +664,11 @@ async function readWithModel(name, bytes, opts = {}) {
   if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
   reading = true;
   let got;
-  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal); } catch { got = { ok: false, because: 'the read failed' }; }
+  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf }); } catch { got = { ok: false, because: 'the read failed' }; }
   finally { reading = false; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }
 
 module.exports = {
-  NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

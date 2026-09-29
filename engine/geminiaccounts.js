@@ -91,6 +91,12 @@ function readKey(dir) {
   }
   return { kind: 'ok', key: String(raw).trim() };
 }
+/* #4560: the stored API key itself, for a direct API call (the org chart reader), or null. The key is never
+   logged or returned anywhere else; the caller sends it only in a request header. */
+function readApiKey(dir) {
+  const got = readKey(dir);
+  return got.kind === 'ok' && got.key ? got.key : null;
+}
 
 function identityOf(dir) {
   const got = readKey(dir);
@@ -381,6 +387,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
+  readApiKey,
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
   setFetcher, askModels, validateLive, checkLive, listLive,

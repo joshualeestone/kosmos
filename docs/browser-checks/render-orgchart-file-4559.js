@@ -15,7 +15,7 @@
  *             - Read it sends the file again with consent=1; an unsure line shows "Check this: <why>" and
  *               Create stays disabled until Looks right (or a new manager is chosen);
  *             - making a reporting loop by hand names it and disables Create again.
- *   NO CLAUDE the "needs a Claude connection" answer is shown and nothing else happens.
+ *   NO READER the "needs Claude, or an OpenAI, Gemini or Grok key" answer is shown and nothing else happens.
  *   ORPHAN    a manager the team create refuses: the person under them is put under you (PUT profile
  *             reportsTo '') and the result says so.
  * Light and dark screenshots of the picture preview with its Check this line (SHOT_DIR).
@@ -335,7 +335,7 @@ async function run() {
     } else check('LEAVE: the panel offers a file', false);
     await pl.close();
 
-    // NO CLAUDE
+    // NO READER (no Claude and no key-connected provider)
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy
     await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: [NO_MODEL] } }));
@@ -344,9 +344,31 @@ async function run() {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await p4.waitForTimeout(500);
       const u = await readPreview(p4);
-      check('NO CLAUDE: says a Claude connection is needed and offers CSV, Excel or typing; no consent box, no preview', /needs a Claude connection right now/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
-    } else check('NO CLAUDE: the panel offers a file', false);
+      check('NO READER: says Claude or an OpenAI, Gemini or Grok key is needed and offers CSV, Excel or typing; no consent box, no preview', /needs Claude, or an OpenAI, Gemini or Grok key/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
+    } else check('NO READER: the panel offers a file', false);
     await p4.close();
+
+    // KEY PROVIDER (#4560): with a key-connected provider instead of Claude, the consent names that provider and
+    // account, and a kind it cannot read (Grok and a PDF) is said at once, with no consent box.
+    const pk = await page();
+    await pk.route('**/api/orgchart/read*', (r) => {
+      const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
+      if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: ['xAI Grok cannot read a PDF sent this way. Export the chart as a PNG or JPG picture, or use a CSV or Excel export.'] } });
+      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Google Gemini (work)' } });
+    });
+    await openPanel(pk);
+    if (await pk.$('#orgchart-file-btn')) {
+      await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});
+      const k1 = await readPreview(pk);
+      await pk.click('#orgchart-consent-no').catch(() => {});
+      await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
+      await pk.waitForTimeout(500);
+      const k2 = await readPreview(pk);
+      check('KEY PROVIDER: the consent names the key provider and account; a kind it cannot read is said with no consent box',
+        /Google Gemini \(work\)/.test(k1.consent) && /cannot read a PDF sent this way/.test(k2.msg) && !k2.consent && !k2.shown, JSON.stringify([k1.consent, k2.msg, k2.consent]));
+    } else check('KEY PROVIDER: the panel offers a file', false);
+    await pk.close();
 
     // ORPHAN: the manager is refused, the person under them is put under you
     const p5 = await page();

@@ -124,6 +124,13 @@ function readAuthFile(dir) {
   if (!parsed || typeof parsed !== 'object') return { kind: 'unreadable' };
   return { kind: 'ok', data: parsed };
 }
+/* #4560: the stored API key of a KEY account (auth.json's OPENAI_API_KEY), for a direct API call (the org
+   chart reader), or null for a ChatGPT sign-in or anything unreadable. Never logged or returned elsewhere. */
+function readApiKey(dir) {
+  const got = readAuthFile(dir);
+  const key = got.kind === 'ok' && typeof got.data.OPENAI_API_KEY === 'string' ? got.data.OPENAI_API_KEY.trim() : '';
+  return key || null;
+}
 
 /** Pure: turns an already-parsed auth.json object into an identity, or null
     if its shape is not one this module recognises. No I/O -- callers that
@@ -1820,6 +1827,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
+  readApiKey,
   list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,

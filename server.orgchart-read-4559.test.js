@@ -183,7 +183,8 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.json.unavailable, true);
-  assert.match(r.json.problems[0], /needs a Claude connection right now\. A CSV or Excel export works with any provider/);
+  assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
+  assert.match(r.json.problems[0], /OpenAI, Gemini or Grok key.*A CSV or Excel export works with any provider/);
   assert.equal(sent.length, 0);
 });
 
@@ -248,4 +249,20 @@ test('#4559: a consented send with no file is refused before it reaches the mode
   const r = await send('chart.png', Buffer.alloc(0), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.status, 400, JSON.stringify(r.json));
   assert.equal(sent.length, 0, 'an empty file reached the model');
+});
+
+test('#4560: with no Claude but a key-connected provider, the consent names that provider, and a kind it cannot read is refused before the consent', async () => {
+  const keys = require('./engine/orgchartkeys');
+  orgchartfile.setModelAvailable(null);   // the real check: this sandbox has no Claude account
+  keys.setAccounts(() => [{ provider: 'xai', dir: '/nowhere', account: 'work' }]);
+  try {
+    const png = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    assert.deepEqual(png.json, { needsConsent: true, provider: 'xAI Grok (work)' });
+    const pdf = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });
+    assert.equal(pdf.json.unavailable, true, JSON.stringify(pdf.json));
+    assert.match(pdf.json.problems[0], /xAI Grok cannot read a PDF sent this way\. Export the chart as a PNG or JPG picture/);
+    keys.setAccounts(() => []);
+    const none = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    assert.deepEqual(none.json, { unavailable: true, problems: [orgchartfile.NO_MODEL] }, 'CONTROL: with no key account and no Claude, nothing reads it');
+  } finally { keys.setAccounts(null); }
 });
