@@ -4,8 +4,9 @@
  * Both native apps are shells around the board's web UI, so "does it fit on a
  * phone" is a question about web/index.html at phone sizes. This boots a
  * THROWAWAY board with seeded sample data, drives it to named screens, and
- * shoots every screen at four phone sizes, in light and dark, in Chromium and
- * WebKit. It flags horizontal overflow on the way.
+ * shoots every screen at four phone sizes by default (--sizes desktop adds a
+ * computer screen), in light and dark, in Chromium and WebKit. It flags
+ * horizontal overflow on the way.
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
@@ -45,7 +46,7 @@
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
  * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
- * `go` starts on a freshly loaded board at the phone size and theme (data has
+ * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
  * (they are file names). Sample data: 5 agents (working, idle, needs you,
@@ -669,6 +670,7 @@ async function run() {
 
   const board = await startBoard();
   const rows = [];
+  const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
   try {
     const ctxData = await seed(board.base, board.roots);
@@ -680,7 +682,11 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
-              if (s.desktop && sc.phoneOnly) { console.log(`skip  ${sc.name}--${sz}: a phone-only screen`); continue; }
+              if (s.desktop && sc.phoneOnly) {
+                skipped.push({ screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, skipped: 'phone-only screen' });
+                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
+                continue;
+              }
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
@@ -707,6 +713,7 @@ async function run() {
               const file = `${sc.name}--${sz}--${theme}--${en}.png`;
               let note = '';
               let fit = { taps: [], fields: [] };
+              let audited = false;   // true only once the phone audits have actually run on this screen
               try {
                 await page.goto(board.base + '/', { waitUntil: 'load' });
                 await page.waitForTimeout(900);
@@ -738,7 +745,7 @@ async function run() {
                   note = 'OVERFLOW ' + ov.containers.map((c) => `${c.sel} ${c.scrollWidth}>${c.clientWidth}`).join(', ')
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
-                if (!s.desktop) fit = await fitOf(page);
+                if (!s.desktop) { fit = await fitOf(page); audited = true; }
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
@@ -757,7 +764,7 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited: !s.desktop });
+              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (s.desktop ? '  phone audits: n/a at desktop'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
@@ -787,12 +794,15 @@ async function run() {
   const md = ['# Mobile screenshots', '',
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.`, '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
+    `Skipped (phone-only screens at the desktop size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
-  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(rows, null, 1) + '\n');
-  console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors -> ${out}`);
+  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');
+  console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors, ${skipped.length} skipped -> ${out}`);
+  /* Nothing attempted is not a pass: every screen skipped at these sizes, or no screen matched --screens. */
+  if (!rows.length) throw new Error('no shot was taken: every requested screen was skipped at these sizes, or no screen matched --screens');
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }

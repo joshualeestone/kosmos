@@ -27,7 +27,15 @@ SANCTIONED WAY TO TAKE SCREENSHOTS FOR A PR"), and it has phone sizes only.
   (main's own mobile-shots.js). Filed as kosmos#4524, not fixed here.
 - `--sizes desktop,iphone15 --themes light,dark --engines chromium --screens home,settings`: 8 shots, 0 errors;
   the desktop dark shot shows the desktop tab layout, the phone light shot the burger layout, and the tap audit
-  reports on the phone only (home: 7) and 0 on desktop.
+  reports on the phone only (home: 7) and prints `n/a` at desktop.
 - Main's SIZES has no `desktop` (0 mentions), and parseArgs throws `unknown size` for any name not in SIZES (read from source, not run).
 - browser-checks-reason-grep, tools.mobile-shots-leak-718 and browser-checks-pr-select-4119 tests: 32/32 (no new
   FAIL lines, so the reason-grep count is unchanged).
+
+## Review round 2 (opus), fixed
+- A skipped screen is recorded: `report.md` lists every phone-only skip, `report.json` carries them as entries with
+  `skipped: "phone-only screen"`, and the summary counts them.
+- A run that takes no shot at all (every screen skipped, or no screen matched --screens) now fails with exit 2,
+  through the existing top-level FAIL line, so the reason-grep count is unchanged.
+- `audited` is true only once the phone audits actually ran; a phone row whose screen errored reads `n/a`.
+- Header, README and this plan's wording brought into line with the desktop size.
