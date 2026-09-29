@@ -310,6 +310,12 @@ test('every function a check declares is defined on the page today, so no declar
         open += (code.match(/\{/g) || []).length; close += (code.match(/\}/g) || []).length;
       }
       assert.ok(open > 0 && open === close, `${f}'s ${fn} range [${r}] is not one balanced body (${open} { against ${close} })`);
+      // A one-line range is checked by the same stripping, so also: the next line is not indented deeper (a body).
+      if (r[0] === r[1]) {
+        const lines = page.split('\n');
+        const ind = (l) => /^(\s*)/.exec(l || '')[1].length;
+        assert.ok(ind(lines[r[0]]) <= ind(lines[r[0] - 1]), `${f}'s ${fn} reads as one line but the line after it is indented deeper`);
+      }
     }
   }
   assert.ok(declared.length >= 2, `CONTROL: the walker found ${declared.length} declarations; it must see the two this card added`);
@@ -332,6 +338,9 @@ test('functionRange: a closing line may carry ; or a comment, a one-line functio
   // Balanced braces on a declaration line whose body starts on the next line are NOT a one-line function.
   const nextLine = ['function f(a = {})', '{', '  g();', '}'].join('\n');
   assert.deepEqual(sel.functionRange(nextLine, 'f'), [1, 4]);
+  // A regex literal holding a quote on the declaration line is not a one-line function either.
+  const rx = ['function f(s) { if (/\'/.test(s)) { g(\'x\'); }', '  more();', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(rx, 'f'), [1, 3]);
 });
 
 test('through select(): an unclosed declared function selects its check with its own reason, not "not on the page"', () => {

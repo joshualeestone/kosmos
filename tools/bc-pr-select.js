@@ -106,12 +106,14 @@ function functionRange(page, name) {
     if (!m) continue;
     // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
     // A regex literal is not recognised as one: a quote inside it can pair with a later one, and such a function
-    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red); so does a
-    // template literal that spans lines. A line is one function only if its braces balance AND it ends with
-    // `}` (or `};`): `function f(a = {})` with its body on the next line balances but is not one.
+    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red). A line is one
+    // function only if its braces balance, it ends with `}` (or `};`), and stripping left no quote unpaired:
+    // `function f(a = {})` with its body on the next line balances but is not one, and a regex literal holding
+    // a quote leaves one unpaired, so both fall through to the multi-line scan.
     const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
     const opens = (code.match(/\{/g) || []).length;
-    if (opens > 0 && opens === (code.match(/\}/g) || []).length && /\}\s*;?\s*$/.test(code)) return [i + 1, i + 1];
+    if (opens > 0 && opens === (code.match(/\}/g) || []).length && /\}\s*;?\s*$/.test(code)
+      && !/['"`]/.test(code.replace(/""/g, ''))) return [i + 1, i + 1];
     const close = new RegExp(`^${m[1]}\\}\\s*;?\\s*(//.*)?$`);
     // Another declaration at this indentation first means this one's closer was missed: stop there, rather
     // than run on to that function's own `}` and claim its body too.
@@ -134,13 +136,14 @@ function touchedLines(diff) {
   let next = null;
   let inPage = true;   // a diff with no file headers (a hand-built one) is taken as the page's
   let afterMinus = false;
+  let inHunk = false;   // file headers are read only between hunks, never from a hunk's own +/- lines
   for (const l of diff.split('\n')) {
-    if (l.startsWith('diff --git ')) { next = null; inPage = true; afterMinus = false; continue; }
-    if (afterMinus && l.startsWith('+++ ')) { inPage = /^(b\/)?web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
-    afterMinus = next === null && l.startsWith('--- ');
+    if (l.startsWith('diff --git ')) { next = null; inPage = true; afterMinus = false; inHunk = false; continue; }
+    if (!inHunk && afterMinus && l.startsWith('+++ ')) { inPage = /^(b\/)?web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
+    afterMinus = !inHunk && l.startsWith('--- ');
     if (afterMinus) continue;
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
-    if (h) { next = inPage ? Number(h[1]) + (h[2] === '0' ? 1 : 0) : null; continue; }
+    if (h) { inHunk = true; next = inPage ? Number(h[1]) + (h[2] === '0' ? 1 : 0) : null; continue; }
     if (next === null) continue;
     if (l[0] === '+') { out.push(next); next += 1; } else if (l[0] === '-') out.push(next); else if (l[0] === ' ') next += 1;
   }
@@ -354,8 +357,11 @@ function main(argv) {
       .map((f) => (/^[\w-]+\.js$/.test(f) ? f.slice(0, -3) : f));
     // The diff keeps its header, so bc-surface-map.sh file-scopes it as the gate does.
     // The head's own page: a `function` range is read against the lines this diff numbers.
-    let page = '';   // a head without the page (deleted or moved) is an empty page: every declaring check selects
-    try { page = git(['show', `${head}:web/index.html`]); } catch { page = ''; }
+    // A head without the page (the PR deleted or moved it) is an empty page, so every declaring check selects.
+    // Only that case: any other git failure still exits 2 below, which fails the job loudly.
+    let hasPage = true;
+    try { execFileSync('git', ['cat-file', '-e', `${head}:web/index.html`], { cwd: REPO, stdio: 'ignore' }); } catch { hasPage = false; }
+    const page = hasPage ? git(['show', `${head}:web/index.html`]) : '';
     why = select(diff, changedChecks, page);
   } catch (e) {
     process.stderr.write(`bc-pr-select: could not select for ${base}...${head}: ${e.message}\n`);

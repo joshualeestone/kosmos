@@ -17,7 +17,7 @@ follow-up PRs). Iteration 1 of that loop (a blind reviewer over 7b8b45371 and 01
    it does NOT fail when a range runs on over code that is itself balanced (over-selection, the safe direction).
    Found by iteration 2: the first version of that assertion reused the finder's own stop rule and could not fail.
 3. touchedLines counted every file's hunks (and, once it filtered, needed git's default a/ b/ prefixes; main() now
-   pins them and the filter accepts any path ending in web/index.html) and placed a -U0 pure deletion one line early. Fixed: only the
+   pins them and the filter accepts web/index.html with or without the b/ prefix) and placed a -U0 pure deletion one line early. Fixed: only the
    page's hunks count, and a `+N,0` hunk sits after head line N. main() diffs only web/index.html with
    default context, so production was unaffected; select() and touchedLines are exported.
 4. README: the declaration must fit on one line (declaredFunctions reads the first matching line).
