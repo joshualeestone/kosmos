@@ -27,6 +27,8 @@
  *      role menu with no Project Manager picked (ROLES_GEN);
  *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
  *   K11 Back and Team again keep the team the person had picked.
+ *   K12 a slow first roles load while the person goes Team, Back, Single: Single ends fully built (the menu, the
+ *       define-your-own option, no "Loading"), and Team reached the same way ends with the org chart offered.
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -309,6 +311,26 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForTimeout(400);
       const k9c = await page.evaluate(() => document.getElementById('team-orgchart-opt').hidden);
       ok(t + ' K9 the org chart is offered only when the board serves a define-your-own role', k9 === true && k9c === false, JSON.stringify([k9, k9c]));
+
+      // K12: one slow roles load shared by every path choice made while it is out (the review's race).
+      ROLES_DELAY_ONCE = 1500;
+      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(150);
+      await page.click('#create-path-back');
+      await page.waitForTimeout(150);
+      await page.click('#cstep-kind [data-path="single"]');
+      await page.waitForFunction(() => document.getElementById('roles-msg').textContent === '', null, { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(200);
+      const k12 = await page.evaluate(() => ({ list: !document.getElementById('pick-list').hidden, own: !document.getElementById('pick-own').hidden,
+        pm: (document.querySelector('#pick-pm .p2n') || {}).textContent || '', msg: document.getElementById('roles-msg').textContent }));
+      ok(t + ' K12 a slow first roles load across Team, Back, Single ends with Single fully built', k12.list && k12.own && k12.pm.trim() !== '' && k12.msg === '', JSON.stringify(k12));
+      ROLES_DELAY_ONCE = 1500;
+      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(2200);
+      const k12b = await page.evaluate(() => ({ opt: document.getElementById('team-orgchart-opt').hidden, note: document.getElementById('team-orgchart-msg').hidden }));
+      ok(t + ' K12 and Team reached during that load ends with the org chart offered', k12b.opt === false && k12b.note === true, JSON.stringify(k12b));
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;

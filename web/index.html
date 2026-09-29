@@ -46293,7 +46293,9 @@ function chooseCreatePath(path) {
   swarmCreatePaint();
   if (path === 'team') {
     cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus();
-    if (!(ROLES && ROLES.length)) loadRoles('pm');   // the org chart needs the roles' own entry; a failed load is retried here
+    // The org chart needs the roles' own entry: load them if there are none (a failed load is retried here),
+    // otherwise repaint the Team options from what is there.
+    if (!(ROLES && ROLES.length)) loadRoles('pm'); else paintPathOptions();
     return;
   }
   document.getElementById('cstep-role-title').textContent = path === 'swarm' ? 'What should this swarm do?' : 'What should this agent do?';
@@ -46418,47 +46420,56 @@ function roleByKey(key) {
 
 let ROLES_FAILED = false;   // #4556 review: the last roles load failed (the Team screen says so)
 let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
+/* #4556 review: ONE /api/roles request at a time, shared by every caller. openCreate and a path choice (Team,
+   then Back and Single) used to send one each, and whichever answered last wrote the shared lists; a stale one
+   could leave the screen half-built. Now the request writes ROLES / OWN_ROLE / CREATE_MODELS once, and only the
+   newest caller paints (loadRoles below). */
+let ROLES_FETCH = null;
+let ROLES_BUILT = false;   // buildPicker ran for the current ROLES
+function fetchRoles() {
+  if (!ROLES_FETCH) {
+    ROLES_FETCH = (async () => {
+      const res = await fetch('/api/roles', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const roles = (data && data.roles) || [];
+      if (!roles.length) throw new Error('none came back');
+      ROLES = roles;
+      // Same payload, so the board and this form can never hold different titles.
+      learnRoleTitles(ROLES);
+      CREATE_MODELS = (data && data.models) || [];
+      OWN_ROLE = (data && data.own) || null;
+      ROLES_BUILT = false;
+      ROLES_FAILED = false;
+    })().finally(() => { ROLES_FETCH = null; });
+  }
+  return ROLES_FETCH;
+}
 async function loadRoles(initialMode) {
   const gen = ++ROLES_GEN;
   // #1652 / #4556: the mode the role screen opens on. The callers: openCreate ('pm', or 'import' for the first-run
   // "look in my Documents/Downloads" link, so the panel opens straight on import and populateFoundImports runs the
-  // on-demand scan), chooseCreatePath ('pm' for Single, 'list' for Swarm), and the ?tab=create boot (no mode, so
-  // 'pm'). Any other value is 'pm'. Threaded through here rather than a separate pickMode
+  // on-demand scan), chooseCreatePath ('pm' for Single and Team, 'list' for Swarm), and the ?tab=create boot (no
+  // mode, so 'pm'). Any other value is 'pm'. Threaded through here rather than a separate pickMode
   // after openCreate, because loadRoles' async pickMode default would otherwise
   // override that later call and land the panel back on 'pm'.
   const mode = initialMode === 'import' || initialMode === 'list' ? initialMode : 'pm';
   const msg = document.getElementById('roles-msg');
-  // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
-  // Returning early on the second visit left the picker rendered from last
-  // time with its old choice still marked, while `openCreate` had just
-  // cleared it -- a screen showing a selection the page did not have.
-  if (ROLES && ROLES.length) { updateRecPill(); paintPathOptions(); pickMode(mode); return; }
-  msg.textContent = 'Loading…';
-  ROLES_FAILED = false;
-  try {
-    const res = await fetch('/api/roles', { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    const data = await res.json();
-    ROLES = (data && data.roles) || [];
-    // Same payload, so the board and this form can never hold different titles.
-    learnRoleTitles(ROLES);
-    CREATE_MODELS = (data && data.models) || [];
-    OWN_ROLE = (data && data.own) || null;
-    /* #591: the working rules, shown under the instructions box. Absent
-       from an older engine, the fold hides rather than showing an empty box. */
-    if (!ROLES.length) throw new Error('none came back');
-    if (gen !== ROLES_GEN) return;   // #4556: a newer load owns the screen and paints it when it answers
+  const paint = () => {
     msg.textContent = '';
-    buildPicker();
-    pickMode(mode);
+    if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; }
+    // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
+    // Returning early on the second visit left the picker rendered from last
+    // time with its old choice still marked, while `openCreate` had just
+    // cleared it -- a screen showing a selection the page did not have.
+    updateRecPill(); paintPathOptions(); pickMode(mode);
+  };
+  if (ROLES && ROLES.length) { paint(); return; }
+  msg.textContent = 'Loading…';
+  try {
+    await fetchRoles();
   } catch (err) {
-    if (gen !== ROLES_GEN) return;   // #4556: a newer load owns the screen; a stale failure must not empty it
-    if (ROLES && ROLES.length) {   // an older load filled the list; paint from it rather than empty it
-      msg.textContent = '';
-      buildPicker();
-      pickMode(mode);
-      return;
-    }
+    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints the same answer
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
@@ -46477,7 +46488,10 @@ async function loadRoles(initialMode) {
     // escaping first renders an `&` in the error as a literal `&amp;`.
     msg.textContent = 'We could not read the list of roles, so there is nothing safe to choose from. (' + err.message + ')';
     document.getElementById('role-next').disabled = true;
+    return;
   }
+  if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints it
+  paint();
 }
 
 /**
@@ -47705,7 +47719,7 @@ function openCreate(initialMode) {
   // loadRoles' async pickMode so it is not reset to 'pm'. #4556: every other caller starts on the three-way
   // choice; the roles still load now, so Single and Swarm open at once, and the chosen path re-applies its own
   // default (chooseCreatePath).
-  loadRoles(CREATE_PATH ? 'import' : 'pm');
+  loadRoles(initialMode === 'import' ? 'import' : 'pm');
   /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
      is deliberately NOT reset on open: it carries the person's choice for the session, and
      the one-click found-agent add reads the same box. (This used to say the box was
