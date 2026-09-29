@@ -40,7 +40,7 @@ const HANDS_OFF_LINES = [
    agents with that role; Kosmos keeps no list of made-up roles. */
 const NEW_ROLE_LINES_FOR = (who) => [
   '  If no role on that list fits, write one: run `kosmos agent role-draft > role.md`,',
-  '  make it say what this agent is for and how it works, then tell ' + who,
+  '  make it say what this agent is for and how it works (its first line too), then tell ' + who,
   '  the role\'s name and what it does, and only after they say yes run',
   '  `kosmos agent create "<name>" --new-role "<role name>" --from role.md "<why>"`.',
   '  To make another agent with that role later, use the same file.',

@@ -58,7 +58,8 @@ async function postTeam(body, headers) {
   let json = null; try { json = await res.json(); } catch { json = null; }
   return { status: res.status, json };
 }
-const birthOf = (name) => create.createdLog().filter((e) => e && e.name === name).pop() || null;
+// The log records refused attempts too (outcome 'refused'), so "was it made" is a CREATED record.
+const birthOf = (name) => create.createdLog().filter((e) => e && e.name === name && e.outcome === 'created').pop() || null;
 async function asAgent(creator, members) {
   create.setClaudeProbe(LIVE);
   const tok = sendertoken.mint(creator).token;
@@ -88,6 +89,13 @@ test('#4474: an agent cannot ask for the setup guide, nor put its own text under
   assert.equal(dressed.json.outcome, 'refused', JSON.stringify(dressed.json));
   assert.match(dressed.json.refused[0].because, /role's own label and text are not replaced/);
   assert.equal(birthOf('Pam'), null);
+});
+
+test('#4474: an agent\'s blank role text is refused by create\'s own rule, and no agent is made', async () => {
+  const r = await asAgent('pmfour', [{ name: 'Nil', role: 'own', label: 'Writer', instructions: '   \n' }]);
+  assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+  assert.match(r.json.refused[0].because, /instructions (have to be words|cannot be this short)/);
+  assert.equal(birthOf('Nil'), null, 'an agent whose whole brief is its name was made');
 });
 
 test('#4474 CONTROL: the same built-in-role-with-a-label request from the operator is not vetted', async () => {

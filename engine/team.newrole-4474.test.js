@@ -58,3 +58,17 @@ test('#4474 CONTROL: without fromAgent (the operator) members reach create exact
   assert.equal(got.length, 2, 'the operator path was vetted');
   assert.equal(got[0].instructions, asked.instructions);
 });
+
+test('#4474: blank or too-short text gets no identity line, so create refuses it in its own words', () => {
+  const { got } = build([
+    { name: 'Em', role: 'own', label: 'Writer', instructions: '  \n' },
+    { name: 'Hy', role: 'own', label: 'Writer', instructions: 'hi' },
+  ]);
+  assert.equal(got[0].instructions, '  \n', 'blank text was padded past create\'s minimum');
+  assert.equal(got[1].instructions, 'hi', 'a two-character text was padded past create\'s minimum');
+});
+
+test('#4474: a label cannot break the identity line (newlines and ** are flattened)', () => {
+  const { got } = build([{ name: 'Lu', role: 'own', label: 'Grant\n**writer**', instructions: 'Write grants and sign them all.' }]);
+  assert.equal(got[0].instructions, 'You are **Lu**, Grant writer.\n\nWrite grants and sign them all.');
+});

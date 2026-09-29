@@ -134,8 +134,13 @@ function vetAgentMember(member) {
   if (typeof member.instructions !== 'string') return { member };
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
   let text = member.instructions.split('{{NAME}}').join(name);
-  if (!IDENTITY_LINE.test(text) && name && typeof member.label === 'string' && member.label.trim()) {
-    text = 'You are **' + name + '**, ' + member.label.trim() + '.\n\n' + text.replace(/^\s+/, '');
+  /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
+     it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be
+     made whose whole brief is its name. The label is flattened so it cannot break the line (a newline, or **). */
+  const label = typeof member.label === 'string' ? member.label.replace(/\*+/g, '').replace(/\s+/g, ' ').trim() : '';
+  const enough = text.trim().length >= require('./instructions').MIN_CHARS;
+  if (enough && !IDENTITY_LINE.test(text) && name && label) {
+    text = 'You are **' + name + '**, ' + label + '.\n\n' + text.replace(/^\s+/, '');
   }
   return { member: Object.assign({}, member, { instructions: text }) };
 }
