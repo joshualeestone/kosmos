@@ -286,9 +286,11 @@ test('#4478: a folder or file removed between the listing and the read is skippe
   const uses = taughtIn([listed[0], kept], tmp);
   assert.deepEqual(uses.map((u) => u.where + ':' + u.verb), ['kept.js:msg'], 'the scan loop did not skip the vanished file, or did not read the one that exists');
   assert.deepEqual(sourceFiles(path.join(tmp, 'sub'), []), [], 'a folder gone before its walk must be skipped, not throw');
-  /* Not every error is "gone": reading a folder as a file is EISDIR, and that still fails. */
-  assert.throws(() => readIfThere(tmp), (e) => e.code === 'EISDIR');
-  assert.throws(() => sourceFiles(kept, []), (e) => e.code === 'ENOTDIR');   // and the walk: a file walked as a folder still fails
+  /* Not every error is "gone": reading a folder as a file (EISDIR here) and walking a file as a folder (ENOTDIR)
+     still fail. Asserted as "any code but ENOENT", not the exact code: this file also runs on Windows (review
+     round 4), where the code for the same mistake has not been measured. */
+  assert.throws(() => readIfThere(tmp), (e) => Boolean(e && e.code && e.code !== 'ENOENT'));
+  assert.throws(() => sourceFiles(kept, []), (e) => Boolean(e && e.code && e.code !== 'ENOENT'));
 });
 
 test('the texts agents are actually given name only verbs the Windows command has: no person-only verb, no missing subcommand', () => {

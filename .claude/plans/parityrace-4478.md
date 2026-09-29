@@ -42,3 +42,8 @@ That skipping a vanished file can never hide a real teaching. It can only be ski
 - **NIT** isDirectory() is a race-free dirent read. Noted, no change.
 - **NIT** Three copies of the ENOENT guard. KEPT: each test file stays self-contained, and there is no shared test-support helper for it yet.
 - Confirmed: every list and read in the three walkers is covered; each keeps a control that it read real content; no other repo-root walker reads files without skipping dot-folders (the git ls-files tests never see untracked probes).
+
+## Review round 4 (opus, blind): 0 BLOCKERs, 0 WARNINGs, 2 NITs (converged)
+- **NIT** The EISDIR and ENOTDIR asserts will run on Windows (the file matches tools.windows-*), where those codes are unmeasured. Fixed: they assert any code other than ENOENT, which still proves gone is not every error. All five mutants still red after the change.
+- **NIT** server.test.js's comment split a file name across two lines, so a rename sweep would miss it. Each name is now on its own line.
+- Confirmed: no other walker descends from the repo root; the board's freshness check uses require.cache, not a walk; the probes hold only `module.exports = N`, so they could teach no verb anyway.
