@@ -9454,6 +9454,24 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
   }
 }
+/* #4470: the project page in the new look (tab layout only; the consolidated layout keeps
+   today's grid). Two columns: one grey box on the left holding Members, Tasks and Files
+   (placeLookTasks moves Tasks in), divided by hairlines, and the conversation on the white
+   page with no box around it. No rule under the header. */
+:root[data-look="new"] body:not(.consolidated) > .apphead { border-bottom-color: transparent; }
+@media (min-width: 68rem) {
+  :root[data-look="new"] body:not(.consolidated) .pj3 { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
+}
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjsplit { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; gap: 0; }
+/* The moved Tasks aside first, then the cards: web.column-widths-1189 finds today's un-box rule
+   by its opening selector text (the card selector followed by a comma), so this rule opens with
+   the aside instead and cannot read as a second one. */
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcol,
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcard { border: 0; border-radius: 0; background: none; padding: 0; }
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > * + * { border-top: 1px solid var(--k-rule); margin-top: 22px; padding-top: 22px; }
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjmid { border: 0; background: none; padding: 0; }
+:root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
+:root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -21668,6 +21686,8 @@ function showTab(tab) {
   // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
   // DOM move and the consolidated CSS stay in lockstep.
   placeAppSettings(cons);
+  // #4470: the new look's project page puts Tasks in the left box; same chokepoint and flag.
+  placeLookTasks(cons);
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
@@ -28812,11 +28832,29 @@ document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
 function lookPaint() {
   paintSwitch('look-toggle', document.documentElement.getAttribute('data-look') === 'new');
 }
+/* #4470: the new look's project page is two columns, with Members, Tasks and Files in one
+   left box. Tasks sits after the conversation in the markup, so a CSS-only move would have a
+   keyboard reach it after the conversation while the eye reads it second: the #1017 defect.
+   So it is MOVED, like placeAppSettings: into the left box before Files when the new look is
+   on in the tab layout, and back to the end of .pj3 (where the markup puts it) otherwise,
+   including in the consolidated layout, whose grid places it by position. */
+function placeLookTasks(cons) {
+  const split = document.querySelector('#pj-one-view .pj3 > .pjsplit');
+  if (!split) return;
+  const pj3 = split.parentElement;
+  const files = split.querySelector(':scope > .pjcard-files');
+  const tasks = pj3.querySelector(':scope > aside.pjcol:not(.pjsplit)') || split.querySelector(':scope > aside.pjcol');
+  if (!tasks || !files) return;
+  const want = document.documentElement.getAttribute('data-look') === 'new' && !cons;
+  if (want && tasks.parentElement !== split) split.insertBefore(tasks, files);
+  else if (!want && tasks.parentElement !== pj3) pj3.appendChild(tasks);
+}
 function lookToggleClick() {
   const on = document.documentElement.getAttribute('data-look') !== 'new';
   if (on) document.documentElement.setAttribute('data-look', 'new');
   else document.documentElement.removeAttribute('data-look');
   try { if (on) localStorage.setItem('kosmos-look', 'new'); else localStorage.removeItem('kosmos-look'); } catch { /* the page still changes; it just will not be remembered */ }
+  placeLookTasks(document.body.classList.contains('consolidated'));
   lookPaint();
 }
 document.getElementById('look-toggle').addEventListener('click', lookToggleClick);

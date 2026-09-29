@@ -10,6 +10,9 @@
  *  - turning it on repaints at once (white page in light, black in dark) and the switch reads On,
  *  - a reload keeps it (the head script applies it before paint), and turning it off and
  *    reloading gives today's page back,
+ *  - the project page: with the look on, Tasks moves into the left box between Members and
+ *    Files (so the keyboard meets it second, where the eye does) and the page is two columns;
+ *    with it off, Tasks is back at the end of the page's markup, as today,
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -36,6 +39,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
+const projects = require('../../engine/projects');
 
 const SHOTS = process.argv[2] || null;
 const fail = [];
@@ -55,10 +59,22 @@ const PAGE_STATE = `(() => ({
   wide: document.documentElement.scrollWidth > window.innerWidth,
 }))()`;
 
+/* Where the Tasks column is: which cards the left box holds in order, whether Tasks is the last
+   child of .pj3 (today's markup), and how many grid columns .pj3 lays out. */
+const TASKS_PLACE = `(() => {
+  const split = document.querySelector('#pj-one-view .pj3 > .pjsplit');
+  const pj3 = split.parentElement;
+  const order = [...split.children].map((c) => c.classList.contains('pjcard-members') ? 'members' : c.classList.contains('pjcard-files') ? 'files' : c.matches('aside.pjcol') ? 'tasks' : null).filter(Boolean).join(',');
+  const last = pj3.lastElementChild;
+  return { order, tasksLast: !!last && last.matches('aside.pjcol:not(.pjsplit)'), cols: getComputedStyle(pj3).gridTemplateColumns.split(' ').length };
+})()`;
+
 (async () => {
   let server, browser;
   try {
     fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' })]);
+    const proj = projects.create({ name: 'Billing' });
+    projects.addAgent(proj.id, 'ada', null);
     server = await srv.start(0);
     const URL = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -93,6 +109,12 @@ const PAGE_STATE = `(() => ({
       chk(on.look === 'new' && on.sw === 'true', `${tag} On sets the new look and the switch reads On`, JSON.stringify(on));
       chk(on.kbg === NEW[theme], `${tag} On repaints the page ${NEW[theme]}`, on.kbg);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-on-${theme}-${width}.png`) });
+      await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, proj.id);
+      await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
+      const pjOn = await page.evaluate(TASKS_PLACE);
+      chk(pjOn.order === 'members,tasks,files', `${tag} On: Tasks sits in the left box between Members and Files`, JSON.stringify(pjOn));
+      chk(width < 1088 ? pjOn.cols === 1 : pjOn.cols === 2, `${tag} On: the project page is ${width < 1088 ? 'one column (narrow)' : 'two columns'}`, JSON.stringify(pjOn));
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -105,6 +127,8 @@ const PAGE_STATE = `(() => ({
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
       const back = await page.evaluate(PAGE_STATE);
+      const pjOff = await page.evaluate(TASKS_PLACE);
+      chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
       chk(!back.wide, `${tag} no sideways scroll`);
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));

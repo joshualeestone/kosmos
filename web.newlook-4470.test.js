@@ -106,7 +106,10 @@ test('the switch turns the look on and off, and remembers it on this computer on
     removeItem: (k) => { delete store[k]; },
   };
   const paintSwitch = (id, on) => painted.push([id, on]);
-  const click = new Function('document', 'localStorage', 'paintSwitch', src + '\nreturn lookToggleClick;')(document, localStorage, paintSwitch);
+  const placed = [];
+  const placeLookTasks = (cons) => placed.push([attrs['data-look'] || null, cons]);
+  document.body = { classList: { contains: (c) => c === 'consolidated' && false } };
+  const click = new Function('document', 'localStorage', 'paintSwitch', 'placeLookTasks', src + '\nreturn lookToggleClick;')(document, localStorage, paintSwitch, placeLookTasks);
   click();
   assert.equal(attrs['data-look'], 'new');
   assert.equal(store['kosmos-look'], 'new');
@@ -115,5 +118,6 @@ test('the switch turns the look on and off, and remembers it on this computer on
   assert.equal('data-look' in attrs, false, 'off must remove the attribute, not set another value');
   assert.equal('kosmos-look' in store, false, 'off must forget the choice, so the head script sees nothing');
   assert.deepEqual(painted.at(-1), ['look-toggle', false]);
+  assert.deepEqual(placed, [['new', false], [null, false]], 'each click re-places Tasks AFTER the attribute changes');
   assert.doesNotMatch(src, /fetch\(|api\(/, 'the look is this window only; it must not call the server');
 });
