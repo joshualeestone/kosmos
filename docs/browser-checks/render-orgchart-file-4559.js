@@ -203,6 +203,21 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
+    // LEAVE: leaving the panel with a picture waiting for Read it disarms it; coming back shows no consent box.
+    const pl = await page();
+    await pl.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } }));
+    await openPanel(pl);
+    if (await pl.$('#orgchart-file-btn')) {
+      await pl.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pl.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+      await pl.click('#pick-pm');
+      await pl.click('#pick-orgchart');
+      await pl.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const lv = await readPreview(pl);
+      check('LEAVE: leaving the panel disarms a picture waiting for Read it', !lv.consent, JSON.stringify(lv.consent));
+    } else check('LEAVE: the panel offers a file', false);
+    await pl.close();
+
     // NO CLAUDE
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy

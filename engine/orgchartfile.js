@@ -60,7 +60,7 @@ const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-
    semicolons). A leading BOM (Excel's UTF-8 CSV) is dropped. */
 function parseDelimited(text) {
   const src = String(text == null ? '' : text).replace(/^﻿/, '');
-  const firstLine = src.split(/\r?\n/, 1)[0] || '';
+  const firstLine = src.split(/\r?\n/).find((l) => l.trim() !== '') || '';   // the header, past any blank lines
   const bare = firstLine.replace(/"[^"]*"/g, '');   // a quoted header ("Name, Legal") does not vote
   const count = (c) => bare.split(c).length - 1;
   const delim = ['\t', ',', ';'].sort((a, b) => count(b) - count(a))[0];
@@ -79,7 +79,8 @@ function parseDelimited(text) {
     else if (c === '\n' || c === '\r') {
       if (c === '\r' && src[i + 1] === '\n') i += 1;
       row.push(field); field = '';
-      out.push(row); row = [];
+      if (row.some((v) => v.trim() !== '')) out.push(row);   // a blank line does not count toward the cap
+      row = [];
       if (out.length > MAX_ROWS + 1) break;
     } else field += c;
   }
@@ -274,6 +275,10 @@ function findColumns(header) {
       if (i >= 0 && !Object.values(col).includes(i)) { col[what] = i; break; }
     }
   }
+  /* Every id-like column, not only the first: an export with both "Employee ID" and "Work Email" may name
+     managers by either, and matching against only one would mark every manager as missing. */
+  col.ids = keys.map((k, i) => (HEADERS.id.includes(k) && !Object.values(col).includes(i) ? i : -1)).filter((i) => i >= 0);
+  if (col.id != null) col.ids.unshift(col.id);
   return col;
 }
 
@@ -301,7 +306,7 @@ function tableToPeople(table) {
     /* No title: left out and counted, never titled with the person's name (the agent would be named after a
        real person with names off, which #1280's default exists to prevent). */
     if (!title) { untitled += 1; continue; }
-    people.push({ person: plain(person, MAX_PERSON), title: plain(title, MAX_TITLE), id: plain(cell(r, 'id'), MAX_TITLE), manager: plain(cell(r, 'manager'), MAX_PERSON) });
+    people.push({ person: plain(person, MAX_PERSON), title: plain(title, MAX_TITLE), ids: col.ids.map((i) => plain(String(r[i] || ''), MAX_TITLE)).filter(Boolean), manager: plain(cell(r, 'manager'), MAX_PERSON) });
   }
   const out = resolve(people, table.length - 1 > MAX_ROWS);
   if (untitled) out.problems.push(untitledSentence(untitled));
@@ -317,7 +322,7 @@ function resolve(people, truncated) {
   const byId = new Map();
   const byName = new Map();
   people.forEach((p, i) => {
-    if (p.id) { const k = p.id.toLowerCase(); byId.set(k, byId.has(k) ? -1 : i); }   // -1: two rows share this id
+    for (const id of p.ids || []) { const k = id.toLowerCase(); byId.set(k, byId.has(k) && byId.get(k) !== i ? -1 : i); }   // -1: two rows share this id
     if (p.person) {
       const k = p.person.toLowerCase();
       byName.set(k, byName.has(k) ? -1 : i);   // -1: two rows share this name
@@ -466,7 +471,8 @@ function defaultModelRunner(line, signal) {
   const os = require('node:os');
   const path = require('node:path');
   let bin = null;
-  try { bin = require('./runners').resolveBin('claude').bin; } catch { bin = null; }
+  /* resolveBin always answers a path (the canonical one even when nothing is there); `present` says whether it runs. */
+  try { const r = require('./runners').resolveBin('claude'); bin = r && r.present ? r.bin : null; } catch { bin = null; }
   if (!bin) return Promise.resolve({ ok: false, unavailable: true, because: 'no Claude connection on this computer' });
   /* One fixed, empty working folder: the file goes inline, so claude never needs to read anything here, and
      a fixed name means Claude Code keeps at most one (empty) project folder for it rather than one per read. */
@@ -521,9 +527,13 @@ function providerLabel() {
 
 /* Whether a picture or PDF can be read at all on this computer: a Claude Code the board can run. The
    read itself still reports a dead sign-in; this only decides whether to offer the read. */
-let availability = () => { try { return Boolean(require('./runners').resolveBin('claude').bin); } catch { return false; } };
+/* A Claude Code that is actually there (resolveBin's `present`, not its always-set `bin`) and an account to run it on. */
+const claudeHere = () => {
+  try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
+};
+let availability = claudeHere;
 function modelAvailable() { return availability(); }
-function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : (() => { try { return Boolean(require('./runners').resolveBin('claude').bin); } catch { return false; } }); }
+function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : claudeHere; }
 let modelRunner = defaultModelRunner;
 function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : defaultModelRunner; }
 
@@ -551,7 +561,7 @@ function fromModel(structured) {
     });
   }
   if (!clean.length) return { rows: [], problems: [untitled ? untitledSentence(untitled) : 'No people were found in that file.'] };
-  const out = resolve(clean.map((c) => ({ person: c.person, title: c.title, id: '', manager: c.manager })), people.length > MAX_ROWS);
+  const out = resolve(clean.map((c) => ({ person: c.person, title: c.title, ids: [], manager: c.manager })), people.length > MAX_ROWS);
   if (untitled) out.problems.push(untitledSentence(untitled));
   clean.forEach((c, i) => { if (c.unsure && !out.rows[i].why) out.rows[i].why = c.unsure; });
   return out;
