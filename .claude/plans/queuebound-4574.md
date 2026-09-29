@@ -41,3 +41,16 @@ for the waiters behind a hung suite, and it is the price of not giving up on a h
 - (W) the first notice said "for up to 2700s": it now says it gives up if the queue does not move for that long.
 - (N) the queue note, the KNOWN RESIDUAL and run-tests.sh's two 20-minute comments are updated.
 Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-guard.sh, five #4574 arms red.
+
+## Review iteration 2 (blind, sonnet)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) the #4498 header still said "for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes)": it now names the queue's 2700 s and
+  points at the #4574 note, and lists KOSMOS_WAIT_NOW as a seam.
+- (W) the two new helpers sat between kosmos_wait_until_clear's doc comment and the function: moved above it.
+- (N, taken) the waiters-ahead loop duplicated kosmos_refuse_if_earlier_suite_waiter's: ONE helper now lists the pids
+  ahead, and the refusal (head -1) and the bound (the count) both read it. Control: a helper that lists nobody reds the
+  #4498 queue-order arms AND the #4574 moving-queue arms.
+- (N, SELF, taken) "the count cannot flap" overclaimed: a waiter re-marked by the second ask raises it. The note now says
+  a rise only arms the next fall, so each restart still needs a waiter ahead to leave.
+- (N) the wall-clock test's name: now "three waiters leaving 100 s apart".
+- (N, left) a same-second arrival with a lower pid counts as ahead; a killed run leaves sleep 300 stand-ins for 5 min.
