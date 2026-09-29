@@ -654,6 +654,11 @@ if [ -z "$adopt" ]; then
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
     [ "$RUNNER" = muse ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    # #4592: a codex launch uses CODEX_HOME below as the SOURCE ACCOUNT, then
+    # hands the pane a separate Kosmos-owned runtime home. Forwarding the source
+    # here would put both homes in new-session's environment vector and make the
+    # winner depend on tmux's duplicate-key handling.
+    [ "$RUNNER" = codex ] && [ "$_var" = CODEX_HOME ] && continue
     # #3769: not even one this supervisor inherited from its own environment.
     if [ "$IS_SETUP_GUIDE" = 1 ]; then
       case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
@@ -806,7 +811,53 @@ if [ -z "$adopt" ]; then
     # own default is $HOME/.codex anyway) and it defeats the leak on a board cold-started under a
     # stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug Pete + ICK caught).
     EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
+  fi
+  if [ "$RUNNER" = codex ]; then
+    # #4592: EFFECTIVE_CODEX_HOME above is the selected ACCOUNT home. It may also
+    # be the person's Codex Desktop home, whose plugins and hooks must not enter
+    # an unattended agent. Give every agent a private, persistent runtime home
+    # and carry only the account credential into it.
+    #
+    # The path mirrors engine/store.js dataRootFor on this shell launch path:
+    # AGENT_WORKFORCE_DATA names the app-data parent, and the default is the
+    # person's Application Support. A named world's resolved data parent is
+    # already in AGENT_WORKFORCE_DATA, so worlds cannot share runtime homes.
+    _codex_data_parent="${AGENT_WORKFORCE_DATA:-${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support}"
+    _codex_runtime_home="$_codex_data_parent/Kosmos/codex-homes/$SESSION"
+    _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"
+    _codex_runtime_auth="$_codex_runtime_home/auth.json"
+
+    if mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then
+      # Codex 0.149.1 refreshes file credentials by opening auth.json with
+      # truncate+write, not temp+rename. That preserves this symlink and writes
+      # the authoritative account file. Rebuild it on every launch so an account
+      # switch reaches an existing agent. A regular file here would be a forked
+      # credential, so remove it rather than accepting it.
+      if [ -e "$_codex_source_auth" ]; then
+        if [ -e "$_codex_runtime_auth" ] || [ -L "$_codex_runtime_auth" ]; then
+          rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
+        fi
+        if ! ln -s "$_codex_source_auth" "$_codex_runtime_auth" 2>/dev/null; then
+          say "$SESSION: could not link the selected OpenAI sign-in into its private Codex home"
+        fi
+      else
+        rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
+      fi
+
+      # A fresh home has no update-notice dismissal. Seed only the first launch
+      # from the source account, then let this agent keep its own notice state.
+      if [ ! -e "$_codex_runtime_home/version.json" ] && [ -f "$EFFECTIVE_CODEX_HOME/version.json" ]; then
+        cp "$EFFECTIVE_CODEX_HOME/version.json" "$_codex_runtime_home/version.json" 2>/dev/null || true
+        chmod 600 "$_codex_runtime_home/version.json" 2>/dev/null || true
+      fi
+    else
+      # Fail closed on isolation. Codex may report that its home is unwritable,
+      # but it must never fall back to the person's plugin-bearing home.
+      say "$SESSION: could not prepare its private Codex home"
+    fi
+    EFFECTIVE_CODEX_HOME="$_codex_runtime_home"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
+    unset _codex_data_parent _codex_runtime_home _codex_source_auth _codex_runtime_auth
   fi
   # #3953: the codex, gemini and grok report bridges are node scripts their runner starts by name
   # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`
