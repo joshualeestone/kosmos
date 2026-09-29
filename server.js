@@ -3717,7 +3717,8 @@ function setupGuideNow() {
   if (!setupAssistant.isGuideFolder(guide)) return { ok: false, status: 409, reason: 'not-guide', error: 'the setup guide is not on this computer any more' };
   const removed = removal.removedNames();
   if (!removed.ok) return { ok: false, status: 409, reason: 'unchecked', error: 'we could not check whether the setup guide was removed' };
-  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
+  /* `removed` (#4405): the guide was made and then removed; switching the assistant on RESTORES it. */
+  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', removed: guide, error: 'there is no setup guide on this computer' };
   return { ok: true, name: guide };
 }
 
@@ -10680,7 +10681,38 @@ const server = http.createServer((req, res) => {
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) });
+        const reply = { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) };
+        /* #4405: switching the setup assistant ON in Settings > Help is how a person GETS one when
+           none is on this computer (never made, or the guide agent was removed). Create it
+           now, and say what happened so the page can say it plainly (e.g. no model connected yet). */
+        if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+          const now = (body.setupAssistant && body.setupAssistant.on === true) ? setupGuideNow() : null;
+          /* Made only when the board is SURE there has never been a guide: none on record. Anything else that is not a
+             removed guide (a record it cannot read, a folder missing or without the marker, a check it could not make) is
+             left alone: making one there could make a SECOND guide, and forgetting a record cannot be undone. */
+          if (now && !now.ok && now.reason === 'none' && !setupAssistant.setupAssistantSeeded()) {
+            return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
+              .then(recordGuideOutcome)   // returns its input
+              .catch(() => ({ seeded: false, state: 'refused' }))
+              .then((out) => sendJson(res, 200, { ...reply, guide: { state: (out && out.state) || 'refused', seeded: !!(out && out.seeded) } }));
+          }
+          /* A guide that was made and then REMOVED is put back (the same restore as the Removed list), never made
+             a second time: its name is on the removed list, and a new one would be a second guide. */
+          if (now && !now.ok && now.removed) {
+            let back = null;
+            try { back = removal.restore(now.removed); } catch { back = null; }
+            /* Only a FULL restore is success (a partial one, started but still on the removed list, is not); a refusal
+               because another window restored it a moment ago is, so a refusal checks again. */
+            const ok = (!!back && back.outcome === removal.OUTCOME.RESTORED)
+              || ((!back || back.outcome === removal.OUTCOME.REFUSED) && setupGuideNow().ok);
+            if (ok) recordGuideOutcome(GUIDE_SEEDED);   // #4350: the guide is here again
+            // A refusal that does not clear with time (its account folder is gone, say) carries restore's own sentence.
+            sendJson(res, 200, { ...reply, guide: { state: ok ? 'restored' : 'refused', seeded: ok, ...(ok || !back || !back.because ? {} : { because: String(back.because) }) } });
+            return;
+          }
+          if (now && !now.ok) { sendJson(res, 200, { ...reply, guide: { state: 'unclear', seeded: false } }); return; }
+        }
+        sendJson(res, 200, reply);
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

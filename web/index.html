@@ -3225,6 +3225,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .setrow b { font-size: .9375rem; }
 .setrow.off { opacity: .6; }
 .setrow.off .toggle { pointer-events: none; }
+/* #4405 (Josh): his small round picture beside the Kosmos Guide switch, so the row stands out. */
+.setrow .asb-row-who { display: inline-flex; align-items: center; gap: 8px; }
+.setrow .asb-row-pic { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: none; }
 /* #3508: the Prompter's in-app check-in list. Minimal, in-lane; a fuller placement is
    Mona's polish. Reuses .dlab/.dhint tokens so it matches the rest of Settings. */
 .hb-nudges { margin-top: 6px; }
@@ -15645,8 +15648,9 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
-           so both ways of getting help live together. The assistant's first x points here. The row
-           shows only when a setup guide exists (asbPaintSetting). -->
+           so both ways of getting help live together. The assistant's first x points here. #4405: the row
+           shows whenever first run is over, guide or not: switching it on is how a person GETS a guide
+           (none was ever made, or it was removed). asbPaintSetting. -->
       <h3 class="dlab">Help</h3>
       <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
@@ -15654,11 +15658,13 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
       <div class="setrow" id="asb-row" hidden>
-        <div><b>Setup assistant</b>
-          <p class="dhint" style="margin:2px 0 0;">Josh's face in the corner. Click it for help setting up Kosmos on whatever page you're on.</p></div>
-        <button class="toggle" id="asb-toggle" role="switch" aria-label="Show the setup assistant"><i></i></button>
+        <div><span class="asb-row-who"><img class="asb-row-pic" src="/icons/setup-guide-avatar.jpg" alt=""><b>Kosmos Guide</b></span>
+          <p class="dhint" style="margin:2px 0 0;">Turn this on to be able to access the Kosmos Guide from any screen and get help with it.</p></div>
+        <button class="toggle" id="asb-toggle" role="switch" aria-label="Kosmos Guide: turn it on to get help from any screen"><i></i></button>
       </div>
       <p class="dhint" id="asb-row-msg" role="status" hidden></p>
+      <!-- #4405: switched ON (the default) with no guide on this computer yet: say so, and offer the one click. -->
+      <p class="dhint" id="asb-row-state" hidden>The Kosmos Guide is not set up on this computer yet. <button type="button" class="linkish" id="asb-row-setup">Set it up now</button></p>
     </section>
 
     <section class="dbox">
@@ -63861,7 +63867,11 @@ async function asbSaveSetting(patch) {
   try {
     const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
     const body = await r.json();
-    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+    if (r.ok && body && body.setupAssistant) {
+      ASB.setting = body.setupAssistant;
+      ASB.lastGuide = body.guide || null;   // #4405: what switching on did about a missing guide
+      return true;
+    }
   } catch { /* said below */ }
   return false;
 }
@@ -64010,40 +64020,131 @@ async function asbHostedSend(text) {
   asbPaint();
 }
 
-/* Settings > Computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
-function asbPaintSetting() {
-  const row = document.getElementById('asb-row');
-  if (!row) return;
-  /* Also whenever it is switched OFF: "You can turn it back on in Settings" must stay true with no assistant showing. */
-  row.hidden = !ASB.setting || !(ASB.guide || asbIsHosted() || ASB.setting.on === false);
-  if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
-  paintTipsToggle();   // the Help box shows while either of its rows does
+/* #4405: the switch shows the SETTING, ON by default for everyone (Josh 2026-09-28: "default that on so everybody
+   gets it and has to turn it off"), so a person can always record a real OFF. ON with no assistant to show yet is
+   said on its own line (#asb-row-state) with a "Set it up now" button. */
+function asbSwitchShowsOn() {
+  return !!ASB.setting && ASB.setting.on === true;
 }
-document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
-  const sw = e.currentTarget;
-  if (!ASB.setting || sw.disabled) return;
-  sw.disabled = true;
-  let ok = false;
-  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
-  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } catch { ok = false; }
+/* Look the guide up NOW, waiting out a lookup a tick already started (it may have begun before the guide existed). */
+async function asbFindNow() {
+  for (let i = 0; i < 40 && ASB.finding; i += 1) await new Promise((res) => setTimeout(res, 100));
+  ASB.nextFind = 0;
+  await asbFind();
+}
+/* #4405: switching on asked the board to make the guide and it could not: say why in one line. */
+function asbSayNotMade(made) {
   const m = document.getElementById('asb-row-msg');
-  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
-  asbPaintSetting();
-  /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
+  if (!m) return;
+  const noModel = made.state === 'no-model';
+  const deadModel = made.state === 'no-usable-model';
+  /* names-taken is final until the board restarts (engine/setup-assistant.js namesTaken), so "in a moment" would be false. */
+  const taken = made.state === 'names-taken';
+  /* 'unclear' (the board could not be sure there is no guide, so it made none) and 'seeded' (a guide was already
+     made this session) do not clear with a moment's wait either. */
+  const unclear = made.state === 'unclear';
+  const madeEarlier = made.state === 'seeded';
+  m.textContent = noModel ? 'The Kosmos Guide needs a connected AI model. Connect one in AI Models, then choose Set it up now.'
+    : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
+    : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
+    : madeEarlier ? 'A Kosmos Guide was already set up on this computer. Look for it in Agents.'
+    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh, look at it in Agents.'
+    : made.because ? made.because
+    : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
+  m.hidden = false;
+  m.dataset.notMade = '1';   // cleared by asbPaintSetting once a guide is here
+  if (noModel || deadModel) {
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'linkish';
+    go.id = 'asb-row-models';
+    go.textContent = 'Open AI Models';
+    go.addEventListener('click', () => settingsGo('accounts'));
+    m.append(' ', go);
+  }
+}
+/* #4405: switch the assistant ON (the switch, or "Set it up now"). With no guide on this computer the board tries
+   to make one (/api/settings) and says what happened. Each try is a real attempt: a dead sign-in costs one live
+   check per click (ensureGuide's explicit path skips the retry wait on purpose). */
+async function asbTurnOn() {
+  /* One latch for BOTH controls (the switch and Set it up now): a click on one while the other is mid-save would
+     race it (an OFF landing on an in-flight create). */
+  if (ASB.turning) return;
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
+  const release = () => { ASB.turning = false; ctls.forEach((c) => { c.disabled = false; }); };
+  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
+  ASB.lastGuide = null;
+  let ok = false;
+  try { ok = await asbSaveSetting({ on: true }); } catch { ok = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; delete m.dataset.notMade; }
+  const made = ASB.lastGuide;
+  if (ok && made && !made.seeded && !asbIsHosted()) {
+    /* A guide this page remembers may be gone (another agent took its name while it was off): confirm it first, so
+       the bubble is not drawn for an agent that is no longer there. */
+    if (ASB.guide) await asbConfirmGuide();
+    ASB.holding = false;
+    release();
+    asbSayNotMade(made);
+    asbPaintSetting();
+    return;
+  }
+  /* Ask the board who the guide is before drawing it. With no guide known to this page (one just made, or one the
+     sweep made after the page loaded) FIND it; otherwise confirm the known one, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || asbIsHosted() || await asbConfirmGuide();
+  if (ok && !ASB.guide && !asbIsHosted()) await asbFindNow();
+  const confirmed = !ok || asbIsHosted() || (ASB.guide ? await asbConfirmGuide() : false);
   ASB.holding = false;
-  sw.disabled = false;   // only now: a second click mid-check would start a second hold
-  if (!confirmed && asbIsHosted()) { asbPaint(); asbPaintSetting(); return; }   // the guide went, and the hosted assistant stands in
+  release();   // only now: a second click mid-check would start a second hold
+  asbPaintSetting();
+  if (!confirmed && asbIsHosted()) { asbPaint(); return; }   // the guide went, and the hosted assistant stands in
   if (!confirmed) {
-    /* The row goes with the guide; say why, and keep the keyboard on the page. */
-    if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
+    if (m) { m.textContent = 'The Kosmos Guide is not on this computer right now.'; m.hidden = false; }
     document.getElementById('tips-toggle')?.focus();
     return;
   }
   asbPaint();
   if (asbShows()) asbPoll(true);
+}
+/* Settings > Computer > Help: the switch shows once first run is over, whether or not a guide exists
+   (#4405: it used to need one, so a person whose guide was never made, or was removed, had no way to
+   get the assistant at all). Switching it ON with no guide makes one (the board, /api/settings). */
+function asbPaintSetting() {
+  const row = document.getElementById('asb-row');
+  if (!row) return;
+  const fr = document.getElementById('firstrun');
+  row.hidden = !ASB.setting || !!(fr && !fr.hidden);
+  if (!row.hidden) paintSwitch('asb-toggle', asbSwitchShowsOn());
+  /* #4405: ON with nothing to show yet: say so, with the one click. Gone once a guide (or the hosted one) is here. */
+  const none = !row.hidden && asbSwitchShowsOn() && !ASB.guide && !asbIsHosted();
+  const st = document.getElementById('asb-row-state');
+  if (st) st.hidden = !none || !!ASB.holding;
+  /* Any "could not set it up" line is stale once there IS a guide (made by this click or later by the sweep). */
+  const m = document.getElementById('asb-row-msg');
+  if (m && !none && m.dataset.notMade) { m.textContent = ''; m.hidden = true; delete m.dataset.notMade; }
+  paintTipsToggle();   // the Help box shows while either of its rows does
+}
+document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!ASB.setting || sw.disabled || ASB.turning) return;
+  if (!asbSwitchShowsOn()) { await asbTurnOn(); return; }
+  /* Switching OFF: recorded as the person's choice; nothing is made or removed. The same latch as asbTurnOn, so a
+     Set it up now clicked meanwhile cannot race it. */
+  ASB.turning = true;
+  const ctls = ['asb-toggle', 'asb-row-setup'].map((id) => document.getElementById(id)).filter(Boolean);
+  ctls.forEach((c) => { c.disabled = true; });
+  let ok = false;
+  try { ok = await asbSaveSetting({ on: false }); } catch { ok = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  ctls.forEach((c) => { c.disabled = false; });
+  ASB.turning = false;
+  asbPaintSetting();
+  asbPaint();
 });
+document.getElementById('asb-row-setup')?.addEventListener('click', () => { asbTurnOn(); });
 
 function asbTick() {
   /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */
@@ -64052,8 +64153,12 @@ function asbTick() {
   if (ASB.frWas && !frNow) { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }
   ASB.frWas = frNow;
   if (!ASB.guide && Date.now() >= ASB.nextFind) asbFind();
-  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) { asbPaint(); asbPaintSetting(); } return; }   // stepping aside ends on a tick
-  if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
+  /* #4405: read the setting even with no guide, so the Settings switch (the way to GET one) can show. */
+  if (!ASB.setting && Date.now() >= ASB.nextSetting) asbReadSetting();
+  /* #4405: the Settings row is repainted on every tick with no guide too: the setting is usually read while first
+     run is still showing (row hidden), and nothing else repaints it once first run closes. */
+  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) asbPaint(); asbPaintSetting(); return; }   // stepping aside ends on a tick
+  if (!ASB.setting) return;
   asbPaint();
   if (!asbShows()) return;
   if (ASB.open) asbTellScreen(false);
