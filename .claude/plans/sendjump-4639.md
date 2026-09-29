@@ -23,12 +23,14 @@ A browser check per surface proves each of those, and goes red with the send's j
   control (really scrolled back), J2 agent message arriving does not move them, J3 own send lands at the bottom
   with the row in view, J4 the next agent message keeps them there, J5 with a search filtering the thread their
   send does not move them, J6 someone who scrolls up while a slow send is in flight is not pulled back when it
-  lands. Listed in `gated.txt` and the README.
+  lands, J7 a thread not read yet (no "Sending" bubble to draw) still ends with their message in view. Listed in
+  `gated.txt` and the README.
 - `docs/browser-checks/render-room-scroll.js` arm 4b (`sendJumpArms`), run in the tab view and again in the
   consolidated view: the same four for the room on a sandboxed board (a post arriving by the poll, own post typed
   into `#pj-post` and clicked), plus a fifth: someone who scrolls up while a slow send (POST held 2.5s) is in
-  flight is not pulled back when it lands; and a sixth: with a search filtering the room, a send does not move
-  them.
+  flight is not pulled back when it lands; a sixth: with a search filtering the room, a send does not move them;
+  and a seventh: a send that fails lands them at the bottom with its sentence beside the composer (the trade for
+  jumping at the press).
 
 ## Rejected
 - `pjSend` (one agent's thread inside a project, `#pj-msgs`): not a scroll box (the page scrolls there), and it
@@ -43,11 +45,11 @@ A browser check per surface proves each of those, and goes red with the send's j
   and letting the existing floor measurement carry it needs no new state.
 
 ## Measured
-- Room arm 4b: 6/6 in the tab view and 6/6 consolidated (32/32 for the file). With the room call removed, "own
+- Room arm 4b: 7/7 in the tab view and 7/7 consolidated (34/34 for the file). With the room call removed, "own
   send lands at the bottom" and "next post keeps them there" go red (3532px above the floor); with the jump moved
   back to after the server answers, the slow-send arm goes red in both views; with the filter guard removed, the
   filtered arm goes red in both views.
-- DM check: 7/7 pass. With the DM call removed, J3 and J4 go red (1715px above the floor); with `TALK_QUERY`
+- DM check: 8/8 pass. With the DM call removed, J3, J4 and J7 go red (1715px above the floor); with `TALK_QUERY`
   dropped from the call, J5 goes red; with the jump moved after the send lands (the `finally` repaint), J6 goes red.
 - Wiring tests (tools.browser-checks-wired, pr-select, indexed, reason-grep, selectors, home-3675): 58/58.
 
@@ -57,6 +59,6 @@ by the same poll an agent's post does, which is the path the rule is about.
 
 The DM jump relies on the "Sending" bubble being painted synchronously by `talkPaintPending`. When the thread has
 not been read yet (first open) it paints nothing, and the jump lands on the old tail; the reply's repaint then
-follows the floor, so they still end at their message, one repaint later. That first-open path is reasoned, not
-measured: no check drives it. A failed room send also jumps (at the press) with nothing new below; the error
-sits beside the composer they are looking at.
+follows the floor, so they still end at their message, one repaint later (J7 measures it with the bubble
+suppressed). A failed room send also jumps (at the press) with nothing new below; the room check measures that
+the sentence is beside the composer they are at.
