@@ -145,3 +145,15 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
 - Controls, one per mechanism: unpinned lstart reds the zone arm; no ceiling reds the ceiling arm (it started at call
   10); no entry clear reds the recycled-pid arm. The four arms not about the ceiling set it high explicitly (the
   wall-clock arm's fake clock passed the default 240 s ceiling that a 60 s bound gives).
+
+## Review iteration 10 (blind, sonnet)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) compatibility was one-way: this lib read older markers, but an OLDER copy (another worktree) compares line 3
+  against its own local start time and would have deleted every UTC-form marker this lib wrote, the mutual wait of
+  review 5 again, until its 20-minute bound. Line 3 now keeps the writer's local form (all an older reader reads) and
+  the UTC form goes on a new line 4; a reader accepts line 4 (UTC), or line 3 in either form. Controls: writing UTC on
+  line 3 reds the format arm; ignoring line 4 reds the time-zone arm.
+- (W) the give-up line did not say which limit fired: it now gives the total wait and the time since a waiter ahead
+  last left (the ceiling has its own line).
+- (N, taken) `local over` is declared with the other locals; the time-zone arm explains why the writer is in Tokyo.
+- (N, left) ts (queue position) uses the real clock, not the wait seam: it is a position, never a duration.
