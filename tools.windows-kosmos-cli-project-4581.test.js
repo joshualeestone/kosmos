@@ -85,3 +85,11 @@ test('#4581 round 1 (Windows): an answer that is not JSON exits 1', async () => 
   assert.equal(r.code, 1);
   assert.match(r.err, /could not read/);
 });
+
+test('#4581 round 3 (Windows): valid JSON of the wrong shape exits 1', async () => {
+  for (const argv of [['project', 'show', 'ff'], ['project', 'list']]) {
+    const r = await run(argv, () => ({ body: { ok: true } }));
+    assert.equal(r.code, 1, argv.join(' '));
+    assert.match(r.err, /could not read/);
+  }
+});

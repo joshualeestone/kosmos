@@ -41,7 +41,8 @@ function summaryFreshness(folder, nowMs) {
   /* Blind review round 1: "we do not know where this agent's folder is" is not "it wrote no summaries", and the PM
      role raises a missing summary as a finding, so the two are said apart. The agent's own folder missing is
      `nofolder`; only a folder that exists with no summaries/ in it is `none`. */
-  try { if (!fs.lstatSync(folder).isDirectory()) return { ...none, state: 'nofolder' }; }
+  /* Round 3: something at the path that is not a plain folder (a symlink, a file) is there and not read: unreadable. */
+  try { if (!fs.lstatSync(folder).isDirectory()) return { ...none, state: 'unreadable' }; }
   catch (e) { return { ...none, state: (e && e.code === 'ENOENT') ? 'nofolder' : 'unreadable' }; }
   const dir = path.join(folder, 'summaries');
   let names;
@@ -56,11 +57,16 @@ function summaryFreshness(folder, nowMs) {
   }
   let best = null;
   /* Only summary-shaped names, newest name first, so the cap never drops the newest file of a big folder. */
-  const candidates = names.filter((n) => SUMMARY_NAME.test(n)).sort().reverse().slice(0, SUMMARY_SCAN_MAX);
-  for (const name of candidates) {
+  /* Round 3: the cap counts real files, not names (20 newest-named symlinks or folders used to hide older real
+     summaries), with a hard bound on how many entries are checked at all. */
+  const candidates = names.filter((n) => SUMMARY_NAME.test(n)).sort().reverse();
+  let files = 0;
+  for (let i = 0; i < candidates.length && i < SUMMARY_SCAN_MAX * 10 && files < SUMMARY_SCAN_MAX; i += 1) {
+    const name = candidates[i];
     let st;
     try { st = fs.lstatSync(path.join(dir, name)); } catch { continue; }
     if (!st.isFile()) continue;
+    files += 1;
     if (!best || st.mtimeMs > best.ms) best = { name, ms: st.mtimeMs };
   }
   if (!best) return none;
@@ -164,14 +170,19 @@ function listOf(described) {
 function one(v) {
   return String(v == null ? '' : v)
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
-    /* Bidi overrides and isolates, and zero-width characters: they print nothing themselves but can make the
-       rest of a line display reversed or hidden, so a name or a brief could look like something it is not. */
-    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
-    /* Round 2: every other format character too (\p{Cf}): the soft hyphen, the Arabic letter mark, and the Unicode tag
-       block, which prints nothing to a person and is still read by a model, so a brief could carry an invisible
-       instruction to the agent reading this. */
-    .replace(/\p{Cf}/gu, '')
+    /* Round 3: only the invisibles that can hide or reorder text go: bidi overrides, isolates and marks, the
+       zero-width space and BOM, word joiners, and the Unicode tag block (read by a model, invisible to a person),
+       except inside an emoji flag sequence, where tags ARE the flag. The zero-width joiner and non-joiner stay:
+       family emoji and Persian and Indic spellings need them, and they reorder or hide nothing. */
+    .replace(/(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|[\u{E0000}-\u{E007F}]|[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\u061c\u00ad\ufeff]/gu, (m, flag) => flag || '')
     .replace(/\s+/g, ' ').trim();
+}
+/* A folder path is printed exactly, not tidied (round 3: collapsing spaces or dropping joiners printed a different,
+   non-existent path, and a path is the one value an agent acts on). Only what would break the line or hide or reorder
+   text is replaced, by a visible "?", so the reader can see the path is not shown as it is. */
+function pathText(v) {
+  return String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\u061c\ufeff]|[\u{E0000}-\u{E007F}]/gu, '?');
 }
 function ago(minutes) {
   if (minutes == null) return '';
@@ -221,7 +232,7 @@ function renderShow(payload) {
   if (!p || typeof p !== 'object' || typeof p.id !== 'string') throw new Error('not a project');
   const out = [];
   out.push(one(p.name) + '  (id: ' + one(p.id) + ')' + (p.archived ? '  [archived]' : ''));
-  out.push('Folder: ' + (p.folder ? one(p.folder) : 'none recorded'));
+  out.push('Folder: ' + (p.folder ? pathText(p.folder) : 'none recorded'));
   /* The brief is a file anyone on the project can edit, so its words are quoted as written there, never
      presented as an instruction (the Assigner quotes the goal the same way, engine/assigner.js). */
   if (!p.briefFound) {

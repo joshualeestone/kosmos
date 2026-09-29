@@ -44,3 +44,10 @@ JSON answer read as empty (the renderers now refuse it and both CLIs exit 1); th
 character (\p{Cf}: the tag block, soft hyphen, ALM); the summaries scan checks the 20 newest names, not 5000.
 Kept, stated: freshness is the newest summary's WRITE time (a touched old file reads as current); with no node found
 the Mac prints the raw answer and exits 0 (it cannot validate without one).
+Round 3 (Opus, separate reviewer, 13:36): round 2's \p{Cf} scrubber damaged real text (family emoji split, flags
+flattened, Persian/Indic spellings changed) and collapsed the folder path into a different path. Now names and brief
+drop only what hides or reorders text (bidi, ZWSP, BOM, word joiners, soft hyphen, ALM, tag characters outside an emoji
+flag) and keep ZWJ/ZWNJ; the folder prints exactly, with a visible "?" for any character that would break the line or
+hide text. A symlinked agent folder reads as not read (unreadable); the 20-summary cap counts real files, not names.
+Valid JSON of the wrong shape is pinned at the CLI level on both CLIs (exit 1).
+Kept: "an answer we could not read" also covers a missing projectview.js (a broken install); named, not fixed.

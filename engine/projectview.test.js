@@ -186,11 +186,37 @@ test('round 2: invisible format characters (the Unicode tag block, soft hyphen, 
   const view = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: tagged, done: null, found: true }));
   const text = v.renderShow({ project: view }).join('\n');
   assert.match(text, /^Goal \(as written in BRIEF\.md\): "Done well"$/m, JSON.stringify(text.split('\n')[2]));
-  assert.ok(![...text].some((c) => /\p{Cf}/u.test(c)), 'a format character survived');
+  assert.ok(!/[\u{E0000}-\u{E007F}\u00AD\u061C]/u.test(text), 'a tag character, soft hyphen or ALM survived');
 });
 
 test('round 2: a member that is not running is still this member, so its folder IS read', () => {
   const stopped = Object.assign({}, DESCRIBED.agents[0], { present: false, tied: false });
   const view = v.overviewOf(Object.assign({}, DESCRIBED, { agents: [stopped] }), ROSTER, opts({ goal: null, done: null, found: true }));
   assert.equal(view.members[0].summary.state, 'current', 'a stopped member\'s folder was not read');
+});
+
+test('round 3: legitimate text keeps its joiners and flags; a folder prints exactly', () => {
+  const fam = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+  const scot = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}';
+  const fa = '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645';
+  const folder = '/Users/x/My  Projects/' + fam + ' ';
+  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: fam + ' ' + scot + ' ' + fa, folder });
+  const text = v.renderShow({ project: view }).join('\n');
+  assert.ok(text.includes(fam), 'a family emoji was split');
+  assert.ok(text.includes(scot), 'a flag sequence was flattened');
+  assert.ok(text.includes(fa), 'a Persian spelling lost its non-joiner');
+  assert.ok(text.includes('Folder: ' + folder), 'the folder was tidied into a different path');
+  const bad = Object.assign({}, view, { folder: '/Users/x/a\u202Eb\nc' });
+  assert.match(v.renderShow({ project: bad }).join('\n'), /^Folder: \/Users\/x\/a\?b\?c$/m, 'a bidi override or line break in a path is not shown as ?');
+});
+
+test('round 3: a symlinked agent folder is "unreadable", and older real summaries are found past newer non-files', () => {
+  const real = agentFolder('real3', [['2026-09-29-10.md', 30]]);
+  const link = path.join(DIR, 'link3');
+  fs.symlinkSync(real, link);
+  assert.equal(v.summaryFreshness(link, NOW).state, 'unreadable');
+  const f = agentFolder('crowded', [['2026-09-01-01.md', 60]]);
+  for (let h = 0; h < 25; h += 1) fs.mkdirSync(path.join(f, 'summaries', '2026-09-29-' + String(h % 24).padStart(2, '0') + (h >= 24 ? 'x' : '') + '.md'.replace('.md', '') + '.md'), { recursive: true });
+  const got = v.summaryFreshness(f, NOW);
+  assert.equal(got.file, 'summaries/2026-09-01-01.md', 'newer-named folders hid the only real summary: ' + JSON.stringify(got));
 });

@@ -48,6 +48,7 @@ function withStub(fn) {
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
       seen.push({ method: req.method, url: req.url, agent: req.headers['x-kosmos-agent-token'] });
+      if (req.url === '/api/project/shape/overview') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); return; }
       if (req.url === '/api/project/html/overview') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>Bad gateway</html>'); return; }
       const [status, body] = req.url === '/api/projects/overview' ? [200, LIST]
         : req.url === '/api/project/ff/overview' ? [200, SHOW]
@@ -130,4 +131,10 @@ test('#4581 round 1: an answer that is not JSON is not a success (exit 1), never
   assert.equal(out.code, 1, out.stdout);
   assert.match(out.stdout, /could not read/);
   assert.doesNotMatch(out.stdout, /Bad gateway/);
+}));
+
+test('#4581 round 3: valid JSON of the wrong shape is unreadable too (exit 1), never an empty answer', () => withStub(async (env) => {
+  const out = await runCli(['project', 'show', 'shape'], env);
+  assert.equal(out.code, 1, out.stdout);
+  assert.match(out.stdout, /could not read/);
 }));
