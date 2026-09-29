@@ -280,7 +280,7 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
 /* The kill-or-keep decision after a launch, driven with the real _await_board_up and stubbed readings: healthy()
    reports "unreachable" with the launched pid as the listener, and _shell_is_sandboxed says what the arm needs. The
    "board" is a real sleep process, so a kill is a real kill. */
-function awaitWith(sandboxed, passPid, ours = false, reclaim = false, killFails = false) {
+function awaitWith(sandboxed, passPid, ours = false, reclaim = false, killFails = false, freshOther = false) {
   const script = `
 set -euo pipefail
 source "${CLI}"
@@ -288,6 +288,7 @@ sleep 30 & SP=$!
 trap 'builtin kill "$SP" 2>/dev/null || true' EXIT   # the stand-in board never outlives this script (builtin: an arm stubs kill)
 healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
 _shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
+_ipv4_listener() { builtin kill -0 "$SP" 2>/dev/null && printf '%s node' "${freshOther ? '99999' : '$SP'}"; }   # the stand-in listens while it lives
 _unreachable_is_ours() { return ${ours ? 0 : 1}; }
 ${reclaim ? 'export KOSMOS_RECLAIM_BUSY=1' : ''}
 ${killFails ? 'kill() { case "$1" in -0) builtin kill "$@" ;; *) return 0 ;; esac; }   # signals do nothing' : ''}
@@ -308,6 +309,10 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   const stop = await awaitWith(true, true);
   assert.match(stop, /so it was stopped again/, stop);
   assert.match(stop, /board=gone rc=1 pidfile=removed/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
+  // The fresh reading right before the kill names another pid (the launched one exited, its pid reused): no signal.
+  const moved = await awaitWith(true, true, false, false, false, true);
+  assert.doesNotMatch(moved, /stopped again|could not be stopped/, moved);
+  assert.match(moved, /board=alive/, 'a pid lsof no longer names was signalled: ' + moved);
   // The stop does not take: the board lives, so its pidfile (the only handle on it) must stay.
   const stuck = await awaitWith(true, true, false, false, true);
   assert.match(stuck, /could not be stopped again/, stuck);

@@ -345,12 +345,10 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # (lsof also shows it as *:PORT) really does refuse a 127.0.0.1 connect, so it is not evidence.
 # The board binds 127.0.0.1 by default (engine/bindhost.js); KOSMOS_BIND_HOST=0.0.0.0 is *:PORT, also IPv4.
 # A dual-stack or IPv6 bind (KOSMOS_BIND_HOST=::) is not seen here, and keeps the old "down" reading.
-# The re-probe makes one refused probe with a listener cost more than its budget (lsof, 0.5 s, a second probe
-# and its own lsof, where -S 2 bounds each stalled kernel call, not the whole lsof run); a refused probe with no
-# listener costs one lsof.
-# Before calling it unreachable, the probe runs ONCE more after half a second: a board that started
-# listening between curl's refusal and lsof (a boot in progress) then answers, instead of a start or
-# restart dying on a moment's race.
+# Before calling it unreachable, the probe runs ONCE more after half a second, so a board that started
+# listening between curl's refusal and lsof (a boot in progress) answers instead of a start or restart dying on
+# a moment's race. Cost: a refused probe with no listener, one lsof; with a listener, lsof, 0.5 s, a second
+# probe and its own lsof (-S 2 bounds each stalled kernel call, not the whole lsof run).
 _UNREACH_CMD=""
 _UNREACH_PID=""
 _HEALTH_REPROBE=""
@@ -506,7 +504,10 @@ _unreachable_is_ours() {
   local _rec
   _rec="$(cat "$PIDFILE" 2>/dev/null)" || return 1
   [ -n "$_rec" ] && [ -n "$_UNREACH_PID" ] && [ "$_rec" = "$_UNREACH_PID" ] || return 1
-  case "$_UNREACH_CMD" in node*) return 0 ;; *) return 1 ;; esac   # a reused pid that is not node is not ours
+  case "$_UNREACH_CMD" in node*) ;; *) return 1 ;; esac   # a reused pid that is not node is not ours
+  # Where ps runs (an ordinary shell, a network fault), running_pid's check of the app's own path must agree too.
+  if /bin/ps -p "$$" >/dev/null 2>&1; then [ "$(running_pid 2>/dev/null)" = "$_rec" ] || return 1; fi
+  return 0
 }
 # "Kosmos is running" only when the listener is the process this install recorded in board.pid (board-run writes
 # it; read here without ps, which such a sandbox denies); otherwise what we know: something (its name) is listening.
@@ -1039,7 +1040,13 @@ _await_board_up() {
         return 0
       fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
-        local _k
+        local _k _fresh
+        # A fresh reading right before the first signal: the sandbox check above took 0.2 s, in which the launched
+        # process could have exited and its pid been reused. Only a live pid that lsof still names is signalled.
+        _fresh="$(_ipv4_listener)" || _fresh=""
+        if ! kill -0 "$_pid" 2>/dev/null || [ "${_fresh%% *}" != "$_pid" ]; then
+          _unreach_seen=0; sleep 0.5; continue
+        fi
         kill "$_pid" 2>/dev/null || true
         for _k in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.3; done
         if kill -0 "$_pid" 2>/dev/null; then kill -9 "$_pid" 2>/dev/null || true; fi
