@@ -7084,8 +7084,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the mirror wraps a word onto a line the textarea has not (the caret then sits where the textarea's text
    is, not where the visible text is). Two properties differed: letter-spacing (a form control does not
    inherit the body's -0.006em, the mirror did, so its words were narrower and fitted more on a line) and
-   word-break (break-word on the mirror only). The mirror now takes the textarea's own values; the textarea
-   is listed too only to pin them there (a form control already resets these). */
+   word-break (break-word on the mirror only). The mirror now takes the textarea's own values, and the
+   textarea is listed too so no later rule can move one without the other (a form control already resets
+   these, so today it changes nothing on the textarea). */
 #pj-post, #pj-post-mirror .pj-mirror-in { letter-spacing: normal; word-spacing: normal; word-break: normal; }
 .pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
@@ -57194,10 +57195,9 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
   if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 });
 window.addEventListener('resize', pjMentionPaint);
-/* #4585 review: the composer's width also changes with no window resize (the layout switch, a panel, a
-   page scrollbar arriving): the textarea rewraps at once, so the mirror must too. */
-/* It also fires on a keystroke's grow, which pjGrowComposer has already painted: a second paint is the same
-   paint (a skip on "size unchanged" was tried and could leave the mirror disengaged after a hide). */
+/* #4585: the composer's width also changes with no window resize (the layout switch, a panel, a page
+   scrollbar arriving); the textarea rewraps at once, so the mirror must too. It also fires on a keystroke's
+   grow, already painted by pjGrowComposer; painting again is the same paint. */
 if (typeof ResizeObserver === 'function') new ResizeObserver(() => pjMentionPaint()).observe(document.getElementById('pj-post'));
 
 /* ---- #2254: the emoji picker ------------------------------------------------
