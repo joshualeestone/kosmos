@@ -52,3 +52,10 @@ first thing it reads and names the exact mistake, which is what is in our contro
 - ACCEPTED: a pointer appended to a file with no working rules stays at the end if rules arrive later (replaced in
   place, never moved); the comment now says so. ACCEPTED: the pointer adds about 450 bytes, so an instructions file
   already at the size cap is refused whole (reported as could-not, visible), same as any other managed block.
+
+## Review iteration 3 (converged: nothing new at BLOCKER or WARNING)
+- Precise claim: the POINTER is written in the file's line ending; the Files block spliced just before it by applyTo
+  is always LF (pre-existing, projects.spliceBlock), so a CRLF file comes out mixed. A model reads both the same.
+- ACCEPTED NITs: the line ending is read from the whole file, so an LF file with a pasted CRLF line rewrites the
+  pointer once in CRLF (one write, no loop); a copy of the heading inside a code fence above the real rules would
+  draw the pointer into the fence (an unusual file, little harm). create.js comment corrected.
