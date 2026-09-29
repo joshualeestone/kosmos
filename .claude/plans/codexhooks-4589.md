@@ -37,23 +37,24 @@ test-support/codex-screens/.
   Never `--dangerously-bypass-hook-trust` (3b).
 - The weekly-limit line Codex shows is left to the #4588 class.
 
-## Residuals (named, not closed)
-- A capture that comes back blank (Codex has not drawn anything yet) falls back to the snapshot, which at
-  startup is usually not the dialog, so the message is typed. Typing into a Codex pane that has not drawn is
-  unsafe for reasons wider than this dialog; refusing every blank Codex screen would widen this change past
-  the card. The race is also narrow in practice: the first message follows the person seeing the agent on the
-  board and typing. What would change this: a report of a first message lost to a blank-screen send.
-- The dialog is matched to 0.149.1's footers; a later Codex that draws below them reads as no dialog.
-- No answer buttons are drawn for either screen (measured: chat.questionIn returns null on both fixtures), so
-  the refusal never meets a button the page offered.
+## Residuals (current, after three separate reviews)
+- The dialog can draw in the gap between the one fresh read and the paste (a few chunks). Not closable without a
+  read-after-paste that cannot un-type anything.
+- A Codex launched through `node` (not the native binary Kosmos installs) reads as Claude until its runner tag lands.
+- A future Codex that rewords either footer is not recognised.
+- "Codex always draws its composer or a dialog, so a blank read is transient" is reasoned, not measured: a blank or
+  failed read refuses and the sender is told to send again; the outbox retries COULD_NOT, the sweeps retry next tick,
+  and one-shot lines (membership, task heard, room fan-out) report it to the sender, as the Claude trust refusal does.
+- Under dry-run the rule is skipped (nothing is typed anyway, and the dry-run answer is the true one).
 
 ## Weakest premise
 That the person re-sending is acceptable as "the held message arrives whole". The words are kept, visible and
 one press away; they are not sent by themselves.
 
 ## Tests
-engine/chat.codex-hooks-4589.test.js (9). On main's engine, the same delivery to either real screen reports
-"placed" with Enter typed and the card reads "unknown" (control script, measured).
+engine/chat.codex-hooks-4589.test.js (14): both real screens, wrapped at 50/30/20 columns, blank and failed reads,
+Stop now's keys, an untagged native pane, option digits 2/3/t, the stale-snapshot and prompt controls. On main's engine
+the same delivery to either real screen reports "placed" with Enter typed (control script, measured).
 
 ## Blind review round 1 (a separate reviewer agent, 2026-09-29 13:21) and what changed
 Earlier "rounds" on this branch were the loop reviewing its own work; this is the first separate reviewer.
@@ -77,3 +78,9 @@ Kept, with the reason: a blank screen still refuses. Codex always draws its comp
 transient redraw or startup; the sender is told to send again, and the next read decides (not a permanent trap).
 Residuals, stated: the dialog can draw in the gap between the read and the paste; a Codex launched through `node`
 reads as Claude until its tag lands; a future Codex that rewords the footers is not recognised.
+
+## Blind review round 3 (Opus, a separate reviewer, 2026-09-29 13:37) and what changed
+No blocker, no false refusal of a healthy agent found; confirmed every sender goes through the rule and COULD_NOT
+callers retry. Changed: the Codex check now runs after the free paused-swarm check; it is skipped under dry-run; the
+command fallback applies only to an UNTAGGED pane (a pane tagged claude or gemini keeps its tag); stale comments fixed;
+this plan's residuals rewritten to match the code.

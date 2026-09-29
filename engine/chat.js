@@ -1206,7 +1206,9 @@ const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\
  * `node` reads as Claude until its runner tag lands (status.js takes the command only for a native `codex`).
  */
 function codexScreenRefusal(card, sessionName, roster) {
-  if (!card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
+  /* Under dry-run nothing is typed anywhere, and the dry-run answer is the true one (round 3: demo boards read
+     "we could not see its screen" for every Codex agent). */
+  if (DRY_RUN || !card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
   const view = viewport(sessionName, roster);
   if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
   if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;
@@ -1253,18 +1255,6 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       at, paneState: null, paneNote: null,
     };
   }
-  /* #4589: NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
-     it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
-     table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here.
-     A FRESH read for a Codex agent, because the dialog draws at startup, exactly when the first message
-     arrives, and the roster snapshot predates it. The snapshot counts only when that read fails. Nothing
-     is typed while the dialog is up, not even an option number: this function cannot tell the person from
-     another agent, a task line or a room post, and trusting hooks lets them run outside the sandbox, so
-     the choice is made in the agent's terminal. A channel-reached (Windows) agent has no tmux pane. */
-  {
-    const codex = codexScreenRefusal(allowed.card, sessionName, roster);
-    if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
-  }
   /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
      tasks, the sweeps), so this is the one place that makes "paused" true. Only the
      commands that look after an agent without setting it to work go in
@@ -1278,6 +1268,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
+  }
+  /* #4589 (after the paused-swarm check, round 3: that check is free and its sentence is the true one): NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
+     it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
+     table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here.
+     A FRESH read for a Codex agent, because the dialog draws at startup, exactly when the first message
+     arrives, and the roster snapshot predates it. A read that fails, or shows a blank screen, refuses too
+     (codexScreenRefusal). Nothing is typed while the dialog is up, not even an option number: this function cannot tell the person from
+     another agent, a task line or a room post, and trusting hooks lets them run outside the sandbox, so
+     the choice is made in the agent's terminal. A channel-reached (Windows) agent has no tmux pane. */
+  {
+    const codex = codexScreenRefusal(allowed.card, sessionName, roster);
+    if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
   }
 
   /**

@@ -3734,7 +3734,7 @@ function classify(pane, paneText) {
     }
     /* #4589: the hook-review dialog first, so the card names it rather than "asking you something" (the
        menu also matches the generic markers) or "unknown" (the table matches nothing: no composer, no
-       numbered option). Its evidence is what the delivery floor keys on. */
+       numbered option). The delivery floor reads the screen fresh (chat.js codexScreenRefusal); this evidence is what the card shows. */
     const hooks = codexHookReview(paneText);
     if (hooks) {
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
@@ -7633,10 +7633,11 @@ function snapshot() {
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
          'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
-         the supervisor's record, never an inference from the command. */
+         the supervisor's record; only an UNTAGGED pane is inferred from its command (agy, grok, native codex). */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      // #4589 round 2: and a native codex pane is codex before its tag lands (the startup window the hook dialog lives in).
-      runner: (pane.runner === 'codex' || isCodexCommand(pane.command)) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      // #4589 round 2: and an UNTAGGED native codex pane is codex (the startup window the hook dialog lives in); a pane
+      // whose tag says otherwise keeps its tag (round 3).
+      runner: (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
