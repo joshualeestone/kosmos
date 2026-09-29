@@ -181,3 +181,19 @@ test('#4569 fix 4: a working report\'s queue count ({ n, yours }) goes through t
     } finally { sendertoken.revoke(WHO); }
   });
 });
+
+test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a working one does not', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    try {
+      const at = new Date().toISOString();
+      const wrote = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'idle', auto: true, final: { text: 'All done.', startedAt: at } } });
+      assert.equal(wrote.json.recorded, true, wrote.text);
+      const back = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+      assert.deepEqual(back.json.report.final, { text: 'All done.', startedAt: at }, 'the route dropped the answer: ' + back.text);
+      await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, final: { text: 'x', startedAt: at } } });
+      assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, null);
+    } finally { sendertoken.revoke(WHO); }
+  });
+});
