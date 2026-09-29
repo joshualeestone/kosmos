@@ -25,7 +25,7 @@ test('the lede states the consequence, not that the file is stable (#198)', () =
      restarting does not rewrite your file. "The only thing that survives a
      restart" is about CONSEQUENCE, and it is the half that tells somebody why
      anything belongs in the field. */
-  const painter = page.lift(SCRIPT, 'openDetail');
+  const painter = page.lift(SCRIPT, 'openDetail') + '\n' + page.lift(SCRIPT, 'paintInstrLede');   // #4421: the lede is one function, painted at open and after a rename
   assert.match(painter, /the only thing that survives a restart/,
     'the lede no longer says what survives, which is the reason to put anything in that field');
   assert.ok(!/a restart does not change what it says/.test(PAGE),
@@ -38,7 +38,7 @@ test('the lede states the consequence, not that the file is stable (#198)', () =
 });
 
 test('the lede names the agent, and does not render a hole when it cannot', () => {
-  const painter = page.lift(SCRIPT, 'openDetail');
+  const painter = page.lift(SCRIPT, 'openDetail') + '\n' + page.lift(SCRIPT, 'paintInstrLede');   // #4421: the lede is one function, painted at open and after a rename
   assert.match(painter, /'What ' \+ who \+ ' is for'/, 'the lede stopped naming the agent');
   /* A missing name is a state this panel can be in for a tick. "What  is for"
      reads as broken; the generic reads as generic. */
@@ -103,7 +103,8 @@ test('the reports-to control says what the line does, and the save line is read 
      there, replacing the old passive "takes effect when it next starts" sentence;
      stopped + told still says nothing beyond Saved (it reads the file at start);
      could_not carries the engine's sentence. */
-  const handler = SCRIPT.slice(SCRIPT.indexOf("document.getElementById('d-save').addEventListener"), SCRIPT.indexOf("document.getElementById('d-save').addEventListener") + 6000);
+  // 9000, not 6000: #4421 added the edited-name gate to this handler and pushed its reports block past 6000 characters.
+  const handler = SCRIPT.slice(SCRIPT.indexOf("document.getElementById('d-save').addEventListener"), SCRIPT.indexOf("document.getElementById('d-save').addEventListener") + 9000);
   assert.match(handler, /const rep = saved && saved\.reports;/, 'the save line no longer reads the route verdict');
   assert.match(handler, /rep\.state === 'told'[\s\S]{0,600}popRestartAfterSave/, '#2829: told + running no longer pops the restart modal');
   assert.match(handler, /rep\.state === 'told'[\s\S]{0,600}if \(running\) popRestartAfterSave/, 'told is not gated on running, so a stopped agent would be popped a restart modal it does not need');
