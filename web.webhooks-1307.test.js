@@ -107,10 +107,12 @@ test('#4419: the revealed row shows the internet link with its own Copy when the
   assert.ok(box.innerHTML.includes('id="pjs-hook-public"'), 'no internet link field');
   assert.ok(box.innerHTML.includes('data-hook-copy="pjs-hook-public"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'), 'each link has its own Copy');
   assert.ok(!box.innerHTML.includes('"><b>') && box.innerHTML.includes('&quot;&gt;&lt;b&gt;'), 'the internet link is escaped');
+  assert.ok(box.innerHTML.includes('Done, I have copied them'), 'two links, so Done says them');
   PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET', publicUrl: null, publicWhy: 'This link works for programs on this computer for now.' };
   pjsHooksPaint();
   assert.ok(!box.innerHTML.includes('id="pjs-hook-public"'), 'an internet link field with nothing to show');
   assert.ok(box.innerHTML.includes('works for programs on this computer for now'), 'the reason is not said');
+  assert.ok(box.innerHTML.includes('Done, I have copied it<'), 'CONTROL: one link, so Done says it');
   // CONTROL: the local link and its Copy are there either way.
   assert.ok(box.innerHTML.includes('id="pjs-hook-url"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'));
 });
@@ -133,6 +135,18 @@ test('#4419: each Copy copies its own link and says which one it copied', async 
   await pjsHookCopy('pjs-hook-url');
   assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL');
   assert.equal(fields['pjs-hook-copied'].textContent, 'Copied.');
+});
+
+test('#4419: when copying fails, it says which link to select by hand', async () => {
+  const fields = { 'pjs-hook-url': { value: 'L', select() {} }, 'pjs-hook-public': { value: 'N', select() {} }, 'pjs-hook-copied': { textContent: '' } };
+  const document = { getElementById: (id) => fields[id] || null, execCommand: () => false };
+  const navigator = { clipboard: { writeText: async () => { throw new Error('denied'); } } };
+  // eslint-disable-next-line no-new-func
+  const pjsHookCopy = new Function('document', 'navigator', fnSource('pjsHookCopy') + 'return pjsHookCopy;')(document, navigator);
+  await pjsHookCopy('pjs-hook-public');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Kosmos could not copy it. Select the internet link and copy it yourself.');
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Kosmos could not copy it. Select the link and copy it yourself.', 'CONTROL: the local link has its own sentence');
 });
 
 test('#4419: a repaint keeps focus on whichever link had it, the internet one included', () => {

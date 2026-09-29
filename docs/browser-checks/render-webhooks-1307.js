@@ -213,8 +213,7 @@ function chk(ok, label, extra) {
         try {
           // Restored as soon as the make answers, so the stub covers that one call and no poll after it.
           const made = page.waitForResponse((r) => r.url().split('?')[0].endsWith('/webhooks') && r.request().method() === 'POST', { timeout: 8000 });
-          await page.click('#pjs-hook-add');
-          await made;
+          await Promise.all([made, page.click('#pjs-hook-add')]);
         } finally { Object.assign(remote, real); }
         await page.waitForSelector('#pjs-hook-public', { timeout: 8000 });
         const both = await page.evaluate(() => {

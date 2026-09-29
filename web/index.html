@@ -51163,7 +51163,7 @@ function pjsHooksPaint() {
           : (PJS_HOOKS.reveal.publicWhy ? '<p class="fhint" style="margin:8px 0 0;">' + esc(PJS_HOOKS.reveal.publicWhy) + '</p>' : ''))
         + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
-        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
+        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + '</button></div>'
       : '';
     const confirm = PJS_HOOKS.confirm === h.id
       ? '<div class="pjs-hook-confirm"><span id="pjs-hook-confirm-' + id + '">Delete ' + esc(h.name) + '? Anything using its link stops working.</span> '

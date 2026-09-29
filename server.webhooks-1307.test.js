@@ -201,8 +201,8 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
       ['connecting', await make({ state: 'connecting', address: null, because: 'x' }), /still connecting/],
       ['restarting', await make({ state: 'restarting', address: null, because: 'x' }), /still connecting/],
       ['on but not started', await make({ state: 'off', address: null, because: 'the board has not started the tunnel' }), /not connected right now/],
-      ['an older connector', await make({ ...UP, admitsHooks: false }), /does not take webhooks from the internet yet/],
-      ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet yet/],
+      ['an older connector', await make({ ...UP, admitsHooks: false }), /does not take webhooks from the internet\./],
+      ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet\./],
       ['an address with a path', await make({ ...UP, address: 'hers.kosmosplus.com/evil?' }), /could not read this computer's internet address/],
       ['an IP literal', await make({ ...UP, address: '1.2.3.4' }), /could not read this computer's internet address/],
       ['a valid host that is not this computer\'s name', await make({ ...UP, address: 'someone-else.example.com' }), /name changed since it connected/],
@@ -210,7 +210,7 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
     for (const [label, r, why] of cases) {
       assert.equal(r.publicUrl, null, label + ': no internet link');
       assert.match(r.publicWhy, why, label + ': the reason matches the cause');
-      assert.doesNotMatch(r.publicWhy, /update/i, label + ': no promise of an update nothing can check');
+      assert.doesNotMatch(r.publicWhy, /update|yet|reconnect/i, label + ': no promise nothing can check');
       // CONTROL: the local link is there in every case.
       assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/, label);
     }
