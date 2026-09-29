@@ -16,8 +16,9 @@
  *   CHANGE      picking an industry PUTs exactly { industry: <key> } once and paints the answer.
  *   CLEAR       picking None PUTs { industry: null }.
  *   CHANGE-FAIL a refused save says so in the picker's own line and reads the board again.
- *   PENDING     a second choice made while the first save is out is saved after it (arrow keys on a closed select
- *               fire a change per step; the step the person stops on is the one they meant).
+ *   PENDING     a second choice made while the first save is out is saved after it, never alongside it, and the
+ *               board ends up storing it (arrow keys on a closed select fire a change per step).
+ *   FAIL-BOTH   a refused save stays said when the re-read after it fails too.
  * DEFAULT is also the control for the others: it proves the picker is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -131,6 +132,8 @@ async function run() {
         check(name + ': every industry is still offered (the list comes with the answer)', u.options.filter((o) => !o.disabled && o.value && o.value !== '__unknown').length === 16, String(u.options.length));
       }
       check(name + ': the picker\'s line says so', /could not read which business/.test(u.msg), JSON.stringify(u.msg));
+      // With the list (a readable board answer) any choice sets it again; without it (a 403 on first load) only None.
+      check(name + ': the line offers only what is offered', name === 'UNREADABLE' ? /Pick one, or None/.test(u.msg) : /still pick None/.test(u.msg), JSON.stringify(u.msg));
       await pu.close();
     }
 
@@ -152,7 +155,7 @@ async function run() {
     await p4.waitForTimeout(500);
     const cl = await readPicker(p4);
     check('CLEAR: None PUTs { industry: null }', puts.length === 2 && JSON.stringify(puts[1]) === '{"industry":null}', JSON.stringify(puts));
-    check('CLEAR: it reads None and says profiles leave it out', cl.value === '' && /leave it out/.test(cl.msg), JSON.stringify([cl.value, cl.msg]));
+    check('CLEAR: it reads None and says it comes off the profiles even with Community off', cl.value === '' && /comes off your agents. public profiles within a few minutes, even with Community off/.test(cl.msg), JSON.stringify([cl.value, cl.msg]));
     await p4.close();
 
     // CHANGE-FAIL: a refused save says so and reads the board again.
@@ -176,12 +179,16 @@ async function run() {
     const p6 = await page();
     const order = [];
     let cur6 = null;
+    let inFlight = 0;
+    let maxInFlight = 0;
     await p6.route(ROUTE, async (route) => {
       if (route.request().method() === 'PUT') {
         const b = JSON.parse(route.request().postData() || '{}');
         order.push(b.industry);
+        inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
         if (order.length === 1) await new Promise((res) => setTimeout(res, 800));
-        cur6 = b.industry;
+        cur6 = b.industry;                              // what the board STORED, in the order saves finished
+        inFlight--;
       }
       return answer(body(cur6))(route);
     });
@@ -195,7 +202,24 @@ async function run() {
     const pe = await readPicker(p6);
     check('PENDING: the choice made during a save is saved after it, last', order.length >= 2 && order[order.length - 1] === 'legal', JSON.stringify(order));
     check('PENDING: the picker ends on the last choice', pe.value === 'legal', JSON.stringify(pe.value));
+    check('PENDING: the board ends up STORING the last choice (no slow first save lands after it)', cur6 === 'legal', JSON.stringify(cur6));
+    check('PENDING: saves never overlap', maxInFlight === 1, String(maxInFlight));
     await p6.close();
+
+    // FAIL-BOTH: the save fails and so does the re-read (the board went away): the refusal stays on screen.
+    const p7 = await page();
+    let broken = false;
+    await p7.route(ROUTE, (route) => {
+      if (!broken) return answer(body('legal'))(route);
+      return route.request().method() === 'PUT' ? answer({ error: 'we could not save that setting' }, 500)(route) : answer({ error: 'no' }, 403)(route);
+    });
+    await openAutomation(p7);
+    broken = true;
+    await p7.selectOption('#community-industry', 'software');
+    await p7.waitForTimeout(700);
+    const fb = await readPicker(p7);
+    check('FAIL-BOTH: a failed save stays said when the re-read fails too', /could not save/.test(fb.msg), JSON.stringify(fb.msg));
+    await p7.close();
   } finally {
     await browser.close();
   }

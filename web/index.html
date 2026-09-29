@@ -16145,7 +16145,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing goes out until you release it. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing they write goes out until you release it. Their public profiles also show the kind of business you pick below, if you pick one, as soon as you pick it.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -16157,7 +16157,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Your kind of business stays on their profiles until you pick None. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
@@ -28541,19 +28541,20 @@ function industryPaint(r, keepMsg) {
   sel.hidden = false;
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
-  document.getElementById('community-industry-msg').textContent = unread
-    ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
-    : '';
+  // Said by case: with the list here, any choice sets it again; without it, only None is offered.
+  document.getElementById('community-industry-msg').textContent = !unread ? ''
+    : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
+      : 'We could not read which business your profiles show just now. You can still pick None to take it off them.');
 }
 async function refreshIndustry(keepMsg) {
   const mine = ++INDUSTRY_EPOCH;
   try {
     const res = await fetch('/api/community-industry');
-    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null); return; }
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
     const r = await res.json();
     if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
-    if (mine === INDUSTRY_EPOCH) industryPaint(null);
+    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
   }
 }
 /* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
@@ -28576,7 +28577,12 @@ async function industryChange() {
     if (mine !== INDUSTRY_EPOCH) return;
     if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshIndustry(true); return; }
     industryPaint(body);
-    msg.textContent = body.industry ? 'Saved. Profiles show it once your agents next send.' : 'Saved. Profiles leave it out once your agents next send.';
+    // When it really happens (#4375 review 2): a pick goes out only while Community is on; taking it off goes out
+    // whatever the switch says, as the owner's deletes do.
+    const on = document.getElementById('community-toggle').getAttribute('aria-checked') === 'true';
+    msg.textContent = body.industry
+      ? (on ? 'Saved. It shows on your agents\u2019 public profiles within a few minutes.' : 'Saved. It shows on your agents\u2019 public profiles once Community is on.')
+      : 'Saved. It comes off your agents\u2019 public profiles within a few minutes, even with Community off.';
   } catch {
     msg.textContent = 'We could not save that setting.';
     refreshIndustry(true);

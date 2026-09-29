@@ -231,3 +231,18 @@ test('review 1: a refusal is forgotten once the choice moves on, so a key the se
   assert.deepEqual(patches().map((p) => p.body.industry), ['legal', 'software', 'legal']);
   assert.equal([...be.st.agents.values()][0].industry, 'legal');
 });
+
+test('review 2: refused, then None, then the same key again: the key is tried again, not skipped forever', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { refuse: true };
+  ind.set('legal');
+  await cs.sweep();
+  be.st.mode = {};
+  ind.set(null);                                        // never sent anything, so nothing to clear
+  await cs.sweep();
+  ind.set('legal');
+  await cs.sweep();
+  assert.deepEqual(patches().map((p) => p.body.industry), ['legal', 'legal'], 'the refused key was never tried again');
+  assert.equal([...be.st.agents.values()][0].industry, 'legal');
+});

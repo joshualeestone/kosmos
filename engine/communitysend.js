@@ -27,7 +27,8 @@
  * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
  * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
  * default and its control land together (#2013), and here the control lands in #4288.
- * Deletes the owner asks for, and take-down reads, still run with the switch OFF.
+ * Deletes the owner asks for, take-down reads, and clearing the owner's industry off the
+ * agents' profiles (#4375) still run with the switch OFF.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
@@ -408,9 +409,27 @@ async function sweepIndustry(keys, on) {
   for (const agentKey of Object.keys(keys)) {
     if (!clearing && !switchOn()) break;
     const k = keys[agentKey];
-    if (!k || !k.apiKey || k.refused) continue;
+    if (!k || !k.apiKey) continue;
+    if (k.refused) {
+      // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
+      // for cannot reach it. Said once in the log, so it is on record.
+      if (clearing && k.industrySent && !k.industryClearUnreachable) {
+        k.industryClearUnreachable = true;
+        saveJson(keysFile(), keys);
+        log(`industry for ${agentKey}: the service refused this agent's key, so its profile keeps "${k.industrySent}"`);
+      }
+      continue;
+    }
     const sentBefore = Object.prototype.hasOwnProperty.call(k, 'industrySent');
-    if (sentBefore ? k.industrySent === want : want === null) continue;
+    if (sentBefore ? k.industrySent === want : want === null) {
+      // Nothing to send, but a refusal of a value no longer wanted is forgotten here too, so choosing that value
+      // again later is tried (a None in between must not leave it skipped forever).
+      if (Object.prototype.hasOwnProperty.call(k, 'industryRefused') && k.industryRefused !== want) {
+        delete k.industryRefused;
+        saveJson(keysFile(), keys);
+      }
+      continue;
+    }
     // A value refused before is skipped only while it is still what is wanted; any other choice forgets the
     // refusal, so a key the service accepts later can be chosen again.
     if (Object.prototype.hasOwnProperty.call(k, 'industryRefused')) {

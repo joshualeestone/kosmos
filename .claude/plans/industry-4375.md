@@ -13,9 +13,10 @@ landed in #4370 and is live in v0.2.0: PATCH /agents/me { industry }, a key from
   and word for word, baked in.
 - GET/PUT /api/community-industry: GET gives { industry, ok, industries } so the page draws exactly the keys the board
   accepts; PUT { industry: <key>|null }, anything else 400 with nothing written.
-- engine/communitysend: after the take-down reads, while the switch is ON, each registered agent (apiKey, not
-  refused) is PATCHed when what it was last sent (`industrySent` on its key) differs: a key when set, null ONCE when a
-  set industry is cleared, nothing for an agent never sent one while none is set. UNKNOWN sends nothing (never a null
+- engine/communitysend: after the take-down reads, each registered agent (apiKey, not refused) is PATCHed when what
+  it was last sent (`industrySent` on its key) differs: a key when set, ONLY while the switch is ON; null ONCE when a
+  set industry is cleared, WHATEVER the switch says (review 1: taking it back is like a delete); nothing for an agent
+  never sent one while none is set. UNKNOWN sends nothing (never a null
   that would wipe the profile). A 400/422 is recorded (`industryRefused`) and not sent again until the value changes.
   An agent registered later (registration happens with its first post) is sent it on the next sweep.
 - The page: a labelled select under the switch ("Your kind of business, shown on your agents' public profiles"),
@@ -57,3 +58,19 @@ loudly in the send record, but nothing tells the owner in the page.
 
 Control for the new browser arms: the review-1 check run on the pre-fix page (879fa8a0c) reds PENDING (only
 "accounting" saved) and UNREADABLE (2 options offered); on 436a1598f it is 27 PASS, 0 FAIL.
+
+## Review iteration 2 (blind)
+0 BLOCKER, 5 WARNING, all taken:
+- (W) a refused save's message was still replaced when the re-read failed outright (not 200): both failure paths now
+  keep it (browser arm FAIL-BOTH).
+- (W) refused, then None, then the same key: the refusal was never forgotten on the None path, so the key was skipped
+  forever. It is forgotten there too (test; reds when removed).
+- (W) both "Saved." lines were false while Community is OFF. They now say when it happens: a pick shows within a few
+  minutes while Community is on, or "once Community is on"; taking it off happens within minutes even with it off.
+- (W) the could-not-read line said "Pick one" when only None was offered (a 403 on first load): said by case.
+- (W) the PENDING arm could pass on a stale save landing last: it now asserts what the board STORED and that saves
+  never overlap.
+- (C) the OFF note says the business stays on the profiles until None; the switch copy says the business goes out when
+  picked (only what agents WRITE waits for release); the send layer's header names the clear among what runs while OFF.
+  The Call section above states the real rule.
+- (N) a clear that cannot reach an agent whose key the service refused is logged once.
