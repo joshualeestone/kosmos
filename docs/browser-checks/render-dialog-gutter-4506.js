@@ -11,7 +11,7 @@
  *     the tour's dim does (#3737). Measured here by PIXELS: the gutter must match the dimmed page beside it.
  *   - #boot-cover is opaque, so it takes #4494's rule: no gutter and no scroll while it is up.
  *
- * Harness (the one render-layer-gutter-4494 uses, on PR #4512 for #4494): a tiny static server for web/index.html with a minimal board; every machine gets a real 15px
+ * Harness (render-layer-gutter-4494's, #4494): a tiny static server for web/index.html with a minimal board; every machine gets a real 15px
  * scrollbar (a ::-webkit-scrollbar width, --hide-scrollbars dropped, and a page tall enough to scroll). Pixels are
  * read from a screenshot decoded in the page (the render-room-msgbox-2806 pattern). Chromium only.
  * Not covered: the Kosmos+ navy Plus section, where the ground lives on the body and the root cannot read it (#4542).

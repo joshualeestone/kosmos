@@ -111,3 +111,10 @@ Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the 
 - NIT fixed: references to #4494's harness name PR #4512, since that check is not on main yet.
 - NIT duplicate: dialog over the tour double-dims the page (recorded in iteration 1).
 - NIT noted: the branch is behind main; the reason-grep counts get re-measured when main is merged before the PR.
+
+## Main merged again, 09:14 CDT (from date): #4512 (#4494) landed as 7584512d
+- Conflict only in browser-checks-reason-grep.test.js (both branches raised the counts from 205/124). Took main's
+  file and re-measured on the merged tree: 208 -> 211 sites, 126 -> 128 catch sites (+3/+2, this check's own).
+- On the merged tree: render-dialog-gutter-4506 52 passed, render-layer-gutter-4494 13 passed (the two sets of
+  rules do not interfere). The check's header now names render-layer-gutter-4494's harness plainly (it is on main).
+- The #4506 validation run was stopped while still queued (it would have certified the pre-merge base).
