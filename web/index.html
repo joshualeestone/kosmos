@@ -46241,7 +46241,7 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom}], newProjectName, project, started, running, again, watching }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn}], newProjectName, project, started, busy, running, again, watching, watchUntil, paintedSig }
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
 async function openTeamCreate(key) {
@@ -46251,7 +46251,11 @@ async function openTeamCreate(key) {
      left it (Back, closing the sheet, picking a team again). Resetting dropped in-flight answers, failed
      rows with their Try again, and the watcher that sets portraits and project tells. Coming back also
      looks again for members not yet seen running. A different team waits until this one is finished. */
-  if (tcLive()) {
+  /* Round 5: another team waits only while something is actually IN FLIGHT. A team that is unfinished but
+     idle (a member refused every time, or never seen running) is replaced by the new one, or it would
+     trap the page with a false "still making" until a reload. The same team always resumes. */
+  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy));
+  if (tcLive() && (TC.key === key || inFlight)) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
     tcPaint();

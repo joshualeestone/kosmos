@@ -22,7 +22,8 @@
  *    until the board sees it running (then Running), "ready" only when all are, and a member renamed on
  *    Try again says its made teammates still know the old name;
  *  - round 3: Back mid-run steps away and reopening resumes the same rows (nothing made twice, one
- *    project); another team waits while one is unfinished; a step create reports as not done is said
+ *    project); another team waits only while one is in flight, and replaces an idle unfinished one (round
+ *    5: never a false "still making"); a step create reports as not done is said
  *    on its row;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
@@ -279,6 +280,10 @@ function chk(ok, label, extra) {
           slow.Ana = 1500;
           await page.click('#tc-go');
           await settle(page, () => /Making/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          // While a member is in flight, another team waits, and says so.
+          await page.evaluate(() => openTeamCreate('household'));
+          const busy = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent }));
+          chk(/still making/.test(busy.msg) && busy.title === 'Marketing Team', `${E} picking another team while one is IN FLIGHT keeps this one and says why`, JSON.stringify(busy));
           // Back mid-run steps away; the run goes on.
           await page.click('#tc-back');
           const away = await page.evaluate(() => document.getElementById('cstep-team').hidden);
@@ -290,10 +295,13 @@ function chk(ok, label, extra) {
             `${E} Back mid-run steps away, and reopening the team shows the same rows: Leo still with Try again, Ana made meanwhile`, JSON.stringify(back.map((r) => r.state)));
           chk(projects.readAll().length === before + 1 && posted.map((b) => b.name).join() === 'Maya,Leo,Ana',
             `${E} nothing was made twice: one project, each member posted once`, (projects.readAll().length - before) + ' ' + JSON.stringify(posted.map((b) => b.name)));
-          // A different team while this one is live waits, and says so.
+          // Round 5: now nothing is in flight (Leo waits on a Try again the person may never press). Another
+          // team is NOT blocked by a false "still making": it replaces this idle, unfinished one.
+          await page.waitForTimeout(2500);
           await page.evaluate(() => openTeamCreate('household'));
+          await settle(page, () => document.getElementById('tc-title').textContent !== 'Marketing Team');
           const other = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent }));
-          chk(/still making/.test(other.msg) && other.title === 'Marketing Team', `${E} picking another team while one is unfinished keeps this one and says why`, JSON.stringify(other));
+          chk(!/still making/.test(other.msg) && other.title !== 'Marketing Team', `${E} an idle, unfinished team does not trap the page: another team replaces it`, JSON.stringify(other));
           chk(errs.length === 0, `${E} no page errors (resume arm)`, errs.join(' | '));
           await page.close();
         }
