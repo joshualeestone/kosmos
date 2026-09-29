@@ -101,8 +101,8 @@ async function mockGatesUncheckable(page) {
   }
 }
 
-/* #4563: under CI load the overlay can come up after networkidle plus a fixed
-   wait (837ms measured), so a step that acts on it at once (an instant read, an
+/* #4563: under load the overlay can come up after networkidle plus a fixed
+   wait (837ms, measured locally under an 8x CPU throttle), so a step that acts on it at once (an instant read, an
    Escape) races it. Every caller here expects the overlay, so wait for it,
    bounded; a timeout is swallowed and the caller's own assertion then fails. */
 async function waitOverlay(page) {
@@ -512,6 +512,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } }));
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
+    // No waitOverlay here: advanceToAnchor waits for a usable control before it clicks.
     await advanceToAnchor(page, '#fr-you');
     await page.fill('#fr-you-name', 'Josh');      // About you gates Continue
     await page.fill('#fr-you-do', 'Testing');

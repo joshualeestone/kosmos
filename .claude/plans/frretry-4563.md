@@ -53,3 +53,12 @@ validation runs through the queue as the closing gate, before the proof.
   control, so it does not act on the overlay blind. Left.
 - (N) a never-shown overlay now costs up to 10 s per fresh() before its section fails: accepted, a failing run only.
 - (N) the test-install.sh follow-up: posted on #4563 (comment 5892666725).
+
+## Review iteration 3 (blind, opus)
+0 BLOCKER, 1 WARNING:
+- (W) the skipped 6.0 baseline must be made up by a full validation on the FINAL head before the proof: that is the
+  closing gate this plan already names; it runs through the queue on the head the proof hashes.
+- (N, SELF) the 837 ms figure read as a CI measurement: the comment now says it was local, under an 8x throttle.
+- (N) section 9's missing waitOverlay read as an oversight: a one-line comment says why.
+- (N) a 10 s wait per fresh() makes a never-shown overlay slow to fail (section 8 loops): kept at 10 s, since the only
+  case it exists for is a loaded runner, and it costs time only on a run that is already red.
