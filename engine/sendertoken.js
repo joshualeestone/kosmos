@@ -252,14 +252,24 @@ function retire(sessionName, instance) {
  * Tokens with another launcher or none (a remote agent's, an adoption's, anything
  * minted before #4530) are untouched, so this is not the rotation #1000 had: runs from
  * different launchers still coexist and `live()` still shows them.
+ *
+ * `opts.untagged` (#4530, Scorpion with Kano): also drop tokens with NO launcher. Every Mac
+ * run minted before #4530 is untagged (106 on one fleet Mac, 0 tagged), and without this
+ * they stay valid until MAX_LIVE newer runs push them out. The supervisor asks for it only
+ * on its LAUNCH path (no session of that name existed, so those runs have ended) and only
+ * when the -discord twin, which shares this token file, has no session: never when adopting
+ * a live run, whose own pre-#4530 token is untagged. Remote agents' tokens are tagged
+ * `remote` from #4530 on, so this never reaches them.
  */
-function retireLauncher(sessionName, launcher, keepInstance) {
+function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
   if (typeof launcher !== 'string' || !launcher) return { ok: false, because: 'name the launcher whose runs to retire' };
   let held;
   try {
     held = withSessionLock(sessionName, () => {
       const all = readTokens(sessionName);
-      const left = all.filter((t) => t.launcher !== launcher || t.instance === keepInstance);
+      const untagged = !!(opts && opts.untagged);
+      const left = all.filter((t) => t.instance === keepInstance
+        || (t.launcher !== launcher && !(untagged && !t.launcher)));
       if (left.length === all.length) return { ok: true, retired: 0 };
       if (left.length === 0) { const r = revokeUnlocked(sessionName); return r.ok ? { ok: true, retired: all.length } : r; }
       writeTokens(sessionName, left);

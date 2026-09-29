@@ -1015,3 +1015,30 @@ test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async
   assert.equal(sendertoken.live(session).length, minted,
     `${minted} launches reported a token (${busy} refused busy) but the store holds ${sendertoken.live(session).length}: a token was lost`);
 });
+
+test('#4530: retireLauncher with untagged also drops tokens with no launcher, and never another launcher\'s', () => {
+  const board = fleet.install([fleet.agent('sweptold', { state: 'idle' })]);
+  try {
+    const old = sendertoken.mint('sweptold');   // every Mac launch before #4530 minted like this
+    const remote = sendertoken.mint('sweptold', { launcher: 'remote' });
+    const twin = sendertoken.mint('sweptold', { launcher: 'supervisor:sweptold-discord' });
+    const mine = sendertoken.mint('sweptold', { launcher: 'supervisor:sweptold' });
+    assert.deepEqual(sendertoken.retireLauncher('sweptold', 'supervisor:sweptold', mine.instance, { untagged: true }), { ok: true, retired: 1 });
+    assert.equal(sendertoken.resolve(old.token, board.roster).ok, false, 'an untagged (pre-#4530) token survived an untagged sweep');
+    for (const [t, what] of [[remote, 'a remote agent\'s'], [twin, 'the twin\'s'], [mine, 'the kept run\'s']]) {
+      assert.equal(sendertoken.resolve(t.token, board.roster).ok, true, `${what} token was retired`);
+    }
+    // CONTROL: without the option an untagged token is kept, as Kano's arm above says.
+    const old2 = sendertoken.mint('sweptold');
+    assert.deepEqual(sendertoken.retireLauncher('sweptold', 'supervisor:sweptold', mine.instance), { ok: true, retired: 0 });
+    assert.equal(sendertoken.resolve(old2.token, board.roster).ok, true);
+  } finally { board.restore(); }
+});
+
+test('#4530: the remote-agent route mints tagged remote, so a Mac sweep of untagged tokens cannot reach it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/agent-token'");
+  assert.ok(at > 0, 'the /api/agent-token route moved; re-anchor this pin');
+  const route = src.slice(at, src.indexOf('sendJson(res, 200, { issued: true', at));
+  assert.match(route, /sendertoken\.mint\(name, \{ launcher: 'remote' \}\)/, 'remote-agent tokens must be tagged remote');
+});

@@ -15,7 +15,10 @@
  *   EXIT      a run whose session ends is retired by its own supervisor: no live token is left.
  *   ADOPT     a supervisor restarted mid-run adopts the live session, never mints, and still
  *             retires that run's token when the session ends (it reads the session's record).
- *   OTHERS    a token with no launcher (a remote agent's, or one minted before #4530) survives.
+ *   OTHERS    a remote agent's token (tagged `remote`) survives a launch and an exit.
+ *   UNTAGGED  a token minted before #4530 (no launcher) is retired by a LAUNCH, but kept when the
+ *             -discord twin has a session (it shares the token file and may be running on it) and
+ *             when the supervisor ADOPTS a live run (that run's own pre-#4530 token is untagged).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -58,6 +61,8 @@ function fixture(runnerKind = 'claude') {
     '      *) if [ -f "$S/alive" ]; then printf "%s" "$2" > "$S/opt-${1#@}"; else printf "%s" "$2" > "$S/twin-opt-${1#@}"; fi ;; esac; exit 0 ;;',
     /* list-sessions: this agent's session (when alive) plus a -discord twin that always lives. */
     '  list-sessions) fmt="$3";',
+    /* The names alone (#4530's twin check). NOTWIN: the -discord twin has no session. */
+    '    if [ "$fmt" = "#{session_name}" ]; then [ -f "$S/notwin" ] || printf "%s\\n" "$NAME-discord"; [ -f "$S/alive" ] && printf "%s\\n" "$NAME"; exit 0; fi',
     /* The twin is listed FIRST, so a read that takes the first row or matches by prefix gets the twin's run. */
     '    case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME-discord" "\\$2" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME-discord" "abcabcabcabc" ;; esac',
     '    if [ -f "$S/alive" ]; then case "$fmt" in *session_id*) printf "%s\\t%s\\n" "$NAME" "\\$1" ;; *token_instance*) printf "%s\\t%s\\n" "$NAME" "$(cat "$S/opt-kosmos_token_instance" 2>/dev/null)" ;; esac; fi',
@@ -200,10 +205,11 @@ test('#4530 ADOPT: a supervisor restarted mid-run retires the adopted run\'s tok
   } finally { f.cleanup(); }
 });
 
-test('#4530 OTHERS: a relaunch leaves a token with no launcher alone (a remote agent\'s, or one minted before #4530)', async () => {
+test('#4530 OTHERS: a launch and an exit leave a remote agent\'s token alone (tagged remote)', async () => {
   const f = fixture();
   try {
-    const remote = f.store(`(() => { const m = s.mint(${JSON.stringify(NAME)}); return m.token; })()`);
+    f.flag('notwin');   // so the untagged sweep runs, and this proves it spares a tagged remote token
+    const remote = f.store(`(() => { const m = s.mint(${JSON.stringify(NAME)}, { launcher: 'remote' }); return m.token; })()`);
     const one = f.start();
     await f.until(() => f.tokens().length === 1, 'the run to receive its token');
     assert.equal(f.resolves(remote), true, 'launching swept a token it did not mint');
@@ -299,5 +305,60 @@ test('#4530 TWIN, launch race: a run whose session dies at once never stamps its
     assert.equal(f.tokens().length, 1, 'CONTROL: the run did start and receive its token');
     assert.equal(fs.existsSync(path.join(f.root, 'state', 'twin-opt-kosmos_token_instance')), false,
       'the run\'s instance was written onto the -discord twin by a prefix match');
+  } finally { f.cleanup(); }
+});
+
+/* An untagged token: what every Mac launch minted before #4530 (and what adopt.js mints). */
+const mintUntagged = (f) => f.store(`(() => { const m = s.mint(${JSON.stringify(NAME)}); return m.token; })()`);
+/* A past run of the SAME launcher, so an arm can see that the sweep has run before judging what it kept. */
+const mintPastRun = (f) => f.store(`(() => { const m = s.mint(${JSON.stringify(NAME)}, { launcher: 'supervisor:${NAME}' }); return m.token; })()`);
+
+test('#4530 UNTAGGED, launch: a token minted before #4530 is retired by the next launch', async () => {
+  const f = fixture();
+  try {
+    f.flag('notwin');
+    const old = mintUntagged(f);
+    assert.equal(f.resolves(old), true, 'CONTROL: the pre-#4530 token resolves before the launch');
+    const one = f.start();
+    await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    const [t1] = f.tokens();
+    assert.ok(await f.settles(() => !f.resolves(old)), 'a launch left a pre-#4530 (untagged) token valid');
+    assert.equal(f.resolves(t1), true, 'the launch retired its own run\'s token');
+    assert.equal(f.live().length, 1, 'more than the new run\'s token is live after the launch');
+    f.endSession();
+    await f.ends(one);
+  } finally { f.cleanup(); }
+});
+
+test('#4530 UNTAGGED, twin: an untagged token is kept while the -discord twin has a session', async () => {
+  const f = fixture();   // the stand-in lists the twin
+  try {
+    const twinRun = mintUntagged(f);   // may be the twin's live pre-#4530 run: same token file
+    const past = mintPastRun(f);
+    const one = f.start();
+    await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    assert.ok(await f.settles(() => !f.resolves(past)), 'CONTROL: the sweep never ran (a past run of this launcher is still valid)');
+    assert.equal(f.resolves(twinRun), true, 'a launch cut off a token the live -discord twin may be running on');
+    f.endSession();
+    await f.ends(one);
+  } finally { f.cleanup(); }
+});
+
+test('#4530 UNTAGGED, adopt: adopting a live run never retires untagged tokens', async () => {
+  const f = fixture();
+  try {
+    f.flag('notwin');
+    const one = f.start();
+    await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+    await f.until(() => fs.existsSync(path.join(f.root, 'state', 'opt-kosmos_token_instance')), 'the run to be recorded on its session');
+    one.kill('SIGKILL');   // an update restarts the supervisor while the run lives on
+    await f.ends(one);
+    const live = mintUntagged(f);   // stands for a live run's own pre-#4530 token
+    const two = f.start();
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(f.tokens().length, 1, 'CONTROL: the restarted supervisor adopted, it did not launch');
+    assert.equal(f.resolves(live), true, 'adopting a live run retired an untagged token');
+    f.endSession();
+    await f.ends(two);
   } finally { f.cleanup(); }
 });

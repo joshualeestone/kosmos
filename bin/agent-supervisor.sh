@@ -314,15 +314,29 @@ token_store() {
   [ -n "${_eng:-}" ] && [ -n "${NODE_BIN:-}" ] || return 0
   "$NODE_BIN" -e '
     try {
-      const [eng, op, name, instance, applied, session] = process.argv.slice(1);
+      const [eng, op, name, instance, applied, session, untagged] = process.argv.slice(1);
       if (applied !== "1" && process.env.KOSMOS_WORLD) {
         try { require(eng + "/worlds.js").applyAgentWorldEnv(process.env); } catch (e) { /* the default roots, as the mint falls back */ }
       }
       const s = require(eng + "/sendertoken.js");
-      const r = op === "sweep" ? s.retireLauncher(name, "supervisor:" + session, instance) : s.retire(name, instance);
+      const r = op === "sweep" ? s.retireLauncher(name, "supervisor:" + session, instance, { untagged: untagged === "1" }) : s.retire(name, instance);
       if (!r || !r.ok) process.stdout.write((r && r.because) || "failed");
     } catch (e) { process.stdout.write("failed"); }
-  ' "$_eng" "$1" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" "$SESSION" 2>/dev/null || true
+  ' "$_eng" "$1" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" "$SESSION" "${2:-0}" 2>/dev/null || true
+}
+
+# #4530: 0 when this agent's -discord twin (`sam` beside `sam-discord`, or the other way) has no
+# session, by EXACT name, and 1 when it has one OR tmux could not say. The twin shares this
+# agent's token file (token_roster_name strips -discord), so its live run may hold an untagged
+# pre-#4530 token that a sweep of untagged tokens must not touch.
+twin_session_may_live() {
+  _tb="$(token_roster_name)"; _tw=""
+  if [ -n "${KOSMOS_WORLD:-}" ]; then _tw="+$KOSMOS_WORLD"; fi
+  _tt="$_tb$_tw"; [ "$SESSION" = "$_tt" ] && _tt="$_tb-discord$_tw"
+  _tl="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)" || { unset _tb _tw _tt _tl; return 0; }
+  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _tr=$?
+  unset _tb _tw _tt _tl
+  return $_tr
 }
 retire_run_token() {
   [ -n "${RUN_INSTANCE:-}" ] || return 0
@@ -1114,10 +1128,12 @@ if [ -z "$adopt" ] && [ -n "$RUN_INSTANCE" ]; then
   # This run's session exists and is claimed, and a session name is unique, so every
   # other run launched for it has ended: retire their tokens now.
   if [ -n "$_sid" ]; then
-    _why="$(token_store sweep)"
+    # Untagged tokens too (every run minted before #4530), unless the twin may be running on one.
+    _unt=1; if twin_session_may_live; then _unt=0; fi
+    _why="$(token_store sweep "$_unt")"
     [ -n "$_why" ] && say "$SESSION: earlier runs' sender tokens could not be retired ($_why); the next launch tries again"
   fi
-  unset _sid _why
+  unset _sid _why _unt
 elif [ -n "$adopt" ]; then
   RUN_INSTANCE="$("$TMUX_BIN" list-sessions -F '#{session_name}	#{@kosmos_token_instance}' 2>/dev/null \
     | awk -F '\t' -v n="$SESSION" '$1 == n { print $2; exit }')"
