@@ -48,6 +48,16 @@
 
 set -u
 
+launch_secret_name_allowed() {
+  case "${1:-}" in
+    ''|*[!A-Z0-9_]*|[0-9]*) return 1 ;;
+    # These names change shell lookup/startup or native loader behavior. Token doors carry credentials; they never
+    # get to redefine how the provider process starts. Keep this one list shared by collection and the pane entrypoint.
+    PATH|BASH_ENV|ENV|SHELLOPTS|DYLD_*|LD_*) return 2 ;;
+    *) return 0 ;;
+  esac
+}
+
 # #4497/#4507: the same installed script is the tiny pane entrypoint. The
 # supervisor writes launch secrets as NAME=value lines in an owner-only file and
 # puts only this file's path on tmux argv. The child reads and unlinks it before
@@ -58,7 +68,7 @@ if [ "${1:-}" = --pane-entry ]; then
   shift 2
   while IFS= read -r _secret_line || [ -n "$_secret_line" ]; do
     _secret_name="${_secret_line%%=*}"
-    case "$_secret_name" in ''|*[!A-Z0-9_]*|[0-9]*) continue ;; esac
+    launch_secret_name_allowed "$_secret_name" || continue
     export "$_secret_line"
   done < "$_secret_file" 2>/dev/null
   rm -f -- "$_secret_file" 2>/dev/null || true
@@ -404,12 +414,19 @@ if [ -z "$adopt" ]; then
     KOSMOS_AGENT_TOKEN=""
 
   add_launch_secret() {
-    case "${1:-}" in
-      ''|*[!A-Z0-9_]*|[0-9]*)
+    launch_secret_name_allowed "${1:-}"
+    _secret_name_status=$?
+    case "$_secret_name_status" in
+      1)
         say "$SESSION: a launch secret was not handed to the agent (invalid variable name)"
         return 0
         ;;
+      2)
+        say "$SESSION: $1 was not handed to the agent (variable name controls process startup)"
+        return 0
+        ;;
     esac
+    unset _secret_name_status
     # One assignment per line. Refuse a malformed inherited value rather than
     # letting it invent another variable in the child environment.
     case "${2:-}" in
