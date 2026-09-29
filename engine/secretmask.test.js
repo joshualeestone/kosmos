@@ -381,15 +381,24 @@ test('#3935 the word-skipping join is for held values only, and naming a held ke
 
 test('#3935 the word walk is bounded: a reply built to keep thousands of held forms alive is withheld whole, cheaply', () => {
   /* Random-looking, as keys are: a held value made of words is not walked at all. */
-  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`));
+  const held = Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`);
   try {
     /* 1,000 rows already exhaust the budget; a small input keeps the timing far inside the bound. */
     const bad = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
-    let r;
-    const ms = cpuMillisecondsOf(() => { r = mask(bad); });   // the budget is WORD_WALK_BUDGET in secretmask.js
     /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it cost about 18ms at the first budget (250,000; now 1,250,000); most of what remains
-       (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
-    assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
+       (about 600ms) is the separator copies' held-value search, which costs the same without this change.
+       #4189: one run against a fixed 1500ms line failed on main (run 36476295504, 2026-09-28) at 1966ms with no defect, the
+       same load flake as the 'not quadratic' test below. Measured 2026-09-29 on a Mac, each run fresh: healthy code 172 to
+       533ms; with the budget removed (WORD_WALK_BUDGET = Infinity) 19,289ms. So: the fastest of three runs, since contention
+       mostly adds CPU time, against 4000ms, twice the worst loaded run seen and nearly 5x under the unbounded walk. Every run
+       re-sets the held values, which clears the cache, and a run under 20ms is refused as a cache hit that measured nothing.
+       The fired split_search_limit below is the budget's own proof; this line only says it still costs little. */
+    let r;
+    const runs = [0, 1, 2].map(() => { setKnownSecrets([]); setKnownSecrets(held); return cpuMillisecondsOf(() => { r = mask(bad); }); });   // the budget is WORD_WALK_BUDGET in secretmask.js
+    const ms = Math.min(...runs);
+    const said = runs.map(Math.round).join(', ') + 'ms';
+    assert.ok(ms > 20, `a run cost under 20ms, a cache hit that measured nothing (${said})`);
+    assert.ok(ms < 4000, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU at best of three (${said})`);
     assert.equal(r.text, UNCHECKED, 'a search cut short by the budget must not return the text it could not finish checking');
     assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
   } finally { setKnownSecrets([]); }
