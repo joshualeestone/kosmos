@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: busyhealth-4466
-diff_hash: ec06d94f519f79592352a86af44013a4cb5f1c30999ba3c75c0708e8cd3a578f
+diff_hash: 8ca8f1973e151d7b4da4c5fb5b5b5cf42b5a70c077d4dc64810ae7c5c2171420
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T12:03:59Z
-iterations: 25
+timestamp: 2026-09-29T15:15:44Z
+iterations: 31
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 25
-**Converged:** Yes, at iteration 25 (sonnet): zero NEW findings after dedup. It had also converged at iteration 19; a merge of origin/main (174 commits) then added unreviewed code, so the loop resumed (iterations 20 to 25) rather than certifying the pre-merge review.
+**Iterations:** 31
+**Converged:** Yes, at iteration 31 (sonnet): zero NEW findings after dedup. (It also converged at 19 and at 25; each time later work reopened it: the main merge after 19, and PR #4539's CI red after 25.) It had also converged at iteration 19; a merge of origin/main (174 commits) then added unreviewed code, so the loop resumed (iterations 20 to 25) rather than certifying the pre-merge review.
 **Total findings:** per-category counts were not kept for iterations 1 to 7 (running tally then: about 20 WARNINGs fixed, 7 deferred with reasons). From iteration 8: 14 WARNINGs, 1 CONVENTION, about 20 NITs raised as NEW; the rest were duplicates of ledger entries.
 **Fixed:** every BLOCKER-free WARNING judged real, and the NITs listed FIXED below | **Deferred:** as listed, each with its reason in `.claude/plans/busyhealth-4466.md` | **Asked (awaiting user):** 0
 
@@ -169,9 +169,48 @@ Reviewer models rotated opus / sonnet / fable (3-way from iteration 5). Self-gen
 **Self-generated:** 0
 **Converged** - no new actionable findings.
 
+#### After iteration 25: PR #4539 CI red (shell 2/2), fixed before iteration 26
+- [WARNING] tools/test-board-watchdog-2955.sh - #4466 arms seeded 400-800 s streaks; on a freshly booted CI runner that predates boot, the reboot reset fired, restart arms went red and 6f/6h passed for the wrong reason --> FIXED c505e2aea (ages under 100 s; busy arms shrink BUSY_GRACE; red-checked vs main's and the pre-round-22 watchdog)
+
+#### Iteration 26
+**Reviewer model:** fable
+- [NIT] install/kosmos - agent roles folded an empty 200 into "Is it running" --> FIXED 75216ed7f (emptyroles arm, red-checked)
+- [NIT] server.health-4466.test.js - non-strict assert --> FIXED 75216ed7f
+- duplicates: wedged status/restart for a person (then deferred), transient stranger, plan name, timing windows
+
+#### Iteration 27
+**Reviewer model:** opus
+- [WARNING] install/kosmos - a fast busy reading was re-probed in a tight loop (176 requests in 3 s on the old code) --> FIXED 554d8085a (fastcut arm, red-checked)
+- [NIT] install/kosmos - an agent could start a board the person stopped on purpose --> FIXED 554d8085a (arm + person control, red-checked)
+- [NIT] bin/board-watchdog.sh - crash-loop log said "keeps exiting" for busy reclaims --> FIXED 554d8085a
+- [NIT] plan stale lines --> FIXED 554d8085a
+
+#### Iteration 28
+**Reviewer model:** sonnet
+- [NIT] bin/board-watchdog.sh - "A busy board is killed never" contradicted the reclaim --> FIXED 1bbdb831e
+- [CONVENTION] install/kosmos, CLAUDE.md - the guard is a deterrent, said only in the plan --> FIXED 1bbdb831e
+
+#### Iteration 29
+**Reviewer model:** fable
+- [WARNING] install/kosmos - a PERSON on a wedged board had no way out named (raised by a third model) --> FIXED dc2f3861b (person-only hint; agents still get none; arm split, red-checked). Reverses the round 21/26 deferral.
+- [WARNING] install/kosmos - board-run exec'd the board with the caller's agent markers --> FIXED dc2f3861b (behavioural arm with a stub node, red-checked)
+- [NIT] stale-lock prose vs find -mmin +1 --> FIXED dc2f3861b
+
+#### Iteration 30
+**Reviewer model:** opus
+- [WARNING] install/kosmos - a start whose board came back BUSY died "did not come up" (installer: "would not start") --> FIXED 0dc519393 (_await_board_up; arm, red with the busy branch removed)
+- [WARNING] tools/test-board-watchdog-2955.sh - the busy-grace comparison itself was untested --> FIXED 0dc519393 (arm 6i, red with the comparison removed)
+- [NIT] three comments (setup.sh fresh install, watchdog --force, _health_no_answer preamble) --> FIXED 0dc519393
+
+#### Iteration 31
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 NEW WARNINGs (3 duplicates: claim before a failing start = round 20 deterrent decision; open prints twice = round 17; 5-minute wedged recovery = weakest premise), 0 CONVENTIONs, 0 NEW NITs (3 duplicates)
+**Self-generated:** 0
+**Converged** - no new actionable findings. Final validation (6j) GREEN on 0dc519393; this record lives in the proof, not the plan, so the validated diff is the shipped diff.
+
 ### Final Ledger
 
-The full ledger (every finding, its round and its resolution or deferral reason) is `.claude/plans/busyhealth-4466.md`, sections "Review round 1" through "Review round 24", "Rejected" and "Weakest premises". Validation (the full `yarn test` suite plus the subdir audit) was green on every iteration's commit from d20107ba5 on, and on the final HEAD 53eece729.
+The full ledger (every finding, its round and its resolution or deferral reason) is `.claude/plans/busyhealth-4466.md`, sections "Review round 1" through "Review round 24", "Rejected" and "Weakest premises". Validation (the full `yarn test` suite plus the subdir audit) was green on every iteration's commit from d20107ba5 on, and on the final HEAD 0dc519393.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
