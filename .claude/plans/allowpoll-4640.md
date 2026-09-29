@@ -50,6 +50,12 @@ match could never fire).
   nothing. With several other computers the denied line says "One of your other computers".
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
+- Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,
+  shown whenever this computer is enrolled). The promise behind it is PINNED in kosmos-relay signinstatus-4640
+  (coordinator/tests/api.rs kosmos4640_after_a_no_removing_the_computer_and_signing_in_again_asks_afresh): after
+  a no, retiring the computer drops its address and its next sign-in is pending. A non-401 refusal stays retryable:
+  /v1/account/me refuses bad, expired and deleted sessions with 401 (session_claims), so any other refusal costs
+  retries within the window, never a wrong answer.
 
 ## Validation
 - node --test engine/remote.test.js (118/118); #4640 tests x4; server.test.js in-app sign-in route test.
