@@ -86,9 +86,12 @@ function cross(s, t) {
     if (Math.abs(orient(shared, so, to)) > 1e-6) return false;
     return (so.x - shared.x) * (to.x - shared.x) + (so.y - shared.y) * (to.y - shared.y) > 0;
   }
-  const d1 = orient(t.a, t.b, s.a); const d2 = orient(t.a, t.b, s.b);
-  const d3 = orient(s.a, s.b, t.a); const d4 = orient(s.a, s.b, t.b);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  /* A side counts only when it is clear of rounding: two radial lines at exactly opposite angles lie on one
+     line through the hub and never meet, yet their orientations come out as tiny numbers of mixed sign
+     (review it4: that alone made randomTree(1953, 39) look crossed). */
+  const side = (v, g) => { const e = 1e-9 * ((g.b.x - g.a.x) ** 2 + (g.b.y - g.a.y) ** 2); return v > e ? 1 : (v < -e ? -1 : 0); };
+  return side(orient(t.a, t.b, s.a), t) * side(orient(t.a, t.b, s.b), t) < 0
+    && side(orient(s.a, s.b, t.a), s) * side(orient(s.a, s.b, t.b), s) < 0;
 }
 /* Every connector as a segment, from a map name -> {x, y} (the hub is `hub`) and name -> parent. */
 function segments(pos, parentOf, hub) {
@@ -246,21 +249,21 @@ const DEEP = [
 /* Lopsided under one manager: one report with eleven of its own, one with two. The big report sits well
    off its manager's angle, and its own reports fan back across toward the manager; without the tangent
    cap their lines could dip inward; since the rework it no longer crosses without the cap, so the cap is
-   pinned by the two trees in the 'cross without the tangent cap' test below. */
+   pinned by the deep tree in the 'cross without the tangent cap' test below. */
 const LOPSIDED = [
   ['m1'], ['s0'], ['c1', 'm1'], ['c2', 'm1'],
   ...Array.from({ length: 11 }, (_, i) => ['x' + i, 'c1']),
   ['y0', 'c2'], ['y1', 'c2'],
 ];
 /* A seeded generator, so a failure names a tree that can be rebuilt. */
-function randomTree(seed, n) {
+function randomTree(seed, n, pRoot = 0.33) {
   let s = seed >>> 0;
   const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
   const spec = [];
   for (let i = 0; i < n; i += 1) {
     const name = 'n' + i;
-    // About a third on the first ring; the rest report to a random earlier agent (a tree by construction).
-    const to = i === 0 || rnd() < 0.33 ? null : 'n' + Math.floor(rnd() * i);
+    // pRoot of them on the first ring (a third by default); the rest report to a random earlier agent.
+    const to = i === 0 || rnd() < pRoot ? null : 'n' + Math.floor(rnd() * i);
     spec.push(to ? [name, to] : [name]);
   }
   return spec;
@@ -295,11 +298,13 @@ test('first paint: every report sits inside its manager\'s sector, and nothing o
   }
 });
 
-test('first paint: the trees that cross without the tangent cap do not cross (#4434, review it3)', () => {
-  /* Found by review it3 over 6000 random trees: without the cap on managers that have a manager, these cross
-     on first paint (n35 x n27, n23 x n26). This is what pins the cap. */
-  for (const [seed, n] of [[1953, 39], [2064, 30]]) {
-    const { pos, parentOf } = firstPaint(cards(randomTree(seed, n)));
+test('first paint: the trees that cross without the tangent cap do not cross (#4434, review it3, it4)', () => {
+  /* The one tree of 4,500 (seeds 1 to 1500, a tenth, a third and 0.6 on the first ring) that crosses on first
+     paint without the cap on managers that have a manager: a deep one, three crossings. This is what pins the
+     cap. (it3's randomTree(1953, 39) and (2064, 30) only crossed through the rounding the count now ignores,
+     review it4.) */
+  for (const [seed, n, pRoot] of [[892, 85, 0.1]]) {
+    const { pos, parentOf } = firstPaint(cards(randomTree(seed, n, pRoot)));
     const bad = crossings(segments(pos, parentOf, { x: 0, y: 0 }));
     assert.deepEqual(bad, [], 'randomTree(' + seed + ', ' + n + '): ' + bad.length + ' crossing(s): ' + bad.slice(0, 4).join(', '));
   }
@@ -445,6 +450,46 @@ test('the repair places the chart around the hub\'s HOME, not where the hub drif
   assert.deepEqual([c.x, c.y], [450, 350], 'a node was placed around the drifted hub, not its home');
 });
 
+test('two radial lines at exactly opposite angles are not a crossing, to the count or to the repair (#4434, review it4)', () => {
+  /* randomTree(35, 40) places two radial lines at exactly opposite angles: one line through the hub, either
+     side of it, never meeting. Their orientations come out as tiny numbers of mixed sign, so without a
+     rounding margin both the count and the repair called it a crossing (the repair then "snapped" a chart
+     that was already right). */
+  const { placed, pos, parentOf } = firstPaint(cards(randomTree(35, 40)));
+  const segs = segments(pos, parentOf, { x: 0, y: 0 });
+  assert.deepEqual(crossings(segs), [], 'randomTree(35, 40): the count found a crossing');
+  const hub = { x: 0, y: 0, vx: 0, vy: 0, fixed: false, home: { x: 0, y: 0 } };
+  const nodes = new Map();
+  for (const [k, sp] of placed) nodes.set(k, { key: k, x: pos.get(k).x, y: pos.get(k).y, vx: 0, vy: 0, fixed: false, home: { dx: pos.get(k).x, dy: pos.get(k).y }, parentKey: sp.node.parent || null });
+  for (const n of nodes.values()) n.parent = n.parentKey ? nodes.get(n.parentKey) : null;
+  assert.equal(sim.orgPlanarRepair([...nodes.values()], hub), false, 'the repair called the placement of randomTree(35, 40) crossed');
+  /* CONTROL: a sign test with no margin does call these very coordinates crossed, so the two above can fail. */
+  const naive = (s, t) => {
+    if (same(s.a, t.a) || same(s.a, t.b) || same(s.b, t.a) || same(s.b, t.b)) return false;
+    const d1 = orient(t.a, t.b, s.a); const d2 = orient(t.a, t.b, s.b); const d3 = orient(s.a, s.b, t.a); const d4 = orient(s.a, s.b, t.b);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  };
+  let fake = 0;
+  for (let i = 0; i < segs.length; i += 1) for (let j = i + 1; j < segs.length; j += 1) if (naive(segs[i], segs[j])) fake += 1;
+  assert.ok(fake > 0, 'CONTROL: randomTree(35, 40) no longer has the rounding case, so this tests nothing');
+});
+
+test('the repair treats two lines from one manager lying along each other as a crossing (#4434, review it4)', () => {
+  /* a's lines to c and d lie on one line, the same way out (measured: the canvas edge clamped a manager and two
+     reports onto one vertical line). The hub's line to a is on the same line too, but the other way out, which
+     is not an overlap. */
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const a = { key: 'a', x: 400, y: 300, parent: null, fixed: false, home: { dx: 100, dy: 0 } };
+  const c = { key: 'c', x: 500, y: 300, parent: a, fixed: false, home: { dx: 190, dy: -40 } };
+  const d = { key: 'd', x: 450, y: 300, parent: a, fixed: false, home: { dx: 190, dy: 40 } };
+  assert.equal(sim.orgPlanarRepair([a, c, d], hub), true, 'two lines lying along each other were not repaired');
+  assert.deepEqual([d.x, d.y], [490, 340], 'd was not returned to its placement');
+  /* CONTROLS: apart, nothing; the hub-to-a line and a-to-c point opposite ways from a, so they are not one. */
+  const c2 = { ...c, x: 500, y: 300 }; const d2 = { ...d, x: 450, y: 350 };
+  assert.equal(sim.orgPlanarRepair([a, c2, d2], hub), false, 'CONTROL: lines apart were repaired');
+  assert.equal(sim.orgPlanarRepair([a, { ...c, x: 500, y: 300 }], hub), false, 'CONTROL: a straight chain hub, a, c was repaired');
+});
+
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
   const agentsOnce = cards(UNEVEN);
   const one = place.orgPlace(place.orgTreeOf(agentsOnce)).placed;
@@ -482,10 +527,10 @@ function livePage() {
   // eslint-disable-next-line no-new-func
   const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame',
     'const ORG_STEP = ' + pageConst('ORG_STEP') + '; const ORG_PAD_MIN = ' + ORG_PAD_MIN + ';\n' + simSrc
-    + "let ORG_LIVE = null; let ORG_POS = new Map(); let ORG_PLANAR_AT = '';\n"
+    + "let ORG_LIVE = null; let ORG_POS = new Map();\n"
     + 'function orgWireEnds(x0, y0, a0, x1, y1) { return { x1: x0, y1: y0, x2: x1, y2: y1, shown: true }; }\n'
     + ['orgLiveStart', 'orgLiveSettle', 'orgLiveSync', 'orgLiveRun'].map(grab).join('\n')
-    + '\nreturn { orgLiveStart, pos: () => ORG_POS, planarAt: () => ORG_PLANAR_AT, forget: () => { ORG_PLANAR_AT = \'\'; } };')(
+    + '\nreturn { orgLiveStart, pos: () => ORG_POS };')(
     env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame);
   /* Run queued frames until the animation stops; return how far any node got from where it started. */
   const run = () => {
@@ -501,24 +546,39 @@ function livePage() {
   return { page, map, run };
 }
 
-test('a repaint of a chart the repair already restored does not replay the crossing and the snap (#4434)', () => {
-  /* randomTree(104, 82) at 375px: the physics carries it into a crossing, the repair snaps it back ~130px,
-     and before this memory every repaint that changed the chart (a status, a name) replayed both. */
-  const { placed } = firstPaint(cards(randomTree(104, 82)));
-  const { size, cx, cy } = canvasFor(placed, 375);
-  const { page, map, run } = livePage();
-  page.orgLiveStart(map, placed, cx, cy, size);
-  const first = run();
-  assert.ok(first.frames > 0 && page.planarAt() !== '', 'CONTROL: this tree no longer needs the repair on first load, so it tests nothing');
-  const rested = new Map([...page.pos()].map(([k, q]) => [k, { x: q.x, y: q.y }]));
-  page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
-  const again = run();
-  assert.equal(again.frames, 0, 'a repaint of the restored layout ran the physics again');
-  for (const [k, q] of page.pos()) assert.ok(Math.hypot(q.x - rested.get(k).x, q.y - rested.get(k).y) < 0.01, k + ' moved on a repaint');
-  page.forget();
-  page.orgLiveStart(map, placed, cx, cy, size);
-  const control = run();
-  assert.ok(control.far > 40, 'CONTROL: without the memory the repaint does replay the move (' + control.far.toFixed(0) + 'px), so the assertion above can fail');
+/* How far any node of a live chart sits from its placement (relative to the hub's home, as orgPlace put it). */
+function offPlacement(page, placed, cx, cy) {
+  const hub = page.pos().get('\u0000hub');
+  let far = Math.hypot(hub.x - cx, hub.y - cy);
+  for (const [k, sp] of placed) {
+    const q = page.pos().get(k);
+    far = Math.max(far, Math.hypot(q.x - cx - Math.cos(sp.ang) * sp.r, q.y - cy - Math.sin(sp.ang) * sp.r));
+  }
+  return far;
+}
+
+test('a tree already at its placement is painted there and not animated: first load, and a repaint after the repair (#4434, review it4)', () => {
+  /* At full size a 150-300 agent tree drifted under the physics until two lines crossed, and the repair then
+     snapped it back up to ~150px, on an idle board (review it4); squeezed, randomTree(104, 82) at 375px did it
+     on every repaint. Both trees, first load then a repaint: */
+  for (const [seed, n, avail] of [[104, 82, 375], [7, 260, 0]]) {
+    const { placed } = firstPaint(cards(randomTree(seed, n)));
+    const { size, cx, cy } = canvasFor(placed, avail);
+    const { page, map, run } = livePage();
+    page.orgLiveStart(map, placed, cx, cy, size);
+    assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): the first load of a tree ran the physics');
+    assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'randomTree(' + seed + ', ' + n + '): the first load is not at the placement');
+    /* CONTROL: started off its placement (one node 5px out, as a drag leaves it), the same tree does animate,
+       drifts, and the repair ends it back at the placement, so the next repaint is the at-rest case again. */
+    const k0 = [...placed.keys()][0];
+    const q = page.pos().get(k0); page.pos().set(k0, { x: q.x + 5, y: q.y });
+    page.orgLiveStart(map, placed, cx, cy, size);
+    const moved = run();
+    assert.ok(moved.frames > 0 && moved.far > 20, 'CONTROL randomTree(' + seed + ', ' + n + '): off its placement the physics did not run (' + moved.frames + ' frames, ' + moved.far.toFixed(0) + 'px), so this tree tests nothing');
+    assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL randomTree(' + seed + ', ' + n + '): the drift was not repaired back to the placement');
+    page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
+    assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): a repaint after the repair ran the physics again (the snap repeats)');
+  }
 });
 
 test('orgLiveStart gives each tree node its placed home and spring rest, as this file\'s settle does', () => {

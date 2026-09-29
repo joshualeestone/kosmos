@@ -29223,6 +29223,7 @@ function orgPlanarRepair(nodes, hub) {
      moved the held node 515px). The next rest after the release repairs. */
   if (hub.fixed || nodes.some((n) => n.fixed)) return false;
   const o = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const side = (v, g) => { const e = 1e-9 * ((g.b.x - g.a.x) ** 2 + (g.b.y - g.a.y) ** 2); return v > e ? 1 : (v < -e ? -1 : 0); };
   const segs = nodes.map((n) => ({ a: n.parent || hub, b: n }));
   let crossed = false;
   for (let i = 0; i < segs.length && !crossed; i += 1) {
@@ -29236,8 +29237,10 @@ function orgPlanarRepair(nodes, hub) {
         if (Math.abs(o(sh, so, to)) < 1e-6 && (so.x - sh.x) * (to.x - sh.x) + (so.y - sh.y) * (to.y - sh.y) > 0) { crossed = true; break; }
         continue;
       }
-      const d1 = o(t.a, t.b, s.a); const d2 = o(t.a, t.b, s.b); const d3 = o(s.a, s.b, t.a); const d4 = o(s.a, s.b, t.b);
-      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) { crossed = true; break; }
+      /* A side counts only when it is clear of rounding: two radial lines at exactly opposite angles lie on one
+         line through the hub and never meet, but their orientations come out as tiny numbers of mixed sign
+         (measured, randomTree(401, 58) and others in the tests). */
+      if (side(o(t.a, t.b, s.a), t) * side(o(t.a, t.b, s.b), t) < 0 && side(o(s.a, s.b, t.a), s) * side(o(s.a, s.b, t.b), s) < 0) { crossed = true; break; }
     }
   }
   if (!crossed) return false;
@@ -29250,7 +29253,6 @@ function orgPlanarRepair(nodes, hub) {
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
-let ORG_PLANAR_AT = '';   // #4434: the layout whose last rest the repair had to restore (see orgLiveStart)
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
@@ -29436,8 +29438,9 @@ function orgPlace(nodes) {
            first-ring manager's reports need no cap, but stay within ~85 degrees of it so no line folds back
            through the hub. (Capping every manager made one with six plain reports outgrow a phone: #4434
            review it1.) */
-        /* 0.9 is a safety margin inside the exact tangent (1.0 is still correct in theory, so no test can pin
-           the margin itself; removing the cap is pinned by randomTree(1953, 39) and (2064, 30) in the tests). */
+        /* 0.9 is a safety margin inside the exact tangent. 1.0 is still correct (0 crossings in 4,500 trees
+           with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
+           pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
         const half = Math.min((ps.hi - ps.lo) / 2, cap);
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
@@ -29843,14 +29846,15 @@ function orgLiveStart(map, placed, cx, cy, size) {
     const ph = n.parent && n.parent.home ? n.parent.home : { dx: 0, dy: 0 };
     n.rest = Math.hypot(n.home.dx - ph.dx, n.home.dy - ph.dy);
   }
-  /* #4434: the layout, as who is on the chart, who they report to, and the canvas. */
-  const sig = [size, cx, cy].concat([...placed].map(([k, sp]) => k + '<' + (sp.node.parent || ''))).join('|');
-  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN }, sig };
-  /* #4434: the repair had to restore this very layout when it last came to rest, so the physics would replay
-     the same crossing and the same snap on every repaint (measured: about 3 in 100 squeezed fleets of 60 to
-     100 agents). It is at rest where it is: paint it there and do not run the physics. A drag still wakes it,
-     and any change to who is on the chart, who reports to whom, or the canvas, changes the layout. */
-  if (sig === ORG_PLANAR_AT && hubWas && [...nodes.keys()].every((k) => ORG_POS.has(k))) {
+  ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN } };
+  /* #4434: a TREE whose every node already sits at its placement (first load, and every repaint after a rest
+     the repair ended) is at rest: orgPlace's positions are free of crossings and overlaps. Paint it and do
+     not run the physics, which on a large or squeezed tree drifts it into a crossing and the repair then
+     snaps it back (review it4: 150 to 300 agents at full size, up to ~150px; it3 harness: a squeezed 60-100
+     agent chart replayed that on every repaint). A drag, a re-parent or a new agent starts it off its
+     placement, and those still move. A flat fleet has no placement and moves exactly as before. */
+  const placedAt = (n) => n.home && Math.abs(n.x - hub.x - n.home.dx) < 0.5 && Math.abs(n.y - hub.y - n.home.dy) < 0.5;
+  if (nodes.size && Math.abs(hub.x - cx) < 0.5 && Math.abs(hub.y - cy) < 0.5 && [...nodes.values()].every(placedAt)) {
     ORG_LIVE.alpha = 0.02;
     orgLiveSync();
     return;
@@ -29926,7 +29930,7 @@ function orgLiveSettle() {
     if (a <= 0.02 || moved <= 0.05) break;
   }
   L.alpha = 0.02;
-  if (orgPlanarRepair(bodies, L.hub)) ORG_PLANAR_AT = L.sig;   // #4434: never rest with a crossing
+  orgPlanarRepair(bodies, L.hub);   // #4434: never rest with a crossing
   orgLiveSync();
 }
 function orgLiveSync() {
@@ -29961,7 +29965,7 @@ function orgLiveRun() {
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
     else {
       L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
-      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) { ORG_PLANAR_AT = L.sig; orgLiveSync(); }   // #4434: never rest with a crossing (and never mid-drag)
+      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing (and never mid-drag)
     }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
