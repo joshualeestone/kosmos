@@ -327,6 +327,26 @@ test('#3929: the gated list is one name per line, sorted, unique, each a real ch
   assert.ok(!wiredIn(code.replace(`for n in ${GATED_LOOP_LIST}; do`, 'for n in; do'), probe, names) || invokedByOtherPosition(code, probe),
     'the file still reads as run when the runner no longer loops over it');
 });
+/* #4464: gated.txt is the NO-ADDRESS loop: the runner runs each name there as a bare
+   `node docs/browser-checks/<name>.js`, for checks that boot their own board or are hermetic. A
+   check that is also launched elsewhere (a run_one on a shared board, with that board's URL) ran
+   twice on #4457: green on its board, red with no address in the gated loop, and only CI saw it. */
+function gatedAlsoElsewhere(code, gated) {
+  const elsewhere = invokedNames(code, []);   // an empty gated list: only launches outside the gated loop
+  return gated.filter((n) => elsewhere.has(n));
+}
+test('#4464: no check in gated.txt is also launched elsewhere in the runner (it would run twice, once with no address)', () => {
+  const code = runnerCode();
+  const names = gatedNames();
+  assert.deepEqual(gatedAlsoElsewhere(code, names), [],
+    'these are in gated.txt AND launched elsewhere; a check that takes a board URL belongs on its board only (remove it from gated.txt)');
+  /* CONTROLS: the "elsewhere" read sees real launches, and a gated name launched on $B8 is caught. */
+  assert.ok(invokedNames(code, []).size >= 20, 'the read of launches outside the gated loop looks broken (too few)');
+  const probe = names[0];
+  const doubled = code.replace(B8_OPEN, `${B8_OPEN}\n  run_one "${probe}" node docs/browser-checks/${probe}.js "$B8"`);
+  assert.deepEqual(gatedAlsoElsewhere(doubled, names), [probe], `${probe} launched on $B8 as well as in gated.txt goes unnoticed`);
+});
+
 function invokedByOtherPosition(code, stem) {
   return invokedNames(code, []).has(stem);
 }
