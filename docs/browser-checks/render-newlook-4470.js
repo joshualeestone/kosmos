@@ -83,7 +83,7 @@ const HEAD_PLACE = `(() => {
   const root = document.getElementById('pj-crumb-root');
   const name = document.getElementById('pj-one-name');
   const vis = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 2;
-  return { inMid: !!row && !!row.closest('.pjmidhead'), aboveCols: !!row && row.parentElement.id === 'pj-one-view',
+  return { inMid: !!row && !!row.closest('.pjmidhead'), first: !!row && row.parentElement.firstElementChild === row, aboveCols: !!row && row.parentElement.id === 'pj-one-view',
     rootShown: vis(root), nameInDom: !!name && name.textContent.trim().length > 0, nameShown: vis(name) };
 })()`;
 /* The current top tab's underline colour and the text colour of a current and a non-current tab. */
@@ -213,6 +213,12 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOn = await page.evaluate(MEMBER_WORD);
       chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
+      if (width >= 1088) {
+        /* Hovering a member row to read its state keeps the word: only the remove minus hides it. */
+        await page.hover('#pj-one-agents .pj-member .pj-member-b b');
+        const hoverWord = await page.evaluate(`getComputedStyle(document.querySelector('#pj-one-agents .pj-member .pj-member-st')).visibility`);
+        chk(hoverWord === 'visible', `${tag} On: hovering a member row keeps its state word showing`, hoverWord);
+      }
       await page.mouse.move(0, 0);
       const rows = await page.evaluate(ROW_GROUNDS);
       chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none'),
@@ -235,7 +241,7 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       const partOf = await page.evaluate(PART_OF);
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
-      chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
+      chk(hdOn.inMid && hdOn.first && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
       chk(!(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)), `${tag} On: the project page has no sideways scroll`);
       /* Turning it off LIVE, on the open project page (no reload): lookToggleClick must move both back. */
       await page.evaluate(() => lookToggleClick());
@@ -254,7 +260,7 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         await page.evaluate((id) => { applyLayout('tabs', true); showTab('projects'); openProject(id); }, proj.id);
         await page.waitForTimeout(800);
         const tabsAgain = { cons: await page.evaluate(`document.body.classList.contains('consolidated')`), ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
-        chk(!tabsAgain.cons && tabsAgain.order === 'members,tasks,files' && tabsAgain.inMid, `${tag} On, back to tabs: Tasks and the header move in again`, JSON.stringify(tabsAgain));
+        chk(!tabsAgain.cons && tabsAgain.order === 'members,tasks,files' && tabsAgain.inMid && tabsAgain.first, `${tag} On, back to tabs: Tasks and the header move in again`, JSON.stringify(tabsAgain));
       }
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
       const cb = await page.evaluate(COMPOSER_BG);
@@ -290,7 +296,7 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
       await page.waitForTimeout(1500);
       const direct = { ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
-      chk(direct.order === 'members,tasks,files' && direct.inMid, `${tag} On, loaded straight onto the project: Tasks in the left box and the header in the conversation`, JSON.stringify(direct));
+      chk(direct.order === 'members,tasks,files' && direct.inMid && direct.first, `${tag} On, loaded straight onto the project: Tasks in the left box and the header in the conversation`, JSON.stringify(direct));
 
       await openAdvanced(page);
       chk((await page.evaluate(PAGE_STATE)).sw === 'true', `${tag} after a reload the switch still reads On`);

@@ -9424,7 +9424,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #4470: the project page in the new look (tab layout only; the consolidated layout keeps
    today's grid). Two columns: one grey box on the left holding Members, Tasks and Files
    (placeLook moves Tasks in), divided by hairlines, and the conversation on the white
-   page with no box around it. No rule under the header. */
+   page with no box around it. The rule under the header goes too, on every page of the tab layout. */
 :root[data-look="new"] body:not(.consolidated) > .apphead { border-bottom-color: transparent; }
 @media (min-width: 68rem) {
   :root[data-look="new"] body:not(.consolidated) .pj3 { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
@@ -9541,7 +9541,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* Not on a swarm member's row: its On/Off toggle sits at the row's end, and an overlaid minus would
    cover "Off" (a click meant for Off would open the remove confirm). There the minus stays in flow. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)) .pj-minus { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); margin: 0; }
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)):hover .pj-member-st,
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)):has(.pj-minus:hover) .pj-member-st,
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)):has(.pj-minus:focus-visible) .pj-member-st { visibility: hidden; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:has(.swmini) .swmini { margin-left: 8px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st::before { content: ""; display: inline-block; vertical-align: 1px; margin-right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--nl-ink-4); }
@@ -14390,7 +14390,7 @@ window.kosmosMeasureScrollbarWidth();
           <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
           <!-- #4470: the new look's "Projects /" root, as the drawing has it. display:none unless the
                new look is on; the back chevron already goes to the list in today's look. -->
-          <span class="pj-crumb-rootwrap"><button class="linkish pj-crumb-root" id="pj-crumb-root" type="button">Projects</button><span class="pj-crumb-sep" aria-hidden="true">/</span></span>
+          <span class="pj-crumb-rootwrap"><button class="linkish pj-crumb-root" id="pj-crumb-root" type="button">Projects</button><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="vh">, </span></span>
           <p class="pj-crumb" id="pj-crumb"></p>
         </div>
         <div class="pjtitle-row">
@@ -28867,7 +28867,9 @@ function placeLook(cons) {
   const crumb = oneView && oneView.querySelector('.pj-crumbrow');
   const mid = oneView && oneView.querySelector('.pjmidhead');
   if (crumb && mid) {
-    if (want && crumb.parentElement !== mid) mid.insertBefore(crumb, mid.firstChild);
+    /* FIRST in the header, not merely inside it: placeProjectHead (an async layout paint) puts .pjhead
+       first, which would leave the crumb second after a reload. */
+    if (want && mid.firstElementChild !== crumb) mid.insertBefore(crumb, mid.firstChild);
     else if (!want && crumb.parentElement === mid) oneView.insertBefore(crumb, pj3);
   }
 }
