@@ -26,14 +26,22 @@ Josh's laptop the menu lists all four of his computers and each one opens.
      TLS handshake, curl rc=35, in 0.2 s). A short timeout counts as offline. `last_seen` is NOT used for this: it
      is refreshed only daily and on reconnect.
    - This computer is not probed: it is the one answering.
-   - Addresses are validated (a plain DNS name, no scheme, no path) before anything is built from them.
+   - Addresses are trusted ONLY as `<label>.<domain>`, one plain label under the computers' domain, which is
+     derived from the Kosmos+ sign-in host exactly as the native app's isKosmosPlusURL does
+     (login.kosmosplus.com gives kosmosplus.com), no punycode. The coordinator's ANSWER is not signed, so
+     without this a bad answer could make every board probe any host, a LAN address included, and put a link
+     anywhere in this menu (review 1). Enforced in the engine BEFORE any probe and again in the page.
 3. **server.js `GET /api/remote/computers`** (behind the board's token gate like the other /api/remote routes),
    and **web/index.html**: a "Your computers" section in the same menu, under the Kosmoses. This computer first
-   (marked, not a button), then the others by name, each a native button; an offline one says so and is still
-   clickable (it opens the relay's own answer, which is honest). Choosing one opens its address in the person's
-   browser (a target=_blank link; the native app already sends new windows to the default browser). This window
-   stays this computer, so coming back is one click. Hidden when the board is not signed in to Kosmos+ or the
-   list has only this computer.
+   (marked, not a link), then the others by name. Only an ONLINE computer is a link: an offline one would open a
+   browser error page (the relay closes a disconnected computer at the TLS handshake, and HSTS keeps it https),
+   and an updating one is restarting, so each is a plain row saying so (review 1 corrected an earlier claim here
+   that an offline link "opens the relay's own answer"; that page is served on :80 only). Choosing one opens its
+   address in the person's browser (a target=_blank link; a run or both Mac sends new windows to the default
+   browser). On a connect-only Mac and on the phone the app opens a person's own computer IN its window instead
+   (#4356), so there the way back is that computer's own menu. The section is hidden and emptied at the start
+   of every read, so a state word from an earlier open is never shown as current. Hidden when the board is not
+   signed in to Kosmos+, the list has only this computer, or the answer has no domain.
 
 ## Rejected
 - Giving the board a device session: a second credential that could act as a browser on every computer, more power
@@ -49,3 +57,17 @@ the first open of each shows the sign-in and Allow step. The switcher's job (lis
 ## Order
 Coordinator route (kosmos-relay) first, deployable on its own; then this repo. This repo's route answers
 "not available yet" (the tunnel's own refusal) against an old connector or coordinator, and the section stays hidden.
+
+## Review round 1 (fable): 1 BLOCKER, 4 WARNINGs, 2 CONVENTIONs, 3 NITs
+- BLOCKER: the browser check was not in docs/browser-checks/gated.txt, so nothing ran it (tools.browser-checks-wired
+  red). Enrolled, sorted; the wiring, PR-select and quarantine guards pass (56/56).
+- W: any DNS name (a LAN address included) passed validation. Now one label under the coordinator's domain, as the
+  native app's rule; enforced before any probe; an off-domain row is dropped and never probed (arm added).
+- W: offline rows linked to a browser error page. Only online computers are links now; the plan's claim is corrected.
+- W: a reopened menu showed the previous open's state words. The section is hidden and emptied at each read's start.
+- W: two tests weaker than they read: the worldswOpen test grepped for the call (now runs the shipped function with
+  a spy), and the probe-timeout arm hung instead of failing (now a hard race).
+- CONVENTION: connect-only Macs and phones open another computer in-window (#4356): stated in the plan and markup.
+- CONVENTION: the ship dependency (coordinator deploy + connector rebuild) is stated in Order and Weakest premise.
+- NITs: New Kosmos's rounded bottom corners (square when the section follows), invented host names in the check
+  fixture. DEFERRED: a short cache for fidgety menu opens (each open is one signed call plus N probes).

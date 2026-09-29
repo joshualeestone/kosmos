@@ -25,7 +25,7 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-acctcomputers-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-acctcomputers-state-'));
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
-process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example';
+process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://login.kosmos.test';
 const fake = makeFakeTunnel();
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = fake.bin;
 const remote = require('../engine/remote');
@@ -53,34 +53,46 @@ async function run(mode, fn) {
 
 const ANSWER = {
   computers: [
-    { name: 'pizzarama', address: 'pizzarama.kosmosplus.com', last_seen: 1, this: false },
-    { name: 'laptop', address: 'laptop.kosmosplus.com', last_seen: 2, this: true },
-    { name: 'agent1s', address: 'agent1s.kosmosplus.com', last_seen: 3, this: false, updating_until: 9e9 },
+    { name: 'pizzarama', address: 'pizzarama.kosmos.test', last_seen: 1, this: false },
+    { name: 'laptop', address: 'laptop.kosmos.test', last_seen: 2, this: true },
+    { name: 'agent1s', address: 'agent1s.kosmos.test', last_seen: 3, this: false, updating_until: 9e9 },
   ],
 };
 
-test('validAddress: a plain DNS name only; a scheme, path, port, at-sign or space is refused', () => {
-  assert.equal(ac.validAddress('agent1s.kosmosplus.com'), true);
-  assert.equal(ac.validAddress('a-b-1.kosmos.test'), true);
-  for (const bad of ['https://x.kosmosplus.com', 'x.kosmosplus.com/evil', 'x.kosmosplus.com:444', 'me@x.kosmosplus.com',
-    'x .kosmosplus.com', 'javascript:alert(1)', 'localhost', '', null, 42, 'X.KOSMOSPLUS.COM', '-x.kosmosplus.com']) {
-    assert.equal(ac.validAddress(bad), false, JSON.stringify(bad));
+test('computerDomain: one label under the sign-in host\'s parent, as the native app derives it; too short is null', () => {
+  assert.equal(ac.computerDomain('https://login.kosmosplus.com'), 'kosmosplus.com');
+  assert.equal(ac.computerDomain('https://login.kosmos.test/'), 'kosmos.test');
+  assert.equal(ac.computerDomain('https://coord.example'), null, 'two labels: no parent to trust');
+  assert.equal(ac.computerDomain('not a url'), null);
+});
+
+test('validAddress: exactly one plain label under the computers\' domain; any other host, a LAN address, a scheme, a path or punycode is refused', () => {
+  const D = 'kosmos.test';
+  assert.equal(ac.validAddress('agent1s.kosmos.test', D), true);
+  assert.equal(ac.validAddress('a-b-1.kosmos.test', D), true);
+  for (const bad of ['evil.example', '10.0.0.1', '127.0.0.1', '192.168.1.1', 'a.b.kosmos.test', 'kosmos.test', '.kosmos.test',
+    'https://x.kosmos.test', 'x.kosmos.test/evil', 'x.kosmos.test:444', 'me@x.kosmos.test', 'x .kosmos.test', 'xn--pple-43d.kosmos.test',
+    '-x.kosmos.test', 'x-.kosmos.test', 'X.kosmos.test', 'x.kosmos.test.evil.example', '', null, 42]) {
+    assert.equal(ac.validAddress(bad, D), false, JSON.stringify(bad));
   }
+  assert.equal(ac.validAddress('agent1s.kosmos.test', null), false, 'no domain: nothing is trusted');
 });
 
 test('parseComputers: keeps valid rows, drops a row with a bad address or no name, marks updating', () => {
   const rows = ac.parseComputers({ computers: [
-    { name: 'ok', address: 'ok.kosmosplus.com', this: true },
+    { name: 'ok', address: 'ok.kosmos.test', this: true },
     { name: 'evil', address: 'https://evil.example/x' },
-    { name: '', address: 'noname.kosmosplus.com' },
-    { name: 'up', address: 'up.kosmosplus.com', updating_until: 5 },
+    { name: 'lan', address: '10.0.0.1' },
+    { name: 'elsewhere', address: 'evil.example' },
+    { name: '', address: 'noname.kosmos.test' },
+    { name: 'up', address: 'up.kosmos.test', updating_until: 5 },
     null,
-  ] });
+  ] }, 'kosmos.test');
   assert.deepEqual(rows.map((r) => r.name), ['ok', 'up']);
   assert.equal(rows[0].this, true);
   assert.equal(rows[1].updating, true);
-  assert.equal(ac.parseComputers({}), null);
-  assert.equal(ac.parseComputers(null), null);
+  assert.equal(ac.parseComputers({}, 'kosmos.test'), null);
+  assert.equal(ac.parseComputers(null, 'kosmos.test'), null);
 });
 
 test('fetchComputers: SIGNED through the tunnel (one mac-request POST, no direct dial), this computer first and not probed, others probed', async () => {
@@ -89,6 +101,7 @@ test('fetchComputers: SIGNED through the tunnel (one mac-request POST, no direct
   const probe = async (a) => { probed.push(a); return a.startsWith('agent1s'); };
   const r = await run('ok:' + JSON.stringify(ANSWER), () => ac.fetchComputers({ probe }));
   assert.equal(r.value.ok, true, JSON.stringify(r.value));
+  assert.equal(r.value.domain, 'kosmos.test', 'the page needs the domain to re-check addresses');
   assert.equal(r.calls.length, 1, 'exactly one signed call');
   const c = r.calls[0];
   assert.equal(c.args[0], 'mac-request');
@@ -97,12 +110,22 @@ test('fetchComputers: SIGNED through the tunnel (one mac-request POST, no direct
   assert.deepEqual(JSON.parse(c.stdin), {}, 'the body carries nothing: the signature says who is asking');
   assert.deepEqual(r.dialled, [], 'the board dialled the network itself instead of through the tunnel');
   assert.deepEqual(r.value.computers.map((c) => c.name), ['laptop', 'agent1s', 'pizzarama'], 'this computer first, then by name');
-  assert.deepEqual(probed.sort(), ['agent1s.kosmosplus.com', 'pizzarama.kosmosplus.com'], 'this computer is never probed');
+  assert.deepEqual(probed.sort(), ['agent1s.kosmos.test', 'pizzarama.kosmos.test'], 'this computer is never probed');
   const by = Object.fromEntries(r.value.computers.map((c) => [c.name, c]));
   assert.equal(by.laptop.online, true);
   assert.equal(by.agent1s.online, true);
   assert.equal(by.pizzarama.online, false);
   assert.equal(by.agent1s.updating, true);
+});
+
+test('fetchComputers: a row whose address is off the computers\' domain is dropped and NEVER probed (no probing a LAN or another host)', async () => {
+  enroll(true);
+  const probed = [];
+  const answer = { computers: [ANSWER.computers[1], { name: 'lan', address: '10.0.0.1', this: false }, { name: 'elsewhere', address: 'evil.example', this: false }] };
+  const r = await run('ok:' + JSON.stringify(answer), () => ac.fetchComputers({ probe: async (a) => { probed.push(a); return true; } }));
+  assert.equal(r.value.ok, true);
+  assert.deepEqual(r.value.computers.map((c) => c.name), ['laptop']);
+  assert.deepEqual(probed, [], 'an off-domain address was probed');
 });
 
 test('fetchComputers: a probe that throws reads as offline, not as a failed list', async () => {
@@ -150,9 +173,14 @@ test('probeOnline: ANY HTTP answer is online (even a 404), a refused connection 
     const opts = (port, timeoutMs) => ({ request: http.request, port, timeoutMs });
     assert.equal(await ac.probeOnline('127.0.0.1', opts(answering.address().port, 2000)), true);
     assert.equal(await ac.probeOnline('127.0.0.1', opts(closedPort, 2000)), false);
-    const t0 = Date.now();
-    assert.equal(await ac.probeOnline('127.0.0.1', opts(silent.address().port, 300)), false);
-    assert.ok(Date.now() - t0 < 2000, 'the timeout bounded the wait');
+    // A hard race, so a probe that ignores its timeout fails here instead of hanging the file.
+    let raceT;
+    const bounded = await Promise.race([
+      ac.probeOnline('127.0.0.1', opts(silent.address().port, 300)),
+      new Promise((r) => { raceT = setTimeout(() => r('HUNG'), 2000); }),
+    ]);
+    clearTimeout(raceT);
+    assert.equal(bounded, false, 'a silent server must read offline within its timeout, got ' + bounded);
   } finally {
     answering.close(); silent.closeAllConnections(); silent.close();
   }

@@ -7,8 +7,9 @@
  * (stubbed here with a four-computer answer, then a not-signed-in answer), and asserts
  * in the real page, both themes:
  *   - the section shows under the Kosmoses, with its heading;
- *   - this computer is marked and is NOT a link; each other computer IS a link to its own
- *     https address in a new window, with its state in words;
+ *   - this computer is marked and is NOT a link; an ONLINE computer IS a link to its own
+ *     https address in a new window; a not-connected or updating one is a plain row; every
+ *     row says its state in words;
  *   - nothing is clipped: every row fits the menu, and each state word is fully inside it;
  *   - the control that can return the dangerous answer: a board that is not signed in
  *     (the route's { ok: false }) shows NO section at all.
@@ -28,11 +29,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
 const FOUR = {
   ok: true,
+  domain: 'kosmosplus.example',
   computers: [
-    { name: 'josh09292026', address: 'josh09292026.kosmosplus.com', this: true, online: true },
-    { name: 'agent1s', address: 'agent1s.kosmosplus.com', this: false, online: true },
-    { name: 'mortals', address: 'mortals.kosmosplus.com', this: false, online: true, updating: true },
-    { name: 'pizzarama', address: 'pizzarama.kosmosplus.com', this: false, online: false },
+    { name: 'studio-laptop', address: 'studio-laptop.kosmosplus.example', this: true, online: true },
+    { name: 'desk-mini', address: 'desk-mini.kosmosplus.example', this: false, online: true },
+    { name: 'render-box', address: 'render-box.kosmosplus.example', this: false, online: true, updating: true },
+    { name: 'garage-pc', address: 'garage-pc.kosmosplus.example', this: false, online: false },
   ],
 };
 
@@ -105,11 +107,16 @@ const FOUR = {
     ok(`${t} four rows`, a.rows.length === 4, String(a.rows.length));
     const [me, ...others] = a.rows;
     ok(`${t} this computer is first, marked, and not a link`, me && me.tag === 'div' && me.current === 'true' && me.href === null && me.state === 'This computer', JSON.stringify(me));
-    const want = { agent1s: 'Online', mortals: 'Updating', pizzarama: 'Not connected' };
+    const want = { 'desk-mini': ['Online', true], 'render-box': ['Updating', false], 'garage-pc': ['Not connected', false] };
     for (const r of others) {
-      ok(`${t} ${r.name} is a link to its own address`, r.tag === 'a' && r.href === 'https://' + r.name + '.kosmosplus.com/', JSON.stringify(r));
-      ok(`${t} ${r.name} opens in a new window, not over this computer`, r.target === '_blank' && r.rel === 'noopener noreferrer', JSON.stringify(r));
-      ok(`${t} ${r.name} says its state in words`, r.state === want[r.name], r.state);
+      const [state, link] = want[r.name] || [];
+      ok(`${t} ${r.name} says its state in words`, r.state === state, r.state);
+      if (link) {
+        ok(`${t} ${r.name} (online) is a link to its own address`, r.tag === 'a' && r.href === 'https://' + r.name + '.kosmosplus.example/', JSON.stringify(r));
+        ok(`${t} ${r.name} opens in a new window, not over this computer`, r.target === '_blank' && r.rel === 'noopener noreferrer', JSON.stringify(r));
+      } else {
+        ok(`${t} ${r.name} (${state}) is NOT a link: it would open a browser error page`, r.tag === 'div' && r.href === null, JSON.stringify(r));
+      }
     }
     for (const r of a.rows) {
       ok(`${t} ${r.name}: the row is not clipped`, r.overflow <= 1, String(r.overflow));

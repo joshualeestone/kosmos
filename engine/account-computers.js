@@ -27,23 +27,42 @@
 const ROUTE = '/v1/mac/account-computers';
 const PROBE_TIMEOUT_MS = 4000;
 
-/* A computer's address as the coordinator sends it: `<name>.<domain>`, a plain DNS
-   name. Anything else (a scheme, a path, a port, an at-sign, spaces) is refused, so
-   nothing the answer carries can turn into a different URL when the page opens it. */
-const ADDRESS_RE = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
-function validAddress(a) {
-  return typeof a === 'string' && ADDRESS_RE.test(a);
+/* The domain the account's computers live under: one label under the Kosmos+ sign-in
+   host's parent (login.kosmosplus.com gives kosmosplus.com), derived exactly as the native
+   app's isKosmosPlusURL does (native-app/main.swift), so moving the sign-in moves both. Null
+   when the coordinator's host has fewer than three labels (then nothing is trusted). */
+function computerDomain(coordinatorUrl) {
+  let host;
+  try { host = new URL(coordinatorUrl).hostname.toLowerCase(); } catch { return null; }
+  const labels = host.split('.');
+  if (labels.length < 3 || labels.some((l) => !l)) return null;
+  return labels.slice(1).join('.');
+}
+
+/* 🛑 An address is trusted ONLY as `<label>.<domain>`: exactly one label under the
+   computers' domain, a-z 0-9 and hyphens, 1 to 63 long, no hyphen at either end, and no
+   punycode (xn--) lookalike. The coordinator's ANSWER is not signed, so without this a
+   compromised or impersonated answer could make every board probe any host (a LAN address
+   included) and paint a row linking anywhere, in the menu where the person expects their
+   own computer. The same rule is applied again in the page before any link is built. */
+function validAddress(a, domain) {
+  if (typeof a !== 'string' || typeof domain !== 'string' || !domain) return false;
+  const suffix = '.' + domain;
+  if (!a.endsWith(suffix)) return false;
+  const label = a.slice(0, -suffix.length);
+  return label.length >= 1 && label.length <= 63 && /^[a-z0-9-]+$/.test(label)
+    && !label.startsWith('-') && !label.endsWith('-') && !label.startsWith('xn--');
 }
 
 /* The coordinator's rows, kept to what the page shows, with bad rows dropped
    rather than guessed at. Accepts the parsed object macRequest returns. */
-function parseComputers(answer) {
+function parseComputers(answer, domain) {
   if (!answer || typeof answer !== 'object' || !Array.isArray(answer.computers)) return null;
   const out = [];
   for (const r of answer.computers) {
     if (!r || typeof r !== 'object') continue;
     const name = typeof r.name === 'string' ? r.name.trim() : '';
-    if (!name || !validAddress(r.address)) continue;
+    if (!name || !validAddress(r.address, domain)) continue;
     out.push({
       name,
       address: r.address,
@@ -97,16 +116,18 @@ async function fetchComputers(opts) {
     if (!remote.read().on || !remote.enrolled()) return { ok: false, because: 'this computer is not signed in to Kosmos+' };
     const r = await remote.macRequest('POST', ROUTE, {});
     if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
-    const rows = parseComputers(r.data);
+    const domain = computerDomain(remote.COORDINATOR());
+    if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
+    const rows = parseComputers(r.data, domain);
     if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
     const online = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
     const computers = rows.map((c, i) => Object.assign({}, c, { online: online[i] === true }));
     // This computer first, then the others by name, so the list reads the same every time.
     computers.sort((a, b) => (a.this === b.this ? a.name.localeCompare(b.name) : (a.this ? -1 : 1)));
-    return { ok: true, computers };
+    return { ok: true, domain, computers };
   } catch (err) {
     return { ok: false, because: (err && err.message) || 'unknown failure' };
   }
 }
 
-module.exports = { ROUTE, PROBE_TIMEOUT_MS, validAddress, parseComputers, probeOnline, fetchComputers };
+module.exports = { ROUTE, PROBE_TIMEOUT_MS, computerDomain, validAddress, parseComputers, probeOnline, fetchComputers };

@@ -1920,6 +1920,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* kosmos#4648: another computer is a link row (it opens that computer's address in the
    browser), styled as the Kosmos rows are; the state word sits at the row's end. */
 a.worldsw-row { text-decoration: none; cursor: pointer; }
+.worldsw-row-off .worldsw-rowname { color: var(--k-ink-2); }
+/* New Kosmos rounds its bottom corners as the menu's last element; with Your computers below it,
+   it is not the last, so its hover is square (kosmos#4648 review). */
+.worldsw-new:has(+ .worldsw-computers:not([hidden])) { border-radius: 0; }
 a.worldsw-row:hover { background: var(--k-sunk); }
 a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
@@ -10547,7 +10551,9 @@ window.kosmosMeasureScrollbarWidth();
              Filled by computersFetch/computersRender when the menu opens; hidden unless the
              board is signed in to Kosmos+ and the account has another computer. Each other
              computer is a link that opens its own address in the person's browser, so this
-             window stays this computer and coming back is one click. -->
+             window stays this computer and coming back is one click. On a connect-only Mac and
+             on the phone the app opens a person's own computer IN its window instead (#4356), so
+             there the way back is that computer's own menu. -->
         <div class="worldsw-computers" id="worldsw-computers" hidden>
           <div class="worldsw-sec" id="worldsw-computers-h">Your computers</div>
           <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
@@ -25750,10 +25756,27 @@ function worldswOpen() {
    An address is used only if it is a plain DNS name, so nothing in the answer can become a
    different URL. The monotonic counter keeps a slow read from an EARLIER open from
    repainting over a newer one. */
-const COMPUTER_ADDRESS_RE = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+/* 🛑 The same rule the board applies (engine/account-computers.js validAddress): an address is
+   used only as `<label>.<domain>`, one plain label under the computers' domain the board sends
+   (derived from the Kosmos+ sign-in host), no punycode lookalike. Anything else is dropped, so an
+   answer can never put a link to another host, a LAN address included, in this menu. */
+function computerAddressOk(a, domain) {
+  if (typeof a !== 'string' || typeof domain !== 'string' || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return false;
+  const suffix = '.' + domain;
+  if (!a.endsWith(suffix)) return false;
+  const label = a.slice(0, -suffix.length);
+  return label.length >= 1 && label.length <= 63 && /^[a-z0-9-]+$/.test(label)
+    && !label.startsWith('-') && !label.endsWith('-') && !label.startsWith('xn--');
+}
 let COMPUTERS_GEN = 0;
 async function computersFetch() {
   const gen = ++COMPUTERS_GEN;
+  /* Hide last time's list until THIS read lands: a state word from an earlier open ("Online")
+     must never be shown as current (a probe can take seconds). */
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (box) box.hidden = true;
+  if (list) list.textContent = '';
   let data = null;
   try {
     const res = await fetch('/api/remote/computers', { cache: 'no-store' });
@@ -25767,14 +25790,18 @@ function computersRender(data) {
   const list = document.getElementById('worldsw-computers-list');
   if (!box || !list) return;
   const rows = (data && data.ok === true && Array.isArray(data.computers))
-    ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && COMPUTER_ADDRESS_RE.test(c.address))
+    ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
     : [];
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
   if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
   list.textContent = '';
   for (const c of rows) {
-    const row = document.createElement(c.this === true ? 'div' : 'a');
-    row.className = 'worldsw-row';
+    /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
+       relay closes a computer that is not connected at the TLS handshake, and HSTS keeps it https),
+       and an updating one is restarting; each is a plain row that says so instead. */
+    const opens = c.this !== true && c.online === true && c.updating !== true;
+    const row = document.createElement(opens ? 'a' : 'div');
+    row.className = (opens || c.this === true) ? 'worldsw-row' : 'worldsw-row worldsw-row-off';
     const check = document.createElement('span');
     check.className = 'worldsw-check';
     check.setAttribute('aria-hidden', 'true');
@@ -25790,10 +25817,12 @@ function computersRender(data) {
     } else {
       const state = c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected');
       st.textContent = state;
-      row.href = 'https://' + c.address + '/';
-      row.target = '_blank';
-      row.rel = 'noopener noreferrer';
-      row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+      if (opens) {
+        row.href = 'https://' + c.address + '/';
+        row.target = '_blank';
+        row.rel = 'noopener noreferrer';
+        row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+      }
     }
     row.append(check, nm, st);
     list.appendChild(row);
