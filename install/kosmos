@@ -801,6 +801,12 @@ _stop_advice() {
   elif [ -n "${1:-}" ]; then printf '%s' "Quit process $1 (for example: kill -9 $1), or reboot, then start again."
   else printf '%s' "Stop it with 'kosmos stop' (or reboot), then start again."; fi
 }
+# #4466: for a PERSON only, the way out if "busy" turns out to be stuck (busy and wedged look the same from
+# outside). An agent is never told to restart: that advice is what turned a slow board into a blackout.
+_busy_person_hint() {
+  _invoked_by_agent && return 0
+  say "If it stays like this for several minutes it may be stuck rather than busy: 'kosmos restart' frees it."
+}
 # A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
 # loop. An agent that passes --force or clears its markers gets through, and so does one launched before
 # #4466 with none of the markers. Never rely on it as a security boundary.
@@ -849,7 +855,8 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # `$_claim.lock` (mkdir is atomic), reads the stamp AGAIN inside it (another agent may have replaced
   # it since this one read it), and swaps in a new stamp by rename, so the file never goes missing and
   # the noclobber create cannot race the swap. A lock left by a killed agent is cleared once it is over
-  # a minute old, and that attempt refuses (the next one can take it). People never claim.
+  # about two minutes old (find -mmin +1 counts whole minutes), and that attempt refuses (the next
+  # one can take it). People never claim.
   local _claim="$KOSMOS_HOME/board.agent-claim" _c
   if ! ( set -C; printf '%s\n' "$_now" > "$_claim" ) 2>/dev/null; then
     _c="$(cat "$_claim" 2>/dev/null || true)"
@@ -903,6 +910,7 @@ cmd_start() {
   # process neither the pidfile nor launchd tracks.
   if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
     say "Kosmos is already running at $URL (busy right now, so it is slow to answer)"
+    _busy_person_hint
     return 0
   fi
   # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
@@ -1107,7 +1115,9 @@ cmd_board_run() {
   # plist sends them (the board log); run by hand they go to the terminal.
   printf '%s' "$$" > "$PIDFILE"
   _mark_board_started
-  PORT="$PORT" exec "$NODE" "$APP"
+  # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
+  # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" "$NODE" "$APP"
 }
 
 cmd_stop() {
@@ -1199,6 +1209,7 @@ cmd_status() {
     # #4466: running, only slow, so no start/restart advice: that advice is what made agents switch a
     # busy board off and on.
     say "Kosmos is running at $URL but is busy: it did not answer within $(_busy_wait) s. Wait a minute; it does not need a restart."
+    _busy_person_hint
     # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
     # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
     # reads this exit code and gives 4 a long grace instead of treating it as down.

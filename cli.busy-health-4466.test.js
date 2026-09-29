@@ -277,10 +277,17 @@ test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy
 
 test('#4466 a board that never answers: busy, and NO start or restart advice anywhere', () => withBoard('hang', async (port) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3' });
-  const status = await runCli(['status'], env);
+  // An AGENT is never told to start or restart a busy board: that advice is the blackout.
+  const status = await runCli(['status'], { ...env, KOSMOS_AGENT_SESSION: 'grok-agent' });
   assert.equal(status.code, 4, 'busy is its own exit: not 1 ("not running", the start advice) and not 0 (which would hide a wedged board from the watchdog)');
   assert.match(status.stdout, /running at .* but is busy/);
   assert.doesNotMatch(status.stdout + status.stderr, START_ADVICE);
+  // A PERSON gets the way out if busy turns out to be stuck, and still never "not running" or "Start it with".
+  const person = await runCli(['status'], env);
+  assert.equal(person.code, 4, person.stdout + person.stderr);
+  assert.match(person.stdout, /running at .* but is busy/);
+  assert.match(person.stdout, /stays like this for several minutes .*'kosmos restart' frees it/);
+  assert.doesNotMatch(person.stdout + person.stderr, /Start it with|not running/);
   const post = await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
   assert.notEqual(post.code, 0);
   assert.match(post.stdout, /running but too busy to answer/);
@@ -354,6 +361,25 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   const agent = await bash(`source "${CLI}"; _stop_advice 4242`, baseEnv(port, { KOSMOS_AGENT_SESSION: 'grok-agent' }));
   assert.match(agent.stdout, /Tell the person who runs this computer/);
   assert.doesNotMatch(agent.stdout, /kill/);
+});
+
+test('#4466 board-run strips the agent markers from the board it execs, like the nohup launch', async () => {
+  // Run for real on a closed port: a stub "node" records the environment the board would have been given.
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    fs.mkdirSync(path.join(home, 'tmux', 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'tmux', 'bin', 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const node = path.join(home, 'fake-node');
+    fs.writeFileSync(node, '#!/bin/sh\nenv > "$KOSMOS_HOME/board-env.txt"\n', { mode: 0o755 });
+    const app = path.join(home, 'server.js'); fs.writeFileSync(app, '');
+    const env = baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent', KOSMOS_AGENT_TOKEN: 't', TMUX_PANE: '%42', KOSMOS_RECLAIM_BUSY: '1', KEEP_ME: 'yes' });
+    const out = await bash(`source "${CLI}"; NODE="${node}"; APP="${app}"; cmd_board_run`, env);
+    const got = fs.existsSync(path.join(home, 'board-env.txt')) ? fs.readFileSync(path.join(home, 'board-env.txt'), 'utf8') : '';
+    assert.ok(got, 'board-run must launch the stub board, or the arm measures nothing: ' + out.stdout + out.stderr);
+    assert.match(got, /^KEEP_ME=yes$/m, 'CONTROL: an unrelated variable is passed through');
+    for (const v of ['KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY']) assert.doesNotMatch(got, new RegExp('^' + v + '=', 'm'), v + ' reached the board');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', () => withBoard('fastcut', async (port, firstFile) => {

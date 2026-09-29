@@ -362,6 +362,28 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   and a reclaim past the grace is logged. A shared constant for the agent marker names: one list is bash
   (`env -u`), the other JS (`delete env.*`); a shared file across the two is more machinery than two lines.
 
+- 6g on 1bbdb831e: GREEN.
+
+## Review round 29 (fable): 2 NEW WARNINGs + 1 NIT fixed; a deferral REVERSED; loop continues
+- REVERSED (rounds 21, 26 deferred it; raised a third time by a third model): a PERSON on a wedged board
+  had no way out named: `start` said "already running (busy)" and `status` said "does not need a restart".
+  "Busy is never told to restart" is the rule for AGENTS (that advice was the blackout). A person now gets
+  `_busy_person_hint` in both busy branches: "If it stays like this for several minutes it may be stuck
+  rather than busy: 'kosmos restart' frees it." An agent still gets none. The "NO start or restart advice"
+  arm now runs status as an agent, with a person control that asserts the hint and never "Start it with"
+  or "not running". Red on the old code. Weakest premise: a person may restart a board that was only busy;
+  "several minutes" is the guard against that, and a person's judgement is the point.
+- FIXED (W): `cmd_board_run` exec'd the board with the caller's env, so a board-run typed in an agent's pane
+  handed the board the agent markers (the nohup path already stripped them). Now `exec env -u ...` (keeps
+  the pid). Behavioural arm: board-run on a closed port with a stub node that records its env; the four
+  markers are gone, an unrelated variable passes (control). Red on the old code.
+- FIXED (NIT): the stale-lock prose says about two minutes (BSD `find -mmin +1` counts whole minutes).
+- DUPLICATES: the reclaim start's full healthy() and the tick length (round 23's plan fix); the new state
+  files untracked like board.pid (round 17); `open` printing twice (round 17); Windows HEAD (round 12); the
+  --auto arm's spawn clock (round 26).
+- Meta-guard note: #3628's exec-call scan read the words "the exec (else" in an assertion message as a call;
+  reworded. Its regex cannot tell prose from a call inside a string.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
