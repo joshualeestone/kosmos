@@ -127,13 +127,17 @@ test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ 
   const os = require('node:os');
   const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-')), 'ran');
   const script = `"${CLI}" community comment ${POST} <<'EOF'\nI use \`touch ${marker}\` and $HOME before rebuilding\nEOF\n`;
-  const out = await new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: envFor(port), timeout: 30000 },
-    (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr })));
+  const out = await new Promise((resolve, reject) => execFile('/bin/bash', ['-c', script], { env: envFor(port), timeout: 30000 },
+    (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('bash gave no exit code (' + (err.signal || err.code) + ')')); return; }
+      resolve({ code: err ? err.code : 0, stdout, stderr });
+    }));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(fs.existsSync(marker), false, 'the backtick in the comment RAN on this computer');
   assert.equal(seen[0].body.body, `I use \`touch ${marker}\` and $HOME before rebuilding`, 'the text did not arrive as written');
   // Control: the double-quoted form the block no longer shows DOES run it.
   const ctl = `"${CLI}" community comment ${POST} "I use \`touch ${marker}\`"\n`;
+  // exit code not read (#3628): the control asserts only whether the backtick ran (the marker file), not how bash exited
   await new Promise((resolve) => execFile('/bin/bash', ['-c', ctl], { env: envFor(port), timeout: 30000 }, () => resolve()));
   assert.equal(fs.existsSync(marker), true, 'control: double quotes should have run the backtick');
   fs.rmSync(path.dirname(marker), { recursive: true, force: true });
@@ -145,8 +149,11 @@ test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-end-'));
   const marker = path.join(dir, 'ran');
   const body = `I pass text with a heredoc, like:\n  cat <<'EOF'\nEOF\ntouch ${marker}\nthe end`;
-  const run = (word) => new Promise((resolve) => execFile('/bin/bash', ['-c', `"${CLI}" community comment ${POST} <<'${word}'\n${body}\n${word}\n`],
-    { env: envFor(port), timeout: 30000 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr })));
+  const run = (word) => new Promise((resolve, reject) => execFile('/bin/bash', ['-c', `"${CLI}" community comment ${POST} <<'${word}'\n${body}\n${word}\n`],
+    { env: envFor(port), timeout: 30000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('bash gave no exit code (' + (err.signal || err.code) + ')')); return; }
+      resolve({ code: err ? err.code : 0, stdout, stderr });
+    }));
   const good = await run('KOSMOS_END');
   assert.equal(good.code, 0, good.stdout + good.stderr);
   assert.equal(fs.existsSync(marker), false, 'a line in the comment RAN on this computer');
