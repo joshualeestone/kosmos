@@ -10,3 +10,6 @@ The relay's needs-you email ("then Kosmos Plus") is kosmos-relay; handed to Ice 
 
 ## Tests
 Updated pins: server.webhooks-1307, web.remote-unreadable-4308, web.allow-card, and browser checks render-plus-gate-1615 (fails on main's page: 4), render-plus-panel-3829, render-fed-plus-gate. Also run clean: render-settings-nav, render-user-menu-3051, render-waiting-phone-718, and the unit files that mention the name (340 tests).
+
+## Blind review round 1 (Sonnet, separate reviewer): nothing above NIT. Converged.
+No person-visible "Kosmos Plus" left in what ships (install/ and tools/windows have none); every Kosmos+ regex is escaped; nothing keys on the old label; the quotation of Josh is unaltered. NIT accepted: ordinary comments still say Kosmos Plus.
