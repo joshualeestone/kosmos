@@ -16,6 +16,9 @@ const os = require('node:os');
 // would append test traffic to the operator's real record.
 const SANDBOX = require('node:path').join(os.tmpdir(), 'kosmos-messages-test-' + process.pid);
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+/* #4447: a long message now spills into the recipient's own worker folder, so the workers root is
+   sandboxed too: unset, it falls back to the real ~/work/workers, where live agents boot from. */
+process.env.AGENT_WORKFORCE_WORKERS = require('node:path').join(SANDBOX, 'workers');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -271,8 +274,23 @@ test('the pair valve: the send past the cap is refused with the surface-to-your-
 
 /* ── long bodies ─────────────────────────────────────────────────────────── */
 
+/* #4447: the recipients' own worker folders, in the sandbox (a real agent always has one). */
+function workerFolders(names) {
+  for (const n of names) {
+    const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, n);
+    fs.mkdirSync(dir, { recursive: true });
+    /* Each test starts with an empty Inbox: the log (and so the ids) restarts per test, the folders do not. */
+    fs.rmSync(path.join(dir, 'Inbox'), { recursive: true, force: true });
+  }
+}
+const inboxOf = (name) => require('./dmfiles').ownDir(name, 'Inbox');
+/* The board-wide folder long messages used to spill into, before #4447. */
+const OLD_SPILL = () => path.join(require('./store').ROOT, 'messages');
+const oldSpillFiles = () => { try { return fs.readdirSync(OLD_SPILL()); } catch { return []; } };
+
 test('a long body spills to a file and the pane gets the head and the path; the log keeps the whole text', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['mara']);
     armSender('leo-discord');
     const tmux = arm([ok(), ok()]);
     const long = 'brief: ' + 'the lease detail '.repeat(80);
@@ -290,9 +308,12 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     const cleanedLong = chat.cleanMessage(long);
     assert.ok(!typed.includes(cleanedLong.slice(-200)),
       'the pane carries the end of the body, so it got the wall this feature exists to avoid');
-    assert.match(typed, /long message; the full text is at /,
+    assert.match(typed, /long message; the full text is in your own folder at /,
       'the pointer does not say where the rest is');
-    const spilled = typed.match(/full text is at ([^)]+)\)/)[1];
+    const spilled = typed.match(/full text is in your own folder at ([^)]+)\)/)[1];
+    /* #4447: the file is in the RECIPIENT's own Inbox, beside its instructions, not a board-wide folder. */
+    assert.equal(spilled, path.join(require('./dmfiles').ownDir('mara', 'Inbox'), sent.id + '.txt'),
+      'the long message did not go to the recipient\'s own folder');
     assert.equal(fs.readFileSync(spilled, 'utf8').trim(), chat.cleanMessage(long),
       'the spill file does not hold the text the pane points at');
     assert.equal(messages.list('mara')[0].text, chat.cleanMessage(long),
@@ -2086,6 +2107,7 @@ test('#3679: a room post keeps its code indentation in the record', () => {
 
 test('#3679: a post of blank lines the room accepted before is still accepted', () => {
   withFleet(room3(), (board) => {
+    workerFolders(MEMBERS);   // #4447: a long post spills into each member's own folder
     armSender('mara-discord');
     arm([ok(), ok()]);
     const text = 'a\n\n'.repeat(25000);
@@ -2498,3 +2520,110 @@ test('#3745: the quoted words cannot break the envelope: brackets, quotes and li
     assert.doesNotMatch(clause, /second line/);
   });
 });
+
+/* ── #4447: a long message spills into the recipient's OWN folder ───────────────────────────── */
+
+test('#4447: a long room post leaves exactly one file in each member\'s own Inbox, none in the old folder, and each pane names its own file', () => {
+  withFleet(room3(), (board) => {
+    workerFolders(MEMBERS);
+    const before = oldSpillFiles().length;
+    const tmux = arm([]);
+    const long = 'brief for the room: ' + 'the lease detail '.repeat(80);
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: long }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.PLACED, out.because || '');
+    const cleaned = chat.cleanMessage(long);
+    let total = 0;
+    for (const n of MEMBERS) {
+      const files = fs.readdirSync(inboxOf(n));
+      total += files.length;
+      assert.deepEqual(files, [out.id + '.txt'], n + '\'s Inbox does not hold exactly this post');
+      assert.equal(fs.readFileSync(path.join(inboxOf(n), out.id + '.txt'), 'utf8').trim(), cleaned, n + '\'s copy is not the post');
+    }
+    assert.equal(total, 3, 'a post to three members did not leave exactly three files');
+    // CONTROL: the old board-wide folder gets nothing.
+    assert.equal(oldSpillFiles().length, before, 'a long post still wrote into the board-wide messages folder');
+    // Each pane's pointer names ITS OWN file, and no other member's.
+    const sends = tmux.pastedSends();
+    assert.equal(sends.length, 3, 'three panes were not each typed once');
+    const seen = new Set();
+    for (const s of sends) {
+      const own = MEMBERS.filter((n) => s.text.includes(path.join(inboxOf(n), out.id + '.txt')));
+      assert.equal(own.length, 1, 'a pane was pointed at ' + own.length + ' members\' files: ' + s.text.slice(-160));
+      assert.match(String(s.target), new RegExp(own[0]), 'the pane typed into (' + s.target + ') is not ' + own[0] + '\'s, whose file it names');
+      assert.match(s.text, /long message; the full text is in your own folder at /);
+      seen.add(own[0]);
+    }
+    assert.deepEqual([...seen].sort(), [...MEMBERS].sort(), 'not every member was pointed at its own file');
+    // The log keeps the whole text, as before.
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').pop().text.replace(/\s+/g, ' ').trim(), cleaned);
+  });
+});
+
+test('#4447: a long DM leaves one file, in the recipient\'s own Inbox, and nothing in the old folder or the sender\'s', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    const before = oldSpillFiles().length;
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    assert.deepEqual(fs.readdirSync(inboxOf('mara')), [sent.id + '.txt']);
+    assert.ok(!fs.existsSync(inboxOf('leo')), 'the sender got an Inbox copy of its own DM');
+    assert.equal(oldSpillFiles().length, before, 'a long DM still wrote into the board-wide messages folder');
+  });
+});
+
+test('#4447: a recipient with no folder of its own is refused a long message, and nothing is written anywhere; a short one still goes', () => {
+  withFleet(room3(), (board) => {
+    workerFolders(['leo', 'april']);
+    fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara'), { recursive: true, force: true });   // mara has no folder
+    const before = oldSpillFiles().length;
+    const tmux = arm([]);
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents, MEMBERS);
+    assert.notEqual(out.state, chat.DELIVERY.COULD_NOT, 'the post reached nobody: ' + (out.because || ''));   // partial reach is the room's own "unconfirmed"
+    const row = messages.record().rows.filter((m) => m.kind === 'post').pop();
+    assert.equal((row.outcomes || out.outcomes || {}).mara, chat.DELIVERY.COULD_NOT, 'mara, with no folder, was reported reached');
+    assert.ok(!fs.existsSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara')), 'a spill created a worker folder');
+    assert.equal(tmux.pastedSends().length, 2, 'the two members with folders were not both reached');
+    assert.equal(oldSpillFiles().length, before, 'a refused member\'s copy fell back to the board-wide folder');
+    // DM: refused with a reason, nothing typed.
+    armSender('leo-discord');
+    const t2 = arm([ok(), ok()]);
+    const dm = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(dm.state, chat.DELIVERY.COULD_NOT);
+    assert.match(dm.because, /own folder/);
+    assert.equal(t2.pastedSends().length, 0, 'a refused long DM was typed anyway');
+    // CONTROL: a short message to the same agent still goes (the refusal is about the file, not the agent).
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'short' }, board.agents).state, chat.DELIVERY.PLACED);
+  });
+});
+
+test('#4447: a link the agent planted in its own folder cannot turn the spill into a write somewhere else', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    const elsewhere = path.join(SANDBOX, 'elsewhere-' + Date.now());
+    fs.mkdirSync(elsewhere, { recursive: true });
+    const victim = path.join(elsewhere, 'victim.txt');
+    fs.writeFileSync(victim, 'untouched\n');
+    // (a) the Inbox itself is a link: refused, nothing written through it.
+    fs.symlinkSync(elsewhere, inboxOf('mara'));
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const a = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(a.state, chat.DELIVERY.COULD_NOT, 'a linked Inbox was written through');
+    assert.deepEqual(fs.readdirSync(elsewhere).sort(), ['victim.txt'], 'a file appeared through the linked Inbox');
+    // (b) a real Inbox with a link planted at the next message's file name: not followed.
+    fs.unlinkSync(inboxOf('mara'));
+    fs.mkdirSync(inboxOf('mara'));
+    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    fs.symlinkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const b = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(b.state, chat.DELIVERY.COULD_NOT, 'a planted link at the file name was written through');
+    assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted link redirected the board\'s write');
+  });
+});
+

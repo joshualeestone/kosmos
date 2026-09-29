@@ -122,7 +122,43 @@ function unread(projectId) {
   const all = unreadAll();
   return all === null ? null : (all[String(projectId)] || 0);
 }
-const SPILL_DIR = path.join(store.ROOT, 'messages');
+/* Long messages USED to spill into one board-wide folder, <board root>/messages/. Nothing writes
+   there since #4447 (below); its existing files stay until message retention is decided (the note
+   beside MAX_BODY). */
+/* #4447 (Baron's #4424 rehearsal, run 7): a long message spills into the RECIPIENT's own folder,
+   one copy per recipient. In the shared folder above, an agent allowed to read its own long message
+   could list and read every room's and every DM's, and reaching outside its folder broke the
+   "stay inside your own folder" rule on camera. Its own Inbox holds only what was sent to it. */
+const INBOX = 'Inbox';
+/**
+ * Write a long message into one recipient's Inbox and return the file's path, or null when it
+ * has no folder of its own or the file could not be written (the caller refuses that recipient:
+ * there is no shared folder to fall back to, by design).
+ *
+ * The folder is the agent's, so the agent could have put a link there. A linked Inbox is refused,
+ * and the file is opened with O_NOFOLLOW, so a link planted at Inbox/<id>.txt cannot turn the
+ * board's write into a write somewhere else.
+ */
+function spillInto(recipient, id, text) {
+  const dir = require('./dmfiles').ownDir(recipient, INBOX);   // lazy: dmfiles -> projects -> this module
+  if (!dir) return null;
+  try {
+    /* The agent's own folder must already exist: a spill never creates a worker folder. */
+    const home = fs.lstatSync(path.dirname(dir));
+    if (!home.isDirectory()) return null;
+    try { fs.mkdirSync(dir); } catch (e) { if (!e || e.code !== 'EEXIST') return null; }
+    if (!fs.lstatSync(dir).isDirectory()) return null;   // lstat: a link is not the agent's folder
+    const file = path.join(dir, id + '.txt');
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW || 0);
+    const fd = fs.openSync(file, flags, 0o600);
+    try { fs.writeSync(fd, text + '\n'); } finally { fs.closeSync(fd); }
+    return file;
+  } catch { return null; }
+}
+/* A spill whose delivery failed is removed, so nothing is left for a message nobody received. */
+function unspill(file) {
+  if (file) { try { fs.rmSync(file, { force: true }); } catch { /* best effort */ } }
+}
 
 /* Long bodies spill to a file and the pane gets a pointer. Fleet lesson
    (Splinter, 2026-08-17, learned by failing six times in one night): long
@@ -1030,15 +1066,11 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
      SPILL_AT the pane gets the head and a path instead of the wall. */
   const cleaned = chat.cleanMessage(text);
   let body = cleaned;
+  let spillFile = null;
   if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
-    try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
-    } catch {
-      return refuse(toName, 'that message is long enough to need a file, and we could not write one');
-    }
-    body = cleaned.slice(0, 200) + '… (long message; the full text is at ' + spillFile + ')';
+    spillFile = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
+    if (!spillFile) return refuse(toName, 'that message is long enough to need a file, and we could not write one in ' + toName + '\'s own folder');
+    body = cleaned.slice(0, 200) + '… (long message; the full text is in your own folder at ' + spillFile + ')';
   }
   const envelope = '[message from your colleague ' + from
     + ' · ' + id
@@ -1049,9 +1081,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
   if (sent.state === chat.DELIVERY.COULD_NOT) {
     // A refused delivery must not orphan its spill: the next send mints
     // the same id and would silently overwrite it with unrelated text.
-    if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
-    }
+    unspill(spillFile);
     return refuse(toName, sent.because);
   }
 
@@ -1570,17 +1600,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      room does NOT render: the delivered pane envelope (an agent reads a line),
      @mention detection, the spill-length decision and validation. The two are
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
-  let body = cleaned;
-  if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
-    try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
-    } catch {
-      return refuse('that post is long enough to need a file, and we could not write one');
-    }
-    body = cleaned.slice(0, 200) + '\u2026 (long message; the full text is at ' + spillFile + ')';
-  }
+  /* #4447: a long post is spilled per member, into each one's own Inbox, inside the delivery loop
+     below; `spilled` keeps the files so a member the post never reached leaves none behind. */
+  const long = cleaned.length > SPILL_AT;
+  const spilled = {};
 
   const replied = answeredParts(answered);   // #3745: the same for every recipient
   /* #3745: what this post answers, so the agent knows which message is meant: the id, who wrote it
@@ -1604,6 +1627,15 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   let reached = 0;
   for (const name of recipients) {
     if (offHere.has(name)) continue;
+    /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
+       file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
+    let bodyHere = cleaned;
+    if (long) {
+      const file = spillInto(name, id, cleaned);
+      if (!file) { outcomes[name] = chat.DELIVERY.COULD_NOT; continue; }
+      spilled[name] = file;
+      bodyHere = cleaned.slice(0, 200) + '\u2026 (long message; the full text is in your own folder at ' + file + ')';
+    }
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
        room-wide form, which is the person speaking to the room rather
@@ -1672,7 +1704,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
         : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
-      + ' ' + quoteFor(name) + body;
+      + ' ' + quoteFor(name) + bodyHere;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
@@ -1696,6 +1728,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const sent = chat.deliver(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
     outcomes[name] = sent.state;
     if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
+    else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
   }
 
   /**
@@ -1709,9 +1742,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */
-    if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
-    }
+    /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
     return failed;
