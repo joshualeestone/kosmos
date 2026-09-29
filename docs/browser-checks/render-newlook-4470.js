@@ -114,8 +114,9 @@ const TASK_ROWS = `(() => {
   const n = cards[0] && cards[0].querySelector('.tkcard-n');
   return { rows: cards.length,
     boxed: cards.filter((c) => parseFloat(getComputedStyle(c).borderTopWidth) > 0).length,
-    hashShown: !!n && getComputedStyle(n, '::before').content.startsWith('"#' + n.dataset.n + '"') && parseFloat(getComputedStyle(n, '::before').fontSize) > 10,
-    wordHidden: !!n && parseFloat(getComputedStyle(n).fontSize) === 0 && n.textContent.startsWith('Task ' + n.dataset.n),
+    hashShown: !!n && getComputedStyle(cards[0], '::before').content.startsWith('"#' + cards[0].dataset.task + '"') && parseFloat(getComputedStyle(cards[0], '::before').fontSize) > 10,
+    /* clipped like .vh, never a zero font size: the "Task n" text must stay readable by a screen reader */
+    wordHidden: !!n && getComputedStyle(n).position === 'absolute' && getComputedStyle(n).clipPath === 'inset(50%)' && parseFloat(getComputedStyle(n).fontSize) > 0 && n.textContent.startsWith('Task ' + cards[0].dataset.task),
     claimShown: !!claim && getComputedStyle(claim).display !== 'none' && claim.getBoundingClientRect().height > 0 };
 })()`;
 /* A left-box task row that says "Part of #N": is its line drawn above the row's title? */
@@ -220,6 +221,11 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
       chk(!(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)), `${tag} On: the project page has no sideways scroll`);
+      /* Turning it off LIVE, on the open project page (no reload): lookToggleClick must move both back. */
+      await page.evaluate(() => lookToggleClick());
+      const liveOff = { look: await page.evaluate(`document.documentElement.getAttribute('data-look')`), ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
+      chk(liveOff.look === null && liveOff.tasksLast && liveOff.aboveCols, `${tag} Off live on the project page: Tasks and the crumb row go back at once`, JSON.stringify(liveOff));
+      await page.evaluate(() => lookToggleClick());
       if (width >= 1088) {
         /* The consolidated layout with the look on keeps today's ARRANGEMENT: placeLook puts Tasks back
            at the end of .pj3 and the crumb row out of the conversation header, which the consolidated
