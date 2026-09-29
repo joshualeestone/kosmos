@@ -42523,6 +42523,8 @@ let PLUS_SI_REGISTERING = false;
 let PLUS_SI_RETRY = '';
 /* #4638: a second computer on the account: {base, tries, code, other, computer}, or null. */
 let PLUS_SI_SECOND = null;
+/* #4640: the timer asking whether the other computer has allowed this one yet (0 when not asking). */
+let PLUS_SI_WATCH = 0;
 /* The computer-name format for the sign-in wizard's register step (signin-register requires a
    name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
    local echo, not the source of truth. (The connected flow's enrol pair also used it until
@@ -43144,6 +43146,7 @@ function plusSiClear() {
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
   /* #4638: a later sign-in starts as a first computer until its own answer says otherwise, with the plain landing. */
   if (typeof PLUS_SI_SECOND !== 'undefined') PLUS_SI_SECOND = null;
+  if (typeof plusSiWatchStop === 'function') plusSiWatchStop();   // #4640: a Sign out ends the wait for the allow
   const match = typeof document.getElementById === 'function' ? document.getElementById('plus-si-match') : null; if (match) match.hidden = true;
   const doneLine = typeof document.getElementById === 'function' ? document.getElementById('plus-si-done-line') : null;
   if (doneLine) doneLine.textContent = 'To use Kosmos on another device, sign in at login.kosmosplus.com.';
@@ -43688,6 +43691,53 @@ function plusSiSecondDone(address) {
   document.getElementById('plus-si-match-code').textContent = sec.code;
   document.getElementById('plus-si-match-code').hidden = !sec.code;
   box.hidden = false;
+  plusSiWatchAllow();
+}
+
+/* #4640 (Josh, 15:17: "move on by itself once the first computer allows it"): while the landing shows the code, ask
+   the engine every few seconds whether the other computer has answered. The engine asks Kosmos+ and says only
+   pending, acked or denied, or stop when there is nothing to wait for (a tunnel too old to ask, or 15 minutes gone):
+   then this stops asking and the Done button, which was always there, is the way on. A failed check just asks again. */
+const PLUS_SI_WATCH_MS = 4000;
+function plusSiWatchStop() {
+  if (PLUS_SI_WATCH) clearTimeout(PLUS_SI_WATCH);
+  PLUS_SI_WATCH = 0;
+}
+function plusSiWatchAllow() {
+  plusSiWatchStop();
+  const sec = PLUS_SI_SECOND;
+  const still = () => PLUS_SI_SECOND === sec && PLUS_SI_LANDED;
+  const tick = async () => {
+    PLUS_SI_WATCH = 0;
+    if (!still()) return;
+    let got = null;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 25000);
+    try {
+      const res = await fetch('/api/remote/signin-allowed', { signal: ctl.signal });
+      got = await res.json().catch(() => null);
+    } catch { got = null; } finally { clearTimeout(timer); }
+    if (!still()) return;
+    if (got && got.ok && got.device_status === 'acked') { plusSiAllowed(); return; }
+    if (got && got.ok && got.device_status === 'denied') { plusSiRefused(); return; }
+    if (got && got.ok === false && got.stop) return;
+    PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
+  };
+  PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
+}
+/* Allowed: say so where the code was, then move on the way Done does, unless the person already has. */
+function plusSiAllowed() {
+  const sec = PLUS_SI_SECOND;
+  document.getElementById('plus-si-match-lead').textContent = 'Allowed. ' + (sec.computer || 'This computer') + ' is in.';
+  document.getElementById('plus-si-match-code').hidden = true;
+  setTimeout(() => {
+    if (PLUS_SI_SECOND !== sec || !PLUS_SI_LANDED) return;
+    document.getElementById('plus-si-done-go').click();
+  }, 1500);
+}
+function plusSiRefused() {
+  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in.';
+  document.getElementById('plus-si-match-code').hidden = true;
 }
 
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
@@ -43799,6 +43849,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', () => {
   plusSiDoRegister(name, '');
 });
 document.getElementById('plus-si-done-go').addEventListener('click', () => {
+  plusSiWatchStop();   // #4640
   PLUS_SI_LANDED = false;
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();

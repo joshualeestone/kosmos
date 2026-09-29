@@ -157,6 +157,17 @@ if (args[0] === 'signin') {
     console.log(JSON.stringify({ stage: 'session', token: 'kst1.enrol-session-fake' }));
     process.exit(0);
   }
+  if (verb === 'status') {
+    // #4640: the token on stdin, never argv; the answer is whatever the test planted in <record>.allow (default pending).
+    if (mode.includes('old-tunnel')) { process.stderr.write("error: unrecognized subcommand 'status'\\n"); process.exit(2); }
+    if (mode.includes('status-down')) { process.stderr.write('Kosmos+ is unreachable: connect refused\\n'); process.exit(1); }
+    const token = fs.readFileSync(0, 'utf8').trim();
+    fs.writeFileSync(${JSON.stringify(RECORD)} + '.status-token', token);
+    let allow = 'pending';
+    try { allow = fs.readFileSync(${JSON.stringify(RECORD)} + '.allow', 'utf8').trim(); } catch { /* pending */ }
+    console.log(JSON.stringify({ device_status: allow, stage: 'status' }));
+    process.exit(0);
+  }
   if (verb === 'register') {
     // A child that exits BEFORE reading stdin, so the engine's EPIPE-swallow path
     // (setupRun's stdin.on('error')) is exercised rather than crashing the write.
@@ -1234,6 +1245,75 @@ test('#4638 signin verify tells a second computer what it needs to skip the choo
   await remote.signinStart('her@example.com');
   const plain = await remote.signinVerify('her@example.com', '111111');
   assert.equal(plain.data.other_address, undefined, 'a brand-new account was treated as a second computer');
+});
+
+/* #4640: a second computer, once registered, can learn that its first computer allowed it. The session token is kept
+   for that alone: on a second computer only, sent on stdin only, never to the page, and dropped by a final answer,
+   Sign out, a new sign-in and Forget. A first computer keeps nothing (the control for "only a second computer"). */
+const ALLOW = RECORD + '.allow';
+const STATUS_TOKEN = RECORD + '.status-token';
+async function signedInSecond(code = '282828') {
+  await remote.signinStart('her@example.com');
+  const v = await remote.signinVerify('her@example.com', code);
+  assert.equal(v.ok, true, v.because);
+  const reg = await remote.signinRegister('herlaptop');
+  assert.equal(reg.ok, true, reg.because);
+}
+test('#4640 a second computer reads pending, then acked, with the token on stdin; the answer ends the wait', async () => {
+  fs.rmSync(ALLOW, { force: true });
+  await signedInSecond();
+  const pending = await remote.signinAllowStatus();
+  assert.equal(pending.ok, true, pending.because);
+  assert.deepEqual(pending.data, { device_status: 'pending' }, 'the page gets device_status and nothing else');
+  assert.equal(fs.readFileSync(STATUS_TOKEN, 'utf8'), 'kst1.session-second', 'the register session was not the one sent');
+  const call = recorded().find((c) => c[0] === 'signin' && c[1] === 'status');
+  assert.ok(call && !call.some((a) => String(a).includes('kst1.')), 'the token went on argv');
+  fs.writeFileSync(ALLOW, 'acked');
+  const acked = await remote.signinAllowStatus();
+  assert.deepEqual(acked.data, { device_status: 'acked' });
+  const after = await remote.signinAllowStatus();
+  assert.equal(after.ok, false, 'the token outlived its final answer');
+  assert.equal(after.data.stop, true);
+  fs.rmSync(ALLOW, { force: true });
+});
+test('#4640 denied is final too, and a first computer keeps no token at all', async () => {
+  fs.writeFileSync(ALLOW, 'denied');
+  await signedInSecond();
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'denied' });
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'a denied computer kept polling');
+  fs.rmSync(ALLOW, { force: true });
+  fs.rmSync(RECORD, { force: true });   // the denied half's own status calls are not the control's
+  // CONTROL: a first computer (no other address on the account) registers the same way and has nothing to wait for.
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '111111')).ok, true);
+  assert.equal((await remote.signinRegister('hers')).ok, true);
+  const first = await remote.signinAllowStatus();
+  assert.equal(first.ok, false);
+  assert.equal(first.data.stop, true, 'a first computer kept the session token');
+  assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'a first computer asked the coordinator');
+});
+test('#4640 Sign out, a new sign-in and Forget each drop the kept token', async () => {
+  await signedInSecond();
+  remote.signinCancel();
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Sign out left the token');
+  await signedInSecond();
+  await remote.signinStart('someone@example.com');
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'a new sign-in left the token');
+  await signedInSecond();
+  await remote.forget();
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Forget left the token');
+});
+test('#4640 an old tunnel without the verb stops the wait; a coordinator that is down does not', async () => {
+  await signedInSecond();
+  process.env.FAKE_TUNNEL_MODE = 'status-down';
+  const down = await remote.signinAllowStatus();
+  assert.equal(down.ok, false);
+  assert.equal(down.data.stop, false, 'one failed check ended the wait');
+  process.env.FAKE_TUNNEL_MODE = 'old-tunnel';
+  const old = await remote.signinAllowStatus();
+  assert.equal(old.data.stop, true, 'a tunnel that cannot answer is asked forever');
+  delete process.env.FAKE_TUNNEL_MODE;
+  assert.equal((await remote.signinAllowStatus()).data.stop, true);
 });
 
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {

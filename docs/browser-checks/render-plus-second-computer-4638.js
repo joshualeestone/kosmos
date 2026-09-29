@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-register plus-si-name-field plus-si-owned plus-si-done plus-si-done-line plus-si-match plus-si-match-code
+// Browser-check-surface: plus-si-register plus-si-name-field plus-si-owned plus-si-done plus-si-done-line plus-si-match plus-si-match-code plus-si-match-lead plus-si-done-go
 /**
  * #4638 (Josh, 2026-09-29 15:13-15:17): signing in to Kosmos+ on a SECOND computer. The sign-in answer has no
  * account address of its own (another computer holds the account's name) but names that computer's address and the
@@ -7,6 +7,9 @@
  *  - register this computer under its own name (PizzaRama -> pizzarama), trying pizzarama-2 when that is taken,
  *  - land on "PizzaRama is connected to Kosmos+ as ..." with the code to match on the other computer, large.
  * CONTROL: a first computer (no other address) still gets the chooser, and no code.
+ * #4640: on that landing the page asks /api/remote/signin-allowed (stubbed) until the other computer answers: acked
+ * says "Allowed" and moves on by itself, denied says so and stops asking, stop means ask no more and keep the code,
+ * and a Sign out ends the asking.
  * The signin-* routes are stubbed; plusSiStage is driven with the engine's page-safe answer shape (engine/remote.js
  * secondComputerFields, pinned in engine/remote.test.js).
  *
@@ -116,6 +119,61 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     ok('a long run of clashes ends on a private name, not an endless Try again', run.tried.length === 10 && run.tried[8] === 'pizzarama-9' && /^[a-z0-9]{8}$/.test(run.tried[9]) && run.st.done, JSON.stringify(run.tried));
     const several = await flow({ ...SECOND, other_labels: ['josh09292026', 'studio'] }, () => '');
     ok('with several other computers it does not name one that may not be the one asking', /one of your other computers is asking/.test(several.st.lead), several.st.lead);
+
+    // ---- #4640: the landing moves on by itself once the other computer answers ----
+    const landed = async (answers) => {
+      const pg = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errors = [];
+      pg.on('pageerror', (e) => errors.push(String(e)));
+      await openWizard(pg, URL);
+      await pg.route('**/api/remote/signin-register', (route, req) => { const name = req.postDataJSON().name; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) }); });
+      const asked = { n: 0 };
+      await pg.route('**/api/remote/signin-allowed', (route) => { const a = answers[Math.min(asked.n, answers.length - 1)]; asked.n += 1; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(a) }); });
+      await pg.evaluate((a) => plusSiStage('session', a), SECOND);
+      await pg.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
+      return { pg, asked, errors };
+    };
+    const state = (pg) => pg.evaluate(() => ({ landed: PLUS_SI_LANDED, lead: document.getElementById('plus-si-match-lead').textContent, code: !document.getElementById('plus-si-match-code').hidden, done: !document.getElementById('plus-si-done').hidden }));
+    {
+      const { pg, asked, errors } = await landed([{ ok: true, device_status: 'pending' }, { ok: true, device_status: 'acked' }]);
+      const before = await state(pg);
+      ok('#4640 while waiting, the code shows and nobody has been asked yet', before.code && asked.n === 0, JSON.stringify(before));
+      await pg.waitForFunction(() => /^Allowed\. PizzaRama is in\.$/.test(document.getElementById('plus-si-match-lead').textContent), null, { timeout: 15000 }).catch(() => {});
+      const allowed = await state(pg);
+      ok('#4640 acked: it says Allowed where the code was', allowed.lead === 'Allowed. PizzaRama is in.' && !allowed.code, JSON.stringify(allowed));
+      await pg.waitForFunction(() => PLUS_SI_LANDED === false, null, { timeout: 5000 }).catch(() => {});
+      const moved = await state(pg);
+      // What Done does is end the landing (PLUS_SI_LANDED) and repaint; what the repaint then shows depends on this check's
+      // stubbed status, so the landing flag is the assertion, not the panel.
+      ok('#4640 acked: it moves on by itself, as Done does', moved.landed === false && asked.n === 2, JSON.stringify({ ...moved, asked: asked.n }));
+      ok('#4640 no page errors (acked)', errors.length === 0, errors.join(' | '));
+      await pg.close();
+    }
+    {
+      const { pg, asked } = await landed([{ ok: true, device_status: 'denied' }]);
+      await pg.waitForFunction(() => /said no/.test(document.getElementById('plus-si-match-lead').textContent), null, { timeout: 10000 }).catch(() => {});
+      const n = asked.n;
+      await pg.waitForTimeout(5000);
+      const st = await state(pg);
+      ok('#4640 denied: it says so, drops the code, keeps Done, and stops asking', /said no to letting this one in/.test(st.lead) && !st.code && st.done && st.landed && n === 1 && asked.n === 1, JSON.stringify({ ...st, n, after: asked.n }));
+      await pg.close();
+    }
+    {
+      const { pg, asked } = await landed([{ ok: false, stop: true }]);
+      await pg.waitForTimeout(10000);
+      const st = await state(pg);
+      ok('#4640 stop (an older connector, or the wait is over): asked once, the code and Done stay as before', asked.n === 1 && st.code && st.done && /asking whether to let this one in/.test(st.lead), JSON.stringify({ ...st, asked: asked.n }));
+      await pg.close();
+    }
+    {
+      const { pg, asked } = await landed([{ ok: true, device_status: 'pending' }]);
+      await pg.waitForTimeout(4500);
+      const n = asked.n;
+      await pg.evaluate(() => plusSiClear());
+      await pg.waitForTimeout(9000);
+      ok('#4640 CONTROL: pending keeps asking, and a Sign out stops it', n >= 1 && asked.n === n, JSON.stringify({ before: n, after: asked.n }));
+      await pg.close();
+    }
 
     // ---- CONTROL: a first computer ----
     const first = await browser.newPage({ viewport: { width: 1400, height: 950 } });

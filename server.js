@@ -8227,6 +8227,17 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, stage: got.data.stage });
     return;
   }
+  /* #4640: a second computer, on its "allow it there" landing, asks whether its first computer has allowed it.
+     Only device_status ever comes back (pending, acked, denied); `stop` says there is nothing left to wait for
+     (no second computer waiting, a final answer given, or a tunnel too old to ask), so the page stops asking. */
+  if (pathname === '/api/remote/signin-allowed' && req.method === 'GET') {
+    remote.signinAllowStatus()
+      .then((got) => sendJson(res, 200, got.ok
+        ? { ok: true, device_status: got.data.device_status }
+        : { ok: false, stop: Boolean(got.data && got.data.stop) }))
+      .catch(() => sendJson(res, 200, { ok: false, stop: false }));
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

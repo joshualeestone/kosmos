@@ -1039,6 +1039,7 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
+  allowWatch = null;
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1521,13 +1522,15 @@ function absorbSession(data) {
   if (stage === 'session') {
     const token = data && typeof data.token === 'string' ? data.token : '';
     if (!token) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a usable session' }; }
-    signinSession = { token };
     /* #3796 addendum 8: when the account already has an address, the name step asks for nothing and
        says "This computer will connect as <address>". The coordinator's sign-in answer carries it as
        account_address (a coordinator that predates it sends none, and the page falls back). Passed
        through only in its own shape: a lowercase label and a domain, nothing else. */
     const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
-    return { ok: true, because: null, data: { stage: 'session', account_address: addr, ...secondComputerFields(data, addr) } };
+    const second = secondComputerFields(data, addr);
+    // #4640: `second` marks the one case that keeps the token past register (signinAllowStatus).
+    signinSession = { token, second: Boolean(second.other_address) };
+    return { ok: true, because: null, data: { stage: 'session', account_address: addr, ...second } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
@@ -1621,6 +1624,7 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
+  allowWatch = null;
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -1628,6 +1632,42 @@ function signinCancel() {
    person believes they signed out of. Every step records the epoch before it awaits and, if a
    cancel moved it meanwhile, returns this instead of absorbing anything. */
 let signinEpoch = 0;
+
+/* #4640 (Josh, 15:17): a SECOND computer shows the code its first computer's Allow card shows, and should move on by
+   itself once that computer allows it. The coordinator reports it (/v1/account/me device_status, pending/acked/denied)
+   to the same session register just used; register does not spend a session (kosmos-relay coordinator/tests/api.rs
+   kosmos4640_register_keeps_the_session_and_it_sees_the_allow). So register keeps the token for this ONE purpose:
+   only on a second computer (a first one has nobody to wait for), only for ALLOW_WATCH_MS, only here in the engine
+   (the page gets device_status and nothing else), and it is dropped by Sign out, a new sign-in, Forget, and the
+   first final answer. Past the window the page keeps its Done button, which is how it worked before. */
+const ALLOW_WATCH_MS = 15 * 60 * 1000;
+let allowWatch = null;          // { token, until } while a second computer waits to be allowed
+let allowWatchInFlight = null;  // one status call at a time; a second caller shares its answer
+const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
+/* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop. */
+const OLD_TUNNEL = /unrecognized subcommand|unexpected argument|invalid subcommand/i;
+async function signinAllowStatus() {
+  const w = allowWatch;
+  if (!w || Date.now() > w.until) {
+    allowWatch = null;
+    return { ok: false, because: 'nothing to wait for', data: { stop: true } };
+  }
+  if (allowWatchInFlight) return allowWatchInFlight;
+  allowWatchInFlight = (async () => {
+    const r = parseSaid(await setupRun(['signin', 'status', '--coordinator', COORDINATOR()], w.token, 20000));
+    // A Sign out, a new sign-in or Forget while this was out: its answer is about a wait that has ended.
+    if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: true } };
+    if (!r.ok) {
+      if (OLD_TUNNEL.test(String(r.because || ''))) { allowWatch = null; return { ok: false, because: r.because, data: { stop: true } }; }
+      return { ok: false, because: r.because, data: { stop: false } };
+    }
+    const s = r.data && typeof r.data.device_status === 'string' ? r.data.device_status : '';
+    if (!ALLOW_STATUSES.has(s)) return { ok: false, because: 'the tunnel program answered in a shape we could not read', data: { stop: false } };
+    if (s !== 'pending') allowWatch = null;   // a final answer: the token has done its job
+    return { ok: true, because: null, data: { device_status: s } };
+  })();
+  try { return await allowWatchInFlight; } finally { allowWatchInFlight = null; }
+}
 const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 /* A Sign out or Forget that landed while a register was out. If the register
    still succeeded, the Mac now has an identity the person asked to leave: the
@@ -1683,6 +1723,7 @@ async function signinStart(email, deviceName) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   signinSession = null;
+  allowWatch = null;
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId()];
   pushDeviceName(args, deviceName);
@@ -2024,6 +2065,7 @@ async function signinRegister(name) {
   // waiting on the connector must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
   const token = signinSession.token;
+  const second = signinSession.second === true;
   const before = macIdHere();
   const addressBefore = address();
   const startedAt = Date.now();
@@ -2050,7 +2092,9 @@ async function signinRegister(name) {
     abandonChangedIdentity(before, addressBefore, startedAt);
     return r;
   }
-  signinSession = null;   // the token is spent; it must not linger in this process
+  signinSession = null;   // the token is spent; it must not linger in this process...
+  // ...except on a second computer, which keeps it to learn when it is allowed (#4640, signinAllowStatus).
+  allowWatch = second ? { token, until: Date.now() + ALLOW_WATCH_MS } : null;
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
@@ -2107,6 +2151,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
   signinConfirmEnrol,
   signinRegister,
   signinCancel,
+  signinAllowStatus,
   pendingDevices,
   devicesList,
   deviceAllow,
@@ -2137,7 +2182,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; allowWatch = null; allowWatchInFlight = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
