@@ -1586,12 +1586,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      Everyone else in the room receives the same words marked as
      background -- the one thing that must not happen is background
      arriving unmarked. */
+  /* #4642: a member is also addressed by its display name, and neither name is case- or punctuation-sensitive:
+     `@Kano` names `kano`, `@Sub-Zero` names `subzero` (display name "Sub-Zero"). Measured before this: 10 posts in
+     a week named a colleague that way and reached it marked background. Still only the @ form, still a whole
+     token after the same left boundary, so a plain word never addresses and `@kanobot` does not name `kano`. */
+  const mentionKey = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const addressedBy = new Map();
+  const alias = (key, member) => { if (!key) return; if (!addressedBy.has(key)) addressedBy.set(key, new Set()); addressedBy.get(key).add(member); };
+  for (const member of recipients) alias(mentionKey(member), member);
+  for (const card of Array.isArray(roster) ? roster : []) {
+    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(mentionKey(card.name), card.sessionName);
+  }
   const mentioned = new Set();
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
-    const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
+    for (const member of addressedBy.get(mentionKey(m[2])) || []) mentioned.add(member);
   }
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
