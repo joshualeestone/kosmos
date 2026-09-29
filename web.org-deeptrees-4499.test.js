@@ -151,8 +151,8 @@ test('no line within 12px of a face that is not one of its ends, first ring incl
     for (let i = 0; i < lines.length; i += 1) for (let j = i + 1; j < lines.length; j += 1) if (cross(lines[i], lines[j])) crossings += 1;
   }
   assert.ok(checked > 100000, 'CONTROL: only ' + checked + ' line-to-face pairs were checked');
-  assert.ok(least >= 12, 'a line passes ' + least.toFixed(1) + 'px from a face (' + where + ')');
-  assert.ok(hub >= 74, 'a report line passes ' + hub.toFixed(1) + 'px from the hub centre');
+  assert.ok(least >= 12 - 1e-6, 'a line passes ' + least.toFixed(3) + 'px from a face (' + where + ')');   // the code places at exactly 12
+  assert.ok(hub >= 74 - 1e-6, 'a report line passes ' + hub.toFixed(3) + 'px from the hub centre');
   assert.equal(crossings, 0, crossings + ' crossing(s)');
 });
 

@@ -163,17 +163,18 @@ const ceo = (count, n) => [['ceo']].concat(...Array.from({ length: count }, (_, 
   [['M' + j, 'ceo']].concat(Array.from({ length: n }, (_, i) => ['r' + j + '_' + i, 'M' + j]))));
 
 test('several leads, and a CEO over several managers: even and odd teams both take two rings and shrink (#4472)', () => {
-  /* Measured (main / #4473 / now): 4 leads x 30: 1240 / 2558 / 1777; x 31: 1240 / 2630 / 1691.
-     CEO over 4 x 20: 924 / 3506 / 2804; 4 x 21: 1040 / 3710 / 2645. */
-  const cases = [['4 leads x 30', leads(4, 30), 1850], ['4 leads x 31', leads(4, 31), 1800],
-    ['a CEO over 4 x 20', ceo(4, 20), 2950], ['a CEO over 4 x 21', ceo(4, 21), 2800]];
-  for (const [label, spec, ceiling] of cases) {
+  /* Measured (main / #4473 / #4472 / #4499): 4 leads x 30: 1240 / 2558 / 1777 / 1777; x 31: 1240 / 2630 / 1691 / 1691.
+     CEO over 4 x 20: 924 / 3506 / 2804 / 2061; 4 x 21: 1040 / 3710 / 2645 / 1895. The last figure is the least number
+     of teams on two rings (as measured on #4499). */
+  const cases = [['4 leads x 30', leads(4, 30), 1850, 4], ['4 leads x 31', leads(4, 31), 1800, 4],
+    ['a CEO over 4 x 20', ceo(4, 20), 2950, 3], ['a CEO over 4 x 21', ceo(4, 21), 2800, 4]];
+  for (const [label, spec, ceiling, twoRing] of cases) {
     const t = paint(spec);
     /* Per team, not a face count: a count pins how the faces split between teams, which the window's width decides,
        not whether crowded teams take two rings. Since #4499's wide window one team of a CEO over 4 x 20 fits on one
        ring (30 outer faces, not 40) while three still take two (review it1 of #4499). */
     const teamsOnTwo = new Set([...t.pos.values()].filter((p) => p.lane).map((p) => p.parent)).size;
-    assert.ok(teamsOnTwo >= 3, label + ': only ' + teamsOnTwo + ' team(s) on two rings');
+    assert.ok(teamsOnTwo >= twoRing, label + ': only ' + teamsOnTwo + ' team(s) on two rings, not ' + twoRing);
     assert.ok(t.size <= ceiling, label + ' is ' + t.size + 'px, over ' + ceiling);
   }
 });

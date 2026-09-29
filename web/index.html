@@ -30646,6 +30646,10 @@ function orgPlace(nodes) {
        rising, so a manager's own line and its reports' lines meet only at the manager. A team in the wide
        window (#4499) has no such cap: there an exact test against every line already drawn, and no report line
        within ORG_HUB_CLEAR of the hub, are what rule crossings out. web.org-sectors-4434.test.js counts crossings.
+     - ORG_LINE_CLEAR (12px from a line to a face that is not its own) is MEASURED, not guaranteed: a team whose
+       clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
+       nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
+       report's straight-out ray). The spacing and no crossings ARE guaranteed.
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -31063,8 +31067,8 @@ function orgPlace(nodes) {
         const mineLines = mine.map((f) => lineOf(f, p.agent.sessionName));
         /* #4499: no new line crosses any line already drawn, tested exactly. A wide window drops the tangent cap,
            which is what made every line run away from the hub (enough to rule crossings out, but more than needed):
-           a line that dips inward can only meet lines already drawn from its manager's ancestors, and this finds
-           them. A capped team is tested too, though by the sector argument it cannot fail (counted: never, in the
+           a line that dips inward can meet lines already drawn from its manager's ancestors, or a sibling's line that
+           passes over its slice, and this finds them all. A capped team is tested too, though by the sector argument it cannot fail (counted: never, in the
            7,319-tree sweep), so a wrong argument would cost only size, never a crossing. */
         for (const g of mineLines) for (const h of teamLines) if (h.hi >= g.lo && h.lo <= g.hi && crosses(g, h)) return false;
         if (spots.wide) for (const g of mineLines) if (g.lo < ORG_HUB_CLEAR) return false;
@@ -31104,18 +31108,18 @@ function orgPlace(nodes) {
          spacing radius, as #4473 places it. */
       /* #4499: at each radius the wide window first, kept only when it passes every check including the clearance;
          else the capped one. */
-      const layBest = (r, ok) => {
+      const layBest = (r) => {
         const w = lay(r, [p], true);
         w.wide = true;
-        if (ok(w) && apart(w, true)) return w;
+        if (apart(w, true)) return w;   // strict implies loose, so this is the whole test in either phase
         return lay(r, [p], false);
       };
       const grow = (from, ok, limit) => {
         let r = from;
-        let spots = layBest(r, ok);
+        let spots = layBest(r);
         for (let tries = 0; tries < 400 && r <= limit && !ok(spots); tries += 1) {
           r = Math.max(r + 8, r * 1.03);
-          spots = layBest(r, ok);
+          spots = layBest(r);
         }
         return { r, spots, ok: r <= limit && ok(spots) };
       };
