@@ -26,3 +26,7 @@ BLOCKER fixed: a reinstalled computer (its old record still live, so it looks li
 WARNING fixed: a reserved computer name (Admin, Support) dead-ended on an endless Try again; it now moves on to name-2. After name-9 the last try is the private suggestion, so a run of clashes never ends on a Try again that resends a taken name.
 NIT fixed: with several other computers the landing says "one of your other computers" (the first address is not always the one asking). The engine passes every label (other_labels).
 Tests: the check has 5 new arms (reinstall, in-use, reserved, the run's end, several), each failing its own mutant.
+
+## Blind review round 2 (Sonnet, separate reviewer): nothing above NIT. Converged.
+Known consequences, stated so nobody reads them as bugs: two computers with the same default name (both "Mac mini") take the chooser, not the skip, because the round-1 reinstall guard cannot tell them apart; if the private suggestion after name-9 is itself taken (about 1 in 31^8), Try again resends it.
+Next: full validation, then PR.
