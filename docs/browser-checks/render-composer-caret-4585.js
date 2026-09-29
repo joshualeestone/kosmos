@@ -13,11 +13,16 @@
  *
  * Arms (each engine asked for):
  *  - every text-layout property is the same on the textarea and the mirror's text box,
- *  - the mirror's box is the textarea's real width (less any scrollbar it shows),
+ *  - the mirror's box is the textarea's real width, and its text starts at the textarea's text's left edge,
  *  - typing a long sentence one character at a time, the textarea and the mirror agree on the number of
- *    lines at EVERY length, at three widths (a wrap mismatch is exactly the caret gap),
- *  - the same once the composer is tall enough to scroll, with scrollbars always shown (Chromium, classic),
+ *    lines at EVERY length, at three widths (a wrap mismatch is exactly the caret gap; at the first length
+ *    where they part, the counts differ),
+ *  - scrolled past its max height the composer shows no scrollbar (the mirror relies on that: its width is
+ *    the textarea's full width),
+ *  - a width change with no window resize (the column narrowed in place) re-sizes the mirror,
  *  - the Direct Message box draws its own text (no mirror), so its caret cannot drift.
+ * Not covered here: the touch layout (hover: none), where both boxes go to 16px by two rules;
+ * render-room-msgbox-2806 guards that pair.
  *
  *   HEADED=0 node docs/browser-checks/render-composer-caret-4585.js
  *   ENGINES=chromium,webkit HEADED=0 node docs/browser-checks/render-composer-caret-4585.js   (WebKit: the Mac app's engine)
@@ -135,12 +140,32 @@ const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evalu
           const ct = getComputedStyle(t), cm = getComputedStyle(m);
           const diff = {}; for (const p of LAYOUT) if (ct[p] !== cm[p]) diff[p] = [ct[p], cm[p]];
           const bl = parseFloat(ct.borderLeftWidth) || 0, br = parseFloat(ct.borderRightWidth) || 0;
-          const want = t.getBoundingClientRect().width - Math.max(0, t.offsetWidth - t.clientWidth - bl - br);
-          return { live: t.classList.contains('mention-live'), diff, boxW: box.getBoundingClientRect().width, want };
+          const tr = t.getBoundingClientRect(), mr = m.getBoundingClientRect();
+          const tTextLeft = tr.left + bl + parseFloat(ct.paddingLeft), mTextLeft = mr.left + parseFloat(cm.paddingLeft);
+          const tTextTop = tr.top + (parseFloat(ct.borderTopWidth) || 0) + parseFloat(ct.paddingTop), mTextTop = mr.top + parseFloat(cm.paddingTop);
+          return { live: t.classList.contains('mention-live'), diff, boxW: box.getBoundingClientRect().width, want: tr.width,
+            dx: +(mTextLeft - tTextLeft).toFixed(3), dy: +(mTextTop - tTextTop).toFixed(3) };
         }, LAYOUT);
         arm(st.live, `[${engine}] the mirror is what shows the text (the textarea's own text is transparent)`, JSON.stringify(st.live));
         arm(Object.keys(st.diff).length === 0, `[${engine}] the textarea and the mirror share every text-layout property`, JSON.stringify(st.diff));
-        arm(Math.abs(st.boxW - st.want) < 0.01, `[${engine}] the mirror is the textarea's real width, less any scrollbar`, JSON.stringify({ boxW: st.boxW, want: st.want }));
+        arm(Math.abs(st.boxW - st.want) < 0.01, `[${engine}] the mirror is the textarea's real width`, JSON.stringify({ boxW: st.boxW, want: st.want }));
+        arm(Math.abs(st.dx) < 0.05 && Math.abs(st.dy) < 0.05, `[${engine}] the mirror's text starts exactly where the textarea's does`, JSON.stringify({ dx: st.dx, dy: st.dy }));
+        /* And under the new look (#4470), whose composer box pads differently, where the textarea can sit at a
+           fractional offset: the mirror is placed from the real box, so it still lines up. */
+        const nl = await page.evaluate(async () => {
+          document.documentElement.setAttribute('data-look', 'new');
+          const t = document.getElementById('pj-post'), m = document.querySelector('#pj-post-mirror .pj-mirror-in');
+          t.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const ct = getComputedStyle(t), cm = getComputedStyle(m), tr = t.getBoundingClientRect(), mr = m.getBoundingClientRect();
+          const out = { dx: +((mr.left + parseFloat(cm.paddingLeft)) - (tr.left + (parseFloat(ct.borderLeftWidth) || 0) + parseFloat(ct.paddingLeft))).toFixed(3),
+            dy: +((mr.top + parseFloat(cm.paddingTop)) - (tr.top + (parseFloat(ct.borderTopWidth) || 0) + parseFloat(ct.paddingTop))).toFixed(3),
+            dw: +(document.getElementById('pj-post-mirror').getBoundingClientRect().width - tr.width).toFixed(3), x: tr.left, y: tr.top };
+          document.documentElement.removeAttribute('data-look');
+          t.dispatchEvent(new Event('input', { bubbles: true }));
+          return out;
+        });
+        arm(Math.abs(nl.dx) < 0.05 && Math.abs(nl.dy) < 0.05 && Math.abs(nl.dw) < 0.01, `[${engine}] under the new look the mirror still sits exactly on the textarea`, JSON.stringify(nl));
         for (const width of [1400, 1180, 1000]) {
           await page.setViewportSize({ width, height: 900 });
           await page.waitForTimeout(250);
@@ -149,24 +174,30 @@ const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evalu
           arm(sw.live && sw.wrapped > 10, `[${engine} ${width}] the sweep typed ${sw.lengths} lengths and crossed onto a second line (control)`, JSON.stringify({ wrapped: sw.wrapped }));
           arm(sw.badCount === 0, `[${engine} ${width}] at every length the textarea and the mirror wrap onto the same number of lines (the caret is at the visible text)`, JSON.stringify(sw.bad));
         }
-        if (engine === 'chromium') {
-          /* Tall enough to scroll, scrollbars always shown (as on a Mac set to "always", or with a mouse):
-             the textarea's text then wraps inside the narrower box beside its scrollbar, and so must the mirror. */
-          await page.setViewportSize({ width: 1180, height: 900 });
-          // The page hides this scrollbar with scrollbar-width: none, which a WebKit without that property
-          // does not honour; a real 15px one is the case to guard. Shown here, in this page only.
-          await page.addStyleTag({ content: '#pj-post { scrollbar-width: auto !important; } #pj-post::-webkit-scrollbar { display: block !important; width: 15px; } #pj-post::-webkit-scrollbar-thumb { background: #999; }' });
-          await page.waitForTimeout(250);
-          const long = (SENT + ' ').repeat(6);
-          const sc = await page.evaluate(async (long) => {
-            const t = document.getElementById('pj-post'); t.value = long; t.dispatchEvent(new Event('input', { bubbles: true }));
-            await new Promise((r) => requestAnimationFrame(r));
-            return { sb: t.offsetWidth - t.clientWidth, scrolls: t.scrollHeight > t.clientHeight };
-          }, long);
-          const sw = await SWEEP(page, long.slice(0, 900), 400, true);
-          arm(sc.scrolls && sc.sb >= 10 && sw.lengths > 50, '[chromium scrolling] the composer scrolls and shows a real scrollbar, over ' + sw.lengths + ' lengths (control)', JSON.stringify({ sc, lengths: sw.lengths }));
-          arm(sw.badCount === 0, '[chromium scrolling] with scrollbars shown, the textarea and the mirror still wrap alike', JSON.stringify({ sb: sc.sb, bad: sw.bad }));
-        }
+        /* Scrolled past its max height, the composer shows no scrollbar in this engine (the page hides it in
+           both, and the mirror's width assumes it). */
+        const sc = await page.evaluate(async (long) => {
+          const t = document.getElementById('pj-post'); t.value = long; t.dispatchEvent(new Event('input', { bubbles: true }));
+          await new Promise((r) => requestAnimationFrame(r));
+          return { scrolls: t.scrollHeight > t.clientHeight, sb: t.offsetWidth - t.clientWidth };
+        }, (SENT + ' ').repeat(6));
+        arm(sc.scrolls && sc.sb === 0, `[${engine}] scrolled past its max height, the composer shows no scrollbar`, JSON.stringify(sc));
+        /* The column narrowed in place, no window resize: the textarea rewraps, and the mirror must follow. */
+        await page.evaluate(() => { const t = document.getElementById('pj-post'); t.value = 'Thanks for using tasks and putting files here, helps me see it from the UX side'; t.dispatchEvent(new Event('input', { bubbles: true })); });
+        await page.waitForTimeout(150);
+        const nar = await page.evaluate(async () => {
+          const t = document.getElementById('pj-post'), box = document.getElementById('pj-post-mirror');
+          const col = t.closest('.composer') || t.parentElement;
+          const before = t.getBoundingClientRect().width;
+          col.style.maxWidth = Math.round(before * 0.6) + 'px';
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await new Promise((r) => setTimeout(r, 50));
+          const out = { before, after: t.getBoundingClientRect().width, mirror: box.getBoundingClientRect().width };
+          col.style.maxWidth = '';
+          return out;
+        });
+        arm(nar.after < nar.before - 20 && Math.abs(nar.mirror - nar.after) < 0.01,
+          `[${engine}] narrowing the column in place (no window resize) re-sizes the mirror with the textarea`, JSON.stringify(nar));
         await page.close();
         // The Direct Message box draws its own text: nothing to drift from its caret.
         const dm = await browser.newPage({ viewport: { width: 1400, height: 900 } });
@@ -181,7 +212,7 @@ const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evalu
     server.close();
     fleet.restore && fleet.restore();
   }
-  const floor = 1 + ENGINES.length * (3 + 3 * 2 + 1) + (ENGINES.includes('chromium') ? 2 : 0);
+  const floor = 1 + ENGINES.length * (5 + 3 * 2 + 2 + 1);
   console.log(`\n${ran - fail.length}/${ran} passed` + (ran < floor ? ` (expected ${floor}: an arm did not run)` : ''));
   process.exit(fail.length || ran < floor ? 1 : 0);
 })().catch((e) => { console.error('FAIL  render-composer-caret-4585: ' + (e && e.message ? e.message.split('\n')[0] : e)); process.exit(1); });

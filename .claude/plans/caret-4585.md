@@ -15,12 +15,18 @@ to the next line while the mirror still showed it on the line above: the caret s
 the visible text (3 lengths of a long sentence at 1400px, 8 at 1180px, both engines).
 
 ## How
-- CSS: #pj-post and the mirror's text box both set letter-spacing, word-spacing and word-break to the
-  textarea's own values (normal).
-- pjMentionPaint sizes the mirror to the textarea's real (fractional) width less any scrollbar it shows.
+- CSS: the mirror's text box takes the textarea's letter-spacing, word-spacing and word-break (normal).
+- pjMentionPaint places and sizes the mirror from the textarea's real (fractional) box, not offsetLeft/Top/
+  Width. The width part is what mattered (587.25px wide at 1400px); the position part is defensive: at every
+  layout measured, today's look and the new look, the textarea sits at a whole-pixel offset.
+- A ResizeObserver on #pj-post repaints the mirror when the composer's width changes with no window resize.
+- The textarea shows no scrollbar in either engine (.cinput hides it), so its full width is its text's width;
+  the check asserts that premise rather than subtracting a scrollbar.
 
 ## Verification
-- New gated check render-composer-caret-4585.js (23 arms in both engines): layout properties equal, width,
-  a per-character wrap sweep at three widths, a scrolling arm with a real scrollbar, the DM box. Against
-  origin/main 14/23. The scrollbar subtraction is needed on its own (the scrolling arm fails without it).
+- New gated check render-composer-caret-4585.js (27 arms in Chromium and WebKit, gated on Chromium):
+  layout properties equal; real width; text starts at the textarea's text (today and the new look; guards,
+  their control does not fail at these layouts); a per-character wrap sweep at three widths (fails on
+  origin/main); no scrollbar once scrolled; a width change with no resize re-sizes the mirror (fails
+  without the ResizeObserver); the DM box. Against origin/main 14 of the then-23 arms passed.
 - Neighbours: render-room-msgbox-2806 (178), render-chatbox-phone-4108 (48); web.*.test.js 2160.
