@@ -220,10 +220,15 @@ test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, 
 }));
 
 test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not say "was not sent" (it may have arrived)', () => withBoard('msgcut', async (port) => {
-  const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42' }), 40000, 'a piped message');
+  // The kept copy goes to $TMPDIR: point it inside SCRATCH_HOME so the #4273 leak guard sees nothing left behind.
+  const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
+  const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'a piped message');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /It may still have happened/);
-  assert.match(out.stdout, /The piped message may not have been sent; a copy is saved at \S+\. Check before sending it again\./);
+  const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+  assert.ok(kept, out.stdout);
+  assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
+  assert.equal(fs.readFileSync(kept[1], 'utf8'), 'a piped message');
   assert.doesNotMatch(out.stdout, /was not sent/);
 }));
 

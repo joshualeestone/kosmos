@@ -209,6 +209,14 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   (then nothing is restarted, which is the good outcome); Windows says "Is it running" on a connection reset
   (no agent restart verbs there); a person attached to an agent's tmux session inherits its marker (recorded
   under weakest premises: the guard is a deterrent).
+- 6g on f737fbbb1 went RED on the #4273 leak guard only (1 x `kosmos-unsent.*`, every test green): round
+  18's `msg --stdin` arm saved its copy to the real $TMPDIR. The arm now points TMPDIR inside SCRATCH_HOME
+  and asserts the copy is there with the piped text.
+
+## Review round 19 (sonnet): zero NEW, loop CONVERGED
+- No BLOCKER or WARNING. Two NITs, both already in the ledger: Windows `lastTimedOut`/`lastWasRead` shared
+  state (deferred rounds 13 and 16, invariant stated where read); the page probe's half-second floor after
+  a slow `/api/health` (the round 8 one-budget design; the reviewer notes it errs toward busy, the safe way).
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
@@ -254,4 +262,5 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 ## Status
 - [x] server route, CLI, watchdog, supervisor, Windows CLI, tests, red checks
 - [x] full suite (green at every iteration's commit)
-- [ ] challenge loop convergence, PR, merge
+- [x] challenge loop convergence (iteration 19)
+- [ ] PR, merge
