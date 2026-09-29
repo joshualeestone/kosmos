@@ -30305,8 +30305,8 @@ function orgPlace(nodes) {
              odd ones. An odd step is the midpoint of its two neighbours, so each outer face goes on the line from
              the manager through that midpoint, and its line passes midway between two inner faces however slantwise
              it runs (a line starts at the manager, not the hub). The last odd step of an even team has one inner
-             neighbour and sits half a step past it, still inside the window. clear() measures every such line
-             all the same. An outer face whose line would leave the manager's slice (outside it, a line could enter
+             neighbour and sits half a step past it, still inside the window. clear() still measures each such line against
+             its own team's faces. An outer face whose line would leave the manager's slice (outside it, a line could enter
              a neighbour's slice) is brought back to the slice's edge instead. */
           const h = (2 * half) / ks.length;
           const start = ps.ang - left;
@@ -30363,7 +30363,8 @@ function orgPlace(nodes) {
       }
       /* A line to the outer of two rings starts at the manager, not the hub, so it runs slantwise across the inner
          ring: measured, a lead with 18 reports had one pass 0.2px from an inner face's centre. So each such line
-         is measured against every face on the ring but its own, and must clear it by ORG_LANE_SLOT. */
+         is measured against every other face in its OWN team, and must clear it by ORG_LANE_SLOT. Faces of other
+         teams get only apart()'s ORG_LINE_CLEAR, and only when that fits (review it2 found 10.55px; #4499). */
       for (let i = 0; i < all.length; i += 1) {
         if (!all[i].lane) continue;
         const m = placed.get(all[i].node.parent);
