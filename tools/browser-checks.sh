@@ -924,9 +924,8 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
-# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if the
-# one-time Community notice covers it. The full
-# sweep (16 shots per screen) is a by-hand tool.
+# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
+# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
   --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
@@ -950,8 +949,9 @@ done
 #   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
 #   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: at the desktop size the code is capped at 1.6rem, so the same code fits
-#             (reasoned: about 190px in a card over 500px wide).
+#             At se only on purpose: at the desktop size the code is capped at 1.6rem and the same code fits.
+# The run labels keep the mobile-shots-cover- prefix for all three: browser-checks-pr-select-4119.test.js
+# pins that built label.
 for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
