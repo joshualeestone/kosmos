@@ -46,3 +46,7 @@ One WARNING, fixed: a done refusal reached no field. The done box now has its ow
 
 ## Blind review round 5 (Opus, separate reviewer)
 One WARNING, fixed: the done-box route matched /done looks like/ anywhere, so a folder refusal quoting a project NAMED "What done looks like..." went to the done box. Now anchored to cleanDone's two sentences, whole (like the name route). Browser check +1 arm (fails the loose mutant); engine test couples the page's regex to cleanDone's actual refusals (fails when a refusal is reworded). Accepted NIT: the 1000-character pre-check counts raw text while the engine counts after collapsing whitespace, the same as the description box.
+
+## Blind review round 6 (Sonnet, separate reviewer): nothing above NIT. Converged.
+NITs (already accepted above): per-read file reads are uncached; a person's own brief with no Done section reads as set.
+Next: full validation, then PR.
