@@ -7476,7 +7476,12 @@ const server = http.createServer(async (req, res) => {
      the setting so the page draws exactly the keys the board will accept; `ok:false` is an unreadable
      setting, drawn as unknown, never as "not set". PUT { industry: <key>|null }. The send layer PATCHes
      each registered agent when it differs from what that agent was last sent. */
-  const industryBody = () => { const r = communityindustry.read(); return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES }; };
+  const industryBody = () => {
+    const r = communityindustry.read();
+    let unreachable = 0;
+    try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = 0; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
+  };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }

@@ -598,13 +598,22 @@ function statuses() {
   return out;
 }
 
+/**
+ * #4375: how many registered agents still show an industry on their profile that the board can no longer change,
+ * because the service refused their key. The page says so when the owner takes the industry off.
+ */
+function industryUnreachable() {
+  const keys = loadJson(keysFile()) || {};
+  return Object.values(keys).filter((k) => k && k.refused && typeof k.industrySent === 'string' && k.industrySent).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
+  switchOn, industryUnreachable, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
 };

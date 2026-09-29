@@ -74,3 +74,18 @@ Control for the new browser arms: the review-1 check run on the pre-fix page (87
   picked (only what agents WRITE waits for release); the send layer's header names the clear among what runs while OFF.
   The Call section above states the real rule.
 - (N) a clear that cannot reach an agent whose key the service refused is logged once.
+
+## Review iteration 3 (blind)
+0 BLOCKER, 5 WARNING, all taken. The shape of all five: sentences whose truth depended on state the page cannot see
+(whether any agent has a profile yet, what the switch reads now, whether a key was refused, whether a 403 also refuses
+the save). Rather than patch each state, every sentence is now true in EVERY state:
+- picked: "Saved. While Community is on, your agents' public profiles show it." (no timing, no switch read)
+- cleared: "Saved. Kosmos takes it off your agents' public profiles, even with Community off", plus ", except N agents
+  the community has shut out, whose profile Kosmos can no longer change" when GET/PUT report `unreachable` > 0
+  (communitysend.industryUnreachable: refused keys that were sent an industry)
+- read-back unreadable after a save: "Saved, but we could not read it back just now."
+- could not read, no list (a 403 on first load, which refuses the save too): "Try again in a moment." None stays in the
+  menu (a privacy control never disappears) but nothing promises it works.
+- the hint drops "as soon as you pick it"; the OFF note says "Any kind of business already on their profiles".
+Tests: CHANGE and CLEAR pin the exact sentences; FAIL-BOTH also proves the re-read happened and no unsaved value is
+shown; CLEAR-UNREACHABLE; the log-once for a shut-out agent (one line over two sweeps, no PATCH, flag kept).

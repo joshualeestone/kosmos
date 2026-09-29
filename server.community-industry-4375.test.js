@@ -43,6 +43,7 @@ test('#4375: GET gives none set, readable, and the board\'s own list', async () 
   assert.equal(j.industry, null);
   assert.equal(j.ok, true);
   assert.deepEqual(j.industries, communityindustry.INDUSTRIES.map((i) => ({ ...i })));
+  assert.equal(j.unreachable, 0, 'no agent is shut out on a fresh board');
 });
 
 test('#4375: PUT a listed key stores it and answers with it; null clears it', async () => {

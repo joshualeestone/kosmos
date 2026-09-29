@@ -133,7 +133,8 @@ async function run() {
       }
       check(name + ': the picker\'s line says so', /could not read which business/.test(u.msg), JSON.stringify(u.msg));
       // With the list (a readable board answer) any choice sets it again; without it (a 403 on first load) only None.
-      check(name + ': the line offers only what is offered', name === 'UNREADABLE' ? /Pick one, or None/.test(u.msg) : /still pick None/.test(u.msg), JSON.stringify(u.msg));
+      // With the list any choice can set it again; without it (a 403 on first load: the save is refused too) it promises nothing.
+      check(name + ': the line promises only what can work', name === 'UNREADABLE' ? /Pick one, or None/.test(u.msg) : /Try again in a moment\.$/.test(u.msg), JSON.stringify(u.msg));
       await pu.close();
     }
 
@@ -150,12 +151,12 @@ async function run() {
     await p4.waitForTimeout(500);
     const c = await readPicker(p4);
     check('CHANGE: one PUT with exactly { industry: "software" }', puts.length === 1 && JSON.stringify(puts[0]) === '{"industry":"software"}', JSON.stringify(puts));
-    check('CHANGE: the answer is painted and the save is said', c.value === 'software' && /^Saved\./.test(c.msg), JSON.stringify([c.value, c.msg]));
+    check('CHANGE: the answer is painted and the save is said, true whatever the switch reads', c.value === 'software' && /^Saved\. While Community is on, your agents. public profiles show it\.$/.test(c.msg), JSON.stringify([c.value, c.msg]));
     await p4.selectOption('#community-industry', '');
     await p4.waitForTimeout(500);
     const cl = await readPicker(p4);
     check('CLEAR: None PUTs { industry: null }', puts.length === 2 && JSON.stringify(puts[1]) === '{"industry":null}', JSON.stringify(puts));
-    check('CLEAR: it reads None and says it comes off the profiles even with Community off', cl.value === '' && /comes off your agents. public profiles within a few minutes, even with Community off/.test(cl.msg), JSON.stringify([cl.value, cl.msg]));
+    check('CLEAR: it reads None and says Kosmos takes it off the profiles even with Community off', cl.value === '' && /^Saved\. Kosmos takes it off your agents. public profiles, even with Community off\.$/.test(cl.msg), JSON.stringify([cl.value, cl.msg]));
     await p4.close();
 
     // CHANGE-FAIL: a refused save says so and reads the board again.
@@ -209,9 +210,12 @@ async function run() {
     // FAIL-BOTH: the save fails and so does the re-read (the board went away): the refusal stays on screen.
     const p7 = await page();
     let broken = false;
+    let brokenGets = 0;
     await p7.route(ROUTE, (route) => {
       if (!broken) return answer(body('legal'))(route);
-      return route.request().method() === 'PUT' ? answer({ error: 'we could not save that setting' }, 500)(route) : answer({ error: 'no' }, 403)(route);
+      if (route.request().method() === 'PUT') return answer({ error: 'we could not save that setting' }, 500)(route);
+      brokenGets++;
+      return answer({ error: 'no' }, 403)(route);
     });
     await openAutomation(p7);
     broken = true;
@@ -219,7 +223,18 @@ async function run() {
     await p7.waitForTimeout(700);
     const fb = await readPicker(p7);
     check('FAIL-BOTH: a failed save stays said when the re-read fails too', /could not save/.test(fb.msg), JSON.stringify(fb.msg));
+    check('FAIL-BOTH: the board was read again, and the unsaved choice is not shown as the position', brokenGets >= 1 && fb.value === '__unknown', JSON.stringify({ brokenGets, value: fb.value }));
     await p7.close();
+
+    // CLEAR-UNREACHABLE: taking it off says which profiles it cannot reach (an agent the community shut out).
+    const p8 = await page();
+    await p8.route(ROUTE, (route) => answer({ ...body(route.request().method() === 'PUT' ? null : 'legal'), unreachable: 1 })(route));
+    await openAutomation(p8);
+    await p8.selectOption('#community-industry', '');
+    await p8.waitForTimeout(500);
+    const ur = await readPicker(p8);
+    check('CLEAR-UNREACHABLE: the save names the one profile Kosmos can no longer change', /except 1 agent the community has shut out/.test(ur.msg), JSON.stringify(ur.msg));
+    await p8.close();
   } finally {
     await browser.close();
   }

@@ -246,3 +246,27 @@ test('review 2: refused, then None, then the same key again: the key is tried ag
   assert.deepEqual(patches().map((p) => p.body.industry), ['legal', 'legal'], 'the refused key was never tried again');
   assert.equal([...be.st.agents.values()][0].industry, 'legal');
 });
+
+test('review 3: a clear that cannot reach an agent the service shut out is logged ONCE, never PATCHed, and counted', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  const name = Object.keys(keys)[0];
+  keys[name].refused = true;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  assert.equal(cs.industryUnreachable(), 1);
+  const lines = [];
+  const orig = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  try {
+    ind.set(null);
+    const before = patches().length;
+    await cs.sweep();
+    await cs.sweep();
+    assert.equal(patches().length, before, 'a PATCH went to a shut-out agent');
+  } finally { console.error = orig; }
+  assert.equal(lines.filter((l) => /refused this agent's key, so its profile keeps "legal"/.test(l)).length, 1, JSON.stringify(lines));
+  assert.equal(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[name].industryClearUnreachable, true);
+});
