@@ -71,3 +71,14 @@ Coordinator route (kosmos-relay) first, deployable on its own; then this repo. T
 - CONVENTION: the ship dependency (coordinator deploy + connector rebuild) is stated in Order and Weakest premise.
 - NITs: New Kosmos's rounded bottom corners (square when the section follows), invented host names in the check
   fixture. DEFERRED: a short cache for fidgety menu opens (each open is one signed call plus N probes).
+
+## Review round 2 (sonnet): 1 BLOCKER, 1 NIT, both fixed
+- BLOCKER: tools/test-connector-verbs.sh pins the macRequest callers, and engine/account-computers.js is a new one.
+  Re-decided there, in writing: the list never worked before this connector, and an old connector refuses the
+  unlisted route, which the module turns into { ok: false } (the section stays hidden). Nothing that works today
+  breaks. The pinned list is now six; the guard passes 22/22 (the count is unchanged: the list check passes again).
+- NIT: the render-side hide was unguarded (the fake box started hidden). The test now starts it visible; red-checked
+  (removing the hide fails it).
+- Verified: the engine and page domain rules agree and resist uppercase, a trailing dot, the domain itself, two
+  levels deep, unicode, punycode, a scheme, a path, a port and userinfo; hide-and-empty is sound across slow reads,
+  fast reopens and a close during a read.

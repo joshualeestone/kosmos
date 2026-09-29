@@ -36,8 +36,9 @@ function dom() {
   const list = d.add('worldsw-computers-list', 'div');
   return { d, box, list };
 }
-function render(data) {
+function render(data, visibleBefore) {
   const t = dom();
+  if (visibleBefore) t.box.hidden = false; // as a previous render left it
   // eslint-disable-next-line no-new-func
   new Function('document', '_d', `${RE}${RENDER}\ncomputersRender(_d);`)(t.d.document, data);
   return t;
@@ -57,7 +58,8 @@ const text = (row) => row.children.map((c) => c.textContent);
 test('hidden when there is no list: not signed in ({ ok: false }), a failed read (null), only this computer, or no domain to check against', () => {
   for (const data of [{ ok: false, because: 'this computer is not signed in to Kosmos+' }, null, { ok: true, domain: 'kosmosplus.com', computers: [LIST.computers[0]] },
     { ok: true, computers: LIST.computers } /* no domain: nothing can be trusted */]) {
-    const { box, list } = render(data);
+    // Starts VISIBLE, so this proves the render hides it (not that it began hidden).
+    const { box, list } = render(data, true);
     assert.equal(box.hidden, true, JSON.stringify(data));
     assert.equal(list.children.length, 0, JSON.stringify(data));
   }
