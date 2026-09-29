@@ -7920,7 +7920,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */
-.orgchart-list .oc-reports { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px; }
+.orgchart-list .oc-reports { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px; white-space: nowrap; }
 .orgchart-list .oc-reports select { font: var(--text-callout) var(--font-ui); max-width: 16rem; }
 .orgchart-list .oc-check { display: block; margin: 2px 0 2px; color: var(--warn-ink); }
 .orgchart-list .oc-check button { margin-left: 8px; }
@@ -46576,7 +46576,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     countEl.textContent = result.because || 'No agents were created.';
   }
   if (orphans.length) {
-    countEl.textContent += ' ' + orphans.length + (orphans.length === 1 ? ' agent now reports' : ' agents now report')
+    msg.hidden = false;
+    msg.textContent = orphans.length + (orphans.length === 1 ? ' agent now reports' : ' agents now report')
       + ' to you, because their manager was not created.';
   }
   listEl.innerHTML =
