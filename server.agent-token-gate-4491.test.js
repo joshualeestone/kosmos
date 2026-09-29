@@ -351,6 +351,17 @@ test('task message does not tell an assignee that has left the project, and says
   assert.ok(mara && !/not on this project/.test(mara.because || ''), 'control: the member was filtered too: ' + JSON.stringify(delivered));
 });
 
+test('task message: an unreadable project list at the record step is a 503, not a 400 (#4491 slice 3)', async (t) => {
+  /* An unidentified caller is not held to membership, so it reaches tasks.say; when that read fails, the answer is
+     the server's (503), not "bad request". */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const realSay = tasksEngine.say;
+  tasksEngine.say = () => { const e = new Error('we could not read your projects'); e.code = 'UNREADABLE'; throw e; };
+  t.after(() => { tasksEngine.say = realSay; board.restore(); });
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'hi' } });
+  assert.equal(r.code, 503, 'an unreadable list at the record step answered ' + r.code + ': ' + r.text.slice(0, 160));
+});
+
 test('membership is exact for a carded agent, and by key only for a token that resolved without a roster row (#4491 slice 3)', async (t) => {
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   const liveness = require('./engine/liveness');

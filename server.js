@@ -16500,6 +16500,8 @@ const server = http.createServer(async (req, res) => {
       /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
          messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
          the caller unnamed. */
+      /* Only resolveSender here: the CLI's `kosmos task built` sends tmux's %N, never a roster target (task message also
+         accepts a raw roster target, as it always has). */
       const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
       const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
@@ -16662,7 +16664,8 @@ const server = http.createServer(async (req, res) => {
         const others = senderCard && senderCard.sessionName ? named.filter((m) => !sameAgentName(m, senderCard.sessionName, byKey)) : named;
         /* #4491 slice 3: an assignee that has left the project stays on its tasks (removal does not unassign), but is
            not told about them: its reply would be refused as not on the project. Said in `delivered`, like an Off
-           swarm. If the project list could not be read above, everyone is told, as before. */
+           swarm. If the project list could not be read above, no one is filtered here; in practice tasks.say reads it
+           again and fails first (503), so this arm runs only when the file recovers between the two reads. */
         const departed = (m) => !!memberRecord && !projectHasAgent(memberRecord, String(m), false);
         const recipients = others.filter((m) => !offHere.has(String(m)) && !departed(m));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
@@ -16695,7 +16698,8 @@ const server = http.createServer(async (req, res) => {
         // A failed append is a server-side (disk/IO) condition, not a bad request,
         // so it is a 500; a missing project/task is a 404; everything else (empty
         // or over-length text) is a 400 malformed request.
-        const code = /we could not record that message/.test(msg) ? 500
+        const code = err && err.code === 'UNREADABLE' ? 503   // the project list could not be read: the server's, not the request's
+          : /we could not record that message/.test(msg) ? 500
           : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
         sendJson(res, code, { error: msg || 'we could not record that message' });
       }
