@@ -949,7 +949,7 @@ done
 #   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
 #   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: at the desktop size the code is capped at 1.6rem and the same code fits.
+#             At se only on purpose: the smallest phone, where it is measured to spill (24px).
 # The run labels keep the mobile-shots-cover- prefix for all three: browser-checks-pr-select-4119.test.js
 # pins that built label.
 for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
