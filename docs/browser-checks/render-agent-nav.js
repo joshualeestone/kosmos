@@ -50,8 +50,10 @@ const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'nav-s
 // #3500: Remove folded UNDER the Advanced (term) pill, so 'remove' is no longer a pill of its own;
 // clicking Advanced now reveals both term and remove (as model+memory / instr+skills already did).
 const SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
-const PILLS = ['talk', 'model', 'instr', 'profile', 'term'];
-const GROUP = { model: ['model', 'memory'], instr: ['instr', 'skills'], term: ['term', 'remove'] };
+// #4550 (Josh, 2026-09-29): THREE pills. Profile reveals profile + instr + skills; AI Settings
+// (model) reveals model + memory + term + remove.
+const PILLS = ['talk', 'model', 'profile'];
+const GROUP = { model: ['model', 'memory', 'term', 'remove'], profile: ['profile', 'instr', 'skills'] };
 const groupOf = (k) => GROUP[k] || [k];
 const fail = [];
 function chk(ok, label, extra) {
@@ -116,6 +118,8 @@ function chk(ok, label, extra) {
       });
       chk(dot.attr && dot.drawn === 'block', `[${theme}] the Talk pill carries the needs-you dot`, JSON.stringify(dot));
 
+      // #4550: the pack is now a PAIR, Profile and AI Settings side by side (two equal columns, one
+      // row), under the large Direct Message. What follows held for #3500's four-pack and still holds:
       // #3500 follow-up (Josh, 2026-09-24): the four-pack is a 2x2 of identical tiles whose
       // labels never wrap. A markup test sees none of it. At the normal nav width the pack must
       // resolve to TWO equal columns (a single-column regression drops it to one track); every
@@ -131,11 +135,14 @@ function chk(ok, label, extra) {
         const btns = [...p.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; });
         const labs = [...p.querySelectorAll('.dnav-lab')].map((l) => ({ t: l.textContent, over: l.scrollWidth > l.clientWidth }));
         const sameSize = btns.every((b) => Math.abs(b.w - btns[0].w) <= 1 && Math.abs(b.h - btns[0].h) <= 1);
-        return { tracks, btns, labs, sameSize };
+        const tops = [...p.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top));
+        const gos = [...p.querySelectorAll('button')].map((b) => b.dataset.go);
+        return { tracks, btns, labs, sameSize, oneRow: tops.length === 2 && Math.abs(tops[0] - tops[1]) <= 1, gos };
       });
-      chk(pack.tracks === 2, `[${theme}] the four-pack is a 2x2 (two equal columns) at the normal nav width`, 'tracks=' + pack.tracks);
-      chk(pack.sameSize, `[${theme}] all four pack tiles are the exact same size (width AND height)`, JSON.stringify(pack.btns));
-      chk(pack.labs.every((x) => !x.over), `[${theme}] every four-pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
+      chk(pack.tracks === 2 && pack.oneRow && JSON.stringify(pack.gos) === '["profile","model"]',
+        `[${theme}] #4550: Profile and AI Settings sit side by side (two equal columns, one row)`, JSON.stringify({ tracks: pack.tracks, oneRow: pack.oneRow, gos: pack.gos }));
+      chk(pack.sameSize, `[${theme}] both pack tiles are the exact same size (width AND height)`, JSON.stringify(pack.btns));
+      chk(pack.labs.every((x) => !x.over), `[${theme}] every pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
 
       // The mouseover preview actually applies (Josh approved it 2026-09-24): a resting tile takes
       // the rule border and no wash; on hover the border becomes the bright gold (#4051) and a faint warm
@@ -147,7 +154,7 @@ function chk(ok, label, extra) {
       await page.hover(hoverSel);
       await page.waitForTimeout(150);
       const hov = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bc: cs.borderTopColor, bg: cs.backgroundColor }; }, hoverSel);
-      chk(hov.bc !== rest.bc && hov.bg !== rest.bg, `[${theme}] hovering a four-pack tile applies the warm preview (border and wash both change)`, JSON.stringify({ rest, hov }));
+      chk(hov.bc !== rest.bc && hov.bg !== rest.bg, `[${theme}] hovering a pack tile applies the warm preview (border and wash both change)`, JSON.stringify({ rest, hov }));
       // #4051 (Josh, 2026-09-26): the hover and selected outlines are the bright gold of the Post
       // button, not the brown. Compared to the Post button's own computed fill on this page, so it
       // follows the token rather than a colour string; the resting tile is the control (not gold).
@@ -171,7 +178,7 @@ function chk(ok, label, extra) {
         await page.click('#d-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
         r = await rects();
-        // #2916: the pill reveals its GROUP (model+memory, or instr+skills); everything else is 0.
+        // #2916 / #4550: the pill reveals its GROUP; everything else is 0.
         const grp = groupOf(k);
         const onlyThis = SECTIONS.every((j) => (grp.includes(j) ? r[j].h > 0 : r[j].h === 0));
         chk(onlyThis, `[${theme}] click ${k}: [${grp.join('+')}] on screen and nothing else`,
@@ -194,7 +201,7 @@ function chk(ok, label, extra) {
           // under nowrap, would still be caught overrunning the 176px column rather than hiding.
           const fit = await page.evaluate(() => {
             const m = document.querySelector('#d-nav button[data-go="model"]');
-            const ih = document.querySelector('#d-nav button[data-go="instr"]').getBoundingClientRect().height;
+            const ih = document.querySelector('#d-nav button[data-go="profile"]').getBoundingClientRect().height;   // #4550: its pair
             const mh = m.getBoundingClientRect().height;
             return { model: Math.round(mh), instr: Math.round(ih), weight: getComputedStyle(m).fontWeight,
               scrollW: m.scrollWidth, clientW: m.clientWidth,
@@ -211,9 +218,21 @@ function chk(ok, label, extra) {
       await page.evaluate(() => openDetail('april', 'instr'));
       await page.waitForTimeout(200);
       r = await rects();
-      // #2916: Instructions reveals the instr+skills group; the rest measure zero.
-      chk(r.instr.h > 0 && r.skills.h > 0 && SECTIONS.filter((j) => !['instr', 'skills'].includes(j)).every((j) => r[j].h === 0),
-        `[${theme}] openDetail(name, 'instr') lands on Instructions with Skills below`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
+      // #4550: a section reached by name opens its whole new group and lights the button it now lives
+      // under: Instructions opens Profile's group (profile, instr, skills) with Profile lit.
+      const litInstr = await page.evaluate(() => [...document.querySelectorAll('#d-nav button.on')].map((x) => x.dataset.go));
+      chk(GROUP.profile.every((j) => r[j].h > 0) && SECTIONS.filter((j) => !GROUP.profile.includes(j)).every((j) => r[j].h === 0)
+        && JSON.stringify(litInstr) === '["profile"]',
+        `[${theme}] openDetail(name, 'instr') opens Profile's group with Profile lit`, JSON.stringify({ lit: litInstr, h: Object.fromEntries(SECTIONS.map((j) => [j, r[j].h])) }));
+      // Reading order inside Profile's group: the profile block, then Instructions, then Skills (Josh's list).
+      const order = await page.evaluate(() => ['profile', 'instr', 'skills'].map((k) => document.querySelector('#panel-detail .dsec[data-sec="' + k + '"]').getBoundingClientRect().top));
+      chk(order[0] < order[1] && order[1] < order[2], `[${theme}] #4550: Profile's group reads profile, then Instructions, then Skills`, JSON.stringify(order));
+      await page.evaluate(() => openDetail('april', 'remove'));
+      await page.waitForTimeout(200);
+      r = await rects();
+      const litRem = await page.evaluate(() => [...document.querySelectorAll('#d-nav button.on')].map((x) => x.dataset.go));
+      chk(GROUP.model.every((j) => r[j].h > 0) && JSON.stringify(litRem) === '["model"]',
+        `[${theme}] openDetail(name, 'remove') opens AI Settings' group with AI Settings lit`, JSON.stringify({ lit: litRem, h: Object.fromEntries(SECTIONS.map((j) => [j, r[j].h])) }));
       await page.evaluate(() => openDetail('april', 'no-such-section'));
       await page.waitForTimeout(100);
       r = await rects();
@@ -237,7 +256,7 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(300);
 
       // The terminal box is no longer gated by Engineering mode on this page.
-      await page.click('#d-nav button[data-go="term"]');
+      await page.click('#d-nav button[data-go="model"]');   // #4550: the Terminal section is under AI Settings
       await page.waitForTimeout(300);
       const term = await page.evaluate(() => ({
         box: document.getElementById('d-window-box').hidden,
@@ -272,11 +291,10 @@ function chk(ok, label, extra) {
       });
       chk(narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
-      // Josh, 2026-09-24: rather than wrap a label into a too-tight 2x2 cell, the pack drops to a
-      // single column when the panel reflows narrow. Assert it is STILL a grid with one track (not
-      // reverted to flex, which computes gridTemplateColumns:"none" -> split length 1 and would
-      // otherwise false-pass a bare ===1); two tracks at the normal width above.
-      chk(narrow.packDisplay === 'grid' && narrow.packTracks === 1, `[${theme}] at 420px the four-pack is a single grid column (no wrap-forcing 2x2)`, 'display=' + narrow.packDisplay + ' tracks=' + narrow.packTracks);
+      // #4550 (Josh: "two side-by-side buttons"): the pair stays side by side when the panel reflows
+      // narrow (the #3500 four-pack dropped to one column here; two tiles fit). Still a GRID with two
+      // tracks, not flex (which computes gridTemplateColumns:"none").
+      chk(narrow.packDisplay === 'grid' && narrow.packTracks === 2, `[${theme}] at 420px Profile and AI Settings are still side by side`, 'display=' + narrow.packDisplay + ' tracks=' + narrow.packTracks);
       await page.screenshot({ path: path.join(OUT, `${theme}-narrow.png`), fullPage: false });
 
       // An agent Kosmos cannot tie to its name has no window box; the Terminal
@@ -287,7 +305,7 @@ function chk(ok, label, extra) {
       await page.click('[data-agent="casey"]');
       await page.waitForSelector('#panel-detail:not([hidden])');
       await page.waitForTimeout(600);
-      await page.click('#d-nav button[data-go="term"]');
+      await page.click('#d-nav button[data-go="model"]');   // #4550: the Terminal section is under AI Settings
       await page.waitForTimeout(200);
       const untied = await page.evaluate(() => ({
         box: document.getElementById('d-window-box').hidden,
