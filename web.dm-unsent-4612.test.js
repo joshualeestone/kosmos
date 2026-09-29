@@ -30,7 +30,7 @@ const OLD = new Date(Date.now() - 10 * 60000).toISOString();
 const NEW = new Date().toISOString();
 
 test('#4612: an owed thread with an unsent answer says so and shows the answer, at once and escaped', () => {
-  const html = api.dmOwesLine({ state: 'owes', lastHeardAt: NEW, unsent: { text: 'Hi Josh <b>all</b> good\nline two', at: NEW } });
+  const html = api.dmOwesLine({ state: 'owes', lastHeardAt: NEW, unsent: { text: 'Hi Josh <b>all</b> good\nline two' } });
   assert.match(html, /It finished without replying here\. What it said in its own window:/);
   assert.match(html, /<blockquote class="dmunsent-text">Hi Josh &lt;b&gt;all&lt;\/b&gt; good\nline two<\/blockquote>/, html);
   assert.doesNotMatch(html, /Nothing back yet/);

@@ -659,7 +659,7 @@ test('#4612 review round 2: every real DM envelope form is recognised, straight 
   assert.notEqual(at, -1, 'operatorDirect is gone from engine/messages.js');
   const operatorDirect = new Function(src.slice(at, src.indexOf('\n}\n', at) + 2) + '\nreturn operatorDirect;')();
   const forms = [operatorDirect(null, ''), operatorDirect('11:52 AM', ''),
-    operatorDirect(null, ' \u00b7 answers "first words"'), operatorDirect('11:52 AM', ' \u00b7 answers "first words"')];
+    operatorDirect(null, ' \u00b7 answers your message, posted 11:40 AM'), operatorDirect('11:52 AM', ' \u00b7 answers their earlier message, posted 11:40 AM')];   // the tags dmAnsweredParts makes
   for (const env of forms) {
     const finals = [];
     const h = harness([OK('answer')], { report: (s, w, final) => finals.push(final || null) });

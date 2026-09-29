@@ -41,7 +41,7 @@ an older answer is never shown for a newer message (the route also requires the 
 ## Tests
 engine/musefront.test.js (answer on idle, control failed turn; reporter payload; bridge Stop only, agy unchanged),
 engine/selfreport.waiting-4569.test.js (kept, cleaned, capped; working / blank / bad time / none not kept),
-server.dm-owes-4340.test.js (shown only for a later turn; not while working; not once replied; control no report),
+server.dm-owes-4340.test.js (shown only for a later turn; still shown while a room turn runs and after it ends; not for a newer DM; not once replied; control no report),
 web.dm-unsent-4612.test.js (line and escaped text at once; control: the old line and grace unchanged),
 server.report-readback-2709.test.js (the route's pass-through; a working report's answer is not kept), and the
 review-round tests in engine/musefront.test.js (a DM's answer across a room turn; stop note; failed or wordless DM
