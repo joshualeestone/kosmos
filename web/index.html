@@ -3106,8 +3106,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #3500 (Josh, 2026-09-23): the agent-view nav as icon+label rounded boxes. Scoped to #d-nav
    (an id, so it beats the shared `.snav button` rules by specificity) so the Settings nav #s-nav
    keeps its own styling, exactly as #3505 scoped its pill work to #s-nav. Direct Message is the
-   large default box; the four-pack (.dnav-pack) is a 2x2 grid of smaller boxes (see the
-   .dnav-pack rule below). */
+   large default box; since #4550 the pack (.dnav-pack) is a PAIR, Profile and AI Settings side by
+   side (see the .dnav-pack rule below). */
 #d-nav.dnav-boxed { gap: 10px; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
@@ -3130,7 +3130,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
 #d-nav.dnav-boxed button.dnav-dm { padding: 10px 16px; border-radius: 14px; }
-/* The four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
+/* #4550 (Josh, 2026-09-29): the pack is now TWO boxes, Profile and AI Settings, side by side at every
+   width (the narrow media query below keeps two columns). The two equal columns and the no-wrap label
+   rule below are unchanged; "AI Settings" is the longer label now. History, #3500:
+   the four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
    all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns plus
    `grid-auto-rows: 1fr` keep every tile identical in BOTH width and height (the two rows are forced
    equal, so "exact same size" holds by construction, not by the tiles happening to have symmetric
@@ -11319,8 +11322,8 @@ window.kosmosMeasureScrollbarWidth();
       <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
       <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
              reads as removing the AGENT until you have pressed it (#406). (This
-             page also has a "Remove <name>" control, in the Advanced section since
-             #3500 folded it there.) -->
+             page also has a "Remove <name>" control, under AI Settings since #4550; in the Advanced section from
+             #3500, which folded it there.) -->
         <button class="btn" id="d-remove" type="button">Remove picture</button>
       <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
     </div>
@@ -34294,6 +34297,7 @@ function openDetail(sessionName, section, fromProject) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
+  { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = ''; }   // #4550: never the last agent's rows
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
     // Clear the previous agent's rows now, not when the fetch returns: a click in between would
@@ -35732,6 +35736,11 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
    The list is whatever the runtime's folder holds right now; painting from
    anything else would let the screen disagree with what a session loads. */
+/* #4550 review: the NEWEST load of a list is the only one that may paint it. An agent's Skills
+   list loads whenever Profile opens, so switching agents quickly can leave an older fetch in
+   flight, and its answer arriving last would paint agent A's skills (each row's Remove aimed at
+   A's URL) on agent B's page. Each call takes a ticket per list; a stale answer paints nothing. */
+const SKILLS_LOAD_TICKET = {};
 async function loadSkills(url, listId, msgId) {
   /* Header only, no body text (Josh, 2026-08-23 20:01: "this page could get
      really gigantic... just have only the header"). Each row carries its
@@ -35739,9 +35748,12 @@ async function loadSkills(url, listId, msgId) {
      the consent, and looking away resets it. */
   const box = document.getElementById(listId);
   const msg = document.getElementById(msgId);
+  const ticket = (SKILLS_LOAD_TICKET[listId] = (SKILLS_LOAD_TICKET[listId] || 0) + 1);
+  const stale = () => SKILLS_LOAD_TICKET[listId] !== ticket;
   msg.textContent = 'Looking\u2026';
   try {
     const got = await (await fetch(url, { cache: 'no-store' })).json();
+    if (stale()) return;
     if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); return; }
     box.textContent = '';
     const skills = got.skills || [];
@@ -35769,7 +35781,7 @@ async function loadSkills(url, listId, msgId) {
       row.append(n, rm);
       box.append(row);
     }
-  } catch { box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
+  } catch { if (stale()) return; box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
 }
 function wireSkillAdd(btnId, nameId, bodyId, msgId, urlFor, saidFor) {
   document.getElementById(btnId).addEventListener('click', async () => {
@@ -36578,7 +36590,7 @@ function freshStartLabel(name) {
    name is carried by the DM header ("Direct Message to <name>") and the identity column, so the
    nav box stays short in its icon+label form. The Remove pill is gone (folded into Advanced), so
    its two former label writes are removed; the remove SECTION still names the agent via its
-   aria-label below, which is what a screen reader on the (now Advanced-revealed) section reads. */
+   aria-label below, which is what a screen reader on the (Advanced-revealed, under AI Settings since #4550) section reads. */
 function detailNavNames(name) {
   const n = (name || '').trim();
   document.getElementById('d-nav-talk').textContent = 'Direct Message';

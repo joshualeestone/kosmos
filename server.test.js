@@ -8940,7 +8940,7 @@ test('the agent detail page is ten sections behind a nav, in the ruled order', (
   const navStart = panel.search(/<nav [^>]*id="d-nav"/);
   const nav = panel.slice(navStart, panel.indexOf('</nav>', navStart));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // #3500 (Josh, 2026-09-23): the nav is icon+label boxes. Direct Message is the large default box;
+  // History (the pin below is #4550's three buttons): #3500 (Josh, 2026-09-23): the nav is icon+label boxes. Direct Message is the large default box;
   // the four-pack is Profile, Instructions, AI Settings (the relabelled Model and Memory pill), and
   // Advanced. Memory still folds under the AI Settings pill and Skills under Instructions (#2916).
   // "Remove agent" now folds INTO Advanced (DETAIL_SECTION_PILL remove->term), so there is no
@@ -8971,7 +8971,7 @@ test('the agent detail page is ten sections behind a nav, in the ruled order', (
   // remove) reads in DOM order with the Profile group hidden between.
   assert.deepEqual(secs, ['talk', 'model', 'memory', 'profile', 'instr', 'skills', 'term', 'remove', 'files', 'swarm'],
     'the section order moved');
-  // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
+  // #4550: the pills are Direct Message, then Profile and AI Settings. History, #3500: the pills followed Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
   // order is pinned by the deepEqual above. Here we only guard that every pill maps to a real
   // section (no pill points at a phantom).
