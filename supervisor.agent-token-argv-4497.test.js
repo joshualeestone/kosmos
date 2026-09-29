@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4497: a sender token must reach every provider without becoming part of
+ * #4497/#4507: launch secrets must reach every provider without becoming part of
  * tmux's process arguments. This executes the shipped supervisor and a tmux
  * stand-in which records the exact argv it receives, applies tmux -e entries,
  * and then executes the pane command. On the old code the runner receives the
@@ -49,7 +49,7 @@ function fixture() {
   fs.writeFileSync(tmux, [
     '#!/bin/bash',
     'case "${1:-}" in',
-    '  has-session) exit 1 ;;',
+    '  has-session) [ -n "${DELETE_SUPERVISOR:-}" ] && rm -f -- "$SUPERVISOR_PATH"; exit 1 ;;',
     '  new-session)',
     '    printf "%s\\0" "$@" >> "$ARGV_RECORD"',
     '    before=""',
@@ -141,7 +141,7 @@ for (const provider of PROVIDERS) {
   });
 }
 
-test('a refused tmux launch removes the unconsumed token file without logging it', () => {
+test('a refused tmux launch removes the unconsumed secret file without logging it', () => {
   const f = fixture();
   const argvRecord = path.join(f.root, 'argv.bin');
   const modeRecord = path.join(f.root, 'mode.txt');
@@ -166,6 +166,41 @@ test('a refused tmux launch removes the unconsumed token file without logging it
     assert.notEqual(result.status, 0, 'the launch refusal reaches the supervisor');
     assert.ok(!result.stdout.includes(TOKEN) && !result.stderr.includes(TOKEN), 'the failed launch does not log the token');
     assert.deepEqual(fs.readdirSync(path.join(f.root, 'data', 'launch-secrets')), [], 'the EXIT trap removes the unconsumed token file');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('an unavailable supervisor entry path launches without handing secrets to the provider', () => {
+  const f = fixture();
+  const evidence = path.join(f.root, 'evidence.txt');
+  const argvRecord = path.join(f.root, 'argv.bin');
+  const supervisorPath = path.join(f.root, 'bin', 'agent-supervisor.sh');
+  try {
+    const result = spawnSync('/bin/bash', [
+      supervisorPath, 'agent-fallback', path.join(f.root, 'work'), f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        EVIDENCE: evidence,
+        ARGV_RECORD: argvRecord,
+        MODE_RECORD: path.join(f.root, 'mode.txt'),
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+        DELETE_SUPERVISOR: '1',
+        SUPERVISOR_PATH: supervisorPath,
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || 'the fallback launch failed');
+    assert.equal(fs.readFileSync(evidence, 'utf8'), '<missing>|<missing>|<missing>|<missing>|<missing>|<missing>', 'the provider starts without any held secret');
+    const argv = fs.readFileSync(argvRecord);
+    assert.ok(!argv.includes(Buffer.from('--pane-entry')), 'an unreadable entrypoint is never put on pane argv');
+    for (const secret of [TOKEN, GH_SECRET, DOOR_SECRET, CF_SECRET]) {
+      assert.ok(!argv.includes(Buffer.from(secret)), `fallback argv does not expose ${secret}`);
+    }
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
   }

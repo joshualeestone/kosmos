@@ -551,6 +551,10 @@ if [ -z "$adopt" ]; then
       unset _value
     fi
   done
+  # These two may have been exported above or inherited by this supervisor.
+  # Only the private handoff may give them to a provider. If that handoff cannot
+  # be built, the provider still starts but inherits no held credential.
+  unset CLOUDFLARE_API_TOKEN GH_TOKEN
   # The token doors (#529, engine/tokendoors.js) keep each token the person
   # pasted as ONE file under secrets/env/, named for the variable agents read
   # (DISCORD_BOT_TOKEN, BRAVE_API_KEY, ...). Every such file rides into the
