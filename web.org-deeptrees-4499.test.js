@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * kosmos#4499: deep org charts near their pre-#4434 size, and no line within 12px of a face that is not its own.
+ * kosmos#4499: deep org charts near their pre-#4434 size, and no line within 12px of the CENTRE of a face that is not its own
+ * (a face is 44px across, so the line may still run through its edge).
  *
  * Main's deep 100-agent median (1580px) is its DEPTH floor: every ring one step past the last, faces allowed to
  * overlap. With no overlaps and no crossings the layout cannot sit on that floor, so #4499 aims near it: a team that
@@ -107,14 +108,14 @@ const linesOf = (pos) => [...pos].map(([name, p]) => ({ name, parent: p.parent, 
 
 test('deep 100-agent trees: the median and the largest natural size over 60 seeds (#4499)', () => {
   /* Measured over seeds 1..60, through these cards: median 1432 before #4434 (its depth floor), 3232 with it, 2700
-     with #4472, 1930 now; largest 2024, 8113, 4805, 2809. */
+     with #4472, 1893 now; largest 2024, 8113, 4805, 2612 (re-measured after the rebase onto main with #4502). */
   const sizes = [];
   for (let seed = 1; seed <= 60; seed += 1) sizes.push(paint(randomTree(seed, 100, 0.05)).size);
   sizes.sort((a, b) => a - b);
   assert.equal(sizes.length, 60, 'CONTROL: not every tree was measured');
   const median = (sizes[29] + sizes[30]) / 2;
   assert.ok(median <= 2000, 'the median deep tree is ' + median + 'px, over 2000 (#4472: 2700)');
-  assert.ok(sizes[59] <= 3000, 'the largest deep tree is ' + sizes[59] + 'px, over 3000 (#4472: 4805)');
+  assert.ok(sizes[59] <= 2750, 'the largest deep tree is ' + sizes[59] + 'px, over 2750 (#4472: 4805)');
 });
 
 test('a lead with 30 and 50 reports, and a CEO over 4 x 20, shrink with the wide window (#4499)', () => {
@@ -125,11 +126,12 @@ test('a lead with 30 and 50 reports, and a CEO over 4 x 20, shrink with the wide
   }
 });
 
-test('no line within 12px of a face that is not one of its ends, first ring included; none over the hub; none crossing (#4499)', () => {
+test('no line within 12px of the centre of a face that is not one of its ends, first ring included; no faces closer than the lane floor; none over the hub; none crossing (#4499)', () => {
   /* On #4473 the least was 5.5px (a first-ring spill), on #4472 10.55px. A crowded first ring (dozens of agents on
      several lanes, each full inner lane ruling out ~139 degrees for a hub line) now meets it by starting further out,
      which costs size there (measured: 1000 agents at 30% first ring, mean 13,323 -> 15,769 against #4472). */
   let checked = 0; let least = Infinity; let where = ''; let hub = Infinity; let crossings = 0;
+  let faces = Infinity; let facesAt = '';
   const specs = [];
   for (const n of [30, 60, 100]) for (const p of [0.05, 0.33]) for (let seed = 1; seed <= 12; seed += 1) specs.push(['randomTree(' + seed + ', ' + n + ', ' + p + ')', randomTree(seed, n, p)]);
   for (let n = 2; n <= 60; n += 2) specs.push(['lead ' + n, lead(n)]);
@@ -149,11 +151,27 @@ test('no line within 12px of a face that is not one of its ends, first ring incl
       }
     }
     for (let i = 0; i < lines.length; i += 1) for (let j = i + 1; j < lines.length; j += 1) if (cross(lines[i], lines[j])) crossings += 1;
+    const all = [...pos];
+    for (let i = 0; i < all.length; i += 1) for (let j = i + 1; j < all.length; j += 1) {
+      const d = Math.hypot(all[i][1].x - all[j][1].x, all[i][1].y - all[j][1].y);
+      if (d < faces) { faces = d; facesAt = label + ': ' + all[i][0] + ' and ' + all[j][0]; }
+    }
   }
   assert.ok(checked > 100000, 'CONTROL: only ' + checked + ' line-to-face pairs were checked');
   assert.ok(least >= 12 - 1e-6, 'a line passes ' + least.toFixed(3) + 'px from a face (' + where + ')');   // the code places at exactly 12
   assert.ok(hub >= 74 - 1e-6, 'a report line passes ' + hub.toFixed(3) + 'px from the hub centre');
   assert.equal(crossings, 0, crossings + ' crossing(s)');
+  /* Faces are ORG_MIN_ARC (62px) apart, except on neighbouring first-ring lanes, where the 12px hub-line rule leaves
+     about 59.2px at the least (measured 59.63px, in randomTree(1, 250, 0.25)). With the check that keeps faces of
+     different teams apart removed, the closest pair here falls to 24.71px, overlapping (review, post-rebase round 1). */
+  assert.ok(faces >= 59, 'two faces are only ' + faces.toFixed(2) + 'px apart (' + facesAt + ')');
+});
+
+test('a leaf takes the next lane out rather than blocking the manager beside it (#4499 review 9)', () => {
+  /* Without the rule a shifted leaf blocked a first-ring manager, which spilled a lane out with its whole branch:
+     this tree measured 660px with the rule removed, 544px with it (and on #4472). */
+  const t = paint(randomTree(1, 20, 0.6));
+  assert.ok(t.size <= 560, 'randomTree(1, 20, 0.6) is ' + t.size + 'px, over 560');
 });
 
 test('the exact crossing test: a tree that crosses without it does not cross (#4499)', () => {

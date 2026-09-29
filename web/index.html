@@ -30566,7 +30566,8 @@ function orgPlace(nodes) {
        further out are spread evenly and turned to the offset that keeps their lines furthest from every inner
        face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
        room for one line), and the turn keeps the near passes to the fewest it can. */
-    const LANE_STEP = ORG_FIRST_LANE;  // each spill lane's step, shared with a tree's crowded first ring (#4499); the placement and the search read this one
+    const LANE_STEP = ORG_FIRST_LANE;  // each spill lane's step, shared with a tree's crowded first ring (#4499); the placement and the search read this one.
+    // Changing ORG_FIRST_LANE for trees moves #4502's flat lanes too (web.org-flat-rings-4502.test.js would see it).
     const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
     for (let lane = 0; lane < lanes; lane += 1) {
@@ -30651,8 +30652,10 @@ function orgPlace(nodes) {
      - ORG_LINE_CLEAR (12px from a line to the CENTRE of a face that is not its own) is MEASURED, not guaranteed: a team whose
        clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
        nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
-       report's straight-out ray). The team spacing and no crossings ARE guaranteed (first-ring lanes are kept apart by the
-       12px hub-line rule, measured at 59.3px at the closest; the floor is about 59.2).
+       report's straight-out ray). Face spacing is kept by construction: ORG_MIN_ARC (62px) between faces, except faces on
+       neighbouring first-ring lanes, which the 12px hub-line rule keeps about 59.2px apart at the least (measured 59.63px
+       in randomTree(1, 250, 0.25)); a face is 44px across, so none touch. No crossings is guaranteed except by the
+       400-try last resort (below), which keeps its placement whatever it finds and has never been reached.
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -30818,9 +30821,10 @@ function orgPlace(nodes) {
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
   const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) + 1);
+  /* A probe differs from a full lay-out only by stopping at the first fall-back, so one that did not fall back is
+     already the complete first ring (review: it was laid a second time here). */
   let first = firstRing(ORG_R0, true);
-  if (!first.fellBack) first = firstRing(ORG_R0);
-  else {
+  if (first.fellBack) {
     /* Bisect for a base that clears, within half a lane of the nearest (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
        at a time was 30 placements and 350ms). `hi` only ever holds a base that cleared or settledBase, which always
        clears, so the ring is laid once more there. Clearing need not hold at every larger base, which is why this

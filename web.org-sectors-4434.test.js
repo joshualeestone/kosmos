@@ -547,7 +547,7 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
     'paintOrg no longer drops a tree\'s positions when it turns flat');
   /* #4499: a deep tree, not a lead with 59: since two-ring teams (#4472) and wide windows (#4499) that lead's canvas is
      only 1.3x the flat one's and its carried faces no longer overlap (measured: 0 pairs), so it tested nothing; this
-     tree carries 22 overlapping pairs at 1.87x (see the #4499 plan, Tests). */
+     tree carries 4 overlapping pairs at 1.90x (measured after the rebase onto #4502's flat lanes; 22 before). */
   const spec = randomTree(3, 60, 0.05);
   const tp = firstPaint(cards(spec)).placed;
   const pre = [...tp.keys()][0].split('_')[0] + '_';
@@ -566,7 +566,7 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
   };
   assert.equal(settleFlat(true).overlapping, 0, 'the flat fleet rests with faces overlapping');
   const carried = settleFlat(false);
-  /* 1.5, not 2: since #4472 and #4499 this tree's canvas is 1.87x the flat one's, not 3x, and 22 carried pairs
+  /* 1.5, not 2: since #4472 and #4499 this tree's canvas is 1.90x the flat one's, not 3x, and 4 carried pairs
      overlap. The control is that the carried positions DO overlap; the size only says the canvases differ. */
   assert.ok(carried.grew > 1.5 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
 });
