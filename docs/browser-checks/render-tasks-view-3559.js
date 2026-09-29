@@ -5,9 +5,9 @@
  * grouped by where the work is.
  *
  * What this pins, and why each line can fail:
- *  - the Tasks tab and the consolidated rail's Tasks button are hidden below 25 tasks ever and
- *    shown once the saved flag is set (Josh's ruling); then the tab opens #panel-tasks, and in
- *    the consolidated view (tab bar hidden) the rail button opens it,
+ *  - the Tasks tab is hidden below 25 tasks ever and shown once the saved flag is set (Josh's
+ *    ruling); then the tab opens #panel-tasks, and in the consolidated view the tab opens it in
+ *    the display column, with no Tasks pill in the projects rail (#4595),
  *  - #3949 (Josh, 2026-09-26): six single-label tiles in his order (Needs Your Decision, red; In
  *    progress; Assigned but not started; Unassigned; Built but waiting, #3951; Completed), with the
  *    right counts and no byline; Completed also stays the folded list; NO "Done, check it" or

@@ -21636,7 +21636,7 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
-    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    // #3559 (Josh): the Tasks tab, once 25 tasks ever.
     tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
@@ -41294,8 +41294,8 @@ function openConsolidatedSettings() {
   syncPlusChrome();
 }
 /* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
-   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
-   kick the person out to the tab view. In the column the view's own project rail folds to its
+   (#2842) and create (#3053): in the consolidated view the Tasks tab (#4345) must not kick the
+   person out to the tab view. In the column the view's own project rail folds to its
    dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
    own page. Transient like consolidated settings: a reload restores the project view. */
 let TASKS_PANEL_HOME = null;
