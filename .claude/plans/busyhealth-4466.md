@@ -320,6 +320,18 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   `KOSMOS_WATCHDOG_BUSY_GRACE` (30 s) instead of seeding older state. Red-checked at the new ages: all
   #4466 arms red on main's watchdog, 6h red on the pre-round-22 one, the control green.
 
+- 6g on c505e2aea: GREEN.
+
+## Review round 26 (fable, after the CI fix): 2 NEW NITs fixed; loop continues
+- FIXED (NIT): `agent roles` still folded an empty 200 into `say_unreached ... 0` ("Is it running at"); split
+  like its two siblings (round 24). Stub mode `emptyroles` and an arm, red on the old code.
+- FIXED (NIT): `server.health-4466.test.js` uses `node:assert/strict`, like the other new suites.
+- DUPLICATE (W): a wedged board's `status` never names `kosmos restart` for a person (round 21's deferral:
+  busy and wedged cannot be told apart, and the card's rule is that busy is never told to restart).
+- DUPLICATE (W): the transient stranger reading between connect and lsof (rounds 12 and 16).
+- DUPLICATE (CONVENTION): plan file name (rounds 13, 14, 20). DUPLICATE (NIT): timing-window flake risk
+  (the test header, round 17's first-request clock).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

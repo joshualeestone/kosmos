@@ -9,7 +9,7 @@
  * so this proves the exemption is this one route and not the gate being off.
  */
 const test = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');

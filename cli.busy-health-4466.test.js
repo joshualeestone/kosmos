@@ -91,6 +91,8 @@ const server = http.createServer((req, res) => {
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
   // Answers its health check, then cuts each data read (a board too busy to finish the request).
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
+  // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
+  if (health === 'emptyroles' && req.url.startsWith('/api/roles')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(''); return; }
   if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
@@ -351,6 +353,13 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.match(agent.stdout, /Tell the person who runs this computer/);
   assert.doesNotMatch(agent.stdout, /kill/);
 });
+
+test('#4466 an EMPTY answer to agent roles is not "is it running?" (the board did answer)', () => withBoard('emptyroles', async (port) => {
+  const out = await runCli(['agent', 'roles'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }), 40000, '');
+  assert.notEqual(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /gave an empty answer when asked for the roles/, out.stdout + out.stderr);
+  assert.doesNotMatch(out.stdout + out.stderr, /Is it running|Start it with/);
+}));
 
 test('#4466 `kosmos status` on a stranger answers from the reading it has, not a second probe that could read busy', async () => {
   const port = await closedPort();
