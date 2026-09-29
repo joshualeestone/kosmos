@@ -351,7 +351,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # The board binds 127.0.0.1 by default (engine/bindhost.js); KOSMOS_BIND_HOST=0.0.0.0 is *:PORT, also IPv4.
 # A dual-stack or IPv6 bind (KOSMOS_BIND_HOST=::) is not seen here, and keeps the old "down" reading.
 # The re-probe makes one refused probe with a listener cost more than its budget (lsof, 0.5 s, a second probe
-# and its own lsof; each lsof bounded by -S 2, so at worst about 5 s beyond the budget); a refused probe with no
+# and its own lsof, where -S 2 bounds each stalled kernel call, not the whole lsof run); a refused probe with no
 # listener costs one lsof.
 # Before calling it unreachable, the probe runs ONCE more after half a second: a board that started
 # listening between curl's refusal and lsof (a boot in progress) then answers, instead of a start or
@@ -495,6 +495,9 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
 _unreachable_why() {
   printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
 }
+# #4636: positive evidence that this shell is sandboxed: ps of our own process is denied (the measured
+# macOS sandbox denies /bin/ps; an ordinary shell, even one with a broken network, runs it).
+_shell_is_sandboxed() { ! /bin/ps -p "$$" >/dev/null 2>&1; }
 _unreachable_is_ours() {
   local _rec
   _rec="$(cat "$PIDFILE" 2>/dev/null)" || return 1
@@ -1006,9 +1009,15 @@ _await_board_up() {
         say "Kosmos started at $URL (process $_UNREACH_PID), but $(_unreachable_why), so this shell cannot use it. Run kosmos commands from a shell that can reach it."
         return 0
       fi
-      # Two readings in a row, not one: a moment's local network fault (the TIME_WAIT-leak shape, also curl 7)
-      # must not cost a healthy new board.
+      # Two readings in a row (a board mid-boot gets its moment), and then only on POSITIVE evidence that this
+      # shell is sandboxed (ps denied: the measured sandbox denies it). Without that evidence the cause may be a
+      # local network fault (the TIME_WAIT-leak shape, also curl 7, lasting until a reboot), which a normal
+      # Terminal's board has too: it is left running and the start says this shell cannot reach it.
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ]; then _unreach_seen=$((_unreach_seen + 1)); fi
+      if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ] && ! _shell_is_sandboxed; then
+        say "Kosmos started at $URL (process $_pid), but $(_unreachable_why), so this shell cannot use it."
+        return 0
+      fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
         local _k
         kill "$_pid" 2>/dev/null || true
@@ -1209,14 +1218,15 @@ cmd_start() {
   # reclaim flag either: it is meant for this one start (setup.sh, the watchdog), and a board that
   # carried it would hand every later `kosmos start` it runs leave to kill a busy board.
   env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
-  printf '%s' "$!" > "$PIDFILE"
+  local _launched="$!"   # #4636: this launch's pid, handed to the wait below (board.pid could change meanwhile)
+  printf '%s' "$_launched" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
   # crashes half a second in still had a pid. Thirty half-second tries is
   # fifteen seconds against a board that refuses the connection; one that takes
   # it and does not answer costs up to a 2 s probe per try on top (#4466), so up
   # to 75 s before the verdict. The log is named on failure because it is the
   # only witness.
-  _await_board_up "$(cat "$PIDFILE" 2>/dev/null)" && return 0
+  _await_board_up "$_launched" && return 0
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 

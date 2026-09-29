@@ -139,12 +139,7 @@ BUSY_SINCE_RAW="$(state_get busy_since)"
 # in: the worst case is one redundant, idempotent kosmos start on the first post-boot
 # run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
-UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"   # #4636: an exit-5 spell, logged once (see below)
-# #4636: an unreachable spell's marker from before this boot is stale: the first spell after a reboot is logged.
-if [ -n "$BOOT" ] && [ -f "$UNREACH_MARK" ] \
-   && [ "$(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)")" -lt "$BOOT" ]; then
-  rm -f "$UNREACH_MARK" 2>/dev/null || true
-fi
+UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"   # #4636: an exit-5 spell, logged once per 6 hours (see below)
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; BUSY_SINCE_RAW=""; LAST_KICK=0; FAILS=0
   # A reboot is a fresh chance, so a pre-reboot crash-loop alert should not survive
@@ -170,7 +165,9 @@ fi
 # it would not help, so it kicks nothing and ends any down streak (a later down reading starts a fresh
 # GRACE). Logged once per spell, not every tick: a marker file ($UNREACH_MARK) holds the spell.
 if [ "$STATUS_RC" -eq 5 ]; then
-  # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent.
+  # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent (a spell
+  # that starts again within 6 hours of the last line, across a reboot too, is not logged again; accepted). If
+  # the marker cannot be written, this logs on every tick instead.
   if [ ! -f "$UNREACH_MARK" ] || [ "$(( $(now) - $(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)") ))" -ge 21600 ]; then
     log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"
     : > "$UNREACH_MARK" 2>/dev/null || true

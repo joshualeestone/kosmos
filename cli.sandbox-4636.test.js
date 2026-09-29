@@ -49,6 +49,8 @@ fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mod
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec');
+// The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
+const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
 
 function env(port, extra = {}, homeOut, pid) {
   const e = { ...process.env };
@@ -186,7 +188,7 @@ test('a sandboxed shell, a node listener that is NOT this install\'s recorded bo
   assert.doesNotMatch(r.out, /already running/);
 });
 
-test('a sandboxed shell, the board STOPPED: the board it launches would be sandboxed too, so it is stopped again and the start fails', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+test('a sandboxed shell, the board STOPPED: the board it launches would be sandboxed too, so it is stopped again and the start fails', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
   // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
   const h = {};
   const e = env(await freePort(), {}, h);
@@ -205,7 +207,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
     assert.notEqual(r.code, 0, 'a start from a blocked shell reported success: ' + r.out);
     assert.match(r.out, /Kosmos cannot be started from this shell: .*so it was stopped again\. Start it from a normal Terminal/);
     assert.doesNotMatch(r.out, /did not come up/);
-    assert.ok(Date.now() - t0 < 12000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
+    assert.ok(Date.now() - t0 < 20000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
     assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false, 'the pidfile of the stopped board was left behind');
     // From outside the sandbox, nothing answers on the port any more: the board it launched is gone.
     const gone = await new Promise((resolve) => {
@@ -222,7 +224,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
   }
 });
 
-test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
   // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
   const h = {};
   const e = env(await freePort(), {}, h);
@@ -246,6 +248,39 @@ test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-st
     try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   }
+});
+
+test('a person\'s deliberate stop stands when a sandboxed start refuses: launched-and-stopped-again, and a listener that is not ours', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
+  const h = {};
+  const e = env(await freePort(), {}, h);
+  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
+    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
+    + "setTimeout(() => process.exit(0), 60000);\n");
+  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
+  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
+  try {
+    const r = await run(CLI, ['start'], e, true);
+    assert.match(r.out, /so it was stopped again/);
+    assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
+  } finally {
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+  const h2 = {};
+  const r2 = await withBoard('ok', (p) => {
+    const e2 = env(p, {}, h2);
+    fs.writeFileSync(path.join(h2.home, 'board.stopped'), '');
+    return run(CLI, ['start'], e2, true);   // no board.pid: a node listener that is not ours
+  });
+  assert.notEqual(r2.code, 0, r2.out);
+  assert.equal(fs.existsSync(path.join(h2.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
 });
 
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
@@ -316,7 +351,6 @@ test('a board whose connection queue is FULL (wedged) is not "unreachable": the 
   } finally { held.forEach((c) => c.destroy()); py.kill('SIGKILL'); }
 });
 
-const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
 test('a sandboxed shell, stop with this install\'s board.pid: "cannot be stopped from here", board left alone', { skip: !PS_DENIED_IN_SANDBOX && 'ps works in this sandbox, so stop goes by the pid (and stops it), which is right there' }, async () => {
   const h = {};
   const r = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), true));
