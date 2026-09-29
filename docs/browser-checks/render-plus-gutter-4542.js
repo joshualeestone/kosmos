@@ -139,7 +139,9 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
         const h = b.getBoundingClientRect().height; b.style.minHeight = was; return Math.round(h); });
       const fills = await page.evaluate(() => Math.round(document.body.getBoundingClientRect().bottom));
       chk(natural < 2400 - 100, 'G5 precondition: the Plus body is shorter than a 2400px window', 'natural body ' + natural + 'px');
-      const y = 2400 - 20;
+      // Read just below the page's natural bottom, where the gradient is still lighter than its outer stop (at the very
+      // bottom it has reached the stop, so a band there would read the same: a first version of this arm did).
+      const y = Math.min(2400 - 40, natural + 40);
       const withRule = await px(640, y);
       // The same point as the page paints WITHOUT the rule (the root's colour gone, so the body's gradient reaches the canvas).
       await page.addStyleTag({ content: 'html { background-color: transparent !important; }' });
@@ -152,6 +154,7 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
       const band = await px(640, y);
       chk(fills >= 2400 - 1, 'G5 the body fills the window under the rule', 'body bottom ' + fills);
       chk(near(withRule, noRule, 4), 'G5 near the bottom the ground is the gradient as it paints without the rule (no flat band)', JSON.stringify({ withRule, noRule }));
+      chk(!near(noRule, EDGE, 4), 'G5 precondition: where it reads, the gradient differs from its outer stop (so a band can be seen)', JSON.stringify({ y, noRule }));
       chk(near(band, EDGE, 2) && !near(band, noRule, 2), 'G5 CONTROL: without the body\'s min-height the band shows (flat outer-stop navy)', JSON.stringify({ band, noRule }));
       await page.close();
     }
