@@ -146,6 +146,9 @@ function vetAgentMember(member) {
   if (member.instructions.includes('\u0000')) {
     return { because: 'this role\'s text has characters that are not text, as a file saved in UTF-16 does; save it as plain text (UTF-8) and try again' };
   }
+  /* The name goes into the identity line as given: create's own name rule (nameProblem) refuses a *, a tab or a
+     newline in it before anything is written, so it cannot break the line. Loosen that rule and this needs the
+     label's flattening too. */
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
   let text = member.instructions.split('{{NAME}}').join(name);
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry

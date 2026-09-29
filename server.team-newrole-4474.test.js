@@ -36,6 +36,7 @@ const { start, server, boardAuthState } = require('./server');
 const create = require('./engine/create');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const setupAssistant = require('./engine/setup-assistant');
 const fleet = require('./test-support/fleet');
 
 const TOK = 'BOARDTOKEN_newrole_0123456789abcdef';
@@ -103,6 +104,33 @@ test('#4474: a setup role sent as a list (["setup"]) is refused too; create woul
   assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
   assert.match(r.json.refused[0].because, /setup guide is Kosmos's own/);
   assert.equal(birthOf('Gil'), null, 'a second guide was made from a role sent as a list');
+});
+
+test('#4474: a role the setup guide writes is masked like its purpose (#3769): no key reaches create', async () => {
+  const KEY = ['sk-ant-', 'api03-', 'FakeKeyFor4474Tests_abcdefGHIJ012345'].join('');
+  const wasName = setupAssistant.guideName;
+  const wasFolder = setupAssistant.isGuideFolder;
+  const wasCreate = create.createAgent;
+  const got = [];
+  setupAssistant.guideName = () => 'guidebot';
+  setupAssistant.isGuideFolder = (n) => n === 'guidebot';
+  create.createAgent = (o) => { got.push(o); return { outcome: 'created', name: String(o.name).toLowerCase(), shownAs: o.name }; };
+  try {
+    const member = { name: 'Kit', role: 'own', label: 'Keys ' + KEY, instructions: 'Use the key ' + KEY + ' for every call you make to the service.' };
+    const r = await asAgent('guidebot', [Object.assign({}, member)]);
+    assert.equal(r.json.outcome, 'created', JSON.stringify(r.json));
+    assert.ok(got.length === 1, 'create was not reached');
+    assert.ok(!got[0].label.includes(KEY), 'the guide\'s label reached create with the key in it');
+    assert.ok(!got[0].instructions.includes(KEY), 'the guide\'s role text reached create with the key in it');
+    // CONTROL: the same member from an agent that is not the guide is not masked, so the arms above can fail.
+    got.length = 0;
+    await asAgent('pmsix', [Object.assign({}, member)]);
+    assert.ok(got[0].instructions.includes(KEY), 'CONTROL: a non-guide agent\'s text was masked, so the guide arm proves nothing');
+  } finally {
+    setupAssistant.guideName = wasName;
+    setupAssistant.isGuideFolder = wasFolder;
+    create.createAgent = wasCreate;
+  }
 });
 
 test('#4474 CONTROL: the same built-in-role-with-a-label request from the operator is not vetted', async () => {
