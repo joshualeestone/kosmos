@@ -30,6 +30,9 @@ Card: joshualeestone/kosmos#4582 (from #4580 item 5, four of five families).
 - PowerShell still cannot pipe into kosmos (kosmos.ps1 never reads $input); the here-string
   argument form stays the PowerShell answer. Git Bash on Windows gets --stdin.
 - Agents that already hold the old doctrine copy keep the `IFS= read` form, which still works.
+- The new doctrine example assumes the installed CLI knows `reply --stdin`. An older CLI would send
+  the literal word "--stdin" and drop the heredoc. The app stages its own CLI, so this bites only on
+  an app/CLI version mismatch, the same exposure post/msg --stdin had when they were taught.
 
 ## Tests
 - cli.reply-stdin-4582.test.js (11; 10 fail on origin/main's CLI, the CONTROL passes on both)

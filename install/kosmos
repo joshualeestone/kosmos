@@ -510,18 +510,18 @@ keep_in_outbox() {
   local _node _bf _said _rc=0
   _node="$(kosmos_engine_node)" || {
     say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   }
   _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
     say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   }
   if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
     rm -f "$_bf"
     say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   fi
   _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
@@ -1148,7 +1148,7 @@ cmd_msg() {
   esac
 }
 
-# ---- kosmos reply <text…> ---------------------------------------------------
+# ---- kosmos reply [--stdin] <text…> ------------------------------------------------
 # Answer the person, in the box on your own page.
 #
 # 🛑 THE COMMAND THAT DID NOT EXIST. `post` reaches a room and `msg` types into
@@ -1285,7 +1285,7 @@ require_valid_project_id() {
 }
 
 # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
-# cmd_post / cmd_msg failure after the read keeps it in a private file and names the path. Reads
+# cmd_post / cmd_msg / cmd_reply failure after the read keeps it in a private file and names the path. Reads
 # the caller's from_stdin and text (bash dynamic scope); a no-op without --stdin.
 _keep_piped() {
   [ "${from_stdin:-0}" = 1 ] || return 0

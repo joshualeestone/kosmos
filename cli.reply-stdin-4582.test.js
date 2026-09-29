@@ -30,7 +30,10 @@ function runCli(args, env, input, timeoutMs) {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
-    child.stdin.end(input === undefined ? '' : input);
+    // input === null leaves stdin OPEN and never writes to it, as a tool runner can: a CLI that
+    // reads stdin then waits until the harness timeout kills it, which rejects.
+    if (input === null) child.on('exit', () => child.stdin.destroy());
+    else child.stdin.end(input === undefined ? '' : input);
   });
 }
 
@@ -78,8 +81,8 @@ test('#4582: kosmos reply --stdin keeps backticks, $, quotes and newlines as wri
   assert.equal(seen[0].from_pane, '%42');
 }));
 
-test('#4582 CONTROL: without --stdin, reply still takes its words from the args and never reads stdin', () => withStubBoard(async (port, seen) => {
-  const out = await runCli(['reply', 'plain', 'words'], envFor(port), 'this must not be read');
+test('#4582 CONTROL: without --stdin, reply takes its words from the args and never reads stdin', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['reply', 'plain', 'words'], envFor(port), null, 8000);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'plain words');
 }));
