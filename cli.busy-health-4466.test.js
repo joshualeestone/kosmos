@@ -56,10 +56,13 @@ const STUB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-stub-4466-'));
 const STUB = path.join(STUB_DIR, 'server.js');
 fs.writeFileSync(STUB, `'use strict';
 const http = require('node:http');
-const [health, delayMs] = [process.argv[2], Number(process.argv[3])];
+const [health, delayMs, firstFile] = [process.argv[2], Number(process.argv[3]), process.argv[4]];
+// When the FIRST request arrived, for an arm that measures the CLI's own budget rather than its start-up.
+let firstSeen = false;
 const PAGE = ${JSON.stringify(PAGE)};
 let slowOnceDone = false;
 const server = http.createServer((req, res) => {
+  if (!firstSeen && firstFile) { firstSeen = true; require('node:fs').writeFileSync(firstFile, String(Date.now())); }
   const reply = () => {
     if (health === 'stranger') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('hello from another app'); return; }
     if (req.method === 'POST' && req.url.startsWith('/api/post')) {
@@ -84,6 +87,7 @@ const server = http.createServer((req, res) => {
   if (health === 'reporthang' && req.method === 'POST' && req.url.startsWith('/api/report')) return;
   if (health === 'reporthang' && req.method === 'GET' && !slowOnceDone) { slowOnceDone = true; setTimeout(reply, delayMs); return; }
   if (health === 'roomhang' && req.url.includes('/room')) return;
+  if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
   if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
@@ -96,14 +100,15 @@ test.after(() => fs.rmSync(STUB_DIR, { recursive: true, force: true }));
  *  'hang' (never answers), '404' (an older board), 'stranger' (not ours anywhere). */
 async function withBoard(health, fn, delayMs = 5000) {
   // exit code not read (#3628): this is the stub BOARD, not the CLI under test; an early exit is caught below.
-  const child = spawn(process.execPath, [STUB, health, String(delayMs)], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const firstFile = path.join(STUB_DIR, 'first-' + process.hrtime.bigint());
+  const child = spawn(process.execPath, [STUB, health, String(delayMs), firstFile], { stdio: ['ignore', 'pipe', 'inherit'] });
   try {
     const port = await new Promise((resolve, reject) => {
       let buf = '';
       child.stdout.on('data', (d) => { buf += d; if (buf.includes('\n')) resolve(Number(buf.trim())); });
       child.on('exit', (c) => reject(new Error('the stub board exited before listening: ' + c)));
     });
-    return await fn(port);
+    return await fn(port, firstFile);
   } finally {
     child.kill('SIGKILL');
     await new Promise((r) => (child.exitCode !== null || child.signalCode ? r() : child.on('exit', r)));
@@ -167,22 +172,35 @@ test('#4466 an --auto report (the hook) gives up on a busy board inside the hook
   assert.ok(person.ms >= 15000, `a report that is not --auto waits the full budget (took ${person.ms} ms)`);
 }));
 
-test('#4466 an --auto report stays inside the hook timeout END TO END: a slow health answer, then a POST that never answers', () => withBoard('reporthang', async (port) => {
+test('#4466 an --auto report stays inside the hook timeout END TO END: a slow health answer, then a POST that never answers', () => withBoard('reporthang', async (port, firstFile) => {
   // The first health probe (2 s) misses a 2.5 s answer and the retry gets one at once; then /api/report
   // never answers. The POST gets what is left of 12 s, so the command ends near 12 s; with its own 15 s
   // it took ~17 (red).
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   delete env.KOSMOS_BUSY_WAIT;
   const out = await runCli(['report', 'started', '--auto'], env);
+  const ended = Date.now();
   assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.ok(out.ms < 15000, `the whole --auto report must end inside the hook's 15 s (took ${out.ms} ms)`);
-  // 10 s, not 11: SECONDS counts whole seconds, so the POST can get a second less than the true remainder
-  // and the total can land just over 11 s. A POST cut short ends near 4.5 s, the old 15 s POST near 17.
-  assert.ok(out.ms >= 10000, `the POST must have been given what was left of the budget, not cut short (took ${out.ms} ms)`);
+  // Measured from the board's FIRST request, which is where the CLI's 12 s budget starts: the process's own
+  // start-up (bash, the tmux pick) comes before it and varies with the machine, and the 3 s AUTO_REPORT_TOTAL_S
+  // leaves under the hook's 15 s is for it. Under 14 s: 12 plus a second of whole-second SECONDS rounding and
+  // a second of slack; the old 15 s POST took ~17 from here (red). At least 10 s: a POST cut short is ~4.5.
+  const budgetMs = ended - Number(fs.readFileSync(firstFile, 'utf8'));
+  assert.ok(budgetMs < 14000, `the --auto report's budget, from the first request, must end near 12 s (took ${budgetMs} ms; ${out.ms} ms with start-up)`);
+  assert.ok(budgetMs >= 10000, `the POST must have been given what was left of the budget, not cut short (took ${budgetMs} ms)`);
   assert.match(out.stdout, /did not answer in time, so we could not record that\. It may still have happened: check before doing it again\. It does not need a restart\./);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
   assert.match(out.stderr, /busy, retrying/, 'the first probe must have missed, or the arm never measured a slow health answer');
 }, 2500));
+
+test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', () => withBoard('msgcut', async (port) => {
+  // The health check passes; the send's connection is then dropped (curl 52/56). The timeout case keeps its
+  // own exit 3 "maybe delivered" sentence; this is every other failure of the send.
+  const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }));
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /did not answer in time, so we could not send that\. It may still have happened: check before doing it again\. It does not need a restart\./);
+  assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
+}));
 
 test('#4466 a READ that times out after the health check says busy, not "is it running?", and suggests waiting', () => withBoard('roomhang', async (port) => {
   const out = await runCli(['room', 'proj'], baseEnv(port, { TMUX_PANE: '%42' }));

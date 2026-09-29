@@ -1358,7 +1358,7 @@ cmd_msg() {
     say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to send that. Is it running at $URL?"
+    say_unreached "send that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
     _keep_piped
     exit 1
   fi
@@ -1710,7 +1710,7 @@ cmd_post() {
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to post that. Is it running at $URL?"
+    say_unreached "post that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
     _keep_piped
     exit 1
   fi
@@ -2123,7 +2123,7 @@ cmd_react() {
     say "Kosmos was slow to answer and we stopped waiting. Your reaction may have landed; check the room before reacting again, because reacting again takes it back off."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
+    say_unreached "keep that reaction" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos. A reaction is not kept: it

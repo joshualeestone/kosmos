@@ -186,6 +186,16 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Deferred again: exit 4 in the usage text (round 13); the Windows guard (round 13); Windows
   `lastTimedOut` shared state (its invariant is stated where it is read).
 
+## Review round 17 decisions
+- `msg`, `post` and `react` keep their exit 3 "maybe delivered" for a timeout (28), and every OTHER failure
+  now goes through `say_unreached` as a write: a cut reply (52/56) is busy, not "is it running?" (the
+  #2255 and #2321 arms, a cut reply, now accept that sentence too: they pin that it is reported). This
+  finishes round 12, which had left these three alone because of their timeout branch.
+- The END TO END arm measures from the board's first request, where the CLI's budget starts, instead of the
+  process wall clock (start-up varies by machine and would flake a slow runner): under 14 s, at least 10.
+- Deferred NITs: `kosmos open` can print "already running" twice when the board comes up between checks;
+  `board.started-at` in a source checkout is untracked like `board.pid` and `board.stopped`; HEAD on Windows.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
