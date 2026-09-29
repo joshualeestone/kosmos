@@ -1,17 +1,18 @@
 # #4514 token-door name boundary
 
-Finished means a token-door file can still supply ordinary provider and service token variables, but PATH, BASH_ENV,
-ENV, SHELLOPTS, every DYLD_* name and every LD_* name are refused before the private handoff. A shipped supervisor test
-must prove each refused name is absent from the provider environment and argv, the log names the refused variable but
-never its value, ordinary doors still work, and the setup-guide Gemini and Grok key behavior is unchanged.
+Finished means a token-door file can supply exactly the provider and service token variables the engine declares, plus
+the supervisor's Gemini and Grok key doors, but cannot invent process controls or override Kosmos launch state. A shipped
+supervisor test must prove a broad planted set is absent from the provider environment and argv, the log names every
+refused variable but never its value, ordinary doors still work, missing inventory fails closed, and the setup-guide
+Gemini and Grok key behavior is unchanged.
 
-Decision: use a narrow denylist after the existing environment-name syntax check. I rejected an exact allowlist because
-the token-door contract deliberately makes a new service one engine row rather than a second supervisor edit; duplicating
-all service names here would turn every future door into a fail-closed launch regression. I rejected a suffix allowlist
-because valid service credentials do not share one reliable suffix and a hostile name can add a harmless-looking suffix.
-The denylist names shell startup controls and both macOS and ELF loader namespaces from the card. It does not try to be a
-general environment-variable policy.
+Decision after review: use an exact allowlist read from `engine/tokendoors.js` SPECS at every launch, plus the two
+provider-key names GEMINI_API_KEY and XAI_API_KEY which this supervisor already owns. I first chose a narrow denylist to
+avoid inventory drift. Sonya's real-provider probe disproved that model: NODE_OPTIONS executed code, and planted door
+files overrode the minted sender token, HOME, provider config and board port. The engine can publish its installed list
+directly, meeting the original plan's change condition without duplicating the service inventory in shell. A missing or
+invalid inventory fails closed for machine-global doors. Per-account Gemini and Grok key files remain trusted separate
+inputs.
 
-Weakest point: a denylist cannot anticipate every future runtime-specific startup variable. I would change this call if
-token doors become user-defined rather than the finite engine specs, or if the engine can publish one installed allowlist
-without restoring the two-file drift this design avoids.
+Weakest point: GEMINI_API_KEY and XAI_API_KEY are still named in shell because they are provider launch inputs outside
+today's SPECS. I would move them out of this exception if their machine-global writers become ordinary token-door specs.

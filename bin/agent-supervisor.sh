@@ -48,16 +48,6 @@
 
 set -u
 
-launch_secret_name_allowed() {
-  case "${1:-}" in
-    ''|*[!A-Z0-9_]*|[0-9]*) return 1 ;;
-    # These names change shell lookup/startup or native loader behavior. Token doors carry credentials; they never
-    # get to redefine how the provider process starts. Keep this one list shared by collection and the pane entrypoint.
-    PATH|BASH_ENV|ENV|SHELLOPTS|DYLD_*|LD_*) return 2 ;;
-    *) return 0 ;;
-  esac
-}
-
 # #4497/#4507: the same installed script is the tiny pane entrypoint. The
 # supervisor writes launch secrets as NAME=value lines in an owner-only file and
 # puts only this file's path on tmux argv. The child reads and unlinks it before
@@ -68,7 +58,7 @@ if [ "${1:-}" = --pane-entry ]; then
   shift 2
   while IFS= read -r _secret_line || [ -n "$_secret_line" ]; do
     _secret_name="${_secret_line%%=*}"
-    launch_secret_name_allowed "$_secret_name" || continue
+    case "$_secret_name" in ''|*[!A-Z0-9_]*|[0-9]*) continue ;; esac
     export "$_secret_line"
   done < "$_secret_file" 2>/dev/null
   rm -f -- "$_secret_file" 2>/dev/null || true
@@ -414,19 +404,12 @@ if [ -z "$adopt" ]; then
     KOSMOS_AGENT_TOKEN=""
 
   add_launch_secret() {
-    launch_secret_name_allowed "${1:-}"
-    _secret_name_status=$?
-    case "$_secret_name_status" in
-      1)
+    case "${1:-}" in
+      ''|*[!A-Z0-9_]*|[0-9]*)
         say "$SESSION: a launch secret was not handed to the agent (invalid variable name)"
         return 0
         ;;
-      2)
-        say "$SESSION: $1 was not handed to the agent (variable name controls process startup)"
-        return 0
-        ;;
     esac
-    unset _secret_name_status
     # One assignment per line. Refuse a malformed inherited value rather than
     # letting it invent another variable in the child environment.
     case "${2:-}" in
@@ -607,6 +590,27 @@ if [ -z "$adopt" ]; then
   _guide_key=""
   [ "$RUNNER" = gemini ] && _guide_key=GEMINI_API_KEY
   [ "$RUNNER" = grok ] && _guide_key=XAI_API_KEY
+  # The engine owns the ONE list of machine-global token doors. Read that inventory at launch rather than accepting
+  # every file name in secrets/env: environment variables can execute code (NODE_OPTIONS), replace command lookup,
+  # redirect network traffic or override Kosmos's own launch identity. GEMINI_API_KEY and XAI_API_KEY are the two
+  # provider-key doors named by this supervisor. If the inventory cannot be read, no machine-global door is handed on.
+  _door_allowlist=""
+  if [ -n "$_eng" ] && [ -n "$NODE_BIN" ]; then
+    _door_allowlist="$("$NODE_BIN" -e '
+      try {
+        const specs = require(process.argv[1]).SPECS;
+        if (!Array.isArray(specs) || !specs.length) process.exit(2);
+        const names = specs.map((s) => s && s.envVar);
+        if (names.some((n) => typeof n !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(n))) process.exit(3);
+        process.stdout.write([...new Set(names), "GEMINI_API_KEY", "XAI_API_KEY"].join("\n"));
+      } catch (_) { process.exit(1); }
+    ' "$_eng/tokendoors.js" 2>/dev/null || true)"
+  fi
+  # Door values are the least trusted launch inputs. Put them before the supervisor's own credentials in the one-use
+  # file, so even an accidentally widened future inventory cannot replace the already minted sender token. The pane's
+  # Kosmos routing and home values are separately fixed by PANE_ENV, and no such name is in the allowlist.
+  _trusted_secret_env=(${SECRET_ENV[@]+"${SECRET_ENV[@]}"})
+  SECRET_ENV=()
   if [ -d "$_envdir" ]; then
     for _f in "$_envdir"/*; do
       [ -s "$_f" ] || continue
@@ -614,10 +618,16 @@ if [ -z "$adopt" ]; then
       case "$_name" in
         *[!A-Z0-9_]*|[0-9]*) continue ;;
       esac
+      case $'\n'"$_door_allowlist"$'\n' in
+        *$'\n'"$_name"$'\n'*) ;;
+        *) say "$SESSION: $_name was not handed to the agent (it is not a Kosmos token door)"; continue ;;
+      esac
       if [ "$IS_SETUP_GUIDE" = 1 ] && [ "$_name" != "$_guide_key" ]; then continue; fi
       add_launch_secret "$_name" "$(head -1 "$_f")"
     done
   fi
+  SECRET_ENV+=(${_trusted_secret_env[@]+"${_trusted_secret_env[@]}"})
+  unset _trusted_secret_env
   # #1704: hand the pane its Kosmos EXPLICITLY, always -- the world id and its
   # three store roots, all empty for the default world. ALWAYS, and this is the
   # point: a tmux session inherits the shared server's GLOBAL environment

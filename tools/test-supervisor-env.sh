@@ -1,7 +1,6 @@
 #!/bin/bash
-# The token doors' handoff (#529): every file under secrets/env/ rides into
-# the agent's pane as the variable it is named for, and nothing else in that
-# directory does. Drives a COPY of the real bin/agent-supervisor.sh from a
+# The token doors' handoff (#529): only names in engine/tokendoors.js ride into
+# the agent's pane, and nothing else in secrets/env/ does. Drives a COPY of the real bin/agent-supervisor.sh from a
 # sandbox laid out like the store (bin/ beside secrets/), against a stub
 # tmux that records what new-session was asked for. The engine side is
 # engine/tokendoors.test.js; this is the half nobody sees.
@@ -74,8 +73,13 @@ if [ -s "$ARGS" ]; then ok "the supervisor reached new-session"; else bad "new-s
 # and parks on Claude Code's folder-trust prompt on every new agent (Josh's laptop, 0.6.86). tmux hands
 # a pane the SERVER's env, not the client's, so only an -e puts the right HOME there.
 if grep -qx "HOME=$SB/knownhome" "$ARGS"; then ok "HOME is re-injected into the pane (a default-account agent reads the config trustFolder wrote, no trust prompt)"; else bad "HOME did NOT reach the pane: the agent would read the tmux server's HOME/.claude.json and hit the trust prompt: $(tr '\n' ' ' < "$ARGS")"; fi
-if grep -qx 'DISCORD_BOT_TOKEN=sekrit-discord' "$SB/pane-secrets" && ! grep -q 'sekrit-discord' "$ARGS"; then ok "a token door reaches the pane through the private file, not argv"; else bad "DISCORD_BOT_TOKEN did not use the private handoff"; fi
-if grep -qx 'BRAVE_API_KEY=sekrit-brave' "$SB/pane-secrets" && ! grep -q 'sekrit-brave' "$ARGS"; then ok "and a second one does too, with no edit to the supervisor"; else bad "BRAVE_API_KEY did not use the private handoff"; fi
+if ! grep -q 'sekrit-discord\|sekrit-brave' "$ARGS" "$SB/pane-secrets" 2>/dev/null \
+  && grep -q 'DISCORD_BOT_TOKEN was not handed to the agent' "$SB/out.log" \
+  && grep -q 'BRAVE_API_KEY was not handed to the agent' "$SB/out.log"; then
+  ok "an unavailable token-door inventory fails closed and names the omitted variables"
+else
+  bad "a token door passed without the engine inventory, or its refusal was not logged"
+fi
 for junk in lower-case 1STARTS_WITH_DIGIT BAD.NAME EMPTY_TOKEN; do
   if grep -q "$junk" "$ARGS"; then bad "$junk was typed into the pane; only variable names with content may ride"; else ok "$junk stays out of the pane"; fi
 done
@@ -204,9 +208,16 @@ fi
 # from before its first start. Two runs of ONE sandbox: without the marker every token
 # arrives (the control, so the second run can show the danger), with it none does.
 SB5="$(mktemp -d)"   # removed by the single trap above
-mkdir -p "$SB5/bin" "$SB5/secrets/env" "$SB5/work" "$SB5/knownhome"
+mkdir -p "$SB5/bin" "$SB5/engine" "$SB5/secrets/env" "$SB5/work" "$SB5/knownhome"
 cp bin/agent-supervisor.sh "$SB5/bin/agent-supervisor.sh"
 cp "$SB/tmux" "$SB5/tmux"
+cat > "$SB5/engine/tokendoors.js" <<'STUBJS'
+module.exports.SPECS = [{ envVar: 'BRAVE_API_KEY' }];
+STUBJS
+cat > "$SB5/engine/sendertoken.js" <<'STUBJS'
+module.exports = { mint: () => ({ ok: true, token: 'deadbeef' }) };
+STUBJS
+printf '%s\n' "$SB5/engine" > "$SB5/bin/engine-path"
 printf '%s\n' 'cf-canary-3769' > "$SB5/secrets/cloudflare.token"
 printf '%s\n' 'gh-canary-3769' > "$SB5/secrets/github.token"
 printf '%s\n' 'door-canary-3769' > "$SB5/secrets/env/BRAVE_API_KEY"
