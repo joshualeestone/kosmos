@@ -703,8 +703,8 @@ wmark() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$
 wlose() { [ "$(cat "$W/calls")" = 2 ] && rm -f "$W/markers/suitewait.$$"; return 0; }
 rm -f "$W/calls" "$W/marks"
 out="$(KOSMOS_WAIT_MAX_S=600 KOSMOS_WAIT_SLEEP=wlose kosmos_wait_until_clear "this test run" --suite-queue wmark 2>&1)"; rc=$?
-# calls 2 and 3 see the marker (3 because the loop re-marked it before asking), with ONE queue time throughout.
-{ [ "$rc" -eq 0 ] && [ "$(sed -n '3p' "$W/marks")" != "" ] && [ "$(grep -c . "$W/marks")" -ge 3 ] && [ "$(sort -u "$W/marks" | grep -c .)" = 1 ]; } \
+# Calls 2, 3 and 4 see the marker (3 because the loop re-marked it before asking), with ONE queue time throughout.
+{ [ "$rc" -eq 0 ] && [ "$(grep -c . "$W/marks")" -ge 3 ] && [ "$(sort -u "$W/marks" | grep -c .)" = 1 ]; } \
   && pass "#4574 a queued run whose marker vanished writes it again with its old queue time" \
   || fail "#4574 a lost marker was not restored in place (rc=$rc, marks=$(tr '\n' ' ' < "$W/marks"), $out)"
 rm -f "$W/calls" "$W/marks"
@@ -721,6 +721,18 @@ out="$( set -e; KOSMOS_WAIT_NOW=qfail _kosmos_wait_now; echo "survived" )"; rc=$
 { [ "$rc" -eq 0 ] && has "$out" "survived" && printf '%s\n' "$out" | head -1 | grep -Eq '^[0-9]+$'; } && pass "#4574 a clock seam that fails falls back to the real clock, even called under set -e" \
   || fail "#4574 a failing KOSMOS_WAIT_NOW killed a set -e caller (rc=$rc, $out)"
 rm -f "$W/calls"
+# Churn BEHIND this run never restarts its bound: one waiter ahead that never leaves, and one waiter with a LATER queue
+# time whose marker comes and goes every call (arriving, then starting or giving up). Same as the stuck control: call 3.
+q_clear; q_ahead
+for p in $(sed -n '2,3p' "$W/ahead"); do rm -f "$W/markers/suitewait.$p"; done
+qb=$(sed -n '3p' "$W/ahead")
+qflip() { if [ -e "$W/markers/suitewait.$qb" ]; then rm -f "$W/markers/suitewait.$qb"
+  else printf '%s %s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qb" "$(ps -ww -o command= -p "$qb")" "$(_kosmos_pid_started "$qb")" > "$W/markers/suitewait.$qb"; fi; }
+out="$(WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=qflip kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 a waiter behind this run coming and going does not restart its bound" \
+  || fail "#4574 churn behind this run restarted its bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
 # A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
 out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \

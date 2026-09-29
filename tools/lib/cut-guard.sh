@@ -515,10 +515,11 @@ kosmos_refuse_if_suite_live() {
 # still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
 # re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
 # for one pass: one briefly unmarked by its second ask, or one whose marker a failed ps removed until it writes it again
-# (the loop re-marks a run whose own marker vanished). So the restart is a heuristic, not proof the queue moved: a
-# waiter is in its second ask only when its own check had just passed (the box was clear), and the fall is false only
-# if a harness took the box in that moment, so each false restart costs a queue-jumping harness. The cost: behind a HUNG suite each waiter in turn spends one
-# bound at the front before giving up.
+# (the loop re-marks a run whose own marker vanished). So the restart is a heuristic, not proof the queue moved. A
+# waiter is in its second ask only when its own check had just passed (the box was clear), so that false fall needs a
+# harness to take the box in that moment; the failed-ps one needs a ps to fail. A waiter BEHIND this run never counts,
+# so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
+# the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -602,7 +603,8 @@ _kosmos_suite_waiters_ahead() {
 # (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter.
 kosmos_refuse_if_earlier_suite_waiter() {
   local what="${1:-this run}" pid
-  pid="$(_kosmos_suite_waiters_ahead | head -1)" || true
+  # A read loop, not `head -1`: closing the pipe early could print "Broken pipe" into this refusal's own message.
+  pid="$(_kosmos_suite_waiters_ahead | { read -r p || true; printf '%s' "$p"; cat >/dev/null; })" || true
   [ -n "$pid" ] || return 0
   echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
   return 1
@@ -626,6 +628,9 @@ kosmos_wait_until_clear() {
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
   local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
   start="$(_kosmos_wait_now)"; bstart="$start"
+  # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
+  # that run's old place: the liveness check removes it (its start time is not this run's).
+  [ "$queue" = 1 ] && { _kosmos_suite_waiter_live "$$" || true; }
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   while :; do
