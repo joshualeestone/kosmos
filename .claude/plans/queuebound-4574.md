@@ -11,7 +11,8 @@ bound before its turn, ended with no validation, and rejoined at the back.
 
 ## Call (as revised by review 1)
 In the suite queue only, the bound counts from the last time a live waiter AHEAD of this run left the queue
-(_kosmos_suite_waiters_ahead fell). New arrivals queue behind, so the count only falls and cannot flap. The queue's default bound is 2700 s (45 min), above the longest suite measured, so the waiter at the FRONT, whose run
+(_kosmos_suite_waiters_ahead fell). New arrivals queue behind, so each restart needs a waiter ahead to leave or to
+read as gone for one pass (review 2 and review 5 name the cases). The queue's default bound is 2700 s (45 min), above the longest suite measured, so the waiter at the FRONT, whose run
 ahead cannot change until it ends, does not give up behind one normal suite. Outside the queue (harness, browser, cut
 waits) nothing changes: 1200 s from the start.
 
@@ -78,3 +79,15 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   ahead read as gone for one pass) as the other way a restart can happen.
 - (N, left) start only seeds bstart (kept: it reads as the wait's start); a trap to reap the stand-in waiters if the test
   file is killed mid-arm (they end on their own in 5 minutes).
+
+## Review iteration 5 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) a failed ps makes _kosmos_suite_waiter_live REMOVE a live waiter's marker, and the waiter never re-marked: it then
+  counted every waiter as ahead while the others counted it as a running suite, a mutual wait that pre-dates this card
+  but now lasts up to 45 minutes. The loop now re-marks a queued run whose own marker vanished, with its old queue time
+  (a test: the marker is removed after call 2 and is back, same time, on call 3; with the re-mark line removed it reds).
+  The note's sentence about a failed ps (SELF) is rewritten to what the code does.
+- (W, SELF) a test comment still described the retired wording signal: now says wsame is used because nothing varies.
+- (N, taken) the plan's Call section no longer says "cannot flap"; the note names the second ask's brief unmark; the
+  stand-in waiters are marked only after ps shows them as sleep.
+- (N, left) start only seeds bstart; the refusal now walks every marker (twice a poll): negligible at 30 s.
