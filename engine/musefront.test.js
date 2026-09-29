@@ -393,3 +393,28 @@ test('#4569 review round 2: a digest also stops at 32 KB of posts, keeping the n
   await within(e.f.drained(), 'the later stop did not end the turn');
   assert.match(e.calls[e.calls.length - 1].prompt, /^\[Kosmos: your operator asked you to stop/, 'a later stop was treated as "already stopping"');
 });
+
+test('#4569 review round 3: a message sent between two stops is named to the agent, not only in the pane', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(OP('stop') + '\r');                              // turn 0 ends; the note is turn 1 (held)
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(OP('actually, deploy the fix first') + '\r');   // waits behind the running note
+  h.f.feed(OP('stop') + '\r');                              // drops it
+  h.pending[1](OK('Stopped.'));
+  await within(h.f.drained(), 'the notes did not finish');
+  assert.equal(h.calls.length, 3, 'the in-between message was never mentioned to the agent');
+  assert.match(h.calls[2].prompt, /^\[Kosmos: your operator asked you to stop again, and these messages from them, sent in between, were dropped unread: "actually, deploy the fix first"\.\]\n/);
+  // CONTROL: a second stop with nothing of the person's in between adds no note.
+  const c = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  c.f.feed(BG(1) + '\r'); c.f.feed(OP('stop') + '\r');
+  c.pending[1](OK('Stopped.')); await c.f.drained();
+  assert.equal(c.calls.length, 2);
+  // "hold" is an answer, not a stop.
+  const d = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  d.f.feed('long job\r'); d.f.feed(OP('hold') + '\r');
+  assert.equal(d.stops[0], 0, '"hold" stopped the turn');
+  d.pending[0](OK('done')); await d.f.drained();
+});
