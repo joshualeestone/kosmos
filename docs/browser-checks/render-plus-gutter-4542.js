@@ -6,13 +6,16 @@
  * the whole right edge beside a navy page (measured 255,255,255 beside 12,21,41). The #1309 gutter paints the canvas's
  * COLOUR only, and the Plus navy is a gradient IMAGE on the body. The canvas now takes the gradient's outer stop.
  *
- * Harness: the real board, reached by the real route ?tab=settings&sec=plus, in a Chromium that draws classic
- * scrollbars (launched without --hide-scrollbars, so the #1309 gutter is really reserved). Pixels are read with a 1x1
- * screenshot, as render-tasks-view-3559 does for #4216.
- *   G1  precondition: Plus is up (body.plus-active) and the page measured a classic scrollbar (data-scrollbar-classic)
- *   G2  the gutter is the navy of the gradient's edge, not white, in a light and a dark OS setting
+ * Harness: the real board, reached by the real route ?tab=settings&sec=plus (and the settings nav if the route has
+ * not opened it yet). A Mac's headless Chromium draws OVERLAY scrollbars, so no gutter is reserved there: the check
+ * gives the root a real 15px scrollbar (::-webkit-scrollbar, as render-talk-fill-2622 does) and sets the page's own
+ * data-scrollbar-classic, as render-tasks-view-3559 does for #4216, so the #1309 gutter really exists to read. Pixels
+ * are read with a 1x1 screenshot.
+ *   G1  precondition: Plus is up (body.plus-active), classic scrollbars are on, and a gutter of ~15px is reserved
+ *   G2  the gutter is the navy of the gradient's edge, not white, top to bottom, in a light and a dark OS setting
  *   G3  CONTROL: with the canvas colour taken away in the page, the same read is white again (the reported bug), so
  *       G2 is reading the gutter and can go red
+ *   G4  the rule does not leak: on another settings section the canvas is not the Plus navy
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-plus-gutter-4542.js
  */
@@ -60,7 +63,15 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
       await page.goto('http://127.0.0.1:' + port + '/?tab=settings&sec=plus', { waitUntil: 'load', timeout: 60000 });
       await page.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 }).catch(() => {});
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
+      if (!(await page.evaluate(() => document.body.classList.contains('plus-active')))) {
+        await page.evaluate(() => { if (typeof showTab === 'function') showTab('settings'); });
+        await page.waitForTimeout(400);
+        await page.click('#s-nav button[data-go="plus"]').catch(() => {});
+      }
       await page.waitForFunction(() => document.body.classList.contains('plus-active'), null, { timeout: 30000 }).catch(() => {});
+      // A real classic gutter (see the header): a 15px root scrollbar and the page's own classic flag.
+      await page.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; } ::-webkit-scrollbar-thumb { background: #888; }' });
+      await page.evaluate(() => document.documentElement.setAttribute('data-scrollbar-classic', ''));
       await page.waitForTimeout(500);
       const pre = await page.evaluate(() => ({
         plus: document.body.classList.contains('plus-active'),
@@ -83,6 +94,12 @@ const near = (a, b, tol) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
       await page.waitForTimeout(150);
       const bare = await px(gx, 400);
       chk(!near(bare, EDGE, 3) && bare.every((v) => v > 200), `[${scheme}] G3 CONTROL: without the canvas colour the gutter reads white again`, JSON.stringify(bare));
+      // G4: another settings section must not get the Plus canvas (the rule is scoped to body.plus-active).
+      await page.evaluate(() => { const s = document.querySelector('style:last-of-type'); if (s && /transparent !important/.test(s.textContent)) s.remove(); });
+      await page.click('#s-nav button[data-go]:not([data-go="plus"])').catch(() => {});
+      await page.waitForTimeout(400);
+      const other = await page.evaluate(() => ({ plus: document.body.classList.contains('plus-active'), canvas: getComputedStyle(document.documentElement).backgroundColor }));
+      chk(!other.plus && other.canvas !== 'rgb(11, 20, 40)', `[${scheme}] G4 on another section the canvas is not the Plus navy (no leak)`, JSON.stringify(other));
       chk(errs.length === 0, `[${scheme}] no script errors on the page`, errs.join(' | '));
       await page.close();
     }
