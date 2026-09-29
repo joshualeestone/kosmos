@@ -90,7 +90,7 @@ async function open(page, base, where, pid) {
 const NAMES = ['ada', 'bram'];
 const LAYOUT = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'letterSpacing', 'wordSpacing', 'lineHeight',
   'textIndent', 'textTransform', 'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'fontKerning', 'fontVariantLigatures',
-  'fontFeatureSettings', 'paddingLeft', 'paddingRight', 'paddingTop', 'boxSizing', 'direction'];
+  'fontFeatureSettings', 'paddingLeft', 'paddingRight', 'paddingTop', 'boxSizing', 'direction', 'borderLeftWidth', 'borderRightWidth'];
 const SENT = 'Thanks for using tasks and putting files here, helps me see it from the UX side and I think we should keep going '
   + 'with this approach for the rest of the week, then look again on Monday @ada';
 /* Lines as each element lays the text out: the textarea from its scrollHeight, the mirror's text box from its
@@ -149,6 +149,9 @@ const SWEEP = async (page, text, from = 20) => page.evaluate(async ([text, from]
         /* And under the new look (#4470), whose composer box pads differently, where the textarea can sit at a
            fractional offset: the mirror is placed from the real box, so it still lines up. */
         const nl = await page.evaluate(async () => {
+          const cbox = document.getElementById('pj-post').closest('.composerbox');
+          const look = () => { const c = getComputedStyle(cbox); return [c.paddingLeft, c.borderRadius, c.backgroundColor].join('|'); };
+          const lookBefore = look(), xBefore = document.getElementById('pj-post').getBoundingClientRect().left;
           document.documentElement.setAttribute('data-look', 'new');
           const t = document.getElementById('pj-post'), m = document.querySelector('#pj-post-mirror .pj-mirror-in');
           t.dispatchEvent(new Event('input', { bubbles: true }));
@@ -156,12 +159,14 @@ const SWEEP = async (page, text, from = 20) => page.evaluate(async ([text, from]
           const ct = getComputedStyle(t), cm = getComputedStyle(m), tr = t.getBoundingClientRect(), mr = m.getBoundingClientRect();
           const out = { dx: +((mr.left + parseFloat(cm.paddingLeft)) - (tr.left + (parseFloat(ct.borderLeftWidth) || 0) + parseFloat(ct.paddingLeft))).toFixed(3),
             dy: +((mr.top + parseFloat(cm.paddingTop)) - (tr.top + (parseFloat(ct.borderTopWidth) || 0) + parseFloat(ct.paddingTop))).toFixed(3),
-            dw: +(document.getElementById('pj-post-mirror').getBoundingClientRect().width - tr.width).toFixed(3), x: tr.left, y: tr.top };
+            dw: +(document.getElementById('pj-post-mirror').getBoundingClientRect().width - tr.width).toFixed(3), x: tr.left, y: tr.top,
+            applied: look() !== lookBefore || tr.left !== xBefore };
           document.documentElement.removeAttribute('data-look');
           t.dispatchEvent(new Event('input', { bubbles: true }));
           return out;
         });
-        arm(Math.abs(nl.dx) < 0.05 && Math.abs(nl.dy) < 0.05 && Math.abs(nl.dw) < 0.01, `[${engine}] under the new look the mirror still sits exactly on the textarea`, JSON.stringify(nl));
+        arm(nl.applied && Math.abs(nl.dx) < 0.05 && Math.abs(nl.dy) < 0.05 && Math.abs(nl.dw) < 0.01,
+          `[${engine}] under the new look (its composer box really restyled) the mirror still sits exactly on the textarea`, JSON.stringify(nl));
         for (const width of [1400, 1180, 1000]) {
           await page.setViewportSize({ width, height: 900 });
           await page.waitForTimeout(250);
