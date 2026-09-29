@@ -173,20 +173,17 @@ const SCREENS = [
     const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
     await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
     /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
-       point at each Allow button's centre must be that button (or inside it), so anything drawn over it, or
-       the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint between two
-       reads is not a red. */
+       point at the first laid-out Allow button's centre must be that button (or inside it), so anything drawn
+       over it, or the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint
+       between two reads is not a red. */
     const whatIsAt = (sel) => {
-      const all = [...document.querySelectorAll(sel)];
-      if (!all.length) return 'gone (the button was redrawn away)';
-      for (const b of all) {
-        const r = b.getBoundingClientRect();
-        const x = r.left + r.width / 2, y = r.top + r.height / 2;
-        if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
-        const top = document.elementFromPoint(x, y);
-        if (!top || !b.contains(top)) return 'covered by ' + (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing readable');
-      }
-      return '';
+      const b = [...document.querySelectorAll(sel)].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+      if (!b) return 'gone (no Allow button is laid out)';
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+      const top = document.elementFromPoint(x, y);
+      return top && b.contains(top) ? '' : 'covered by ' + (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing readable');
     };
     let hit = await page.evaluate(whatIsAt, allow);
     for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
