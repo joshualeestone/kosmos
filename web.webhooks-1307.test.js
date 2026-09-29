@@ -135,6 +135,24 @@ test('#4419: each Copy copies its own link and says which one it copied', async 
   assert.equal(fields['pjs-hook-copied'].textContent, 'Copied.');
 });
 
+test('#4419: a repaint keeps focus on whichever link had it, the internet one included', () => {
+  const box = stubBox();
+  const got = [];
+  const field = (id) => ({ id, focus() { got.push(id); }, select() {} });
+  for (const had of ['pjs-hook-public', 'pjs-hook-url']) {
+    const document = { getElementById: (id) => (id === 'pjs-hooks' ? box : (id === 'pjs-hook-url' || id === 'pjs-hook-public') ? field(id) : null), activeElement: { id: had } };
+    const CSS = { escape: (s) => String(s) };
+    // eslint-disable-next-line no-new-func
+    const pg = new Function('document', 'CSS', fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksWhen') + fnSource('pjsHooksPaint')
+      + 'const PJS_HOOKS = { projectId: "p", list: [], reveal: null, confirm: null, gen: 0, readErr: null }; return { pjsHooksPaint, PJS_HOOKS };')(document, CSS);
+    pg.PJS_HOOKS.list = [{ id: 'bbbbbbbbbbbbbbbb', name: 'Plain', createdAt: null, lastUsedAt: null }];
+    pg.PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/b/S', publicUrl: 'https://hers.kosmosplus.com/hooks/b/S', publicWhy: null };
+    got.length = 0;
+    pg.pjsHooksPaint();
+    assert.deepEqual(got, [had], had + ' keeps focus through the repaint');
+  }
+});
+
 test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row shows the stored name', () => {
   const box = stubBox();
   const { pjsHooksPaint, PJS_HOOKS } = load(box);

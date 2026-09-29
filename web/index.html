@@ -51134,7 +51134,7 @@ function pjsHooksPaint() {
      that follows making one must not take the link out from under the person copying it). */
   const typed = new Map();
   let focusedName = null;
-  const onLink = !!document.activeElement && document.activeElement.id === 'pjs-hook-url';
+  const onLink = document.activeElement && (document.activeElement.id === 'pjs-hook-url' || document.activeElement.id === 'pjs-hook-public') ? document.activeElement.id : null;
   /* And on a row's own button (Delete, Keep it, Done...), found again by its data-hook-* key: after
      a rename the person tabs on to that row's Delete, and the read that follows repaints the list. */
   let onButton = null;
@@ -51177,7 +51177,7 @@ function pjsHooksPaint() {
   }).join('');
   typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
   if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
-  if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
+  if (onLink) { const u = document.getElementById(onLink); if (u) { u.focus(); u.select(); } }
   if (onButton) { const b = box.querySelector('[' + onButton[0] + '="' + CSS.escape(onButton[1]) + '"]'); if (b) b.focus(); }
 }
 function pjsHooksInit(method, body) {
