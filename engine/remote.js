@@ -1039,7 +1039,7 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
-  dropAllowWatch();
+  endAllowWait();
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1624,7 +1624,7 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
-  dropAllowWatch();
+  endAllowWait();
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -1653,7 +1653,7 @@ const OLD_TUNNEL = /unrecognized subcommand|unexpected argument|invalid subcomma
    session reader answers 401 for a bad or expired session; nothing on this route is known to answer 403. */
 const SESSION_REFUSED = /said no \(401\)/;
 function keepAllowWatch(token) {
-  dropAllowWatch();
+  endAllowWait();
   const w = { token, until: Date.now() + allowWatchMs(), timer: null };
   // The window is enforced by the clock, not only by the next ask: a page that is closed, or a Done pressed
   // while pending, must not leave the token here.
@@ -1665,10 +1665,19 @@ function dropAllowWatch() {
   if (allowWatch && allowWatch.timer) clearTimeout(allowWatch.timer);
   allowWatch = null;
 }
+/* The final answer, once given, WITHOUT the token: kept to the end of the same window so a second tab, a reload or a
+   lost response is told the same thing instead of "stop" on a question that was answered (possibly with a no). */
+let allowFinal = null;   // { status, until }
+function endAllowWait() {
+  dropAllowWatch();
+  allowFinal = null;
+}
 async function signinAllowStatus() {
   const w = allowWatch;
   if (!w || Date.now() > w.until) {
     dropAllowWatch();
+    if (allowFinal && Date.now() <= allowFinal.until) return { ok: true, because: null, data: { device_status: allowFinal.status } };
+    allowFinal = null;
     return { ok: false, because: 'nothing to wait for', data: { stop: true } };
   }
   if (allowWatchInFlight && allowWatchInFlight.w === w) return allowWatchInFlight.p;
@@ -1685,7 +1694,7 @@ async function signinAllowStatus() {
     const status = r.data && typeof r.data.device_status === 'string' ? r.data.device_status : '';
     if (!ALLOW_STATUSES.has(status)) return { ok: false, because: 'the tunnel program answered in a shape we could not read', data: { stop: false } };
     // A final answer: the token has done its job. It is answered once; a lost answer leaves the page on its Done.
-    if (status !== 'pending') dropAllowWatch();
+    if (status !== 'pending') { allowFinal = { status, until: w.until }; dropAllowWatch(); }
     return { ok: true, because: null, data: { device_status: status } };
   })();
   allowWatchInFlight = { w, p };
@@ -1746,7 +1755,7 @@ async function signinStart(email, deviceName) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   signinSession = null;
-  dropAllowWatch();
+  endAllowWait();
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId()];
   pushDeviceName(args, deviceName);
@@ -2123,7 +2132,7 @@ async function signinRegister(name, opts) {
   }
   signinSession = null;   // the token is spent; it must not linger in this process...
   // ...except on a second computer, which keeps it to learn when it is allowed (#4640, signinAllowStatus).
-  if (second) keepAllowWatch(token); else dropAllowWatch();
+  if (second) keepAllowWatch(token); else endAllowWait();
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
@@ -2213,7 +2222,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; dropAllowWatch(); allowWatchInFlight = null; allowWatchMsForTests = 0; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; endAllowWait(); allowWatchInFlight = null; allowWatchMsForTests = 0; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

@@ -43724,7 +43724,7 @@ function plusSiWatchAllow() {
     if (got && got.ok && got.device_status === 'denied') { plusSiRefused(); return; }
     if (got && got.ok === false && got.stop) return;
     unanswered = got ? 0 : unanswered + 1;
-    if (unanswered >= PLUS_SI_WATCH_UNANSWERED) return;   // about a minute of silence: Done is the way on
+    if (unanswered >= PLUS_SI_WATCH_UNANSWERED) return;   // 15 unanswered asks in a row: Done is the way on
     PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
   };
   PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
@@ -43745,7 +43745,8 @@ function plusSiAllowed() {
 function plusSiRefused() {
   const sec = PLUS_SI_SECOND;
   document.getElementById('plus-si-done-line').textContent = (sec.computer || 'This computer') + ' was not let in.';
-  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in. To ask again, choose Remove this computer in Settings, Kosmos Plus, then sign in again.';
+  // With several other computers, which one answered is not known here (#4638's own "one of your other computers").
+  document.getElementById('plus-si-match-lead').textContent = (sec.several ? 'One of your other computers' : 'Your other computer') + ' said no to letting this one in. To ask again, choose Remove this computer in Settings, Kosmos Plus, then sign in again.';
   document.getElementById('plus-si-match-code').hidden = true;
 }
 

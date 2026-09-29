@@ -43,7 +43,13 @@ match could never fire).
   and the engine keeps the token only when awaitAllow AND the sign-in answer named another computer. A reinstalled
   computer that takes the chooser keeps nothing. The denied copy points at a control that exists: Remove this computer
   retires the address (the account lists live addresses only), so the next sign-in is a second computer again and a
-  fresh request. GET /api/remote/signin-allowed refuses a cross-site read (a final answer is given once).
+  fresh request. GET /api/remote/signin-allowed refuses a cross-site read.
+- Iteration 5: the final answer is kept WITHOUT the token until the window ends (allowFinal), so a second tab, a
+  reload or a lost response is told the same answer instead of "stop"; Sign out, a new sign-in and Forget clear it.
+  Controls pin the engine's own gate on both register paths: a first computer whose page sends awaitAllow keeps
+  nothing. With several other computers the denied line says "One of your other computers".
+- Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
+  #4638 added one; Pete owns the bump, and this branch rebases after it.
 
 ## Validation
 - node --test engine/remote.test.js (118/118); #4640 tests x4; server.test.js in-app sign-in route test.

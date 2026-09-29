@@ -1275,16 +1275,22 @@ test('#4640 a second computer reads pending, then acked, with the token on stdin
   fs.writeFileSync(ALLOW, 'acked');
   const acked = await remote.signinAllowStatus();
   assert.deepEqual(acked.data, { device_status: 'acked' });
-  const after = await remote.signinAllowStatus();
-  assert.equal(after.ok, false, 'the token outlived its final answer');
-  assert.equal(after.data.stop, true);
+  assert.equal(remote.allowWatchHeldForTests(), false, 'the token outlived its final answer');
+  // A second tab, a reload or a lost response asks again: it is told the same answer, and nobody asks Kosmos+.
+  fs.rmSync(RECORD, { force: true });
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'acked' }, 'a repeat ask lost the answer');
+  assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'a repeat ask after the answer went to Kosmos+ again');
+  // Sign out ends it: nothing to report any more.
+  remote.signinCancel();
+  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Sign out left the final answer behind');
   fs.rmSync(ALLOW, { force: true });
 });
 test('#4640 denied is final too, and a first computer keeps no token at all', async () => {
   fs.writeFileSync(ALLOW, 'denied');
   await signedInSecond();
   assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'denied' });
-  assert.equal((await remote.signinAllowStatus()).data.stop, true, 'a denied computer kept polling');
+  assert.equal(remote.allowWatchHeldForTests(), false, 'a denied computer kept the token');
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'denied' }, 'a repeat ask lost the no');
   fs.rmSync(ALLOW, { force: true });
   fs.rmSync(RECORD, { force: true });   // the denied half's own status calls are not the control's
   // CONTROL: a first computer (no other address on the account) registers the same way and has nothing to wait for.
@@ -1295,6 +1301,19 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
   assert.equal(first.ok, false);
   assert.equal(first.data.stop, true, 'a first computer kept the session token');
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'a first computer asked the coordinator');
+  // CONTROL: a FIRST computer whose page (wrongly) asked to wait keeps nothing either: the engine's own gate, not the
+  // page's flag, decides. Both register paths: a fresh register, and the already-set-up shortcut (same name again).
+  await remote.forget();
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '111111')).ok, true);
+  assert.equal((await remote.signinRegister('solo', { awaitAllow: true })).ok, true);
+  assert.equal(remote.allowWatchHeldForTests(), false, 'a first computer kept the token because its page asked');
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '111111')).ok, true);
+  const again = await remote.signinRegister('solo', { awaitAllow: true });
+  assert.equal(again.ok, true, again.because);
+  assert.equal(again.data.alreadySetUp, true, 'CONTROL: this arm must take the already-set-up shortcut');
+  assert.equal(remote.allowWatchHeldForTests(), false, 'the shortcut kept a first computer\'s token');
   // CONTROL: a second computer whose page did NOT ask to wait (it took the chooser: a reinstalled computer) keeps nothing.
   remote.signinCancel();
   await remote.forget();
