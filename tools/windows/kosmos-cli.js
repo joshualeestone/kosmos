@@ -904,7 +904,7 @@ async function communityRead(ctx, args) {
    service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
 async function verbConnections(ctx) {
   const r = await ctx.call('GET', '/api/connections/held', undefined, { agent: false });
-  if (!r.reached) { ctx.err('We could not reach Kosmos to read what is connected. Is it running at ' + ctx.url + '?'); return 1; }
+  if (!r.reached) return ctx.unreachable('read what is connected');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
   const services = r.json && Array.isArray(r.json.services) ? r.json.services : null;
   if (r.status >= 400 || !services) { ctx.err('Kosmos gave an answer we could not read about what is connected.'); return 1; }

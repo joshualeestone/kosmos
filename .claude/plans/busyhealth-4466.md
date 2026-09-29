@@ -290,6 +290,26 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   broken in that state anyway, and "another agent is starting it" still refuses, the safe direction.
 - DEFERRED: the --auto report arm measures from spawn on purpose: Claude Code's 15 s hook timeout is
   wall-clock from spawn too, so that is the number that must stay under it.
+- 6g on 5acff166d: GREEN.
+
+## Review round 24 (opus): 1 NEW WARNING + 2 NEW NITs fixed, 2 deferred; loop continues
+- FIXED (W, and it was this plan's own named weakest premise): after the merge, `connections`,
+  `community read` and `agent role-draft` still said "Is it running at ..." when their REQUEST failed after
+  the health check (a timeout or cut reply on a busy board). The merge sweep grepped for "Start it with"
+  and missed "Is it running". All three now use `say_unreached` (reads); an empty body with exit 0 gets its
+  own sentence. New stub mode `datacut` (health answers, the data read is cut) and an arm over all three;
+  red on the old code ("Is it running at ...").
+- FIXED (NIT): the Windows `connections` read now goes through `ctx.unreachable` (its timeout said "Is it
+  running"). NOT REAL: Windows `connect` returns on a timeout before its "Is it running" line, which is
+  then only reached on a refused connection, where it is true.
+- FIXED (NIT): `kosmos status` answers a stranger from healthy()'s own reading instead of a second probe,
+  which could read busy the next moment and print the start advice. Arm with stubbed probes; red on the old
+  code ("Kosmos is not running. Start it with: kosmos start").
+- DEFERRED: `kosmos open` takes no `--force` for a person in an agent's pane; `kosmos start --force` then
+  `open` covers it, and open's own guard is a subshell for a reason (it must not end open early).
+- Sweep after the fix: `grep -n 'Is it running' install/kosmos tools/windows/kosmos-cli.js` leaves only
+  the two helpers' refused-connection branches and Windows `connect` (above). All 222 cli + reporthook
+  tests green.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.

@@ -89,6 +89,8 @@ const server = http.createServer((req, res) => {
   if (health === 'reporthang' && req.method === 'GET' && !slowOnceDone) { slowOnceDone = true; setTimeout(reply, delayMs); return; }
   if (health === 'roomhang' && req.url.includes('/room')) return;
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
+  // Answers its health check, then cuts each data read (a board too busy to finish the request).
+  if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
   if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
@@ -349,6 +351,26 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.match(agent.stdout, /Tell the person who runs this computer/);
   assert.doesNotMatch(agent.stdout, /kill/);
 });
+
+test('#4466 `kosmos status` on a stranger answers from the reading it has, not a second probe that could read busy', async () => {
+  const port = await closedPort();
+  // healthy() reads stranger; any LATER probe would read busy (the transient between two readings).
+  const stub = `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; _health_probe() { HEALTH_STATE=busy; }; cmd_status`;
+  const out = await bash(stub, baseEnv(port));
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /another app is using port/);
+  assert.doesNotMatch(out.stdout + out.stderr, /Start it with/);   // the stranger sentence names 'kosmos start' only to say it will refuse
+});
+
+test('#4466 the verbs that arrived after it say busy, not "is it running", when the request itself is cut AFTER the health check', () => withBoard('datacut', async (port) => {
+  const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
+  for (const args of [['connections'], ['community', 'read'], ['agent', 'role-draft']]) {
+    const out = await runCli(args, env, 40000, '');
+    assert.notEqual(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.match(out.stdout, /running but did not answer in time/, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout + out.stderr, /Is it running|Start it with/, args.join(' '));
+  }
+}));
 
 test('#4466 part 6: 8 simultaneous agent restarts over a STALE claim (every outage after the first): exactly one goes ahead', async () => {
   // The claim file outlives each start, so a later outage finds an old claim, not none: the replace

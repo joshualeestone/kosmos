@@ -1181,9 +1181,10 @@ cmd_status() {
     # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
     # reads this exit code and gives 4 a long grace instead of treating it as down.
     exit 4
-  elif port_taken_by_stranger; then
+  elif [ "$HEALTH_STATE" = stranger ]; then
     # The same answer start would give, so two adjacent commands cannot
-    # hand out advice the next one refuses.
+    # hand out advice the next one refuses. #4466: healthy() above already classified the listener; a
+    # second probe could read busy the next moment and fall through to the start advice below.
     say "Kosmos is not running, and another app is using port $PORT, so 'kosmos start' will refuse. Quit that app first."
     exit 1
   else
@@ -1825,7 +1826,8 @@ cmd_connections() {
   local _bt; _bt="$(board_token || true)"
   local body rc=0
   body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/connections/held" 2>/dev/null) || rc=$?
-  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to read what is connected. Is it running at $URL?"; exit 1; fi
+  if [ "$rc" -ne 0 ]; then say_unreached "read what is connected" "$rc"; exit 1; fi
+  if [ -z "$body" ]; then say "Kosmos gave an empty answer about what is connected. Try again in a minute."; exit 1; fi
   printf '%s' "$body" | "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { process.exit(1); }
@@ -2267,7 +2269,7 @@ cmd_community_read() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read${_q:+?$_q}" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read the community. Is it running at $URL?"
+    say_unreached "read the community" "$_rc"
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -3047,7 +3049,8 @@ cmd_agent() {
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
       # fills it with the agent's name when it is made.
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
-      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to get the role text. Is it running at $URL?"; exit 1; fi
+      if [ "$rc" -ne 0 ]; then say_unreached "get the role text" "$rc"; exit 1; fi
+      if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the role text. Try again in a minute."; exit 1; fi
       # --to writes the file itself, as UTF-8 with the text's own line endings (#4474): a shell's redirection can
       # re-encode it (PowerShell does), and the board checks the shared rules in it word for word.
       local _to=""
