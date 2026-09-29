@@ -490,10 +490,13 @@ function defaultModelRunner(line, signal) {
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* execFile reports a missing cwd */ }
   return new Promise((resolve) => {
     const env = { ...process.env };
-    /* The account is named explicitly, never left to claude's ambient default: that default fails inside the
-       board's launchd process (#3136). The board's own account if it runs on one, else the default account. */
-    const acct = readAccount();
-    if (acct) env.CLAUDE_CONFIG_DIR = acct.dir; else delete env.CLAUDE_CONFIG_DIR;
+    /* Which sign-in claude reads is decided by whether CLAUDE_CONFIG_DIR is SET, not by its path: the default
+       account's sign-in is the entry written with it UNSET, and setting it even to ~/.claude reads another entry
+       (engine/loginexpiry.js, measured, the #2129 class). So this runs the way an agent on the same account runs
+       (engine/create.js: configDir = isDefault ? null : dir): the board's own account as the board has it, else
+       the default account with it unset. */
+    const own = process.env.CLAUDE_CONFIG_DIR;
+    if (own) env.CLAUDE_CONFIG_DIR = own; else delete env.CLAUDE_CONFIG_DIR;
     // `signal`: the person stopped the read or left the page, so the child is killed and stops using their plan.
     const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL', signal },
       (err, stdout, stderr) => {

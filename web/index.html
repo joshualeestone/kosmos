@@ -46955,6 +46955,10 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   }
   const raise = ORGCHART_MANY_OK;
   ORGCHART_MANY_OK = false;
+  /* Creating the list on screen ends a file still being read: its answer would repaint over this create and take
+     its result and Undo with it. The read's model call stops too, and a late answer is no longer current. */
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
+  ORGCHART_FILE_SEQ += 1;
   // Capture the generation: if the operator changes mode or reopens the form while
   // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
   // is skipped, so a late response cannot yank a screen the person has left.
