@@ -957,7 +957,14 @@ function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   return states.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
 }
-function asDuplicate(result) { return result && typeof result === 'object' ? { ...result, duplicate: true } : result; }
+// Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
+// hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
+function asDuplicate(result) {
+  if (!result || typeof result !== 'object') return result;
+  return result.state === chat.DELIVERY.PLACED || result.state === chat.DELIVERY.UNCONFIRMED ? { ...result, duplicate: true } : result;
+}
+// The log keeps a send's state but not the words of its "unconfirmed"; a folded twin says what it knows.
+const FOLDED_UNCONFIRMED = 'this was sent a moment ago and was not confirmed then; it may already be there, so it was not sent again';
 function trackInFlight(key, pending) {
   IN_FLIGHT_SENDS.set(key, pending);
   const clear = () => { if (IN_FLIGHT_SENDS.get(key) === pending) IN_FLIGHT_SENDS.delete(key); };
@@ -1097,7 +1104,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. */
   const cleaned = chat.cleanMessage(text);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
-  if (sameMsg) return { state: sameMsg.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  if (sameMsg) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
@@ -1587,13 +1594,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
     : null;
   /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
-     room valve. The answered post is part of it: "yes" to two different questions is two answers. */
+     room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
+     (--new, reply_expected) are NOT: a retry re-sends the same command, so a copy that differs only in a flag is
+     the same post again, and the first one's flags stand. */
   const answeredId = answered ? answered.id : null;
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
   if (operator !== true) {
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
     if (samePost) {
-      return { state: aggregateState(samePost.outcomes), because: null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
+      const foldedState = aggregateState(samePost.outcomes);
+      return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
     }
     // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
     const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(postKey) : null;
