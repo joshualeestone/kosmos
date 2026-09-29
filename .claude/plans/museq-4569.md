@@ -57,4 +57,7 @@ background digest (control: a single background post runs as itself). Rounds 1-4
 reaction / catch-up notes around them (control: a quoted "stop" in a reply is not one); a second stop keeps the
 first note; digest caps at 40 posts and 32 KB; Escape drops a waiting stop note and a later stop gets its own;
 messages between two stops are named (control: none in between adds no note; "hold" is not a stop); an identical
-second note waits once and stays ahead of the person's next message.
+second note waits once and stays ahead of the person's next message. Rounds 5-7: a stop note refused as busy
+is retried and runs (control: an ordinary busy message is not retried); a second stop counts a colleague's dropped
+message; Escape during a retry's wait cancels the note; a stop typed in that wait gets a fresh note that does not
+claim a turn was ended.

@@ -124,8 +124,8 @@ const DIGEST_MAX = 40;
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
 const BUSY_RETRY_MS = 500;
-const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY (a test pins them equal)
-const MUSE_STOPPED = 'Stopped before Muse Code finished';                      // muserun.STOPPED (likewise)
+const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY; a drift turns the busy-retry test red
+const MUSE_STOPPED = 'Stopped before Muse Code finished';                      // muserun.STOPPED; a drift turns the Escape-in-wait test red
 /* ...and posts stop being added past this many characters (review round 2: forty long posts are still one argv
    string). A single post longer than this still goes whole; room posts are bounded where they are made. */
 const DIGEST_MAX_CHARS = 32 * 1024;
