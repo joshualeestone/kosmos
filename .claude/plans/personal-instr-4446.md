@@ -26,7 +26,8 @@ text; no sentence when there is none; the sentence never carries over to another
   bundle); Grok `<GROK_HOME>/AGENTS.md` and every `*.md` directly in `<GROK_HOME>/rules/` (its
   embedded docs). Any one regular non-empty file, symlinks followed. Antigravity and Muse: null.
   Fixed files are checked first; a rules folder is walked only if none has content, stops at the
-  first non-empty `*.md`, never enters a symlinked folder, and gives up past 4 levels or 500
+  first non-empty `*.md`, follows a symlinked folder for Claude (as its docs say the CLI does;
+  the caps bound a loop), and gives up past 4 levels or 500
   entries (this runs on every Instructions read).
   Never throws.
 - server.js: the instructions GET adds `personal`.
