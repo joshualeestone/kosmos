@@ -2968,7 +2968,10 @@ cmd_task() {
       [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
-        '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
+        '{"ok":'*)
+          # #4540: the board's own sentence about who was told (it carries no double quote); none from an older board.
+          local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;

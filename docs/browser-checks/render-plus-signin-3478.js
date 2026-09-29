@@ -980,7 +980,8 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'twin-mac.kosmosplus.com' }) }); return; }
         if (p === 'signin-register') {
           regTries += 1;
-          if (regTries === 1) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }); return; }
+          // #4608: the first answer is held 1.5 s, so the connecting state can be read while it waits.
+          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }), 1500); return; }
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
         }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
@@ -989,7 +990,25 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
+      /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in..." and the
+         app's ring loader turns beside the words. (No K animates in the card on main either: the k === 0 part is
+         a guard against one arriving, not evidence for this change.) */
+      await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(300);
+      const during = await page.evaluate(() => {
+        const sp = document.getElementById('plus-si-spin');
+        const card = document.getElementById('plus-state2');
+        return { title: document.getElementById('plus-si-title').textContent,
+          spin: !!sp && !sp.hidden && sp.getClientRects().length > 0 && sp.classList.contains('spin-sweep'),
+          k: card ? card.querySelectorAll('canvas, .kspin, img[src*="kosmos-"]').length : -1 };
+      });
+      chk(during.title === 'Signing in...' && during.spin && during.k === 0,
+        `[${k}] #4608 while this computer connects: the heading says Signing in..., the ring loader turns, no K`, JSON.stringify(during));
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
+      const siAfter = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent,
+        spin: !document.getElementById('plus-si-spin').hidden }));
+      chk(siAfter.title === 'Sign in to activate Kosmos+' && !siAfter.spin,
+        `[${k}] #4608 when the connect fails, the heading and the loader go back`, JSON.stringify(siAfter));
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
       await page.click('#plus-si-register-go');

@@ -825,6 +825,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
 const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members as create specs
+const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -3798,6 +3799,43 @@ function sameAgentName(a, b, byKey) {
   const ka = key(a);
   return ka !== null && ka === key(b);
 }
+/* #4540: one plain sentence from a task message's `delivered` list, for the CLIs to print (the Mac CLI is bash 3.2
+   with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
+   not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
+   sender is already off `delivered`. */
+function taskMessageSummary(delivered, assigned) {
+  const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  const list = Array.isArray(delivered) ? delivered : [];
+  if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
+  if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
+  /* One outcome per agent, the worst winning (not told, then may have been told, then told), so an agent listed twice
+     never gets two sentences that contradict each other. A name that cleans to nothing is still said. */
+  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 2 : st === chat.DELIVERY.PLACED ? 0 : 1);
+  const byName = new Map();
+  for (const d of list) {
+    if (!d) continue;
+    const who = plain(d.agent) || 'an agent';
+    const had = byName.get(who);
+    if (!had || rank(d.state) > rank(had.state)) byName.set(who, { ...d, who });
+  }
+  const one = [...byName.values()];
+  const names = (state) => one.filter((d) => d.state === state).map((d) => d.who);
+  const told = names(chat.DELIVERY.PLACED);
+  /* Only a delivery the board knows failed is "not told"; one it did not hear back from (unconfirmed, or no state
+     at all) may have landed, so it is never claimed either way. */
+  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT).map((d) => d.who);
+  const not = one.filter((d) => d.state === chat.DELIVERY.COULD_NOT);
+  const parts = [];
+  if (told.length) parts.push('Told ' + told.join(', ') + '.');
+  if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
+  /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
+  for (const d of not) {
+    const who = d.who;
+    const why = plain(d.because).replace(/\.$/, '');
+    parts.push('Not told: ' + (!why ? who + ' could not be reached' : (why.startsWith(who + ' ') ? why : who + ' (' + why + ')')) + '.');
+  }
+  return parts.join(' ');
+}
 /* A caller whose token resolved without a roster row (`paneless`, on the result or its card): its name is the key. */
 function panelessCaller(tokenSender) {
   return !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
@@ -6494,6 +6532,68 @@ const server = http.createServer(async (req, res) => {
       }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
       return;
     }
+  }
+
+  /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
+     rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
+     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
+     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     is stored. Board-token gated like every /api route, and the consent send also wants the screen
+     (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
+     browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
+     parse is synchronous; its worst cases are bounded by engine/orgchartfile.test.js, not here. */
+  if (pathname === '/api/orgchart/read' && req.method === 'POST') {
+    readBody(req, orgchartfile.MAX_BYTES + 1)
+      .then(async (bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-orgchart-name'] || '')); } catch { name = String(req.headers['x-orgchart-name'] || ''); }
+        name = name.slice(0, 200);
+        if (!name) { sendJson(res, 400, { error: 'name the file (x-orgchart-name)' }); return; }
+        if (!orgchartfile.forModel(name)) {
+          const got = orgchartfile.readLocal(name, bytes);
+          if (got.unsupported) {
+            sendJson(res, 400, { error: 'That kind of file is not one we can read. Upload a picture (PNG or JPG), a PDF, a CSV or an Excel file (.xlsx).' });
+            return;
+          }
+          sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
+          return;
+        }
+        if (!orgchartfile.modelAvailable()) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        const q = new URL(req.url, ROUTING_BASE).searchParams;
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // The consented send carries the file; an empty one would spend a request on nothing.
+        if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
+           so claude stops using their plan instead of running on to its timeout. */
+        const stop = new AbortController();
+        res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        if (stop.signal.aborted) return;
+        if (got.unavailable) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+      })
+      .catch((err) => {
+        /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
+           a person who left mid-upload (nothing to answer); anything else is our failure, logged, not the file's. */
+        if (res.headersSent || res.destroyed || req.aborted) return;
+        const big = /too large/.test(String((err && err.message) || ''));
+        if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
+        try {
+          sendJson(res, big ? 413 : 500, { error: big
+            ? 'That file is larger than ' + Math.round(orgchartfile.MAX_BYTES / 1048576) + ' MB. Export just the people, or type the list.'
+            : 'We could not read that file. Try again, or export it as CSV.' });
+        } catch { /* socket gone */ }
+      });
+    return;
   }
 
   /**
@@ -16803,7 +16903,7 @@ const server = http.createServer(async (req, res) => {
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
         if (!viaScreen) taskMessageValveRecord();
-        sendJson(res, 200, { ok: true, delivered });
+        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -18804,6 +18904,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
