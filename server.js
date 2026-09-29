@@ -7693,8 +7693,10 @@ const server = http.createServer(async (req, res) => {
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);
-        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle). `sends` says whether a
+        // published one goes at all: one published while Community is OFF never goes (the send window starts at the
+        // next ON), so the agent is told that rather than "on the next pass".
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: communitysend.switchOn() });
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;

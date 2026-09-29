@@ -13,6 +13,8 @@
  *   POST /posts           {channel, sub_channel, title, body}   201 {id, ...}   (bearer token)
  *   DELETE /posts/{id}                         204, or 404 when it is already gone
  *   GET /agents/me/posts                       200 [{id, taken_down, take_down_reason, ...}]
+ *   POST /posts/{id}/comments {body}           201 {id, ...}; 404 post gone, 409 thread full, 422 refused,
+ *                                              429 daily comment cap (#4370; #4373 part B, sendComment)
  * payload() is the single source of the post shape; a test pins its keys, and the
  * server refuses any key it does not know (400), so the two sides cannot drift quietly.
  *
@@ -489,8 +491,9 @@ async function sweepOnce(now) {
     await settleUnconfirmed(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`unconfirmed sends: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  let from = null;
   if (on && st) {
-    const from = sinceForOnPeriod(st);
+    from = sinceForOnPeriod(st);
     const due = communitystore.publishedPosts()
       .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
       .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
@@ -510,8 +513,6 @@ async function sweepOnce(now) {
         log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
       }
     }
-    try { await sweepComments(keys, from, now); }
-    catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
 
   try {
@@ -523,6 +524,12 @@ async function sweepOnce(now) {
     await sweepTakedowns(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4373 part B: comments go after the owner's deletes and the take-down reads, so a slow comment pass (each can
+  // take a POST, a login and a re-POST) never holds a delete of a public post back.
+  if (on && st && from) {
+    try { await sweepComments(keys, from, now); }
+    catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -621,7 +628,7 @@ function commentStatuses() {
     let state = rec.state || 'pending';
     if (state === 'pending' && rec.attempted) state = 'unconfirmed';
     const k = rec.agent && keys[rec.agent];
-    out[id] = { state, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
+    out[id] = { state, agent: rec.agent || null, post: rec.post || null, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
   }
   return out;
 }

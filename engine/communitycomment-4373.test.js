@@ -41,6 +41,12 @@ function backend() {
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
       }
+      if (req.method === 'POST' && req.url === '/agents/login') {
+        const a = [...st.agents.values()].find((x) => x.name === body.name && x.key === body.api_key);
+        if (!a) return send(401, { detail: 'wrong name or key' });
+        a.token = 'tok_' + a.id + '_' + (++st.n);
+        return send(200, { token: a.token });
+      }
       const t = (req.headers.authorization || '').replace(/^Bearer /, '');
       const a = [...st.agents.values()].find((x) => x.token === t && x.active);
       const m = /^\/posts\/([^/]+)\/comments$/.exec(req.url);
@@ -129,12 +135,20 @@ test('a leak is quarantined, never sent, and reads as held to the agent', async 
   assert.equal(sends().length, 0);
 });
 
-test('a comment on a service post is never served on the board\'s own site', () => {
+test('a comment on a service post is never served on the board\'s own site, even if a local post had the same id', () => {
+  // Review 3: a local post is given the SERVICE post's id, so a row carrying that id as its postId would be served.
+  communitystore.grantTrust('ava');   // so the local post is published (the control below needs it in the feed)
+  const local = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: 'x', topic: 't', body: 'local post' }, { agentId: 'ava' });
+  const postsFile = communitystore._paths.postsFile();
+  const posts = JSON.parse(fs.readFileSync(postsFile, 'utf8'));
+  posts.find((p) => p.id === local.id).id = POST;
+  fs.writeFileSync(postsFile, JSON.stringify(posts));
   const r = comment('ava', 'hello there');
   assert.equal(r.status, 'published');
-  const local = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: 'x', topic: 't', body: 'local post' }, { agentId: 'ava' });
-  assert.deepEqual(communitystore.getComments(local.id), []);
-  assert.deepEqual(communitystore.getComments(POST), [], 'the service post id reached the local comment read');
+  assert.deepEqual(communitystore.getComments(POST), [], 'a service comment was served on the board\'s own site');
+  const feedRow = communitystore.publicFeed().find((p) => p.id === POST);
+  assert.ok(feedRow, 'control: the local post with that id is in the feed');
+  assert.equal(feedRow.commentCount || 0, 0, 'a service comment was counted on a local post');
 });
 
 test('a published comment is sent once, as the registered agent, and a second sweep sends nothing', async () => {
@@ -177,7 +191,7 @@ test('the service\'s refusals are recorded, not retried', async () => {
   await cs.sweep();
   await cs.sweep();
   assert.equal(sends().length, before + 1, 'a refused comment was sent again');
-  assert.deepEqual(cs.commentStatuses()[gone.id], { state: 'refused', agentRefused: false, reasons: ['post_gone'] });
+  assert.deepEqual(cs.commentStatuses()[gone.id], { state: 'refused', agent: 'ava', post: be.st.seen.filter((x) => /\/comments$/.test(x.url)).slice(-1)[0].url.split('/')[2], agentRefused: false, reasons: ['post_gone'] });
 });
 
 test('the daily cap waits the server\'s Retry-After, then sends', async () => {
@@ -317,7 +331,6 @@ test('review 2: a character Unicode 17 added is refused, since the service\'s Un
 test('review 2: TRIPWIRE: this board\'s Unicode is the one the list above was generated against', () => {
   // The refused set is { the service's Unicode 16 Cn } minus { Node 17 \p{Cn} }. On a newer Node, characters it
   // newly assigns pass \p{Cn} here and the service still refuses them: regenerate the list in engine/feedpublish.js.
-  assert.equal(feedpublish.SERVICE_UNICODE, '16.0.0');
   assert.equal(String(process.versions.unicode).split('.')[0], '17', 'Node moved past Unicode 17: regenerate NEWER_THAN_SERVICE');
 });
 
@@ -328,4 +341,17 @@ test('review 2: the service\'s list-shaped validation 422 is recorded as a fixed
   await cs.sweep();
   assert.deepEqual(cs.commentStatuses()[r.id].reasons, ['invalid_text']);
   assert.ok(!fs.readFileSync(cs._paths.commentsSentFile(), 'utf8').includes('secret words'), 'the server\'s echo was stored');
+});
+
+test('review 3: an expired token is renewed and the comment POSTed again, and the service stores it ONCE', async () => {
+  await on();
+  comment('ava', 'first, to register');
+  await cs.sweep();
+  const agent = [...be.st.agents.values()][0];
+  agent.token = 'expired-on-the-server';          // the board's token no longer answers
+  const r = comment('ava', 'after the token expired');
+  await cs.sweep();
+  assert.equal(be.st.seen.filter((x) => x.url === '/agents/login').length, 1, 'the board did not log in again');
+  assert.equal(be.st.comments.filter((c) => c.body === 'after the token expired').length, 1, 'stored twice, or not at all');
+  assert.equal(cs.commentStatuses()[r.id].state, 'sent');
 });

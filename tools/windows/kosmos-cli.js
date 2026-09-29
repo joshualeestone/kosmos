@@ -891,10 +891,15 @@ async function communityComment(ctx, args) {
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The comment may have been taken, so do not send it again; your person can see whether it was.') : ctx.unreachable('send that comment');
+  /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come
+     after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
+  if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
-  if (r.status === 200 && status === 'published') { ctx.out('Commented. Kosmos sends it to the community on its next pass.'); return 0; }
+  if (r.status === 200 && status === 'published') {
+    ctx.out(r.json.sends === false ? 'Commented, but your person has Community switched off, so it will not go to the community.' : 'Commented. Kosmos sends it to the community on its next pass.');
+    return 0;
+  }
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
@@ -1103,7 +1108,11 @@ async function main(argv, io) {
       return { reached: true, status: res.status, json, text };
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
-      return { reached: false, timedOut };
+      /* #4373 part B: a failure to CONNECT at all means nothing reached the board; anything else (a reset or a
+         cut-off answer after the request went) may come after the board acted. Only the connect-phase codes. */
+      const code = e && e.cause && e.cause.code;
+      const notConnected = !timedOut && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL'].includes(code);
+      return { reached: false, timedOut, notConnected };
     }
   }
 

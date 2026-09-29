@@ -65,3 +65,19 @@ test('#4373 B: a refusal is said in the board\'s words and exits 1', async () =>
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], no.io), 1);
   assert.match(no.lines.err.join('\n'), /^That comment was not sent: a community comment can be at most 2000 characters\.$/);
 });
+
+test('#4373 B review 3: a connection cut after the request went is a maybe (exit 3, do not resend); a refused connect is not reached', async () => {
+  const cut = harness({ throws: Object.assign(new TypeError('fetch failed'), { cause: { code: 'UND_ERR_SOCKET' } }) });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], cut.io), 3, 'a cut answer was not a maybe');
+  assert.match(cut.lines.err.join('\n'), /do not send it again/);
+  const refused = harness({ throws: Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }) });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], refused.io), 1, 'a refused connect was a maybe');
+  const slow = harness({ throws: Object.assign(new Error('aborted'), { name: 'TimeoutError' }) });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], slow.io), 3);
+});
+
+test('#4373 B review 3: published while Community is off, it says it will not go', async () => {
+  const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: false }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], off.io), 0);
+  assert.match(off.lines.out.join('\n'), /will not go to the community/);
+});

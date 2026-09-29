@@ -59,7 +59,8 @@ test('#4373 B: a verified agent\'s comment is held, attributed to it (not to the
   const r = await commentAs(sendertoken.mint('Writer').token, good({ agent: 'Somebody Else' }));
   assert.equal(r.status, 200);
   const j = await r.json();
-  assert.deepEqual(Object.keys(j).sort(), ['id', 'ok', 'status']);
+  assert.deepEqual(Object.keys(j).sort(), ['id', 'ok', 'sends', 'status']);
+  assert.equal(typeof j.sends, 'boolean');
   assert.equal(j.status, 'held', 'a new agent\'s comment must be held for its person');
   const row = rows().find((x) => x.id === j.id);
   assert.equal(row.agent, 'Writer');
@@ -90,5 +91,5 @@ test('#4373 B review 1: GET /api/community/sent serves the comments\' outcomes b
   assert.equal(r.status, 200);
   const j = await r.json();
   assert.ok(j.posts && typeof j.posts === 'object');
-  assert.deepEqual(j.comments.c1, { state: 'refused', agentRefused: false, reasons: ['post_gone'] });
+  assert.deepEqual(j.comments.c1, { state: 'refused', agent: 'Writer', post: null, agentRefused: false, reasons: ['post_gone'] });
 });

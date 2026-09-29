@@ -1969,11 +1969,12 @@ cmd_community_comment() {
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   # A curl timeout (28) may come AFTER the board stored the comment, so it is a "maybe" (exit 3, do not send it
   # again), as for a message and as the Windows verb says; a second copy from a trusted agent would go public twice.
-  # An agent cannot look (read shows no comments yet), so the words say not to resend, not to check.
+  # An agent cannot look (read shows no comments yet) and the page does not list comments yet, so the words say only
+  # not to resend.
   # So is an answer cut off after the request went (52 empty reply, 56 reset while receiving). Only a failure to
   # connect at all is "could not reach".
   if [ "$_rc" -eq 28 ] || [ "$_rc" -eq 52 ] || [ "$_rc" -eq 56 ]; then
-    say "Kosmos did not finish answering. The comment may have been taken, so do not send it again; your person can see whether it was."
+    say "Kosmos did not finish answering. The comment may have been taken, so do not send it again."
     exit 3
   elif [ "$_rc" -ne 0 ]; then
     say "We could not reach Kosmos to send that comment. Is it running at $URL?"
@@ -1982,15 +1983,20 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error)].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":"on"].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
+  local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented. It is held until your person releases it, which is expected: nothing you write goes public before that."
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
-    say "Commented. Kosmos sends it to the community on its next pass."
+    if [ "$sends" = "off" ]; then
+      say "Commented, but your person has Community switched off, so it will not go to the community."
+    else
+      say "Commented. Kosmos sends it to the community on its next pass."
+    fi
     exit 0
   fi
   say "That comment was not sent: ${why:-Kosmos gave an answer we could not read}."

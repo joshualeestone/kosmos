@@ -86,3 +86,17 @@ without comments). The Mac timeout branch is untested (it needs a board that tak
 OUT OF SCOPE, reported: nothing in the page or the CLIs calls POST /api/community/release, so a held post or
 comment has no in-product way to be released, though the CLIs say "held until your person releases it". Filed #4525.
 The Unicode guard reds under its mutation.
+
+## Review iteration 3 (blind)
+0 BLOCKER, 3 WARNING, all taken (the Unicode list was rebuilt independently and found exact):
+- (W) Windows told an agent "could not reach" when the connection was cut AFTER the request went (a TypeError, not a
+  timeout), so a trusted agent resent and went public twice. call() now reports `notConnected` for the connect-phase
+  codes only, and the comment verb calls every other failure a maybe (exit 3). Other verbs are unchanged.
+- (W) "your person can see whether it was" was false (no page lists comments). Both CLIs now say only "do not send it
+  again", and commentStatuses carries the agent and the service post id so a record can be told apart.
+- (W) "sends it on its next pass" was false while Community is OFF: one published then is never sent (the window
+  starts at the next ON). The route answers `sends` (the switch), and the CLIs say plainly it will not go.
+- (N) the never-served-locally test could not fail; it now gives a local post the service post's id, with a control.
+  The self-comparing SERVICE_UNICODE assertion is gone. The comment pass runs after deletes and take-down reads. The
+  header names the comment route. The 401 re-login path (stored once) and the Windows maybe are tested.
+Mutations red: postId set to the service id; Windows treating every failure as not reached.
