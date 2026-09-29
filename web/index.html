@@ -30635,8 +30635,9 @@ function orgPlace(nodes) {
        its branch, who are what fill the outer rings), and sits at the slice's centre.
      - A manager's reports share a window around the manager: its slice, capped on each side. For a manager
        that has a manager, the cap is the tangent angle acos(r_manager / r_report), so each line runs steadily
-       AWAY from the hub. A first-ring manager's reports stay within ~85 degrees either side of it, so no line
-       folds back past the hub (their lines can still come within ~107px of it; the manager sits at 120).
+       AWAY from the hub. In the capped window a first-ring manager's reports stay within ~85 degrees either side of
+       it, so no line folds back past the hub (their lines can still come within ~107px of it; the manager sits at
+       120); in the wide window (#4499) up to ~130 degrees, and no report line comes within ORG_HUB_CLEAR (74px).
        Each report gets a sub-slice by its own leaf count and sits at its centre, so a lone report is
        straight out and a pair is centred on its manager (#352). Since #4472 the window may reach further on
        one side than the other (as far as the slice allows), the reports are ordered heaviest and lightest
@@ -30650,7 +30651,8 @@ function orgPlace(nodes) {
      - ORG_LINE_CLEAR (12px from a line to a face that is not its own) is MEASURED, not guaranteed: a team whose
        clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
        nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
-       report's straight-out ray). The spacing and no crossings ARE guaranteed.
+       report's straight-out ray). The team spacing and no crossings ARE guaranteed (first-ring lanes are kept apart by the
+       12px hub-line rule, measured at 59.5px at the closest).
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -30802,15 +30804,15 @@ function orgPlace(nodes) {
     return { spots, fellBack };
   };
   /* #4499: a first ring too crowded to clear ORG_LINE_CLEAR (about 40 agents over several lanes: each full inner lane
-     rules out ~139 degrees for a hub line passing it) starts further out, at the nearest base where none falls back
-     (bisected, then stepped; below). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
+     rules out ~139 degrees for a hub line passing it) starts further out, at a base within half a lane of the nearest
+     where none falls back (bisected; below). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
      apart at `base`, every agent fits the first lane, and no hub line passes a face at all. */
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
   const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) + 1);
   let first = firstRing(ORG_R0);
   if (first.fellBack) {
-    /* Bisect for the nearest base that clears (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
+    /* Bisect for a base that clears, within half a lane of the nearest (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
        at a time was 30 placements and 350ms). `hi` only ever holds a base that cleared or settledBase, which always
        clears, so the ring is laid once more there. Clearing need not hold at every larger base, which is why this
        bisects on what was measured rather than assuming the order. */
@@ -31111,18 +31113,23 @@ function orgPlace(nodes) {
          spacing radius, as #4473 places it. */
       /* #4499: at each radius the wide window first, kept only when it passes every check including the clearance;
          else the capped one. */
-      const layBest = (r) => {
+      /* #4499: at each radius the capped window first, and the wide one only where the capped one does not fit: a
+         small team that fits capped keeps the shape it had before #4499 (review it7: a lead with 8 reports fanned 114
+         degrees instead of 75, for no size gain). The wide one is kept only when it passes every check, the
+         clearance included. */
+      const layBest = (r, ok) => {
+        const c = lay(r, [p], false);
+        if (ok(c)) return c;
         const w = lay(r, [p], true);
         w.wide = true;
-        if (apart(w, true)) return w;   // strict implies loose, so this is the whole test in either phase
-        return lay(r, [p], false);
+        return apart(w, true) ? w : c;   // strict implies loose, so this is the wide window's whole test in either phase
       };
       const grow = (from, ok, limit) => {
         let r = from;
-        let spots = layBest(r);
+        let spots = layBest(r, ok);
         for (let tries = 0; tries < 400 && r <= limit && !ok(spots); tries += 1) {
           r = Math.max(r + 8, r * 1.03);
-          spots = layBest(r);
+          spots = layBest(r, ok);
         }
         return { r, spots, ok: r <= limit && ok(spots) };
       };

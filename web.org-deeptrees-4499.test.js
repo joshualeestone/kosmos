@@ -167,10 +167,11 @@ test('the exact crossing test: a tree that crosses without it does not cross (#4
   assert.equal(crossings, 0, crossings + ' crossing(s) in randomTree(3, 200, 0.01)');
 });
 
-test('the layout stays within its speed budget: 1000 agents in well under 150ms, a tree and a crowded first ring (#4499)', () => {
-  /* orgPlace runs on every repaint (each 5s poll and each drag's rest). Measured on the Mac mini: 1000 agents ~21ms
-     (#4472: 17.6ms); an early #4499 version without the per-team filters took 160ms. 150ms is headroom for a slower
-     machine or a busy CI box, not a target: it catches a change of order, not of a few ms. Median of 5 runs. */
+test('the layout stays within its speed budget: 1000 agents in well under 400ms, a tree, a crowded first ring, one huge team (#4499)', () => {
+  /* orgPlace runs on every repaint (each 5s poll and each drag's rest). Measured on the Mac mini: at most ~48ms for
+     these shapes (#4472: 17.6ms for the tree). 400ms is headroom for a runner 2-4x slower than this box, not a target:
+     it catches a change of order (review it1's crowded first ring took 481ms), not of a few ms (review it7). Median
+     of 5 runs. */
   /* Two shapes: a deep tree, and a crowded first ring (1000 agents with no manager plus one small team), where the
      first-ring search once checked every face for every agent on every lane and took 481ms (review it1; now ~40ms,
      #4472 ~14ms). */
@@ -188,6 +189,6 @@ test('the layout stays within its speed budget: 1000 agents in well under 150ms,
       ms.push(Number(process.hrtime.bigint() - t) / 1e6);
     }
     ms.sort((a, b) => a - b);
-    assert.ok(ms[2] < 150, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over 150ms');
+    assert.ok(ms[2] < 400, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over 400ms');
   }
 });
