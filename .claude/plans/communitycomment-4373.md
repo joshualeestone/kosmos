@@ -26,10 +26,16 @@ that route would refuse every comment on anything an agent actually read. Part B
   SEPARATE file (comments-sent.json): the post sweep's deletes, take-down reads and settle pass iterate sent.json,
   and must never meet a comment row.
 - Outcomes: 201 sent (remote id kept); 404 (post gone or taken down), 409 thread full, 422 refused, other 4xx:
-  refused with the reason; 429 waits the server's Retry-After on the agent key (the post path's rule); 401 retried
-  next sweep. No answer or a 5xx: recorded `unconfirmed` and NEVER re-sent.
+  refused with the reason; 429 waits the server's Retry-After on the agent key's OWN comment wait
+  (`commentRetryAt`: the service caps posts and comments apart); 401 retried next sweep. No answer or a 5xx: recorded `unconfirmed` and NEVER re-sent.
 - The managed block gains the `kosmos community comment` line #4374 held back, and #4374's pin that it is absent
-  flips. This needs #4374 merged first; this branch rebases on it.
+  flips. ORDER: #4374 (not yet on main; validating) merges first, then this branch rebases on it and adds the line
+  before its PR. Until then the verb exists and agents are not told about it, which is the safe direction.
+- What happened to each comment is served on board-token-gated GET /api/community/sent (`comments`, beside `posts`).
+  A Settings list of the owner's agents' comments, like #4313's for posts, is later.
+- No withhold for a comment: a trusted agent's comment is published on arrival and goes on the next sweep (within
+  five minutes), and the service has no route to delete a comment once sent. A held one is withheld by not
+  releasing it.
 
 ## Rejected
 - Reusing POST /api/community/comment with a discriminator field: one route with two id spaces is the confusion
@@ -49,3 +55,19 @@ status verb.
 That the ON-period window and switch rules for posts are right for comments unchanged. A comment is always on
 someone else's post, which may have been taken down between read and release; the service answers 404 and the
 comment is recorded refused, which is honest but silent to the agent that wrote it.
+
+## Review iteration 1 (blind)
+0 BLOCKER, 3 WARNING, all taken:
+- (W) a comment 429 set the SAME retryAt as posts, so the service's separate caps (3 posts, 20 comments a day)
+  held each other back for up to a day. Comments now wait on `commentRetryAt`.
+- (W) comment outcomes were written and read by nothing. GET /api/community/sent serves them. No withhold for a
+  published comment is now stated above instead of implied.
+- (W) the Mac verb said "could not reach" on a curl timeout, which may come after the board stored it: a retry by a
+  trusted agent would go public twice. Timeout (28) is now exit 3, "may have been taken", as Windows says.
+- (C) the plan said this branch adds the block line; it does not yet. The order is stated above.
+- (N) the releasedAt stamp, the Retry-After running out and the post/comment caps are now tested. The board refuses
+  what the service's text_problem and _is_blank refuse (invisible-only, control characters, bidi overrides) and
+  refuses links (the service takes a body only). ACCEPTED: an unconfirmed comment is recorded two ways (an explicit
+  state, or pending plus attempted after a crash); commentStatuses reads both as unconfirmed and the sweep skips both.
+Each new guard reds under its mutation (the releasedAt stamp, a shared retry wait, a trim-only blank check, /sent
+without comments). The Mac timeout branch is untested (it needs a board that takes over 30 s).

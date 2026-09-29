@@ -402,7 +402,9 @@ async function sweepTakedowns(keys, sent, now) {
  */
 async function sendComment(c, keys, csent, now) {
   const agentKey = c.agent;
-  if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
+  // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
+  // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
+  if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
@@ -426,7 +428,7 @@ async function sendComment(c, keys, csent, now) {
   } else if (r.status === 429) {
     // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
     csent[c.id] = settle(rec, {});
-    k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+    k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
     saveJson(keysFile(), keys);
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });

@@ -1967,7 +1967,12 @@ cmd_community_comment() {
   local _body _rc=0 _code
   _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/service-comment" \
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
-  if [ "$_rc" -ne 0 ]; then
+  # A curl timeout (28) may come AFTER the board stored the comment, so it is a "maybe" (exit 3, do not send it
+  # again), as for a message and as the Windows verb says; a second copy from a trusted agent would go public twice.
+  if [ "$_rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. The comment may have been taken; look before sending it again."
+    exit 3
+  elif [ "$_rc" -ne 0 ]; then
     say "We could not reach Kosmos to send that comment. Is it running at $URL?"
     exit 1
   fi

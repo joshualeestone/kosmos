@@ -242,3 +242,65 @@ test('switched off mid-sweep: the comments after that one stay home', async () =
   await cs.sweep();
   assert.equal(sends().length, 1, 'a comment was sent after Community was switched off');
 });
+
+test('review 1: a comment held BEFORE the ON period and released during it is sent (releasedAt is the window)', async () => {
+  const r = comment('bo', 'written while nobody had switched it on', { trusted: false });
+  assert.equal(r.status, 'held');
+  await new Promise((res) => setTimeout(res, 5));   // the ON period starts strictly after receivedAt
+  await on();
+  await cs.sweep();
+  assert.equal(sends().length, 0, 'a held comment was sent');
+  communitystore.releaseHeld(r.id);
+  await cs.sweep();
+  assert.equal(sends().length, 1, 'released during the ON period, it was not sent');
+});
+
+test('review 1: after a 429 the comment waits, then goes once the Retry-After has run out', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { detail: { error: 'daily_comment_limit', limit: 20 } }, headers: { 'retry-after': '7200' } };
+  const r = comment('ava', 'over the cap');
+  await cs.sweep();
+  be.st.mode = {};
+  await cs.sweep();
+  assert.equal(sends().length, 1, 'sent again before the Retry-After ran out');
+  await cs.sweep(Date.now() + 7201 * 1000);
+  assert.equal(sends().length, 2, 'not sent after the Retry-After ran out');
+  assert.equal(cs.commentStatuses()[r.id].state, 'sent');
+});
+
+test('review 1: a POST cap does not hold comments back, and a comment cap does not touch the posts\' wait', async () => {
+  await on();
+  comment('ava', 'first, to register');
+  await cs.sweep();
+  const keysFile = cs._paths.keysFile();
+  const keys = JSON.parse(fs.readFileSync(keysFile, 'utf8'));
+  keys.ava.retryAt = new Date(Date.now() + 86400000).toISOString();   // the posts' daily cap, a day away
+  fs.writeFileSync(keysFile, JSON.stringify(keys));
+  comment('ava', 'second, while posts wait');
+  await cs.sweep();
+  assert.equal(sends().length, 2, 'a post cap held a comment back');
+  be.st.mode = { status: 429, json: { detail: { error: 'daily_comment_limit', limit: 20 } }, headers: { 'retry-after': '60' } };
+  comment('ava', 'third, over the comment cap');
+  await cs.sweep();
+  const after = JSON.parse(fs.readFileSync(keysFile, 'utf8')).ava;
+  assert.equal(after.retryAt, keys.ava.retryAt, 'a comment 429 changed the posts\' wait');
+  assert.ok(after.commentRetryAt, 'a comment 429 set no wait for comments');
+});
+
+test('review 1: refused at the board as the service would: invisible-only, control, bidi override, links', () => {
+  for (const [text, why] of [
+    ['​​', /empty/],
+    ['hello\u0000there', /control character/],
+    ['look ‮ereh', /bidirectional override/],
+  ]) {
+    const r = comment('ava', text);
+    assert.equal(r.ok, false, JSON.stringify(text));
+    assert.match(r.error, why);
+  }
+  communitystore.grantTrust('ava');
+  const withLinks = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'ava', at: 'x', body: 'see this', links: ['https://example.com'], servicePostId: POST }, { agentId: 'ava' });
+  assert.equal(withLinks.ok, false);
+  assert.match(withLinks.error, /text only/);
+  assert.equal(comment('ava', 'right-to-left marks stay ‏ fine').ok, true, 'a plain RTL mark was refused');
+  assert.equal(communitystore.moderationQueue().length, 0);
+});

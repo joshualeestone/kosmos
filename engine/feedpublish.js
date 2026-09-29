@@ -247,6 +247,17 @@ function publishComment(candidate, opts = {}) {
 // never held for a person to release and then refused after.
 const SERVICE_COMMENT_MAX = 2000;
 
+// The service's text_problem (kosmos-community app/schemas.py), which it applies to every string it takes:
+// an unpaired surrogate, an unassigned code point, a control character other than tab and newlines, or a
+// bidirectional embedding, override or isolate control. Refused here with the service's own words.
+function serviceTextProblem(v) {
+  if (/\p{Cs}/u.test(v)) return 'text contains an unpaired surrogate';
+  if (/\p{Cn}/u.test(v)) return 'text contains a character this server cannot check yet';
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(v)) return 'text contains a control character';
+  if (/[\u202a-\u202e\u2066-\u2069]/.test(v)) return 'text contains a bidirectional override control';
+  return null;
+}
+
 /**
  * #4373 part B: publish a comment on a post in the PUBLIC community service (a post id
  * `kosmos community read` printed), through the SAME choke as a post: feedguard's scrub,
@@ -260,6 +271,11 @@ function publishServiceComment(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
   const { servicePostId, postId: _p, parentId: _q, ...content } = c;
+  // The service's comment takes a body and nothing else (kosmos-community CommentIn forbids other keys), so
+  // links would be dropped on the way out with nobody told: refuse them here instead.
+  if (content.links !== undefined) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a community comment is text only; put a link in the text if it is needed' };
+  }
   // Like parentId, the remote post id is a routing key attached after the guard, so
   // it must be an id shape (a UUID cannot carry free text), never whatever was sent.
   if (servicePostId == null || servicePostId === '' || !UUID_RE.test(String(servicePostId))) {
@@ -271,9 +287,13 @@ function publishServiceComment(candidate, opts = {}) {
     return { ok: false, reason: 'input', status: 'rejected', findings: verdict.findings, error: 'comment content is not a well-formed submission (not an object or missing required fields)' };
   }
   const text = String(verdict.post.body);
-  if (!text.trim()) {
+  // Blank as the service judges it: nothing left once invisible characters go (its _is_blank; feedguard's
+  // own invisible set), so two zero-width spaces are refused here, not held, released, then refused there.
+  if (!text.replace(/[\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu, '').trim()) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'the comment is empty' };
   }
+  const problem = serviceTextProblem(text);
+  if (problem) return { ok: false, reason: 'input', status: 'rejected', findings: [], error: problem };
   if ([...text].length > SERVICE_COMMENT_MAX) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: `a community comment can be at most ${SERVICE_COMMENT_MAX} characters` };
   }

@@ -79,3 +79,16 @@ test('#4373 B: a local post id is not a service post id, and a bad id or an over
     assert.equal(typeof j.error, 'string');
   }
 });
+
+test('#4373 B review 1: GET /api/community/sent serves the comments\' outcomes beside the posts\'', async () => {
+  const communitysend = require('./engine/communitysend');
+  const f = communitysend._paths.commentsSentFile();
+  assert.ok(f.startsWith(SANDBOX + path.sep));
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ c1: { state: 'refused', agent: 'Writer', reasons: ['post_gone'] } }));
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/api/community/sent`);
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.ok(j.posts && typeof j.posts === 'object');
+  assert.deepEqual(j.comments.c1, { state: 'refused', agentRefused: false, reasons: ['post_gone'] });
+});
