@@ -65637,7 +65637,7 @@ async function asbSwitchOff(opts) {
   try { ok = await asbSaveSetting({ on: false }); } catch { ok = false; }
   const m = document.getElementById('asb-row-msg');
   // The X says its own failure; a success from either place clears the Settings row's old failure.
-  if (m && (ok || !fromX)) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  if (m && (ok || !fromX)) { m.textContent = ok ? '' : ASB_SAVE_FAILED; m.hidden = ok; }
   ctls.forEach((c) => { c.disabled = false; });
   ASB.turning = false;
   asbPaintSetting();
@@ -65664,7 +65664,7 @@ function asbCloseWire() {
   // if the pointer is still ON the bubble when it fires (the chat can open and fold back in between).
   const enter = (e) => { if (e && e.pointerType === 'touch') return; clearTimeout(leave);
     if (!x.classList.contains('on')) { clearTimeout(timer); timer = setTimeout(() => { if (bub.matches(':hover')) asbCloseShow(true); }, ASB_CLOSE_HOLD_MS); } };
-  const out = () => { clearTimeout(timer); clearTimeout(leave); leave = setTimeout(() => { if (!x.matches(':focus-visible') && !bub.matches(':focus-visible')) asbCloseShow(false); }, 250); };   // only KEYBOARD focus keeps it (a fold focuses the bubble by script)
+  const out = () => { clearTimeout(timer); clearTimeout(leave); leave = setTimeout(() => { if (!x.matches(':focus-visible') && !bub.matches(':focus-visible') && document.activeElement !== x) asbCloseShow(false); }, 250); };   // keyboard focus on either, or focus on the X itself (a failed save leaves it there), keeps it; a fold's script focus on the bubble does not
   bub.addEventListener('pointerenter', enter);
   bub.addEventListener('pointerleave', out);
   x.addEventListener('pointerenter', () => clearTimeout(leave));

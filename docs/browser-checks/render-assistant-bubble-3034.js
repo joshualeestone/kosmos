@@ -228,8 +228,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const kb2 = await page.evaluate(() => document.activeElement && document.activeElement.id);
     chk(kb && kb2 === 'asb-close', 'B2x from the keyboard, the X shows when the bubble is reached and Tab goes on to it', JSON.stringify({ kb, kb2, tabs }));
     // Keyboard focus on the X is visible INSIDE its clip (an outline would be cut): its ring changes colour.
-    const ring = await page.evaluate(() => { const x = document.getElementById('asb-close'); const f = getComputedStyle(x).borderTopColor; x.blur(); const u = getComputedStyle(x).borderTopColor; x.focus(); return { f, u }; });
-    chk(ring.f !== ring.u, 'B2x keyboard focus on the X paints a ring inside its clip', JSON.stringify(ring));
+    // Read the ring with the keyboard only (a script blur would hide the X and drop focus to the page, which would
+    // leave the arm below starting from the wrong place): focused on the X, then Shift+Tab to the bubble (the X stays
+    // shown by the bubble's keyboard focus), then Tab back to the X.
+    const fRing = await page.evaluate(() => getComputedStyle(document.getElementById('asb-close')).borderTopColor);
+    await page.keyboard.press('Shift+Tab');
+    const uRing = await page.evaluate(() => ({ c: getComputedStyle(document.getElementById('asb-close')).borderTopColor, focus: document.activeElement && document.activeElement.id }));
+    await page.keyboard.press('Tab');
+    const back = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id, on: document.getElementById('asb-close').classList.contains('on') }));
+    chk(uRing.focus === 'asb' && fRing !== uRing.c, 'B2x keyboard focus on the X paints a ring inside its clip', JSON.stringify({ fRing, uRing }));
+    chk(back.focus === 'asb-close' && back.on, 'B2x precondition: back on the X from the keyboard, shown', JSON.stringify(back));
     // Keyboard focus leaving backwards (X -> bubble -> the element before it) takes the X away.
     await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Shift+Tab'); await page.waitForTimeout(100);
     const kbOff = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id, on: document.getElementById('asb-close').classList.contains('on') }));
@@ -253,6 +261,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.unroute('**/api/settings', refuseX);
     chk(refusedX === 1 && failed && fs2.on && fs2.focus === 'asb-close' && fs2.bub, 'B2x a failed save keeps the X shown and focused, the bubble stays, and says so', JSON.stringify({ refusedX, failed, ...fs2 }));
     chk((await saOn()) === true, 'B2x and nothing was recorded off');
+    // The try-again button stays when the pointer leaves after a failed click (it holds focus).
+    await page.mouse.move(2, 2); await page.waitForTimeout(500);
+    chk(await page.evaluate(() => document.getElementById('asb-close').classList.contains('on')), 'B2x after a failed click, leaving with the pointer keeps the X (try again stays one press away)');
     // The message is filled after it is shown (so a screen reader reads it), and the Settings row is not touched.
     const said = await waitFor(page, () => /could not turn the Kosmos Guide off/.test(document.getElementById('asb-close-msg').textContent), 2000);
     const rowMsg = await page.evaluate(() => { const m = document.getElementById('asb-row-msg'); return m ? { hidden: m.hidden, text: m.textContent } : null; });
