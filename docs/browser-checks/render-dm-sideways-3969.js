@@ -104,13 +104,13 @@ function measure() {
         // The two other rules this block exists for, asserted directly (review round 2): the room is not left to the thread count alone.
         chk(!m.back && !m.avatar, `${t} the All agents link and the header avatar step aside`, JSON.stringify({ back: m.back, avatar: m.avatar }));
         if (w === 640 && theme === 'light') {
-          /* The most crowded header (review round 1): a swarm agent whose sign-in stopped, with Sign in again pinned
-             and Stop now under #3892's raised header floor. The message box must still be on screen. */
+          /* A crowded header (review round 1): a swarm agent whose sign-in stopped, with Sign in again pinned. Since
+             #4433 its controls are in the Swarm Settings view, not the header. The message box must still be on screen. */
           const s2 = await open(browser, eng, w, h, theme, true, { state: 'auth_failed', swarm: { active: true } });
           const m2 = await s2.page.evaluate(measure);
-          const re = await s2.page.evaluate(() => { const e = document.getElementById('d-reauth'); const sw = document.getElementById('d-swarm-panel');
-            return !!e && !e.hidden && e.getBoundingClientRect().height > 0 && !!sw && !sw.hidden; });
-          chk(re && m2.composer && m2.docH <= m2.vis + 1 && s2.errs.length === 0, `${t} a swarm agent whose sign-in stopped: Sign in again and the swarm panel show, and the message box stays on screen`, JSON.stringify({ reauthAndSwarm: re, composer: m2.composer, docH: m2.docH, vis: m2.vis, errs: s2.errs }));
+          const re = await s2.page.evaluate(() => { const e = document.getElementById('d-reauth'); const sw = document.getElementById('d-nav-swarm');
+            return !!e && !e.hidden && e.getBoundingClientRect().height > 0 && !!sw && !sw.hidden && !document.querySelector('.dhead #d-swarm-panel, .dhead .swcard'); });
+          chk(re && m2.composer && m2.docH <= m2.vis + 1 && s2.errs.length === 0, `${t} a swarm agent whose sign-in stopped: Sign in again and the Swarm Settings box show, no swarm control is in the header, and the message box stays on screen`, JSON.stringify({ reauthAndSwarm: re, composer: m2.composer, docH: m2.docH, vis: m2.vis, errs: s2.errs }));
           await s2.ctx.close();
         }
         if (w === 640) {

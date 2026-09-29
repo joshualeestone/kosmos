@@ -17,22 +17,28 @@
  * whose static orgPlace is 0 overlaps (Baron measured). A reduced-motion arm on
  * that fixture is GREEN on main, GREEN after the fix and GREEN on a revert:
  * aimed at the arm where the defect does not exist. This check needs a board
- * whose static orgPlace actually overlaps, so the settle is LOAD-BEARING. That
- * board is a manager with eight direct reports (which static orgPlace packs into
- * a ~69deg arc so the discs sit ~33px apart, well inside their 44px diameter)
- * plus two second-level reports for depth. A denser write_fleet_rich cannot be
- * reused: render-org-chart's fill-band assertion is keyed to node count.
+ * whose static orgPlace actually overlaps, so the settle is LOAD-BEARING. A
+ * denser write_fleet_rich cannot be reused: render-org-chart's fill-band
+ * assertion is keyed to node count.
+ *
+ * 📌 #4434 CHANGED THE BOARD: thirty FLAT agents (nobody reports to anybody) on a 375px phone. It used to
+ * be a manager with eight reports, whose old fan packed the discs 33px apart. Since #4434 a TREE is laid
+ * out by sectors with no two faces closer than a disc, and a tree already at that placement is painted
+ * without any settle at all, so on the old board this check passed with the settle deleted. A flat fleet
+ * has no placement to skip to: the reduced-motion render always settles it, and squeezed onto a phone its
+ * static ring overlaps (measured on the #4434 branch: 12 pairs at 43px with the settle reverted to the
+ * pre-#1738 static path, 0 pairs and a 51px tightest pair with it).
  *
  * 🔑 NON-VACUITY IS GUARDED TWO WAYS. (1) Perturbation, measured and recorded on
  * the PR: reverting orgLiveSettle to the pre-#1738 static path turns this red
- * (7 overlapping pairs, min centre distance 33px) while it is green on main. (2)
- * In-check, so a future fixture flattening cannot make it vacuously pass: the
- * tightest pair must sit at the sim's floor (min centre distance <= DENSE_MAX),
+ * (#4434, the flat board: 12 overlapping pairs, 43px) while the settle is in.
+ * (2) In-check, so a future fixture change cannot make it vacuously pass: the
+ * tightest pair must sit near the sim's floor (min centre distance <= DENSE_MAX),
  * which only happens when the ring was overcrowded and the settle expanded it.
  * A flat five-agent board leaves the tightest pair 114px apart and fails that.
  *
  * The board this needs is the one tools/browser-checks.sh boots with
- * boot_board_org (a manager + eight reports + two deeper); with such a board on
+ * boot_board_org with ORG_FLAT_DENSE (thirty flat agents); with such a board on
  * $PORT the check runs standalone:
  *   NODE_PATH="/Users/agent1/work/pw-runtime/node_modules" \
  *     KOSMOS_URL="http://127.0.0.1:$PORT" node docs/browser-checks/render-org-reduced-motion.js
@@ -50,7 +56,7 @@ const fs = require('fs');
    threshold frozen at 44 still called them clear. */
 const DISC_MIN = 44;
 /* The settle is load-bearing only if it packed the ring to the sim's floor.
-   Measured after settle: the dense board sits at 52, a flat board at 114. This
+   Measured after settle: the dense board sits at 51 (#4434, 30 flat agents at 375px), a flat five at 114. This
    ceiling passes the packed board and reds a fixture too sparse to have
    overlapped in the first place. */
 const DENSE_MAX = 64;
@@ -61,7 +67,7 @@ const DENSE_MAX = 64;
   /* The whole point: emulate a reduced-motion user at the context, so
      window.matchMedia('(prefers-reduced-motion: reduce)').matches is true and
      orgLiveStart takes the synchronous-settle branch rather than the animation. */
-  const ctx = await b.newContext({ viewport: { width: 1400, height: 950 }, reducedMotion: 'reduce' });
+  const ctx = await b.newContext({ viewport: { width: 375, height: 900 }, reducedMotion: 'reduce' });
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
   const pg = await ctx.newPage();
@@ -96,8 +102,8 @@ const DENSE_MAX = 64;
   }, DISC_MIN);
 
   /* A broken or empty board must red loudly, not pass with nothing to overlap.
-     The dense fixture draws eleven nodes; require enough to have crowded a ring. */
-  say(m.nodes >= 9, 'the dense board drew', String(m.nodes) + ' nodes');
+     The dense fixture draws thirty nodes; require enough to have crowded a ring. */
+  say(m.nodes >= 28, 'the dense board drew', String(m.nodes) + ' nodes');
   /* Pin the assumption the overlap metric rests on: the measured disc is the
      diameter DISC_MIN uses as the overlap threshold. If .face is resized this
      reds and forces DISC_MIN to be re-derived, rather than the threshold
@@ -110,10 +116,10 @@ const DENSE_MAX = 64;
   say(m.minC !== null && m.minC >= DISC_MIN,
     'the tightest pair clears a disc diameter', m.minC + 'px');
   say(m.minC !== null && m.minC <= DENSE_MAX,
-    'the ring is packed to the sim floor, so the settle was load-bearing', m.minC + 'px');
+    'the board is dense (its tightest pair sits near the minimum arc), so a sparse fixture cannot pass', m.minC + 'px');
 
   try { fs.mkdirSync('/tmp/orgshots', { recursive: true }); } catch { /* best effort */ }
-  await pg.screenshot({ path: '/tmp/orgshots/org-reduced-motion.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });
+  await pg.screenshot({ path: '/tmp/orgshots/org-reduced-motion.png', clip: { x: 0, y: 110, width: 375, height: 780 } });   // #4434: the 375px viewport
   await ctx.close();
   await b.close();
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : 'all good');

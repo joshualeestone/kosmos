@@ -5144,8 +5144,29 @@ function readCodexSession(agentName) {
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!dir || !job || job.runner !== 'codex') return { found: false };
   const home = job.configDir || create.defaultAgentCodexHome();
-  try { return require('./codexsession').read(dir, home); }
+  let sess;
+  try { sess = require('./codexsession').read(dir, home); }
   catch { return { found: false }; }
+  return withoutModelFromBeforeJob(sess, agentName);
+}
+
+/* #4416 (iteration 5): codex creates its rollout LAZILY, on the first turn, not at launch (measured 2026-09-28,
+   codex-cli 0.149.1: idle at its prompt for 30 s, no rollout). So right after Kosmos switches a Codex agent's model
+   (setModel rewrites the job, then restarts it), the newest rollout for the folder is still the OLD session's, and its
+   turn_context names the OLD model: the card would say it confidently until the first turn. A rollout last written
+   BEFORE the job file was cannot speak for the job that is running now, so its model is dropped and the card falls
+   back to the job's planned model (server.js plannedFor), exactly as for an agent with no turn yet. Only the model:
+   the context ring and the rest still read the rollout. Mac only (a Scheduled Task has no file to compare); on any
+   stat failure the reading is left as it was. Also drops it after an account change (the job is rewritten too),
+   which costs at most "OpenAI Codex" until the next turn, never a wrong name. */
+function withoutModelFromBeforeJob(sess, agentName) {
+  if (!sess || !sess.found || !sess.model || !sess.file || process.platform === 'win32') return sess;
+  try {
+    const jobAt = fs.statSync(require('./create').plistPath(agentName)).mtimeMs;
+    const rolloutAt = fs.statSync(sess.file).mtimeMs;
+    if (jobAt > rolloutAt) return { ...sess, model: null };
+  } catch { /* a stat that fails changes nothing */ }
+  return sess;
 }
 
 function readCodexContext(agentName, sess) {
@@ -5492,9 +5513,9 @@ function grokLastCompletionAt(agentName) {
  * model rests on is that this platform never talks to the API directly. Not
  * worth breaking for a label.
  *
- * An ID we do not recognise renders raw. New models ship often, and an
- * unfamiliar accurate name beats a confident wrong one -- the same rule the
- * status board follows.
+ * An ID this table does not know is read into words by readableModelId below,
+ * or shown raw when reading it could mis-say its version (#4416). New models
+ * ship often, and an unfamiliar accurate name beats a confident wrong one.
  */
 const MODEL_NAMES = {
   'claude-opus-5-5': 'Claude Opus 5.5', // #3459: added to the picker; name it here too so a running 5.5 agent is not shown its raw id
@@ -5507,13 +5528,32 @@ const MODEL_NAMES = {
   'claude-haiku-4-5': 'Claude Haiku 4.5',
 };
 
+/* #4416 (Josh, 2026-09-28 15:17: "instead of having it all lowercase that says gemini-3.8-flash, could we have
+   this in a little more natural language"): an id the table does not know is READ, not shown raw, when reading it
+   cannot mis-say a version. The hazard the table exists for is a version written with a dash (claude-haiku-4-5,
+   "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
+   write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
+   "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
+  oss: 'OSS', vl: 'VL', hd: 'HD', tts: 'TTS', ai: 'AI' };   // acronyms, so they are not read as words ("Oss")
+function readableModelId(id) {
+  const parts = String(id || '').split('-');
+  if (!parts.length || parts.some((p) => !/^[A-Za-z0-9.]+$/.test(p))) return null;   // anything but plain words and numbers
+  const num = (p) => /^\d+(?:\.\d+)*$/.test(p);
+  for (let i = 1; i < parts.length; i++) if (num(parts[i]) && num(parts[i - 1])) return null;   // a dashed version (4-5, 4.6-1)
+  if (parts.some((p) => /^\d{6,}$/.test(p))) return null;   // a date or snapshot number
+  if (!/^[a-z]/i.test(parts[0])) return null;
+  return parts.map((p) => MODEL_WORDS[p.toLowerCase()]
+    || (/^[a-z]+$/i.test(p) ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : p)).join(' ');
+}
+
 function modelDisplayName(id) {
   if (!id) return null;
   if (MODEL_NAMES[id]) return MODEL_NAMES[id];
   // Dated IDs (…-20251001) are the same model with a snapshot suffix.
   const undated = id.replace(/-\d{8}$/, '');
   if (MODEL_NAMES[undated]) return MODEL_NAMES[undated];
-  return id;
+  return readableModelId(id) || id;   // #4416: raw only when reading it could mis-say the version
 }
 
 function readModel(agentName, exactSession) {
@@ -5562,7 +5602,7 @@ function readModel(agentName, exactSession) {
    * ⚠️ AND THE FALLBACK IS DELIBERATELY NOT "REFUSE THE UNRECOGNISED". Mona
    * proposed accepting only ids `MODEL_NAMES` knows; that would report "we
    * could not tell" the day a genuinely new model ships, which is exactly what
-   * `modelDisplayName`'s `return id` was written to avoid. A future
+   * `modelDisplayName`'s fall-through (read or raw, never refused) avoids. A future
    * `claude-opus-6` looks like a model and should be shown; `<synthetic>` does
    * not and is dropped above. The two questions are separated rather than
    * merged: BRACKETS decide "is this an id at all", the table decides "do we
@@ -7405,8 +7445,18 @@ function snapshot() {
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
     // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
     // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only.
-    const { model } = (tied && !isAgyPane && !isMusePane) ? readModel(pane.name, pane.session)
-      : { model: (tied && agySess && agySess.found && agySess.model) || null };
+    /* #4416 (Josh 15:18: "it'd be the same as the Claude Sonnet ones just saying Claude"): every runner's ACTUAL
+       model, read from the record its own CLI keeps, never asked of the agent: Gemini's session names the model per
+       message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
+       names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
+    const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
+    const { model } = !tied ? { model: null }
+      : isAgyPane ? { model: sessModel(agySess) }
+      : isMusePane ? { model: null }
+      : isGeminiPane ? { model: sessModel(geminiSess) }
+      : isGrokPane ? { model: sessModel(grokSess) }
+      : isCodexPane ? { model: sessModel(codexSess) }
+      : readModel(pane.name, pane.session);
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7888,7 +7938,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, claudeAccountDirOf, ownsFor,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).
@@ -7939,6 +7989,7 @@ module.exports = {
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
+  readableModelId, // #4416
   isAntigravityCommand, // #3568
   isGrokCommand, // #3953
   /* #570: exported so the two job gates can be asserted for BOTH platforms from

@@ -198,12 +198,14 @@ function setDryRun(on) {
  * pasted bytes must flush first — see the paste-transport note); on a codex pane
  * that wait is `Math.max`'d with this floor so it is never below the measured
  * 0.5s. Pre-#3419 only codex paid a pause and this was it; the wording "for codex
- * only" no longer holds. The pause blocks the whole synchronous board while it
- * runs (see `submitGap` for the fan-out cost). `pauser` is the test seam, the way
- * `runner` is for tmux; null means the real wait.
+ * only" no longer holds. HTTP delivery waits asynchronously so this pause does
+ * not hold the board. Synchronous internal callers retain the old wait.
+ * `pauser` is the test seam, the way `runner` is for tmux; null means the real
+ * wait.
  */
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
+const deliveryQueues = new Map();
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -231,6 +233,7 @@ function resetForTests() {
   pauser = null;
   channel = null;
   DRY_RUN = true;
+  deliveryQueues.clear();
 }
 
 /**
@@ -1192,7 +1195,7 @@ const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
-function deliver(sessionName, raw, roster, envelope, trailer) {
+function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
   if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
@@ -1413,9 +1416,8 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
      point 2). Size-adaptive,
      and never below the codex floor on a codex pane — codex also swallows an
      Enter that rides the paste burst (#571), and its measured 500ms gap is the
-     minimum. Every pane now pays at least the base delay; at agent-comms cadence
-     on a synchronous server it is invisible, and it is what makes the paste
-     actually submit. */
+     minimum. Every pane now pays at least the base delay; HTTP delivery waits
+     without holding the event loop, and the gap is what makes the paste submit. */
   const gapMs = Math.max(
     pasteToEnterMs(Buffer.byteLength(wire, 'utf8')),
     /* #3296/#3391: gemini and grok get the same enter-gap floor as codex. Each is a
@@ -1428,7 +1430,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
        floor for the same reason, unmeasured like grok's. */
     (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
-  submitGap(gapMs);
+  const finishSubmit = () => {
   /**
    * ⚠️ RE-VERIFY THE PANE IS STILL AN AGENT'S WINDOW IMMEDIATELY BEFORE THE
    * SUBMIT ENTER. The old send-keys path put the whole message in one call, so
@@ -1479,7 +1481,45 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
-  return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+    return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+  };
+  if (asynchronousGap) {
+    if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmit);
+    if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmit);
+  }
+  submitGap(gapMs);
+  return finishSubmit();
+}
+
+function deliver(sessionName, raw, roster, envelope, trailer) {
+  const card = resolveCard(roster, sessionName);
+  const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
+  if (target && deliveryQueues.has(target)) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: 'another message is still being placed in its window, so this one was not typed',
+      at: new Date().toISOString(), paneState: null, paneNote: null,
+    };
+  }
+  return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
+}
+
+async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
+  const card = resolveCard(roster, sessionName);
+  if (!card || card.isNamedOurs !== true) {
+    return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
+  }
+  const target = paneTarget(card);
+  const before = deliveryQueues.get(target) || Promise.resolve();
+  const delivery = before.catch(() => {}).then(() => deliverWithGap(
+    sessionName, raw, roster, envelope, trailer, true,
+  ));
+  deliveryQueues.set(target, delivery);
+  try {
+    return await delivery;
+  } finally {
+    if (deliveryQueues.get(target) === delivery) deliveryQueues.delete(target);
+  }
 }
 
 /**
@@ -2313,18 +2353,12 @@ function pauseMs(ms) {
  *     the gap exists for a live TUI, which by definition has runner=null.
  *   - Production (runner=null, pauser=null) takes the real `pauseMs` wait.
  *
- * 🛑 COST, STATED SO IT IS NOT SHIPPED SILENTLY (#3419). This wait BLOCKS THE
- * WHOLE BOARD, which is single-threaded and synchronous (see the DELIVERY
- * docstring). Before #3419 only a codex pane paid a pause (500ms); every other
- * send paid ~0. Now EVERY send pays this gap (250ms floor, up to 2000ms for a
- * multi-KB body). A fan-out — a room `sendPost` to N members, the silent-sweep
- * catch-up, the periodic autohandoff/unanswered sweeps — sends sequentially, so
- * it freezes the board for at least N×250ms. That is the deliberate cost of
- * submitting a paste reliably (an Enter sent before the bytes flush races the
- * paste); the delay is claude-msg's fleet-proven constant and is NOT lowered
- * here on a guess. A per-recipient concurrent send would remove the multiplier
- * but is an architectural change well outside this transport fix — a real
- * follow-up, not a silent regression. Noted on the plan file too. */
+ * #4468: HTTP messages and posts call `deliverAsync`, whose timer preserves
+ * this full gap while letting the board answer other requests. Internal
+ * synchronous callers keep this function and its old return contract. A room
+ * fanout remains sequential so recipient order does not change. Parallel
+ * fanout is a separate performance choice, not part of removing the measured
+ * event-loop block. */
 function submitGap(ms) {
   if (pauser) { pauser(ms); return; }
   if (runner) return; // stubbed tmux (tests): no real pane to wait on
@@ -3180,7 +3214,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, interrupt, stopHelpers, answerGeminiQuotaStop, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

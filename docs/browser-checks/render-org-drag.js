@@ -82,11 +82,14 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await page.mouse.move(samBefore.x, samBefore.y);
   await page.mouse.down();
   for (let i = 1; i <= 8; i += 1) { await page.mouse.move(samBefore.x - 10 * i, samBefore.y + 6 * i); await page.waitForTimeout(30); }
+  /* #4434: measured while the pointer still holds it. Once let go, a node of a TREE is pulled back to its place
+     in the layout (it does not stay where it was dropped), so 400ms after release it sat 23 to 33px from its
+     start: a measurement of how far it had got home, not of whether it followed the pointer. */
+  const samHeld = await pos('.onode[data-agent="sam"]');
   await page.mouse.up();
   await page.waitForTimeout(400);
   chk(!(await page.$('#panel-detail:not([hidden])')), 'letting go of a dragged node does not open its page');
-  const samAfter = await pos('.onode[data-agent="sam"]');
-  chk(Math.hypot(samAfter.x - samBefore.x, samAfter.y - samBefore.y) > 30, 'the node moved with the pointer', Math.hypot(samAfter.x - samBefore.x, samAfter.y - samBefore.y).toFixed(0) + 'px');
+  chk(Math.hypot(samHeld.x - samBefore.x, samHeld.y - samBefore.y) > 30, 'the node moved with the pointer', Math.hypot(samHeld.x - samBefore.x, samHeld.y - samBefore.y).toFixed(0) + 'px');
   chk(await page.$eval('#orgmap', (m) => [...m.querySelectorAll('img')].every((i) => i.getAttribute('draggable') === 'false')), 'every picture on the chart refuses the native image drag');
   // A plain click still opens the agent.
   await page.waitForTimeout(2500);

@@ -69,7 +69,7 @@ test.before(async () => {
   taskNumber = tasks.create(alpha.id, { sentence: 'Ship the Windows verbs', who: 'mona' }, roster).number;
   for (const name of ['mona', 'leo']) tokens[name] = sendertoken.mint(name).token;
   /* The typing boundary: record what each assignee would have been sent. */
-  chat.deliver = (sessionName, line) => { typedInto.push({ sessionName, line }); return { state: 'placed' }; };
+  chat.deliverAsync = async (sessionName, line) => { typedInto.push({ sessionName, line }); return { state: 'placed' }; };
 });
 test.after(() => {
   win32job.setRunner(null);

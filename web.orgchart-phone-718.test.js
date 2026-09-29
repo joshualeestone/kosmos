@@ -80,7 +80,8 @@ test('#718: a deeper fleet brings its rings in, and never below the floor', () =
 
 test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes the rings, not the nodes', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /const viewW = wrap\.clientWidth;[\s\S]{0,400}?const fit = orgFit\(maxR, viewW\);/);
+  // #4434: the third argument is a tree's squeeze floor (orgFloorOf), so a squeezed tree's faces never touch.
+  assert.match(paint, /const viewW = wrap\.clientWidth;[\s\S]{0,400}?const fit = orgFit\(maxR, viewW, orgFloorOf\(placed\)\);/);
   assert.match(paint, /spot\.r \*= fit\.k/);
   assert.match(paint, /const size = fit\.size;/);
   assert.doesNotMatch(paint, /const pad = 78/, 'the old fixed square is back');

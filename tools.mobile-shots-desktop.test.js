@@ -1,0 +1,28 @@
+'use strict';
+/* claude-setup#100 (/design-shots): mobile-shots.js refuses a run that would take no shot, and decides it before
+ * any browser or board starts, so this needs neither. The phone-only skip at the desktop size is exercised for
+ * real by the gate's mobile-shots arm (tools/browser-checks.sh), which runs nav-menu at se and desktop. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const SCRIPT = path.join(__dirname, 'docs', 'browser-checks', 'mobile-shots.js');
+
+/* MSHOTS_PLAN_ONLY=1 makes the tool stop right after deciding its plan, whatever is installed: no browser, no board. */
+function run(args) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], { env: { ...process.env, MSHOTS_PLAN_ONLY: '1' }, encoding: 'utf8', timeout: 60000 });
+}
+
+test('every requested screen phone-only at the desktop size: exit 2, before a browser starts', () => {
+  const r = run(['--sizes', 'desktop', '--screens', 'nav-menu', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /no shot would be taken/);
+});
+
+test('control: the same run plus one screen that is not phone-only passes the check, with one shot planned', () => {
+  const r = run(['--sizes', 'desktop', '--screens', 'nav-menu,home', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /no shot would be taken/);
+  assert.match(r.stdout, /planned 1 screen\(s\)/);
+});

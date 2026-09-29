@@ -189,6 +189,200 @@ func resolveInstall(config: KosmosInstallConfig?) throws -> ResolvedInstall {
     throw InstallResolutionError.noOwnInstallForOtherUser
 }
 
+// MARK: - #4356: whether this computer runs agents, or connects to agents on another computer
+//
+// Josh chose one app with a first-screen choice (#4356, option A). The choice is stored per
+// computer, in the install (KOSMOS_HOME), not per Kosmos instance: the instances of #1852 share one
+// install, and the installer and the updater read this same file (install/setup.sh) so an update
+// never starts a board on a computer that connects elsewhere. One word:
+//   (no file)  never chosen: a fresh install (asked), or an install from before #4356 (an update of
+//              one whose first run is done records `run`, install/setup.sh, so it is not asked).
+//   run        this computer runs agents.
+//   connect    this computer opens Kosmos Plus sign-in, and never starts its own board.
+//   both       runs agents, as run does (the app, the installer and updates treat it as run), and
+//              first run ends at Kosmos Plus sign-in (Josh's third button, 10:31 on the card).
+//   anything else, or a file that cannot be read: UNREADABLE. The app asks again (the first screen);
+//   it never quietly becomes one of the three. The app starts the board at launch so its page can
+//   ask; the installer, which cannot ask, does not start it (an update's pause stops it), and an
+//   answer of run or both starts it again if an update stopped it meanwhile (ensureBoardRunning).
+enum ComputerMode: String {
+    case unset, run, connect, both, unreadable
+}
+
+/* 🚦 KOSMOS_FIRSTRUN_CHOICE: the release switch for the whole of #4356 (Liu Kang m2647). OFF, first
+   run is exactly today's: the app never asks, never reads a choice, never connects, so nothing
+   below this line changes a Mac. ON, the full three-button screen Josh approved. It stays off until
+   a connect Mac can update itself (#4382), whose PR turns it on; a test pins it off on main
+   (native-app.computer-mode-4356.test.js). */
+let kosmosFirstRunChoice = false
+
+func computerModePath(kosmosHome: String) -> String { kosmosHome + "/mode" }
+
+/// PURE, so --kosmos-app-mode-selftest can drive it. nil is "no file". Trailing newlines are
+/// dropped and nothing else, which is what the installer's `$(cat ...)` does, so the app and the
+/// installer never read the same bytes two ways.
+func computerMode(fromFile data: Data?) -> ComputerMode {
+    guard let data else { return .unset }
+    guard var text = String(data: data, encoding: .utf8) else { return .unreadable }
+    while text.hasSuffix("\n") { text.removeLast() }
+    switch text {
+    case "run": return .run
+    case "connect": return .connect
+    case "both": return .both
+    default: return .unreadable
+    }
+}
+
+func readComputerMode(kosmosHome: String) -> ComputerMode {
+    do {
+        return computerMode(fromFile: try Data(contentsOf: URL(fileURLWithPath: computerModePath(kosmosHome: kosmosHome))))
+    } catch {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileReadNoSuchFileError { return .unset }
+        logLine("#4356: could not read \(computerModePath(kosmosHome: kosmosHome)): \(error.localizedDescription)")
+        return .unreadable
+    }
+}
+
+/// Only the three real choices can be written. Atomic, so a reader never sees half a word.
+func writeComputerMode(_ mode: ComputerMode, kosmosHome: String) -> Bool {
+    guard mode == .run || mode == .connect || mode == .both else { return false }
+    do {
+        try Data((mode.rawValue + "\n").utf8).write(to: URL(fileURLWithPath: computerModePath(kosmosHome: kosmosHome)), options: .atomic)
+        return true
+    } catch {
+        logLine("#4356: could not save this computer's choice (\(mode.rawValue)): \(error.localizedDescription)")
+        return false
+    }
+}
+
+/* #4356: where a connect computer goes. The same origin the phone apps load (#2854): Kosmos Plus
+   sign-in, which after sign-in hands the person on to their Mac's board at <name>.kosmosplus.com
+   with a short token (#3837), and which also takes Sub-Zero's ?open=<address> for slice 2. */
+let kosmosPlusSignIn = URL(string: "https://login.kosmosplus.com/")!
+
+enum ConnectLink: String {
+    case inApp, browser, block
+}
+
+/// Kosmos Plus itself or one of the person's computers, over https: the plain host, no user part,
+/// no port but 443. A computer is one label directly under kosmosplus.com, never login itself, by
+/// the iOS app's own rule (ios/Kosmos/ShellLogic.swift isOurs, PushBridgeLogic.swift isMacHost and
+/// isHostLabel): 1 to 63 of a-z, 0-9 and "-", no "-" at either end, and no "xn--" (punycode
+/// lookalikes are refused on purpose). A copy, not shared code: the selftest rows pin it.
+func isKosmosPlusURL(_ url: URL) -> Bool {
+    guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty,
+          url.user == nil, url.password == nil, url.port == nil || url.port == 443,
+          host.unicodeScalars.allSatisfy({ $0.isASCII })
+    else { return false }
+    let coordinator = kosmosPlusSignIn.host!
+    if host == coordinator { return true }
+    // The computers live one label under the sign-in host's parent ("login.kosmosplus.com" gives
+    // "kosmosplus.com"), derived as iOS derives it (relayDomain), so moving the sign-in moves both.
+    let labels = coordinator.split(separator: ".")
+    guard labels.count >= 3 else { return false }
+    let suffix = "." + labels.dropFirst().joined(separator: ".")
+    guard host.hasSuffix(suffix) else { return false }
+    let label = String(host.dropLast(suffix.count))
+    guard (1...63).contains(label.count), label.first != "-", label.last != "-", !label.hasPrefix("xn--")
+    else { return false }
+    return label.unicodeScalars.allSatisfy {
+        ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-"
+    }
+}
+
+/// PURE, for --kosmos-app-mode-selftest. A connect computer's main-frame navigations, as the iOS
+/// app decides them: Kosmos Plus and the person's computers in the window; any other https site in
+/// the browser; plain http only from a click, and then in the browser; mail, phone and text links
+/// only from a click; about:blank for the page's own use; every other scheme refused. So another
+/// site can never REPLACE the window's page with a fake Kosmos screen. This decides main-frame
+/// navigations only: a frame inside a Kosmos Plus page is that page's to choose (as on iOS, which
+/// adds an https-only rule for frames; not ported here).
+func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
+    switch url.scheme?.lowercased() ?? "" {
+    case "https":
+        if isKosmosPlusURL(url) { return .inApp }
+        guard let host = url.host, !host.isEmpty else { return .block }
+        return .browser
+    case "http":
+        guard let host = url.host, !host.isEmpty else { return .block }
+        return clicked ? .browser : .block
+    case "mailto", "tel", "sms":
+        return clicked ? .browser : .block
+    case "about":
+        return url.absoluteString == "about:blank" ? .inApp : .block
+    default:
+        return .block
+    }
+}
+
+/// What `kosmos stop` did. `notOurs` is the CLI's own refusal to stop a board it has no pid for:
+/// usually another account's Kosmos on this port, possibly this install's own board with its pidfile
+/// lost. Either way the marker is written, so it does not come back at the next login; the person is
+/// not warned, because in the usual case nothing of theirs is running (review rounds 15, 16).
+enum StopOutcome: Equatable {
+    case stopped, notOurs, failed
+    // No bin/kosmos to ask: nothing of this install could have started a board, and nothing can
+    // stop one, so it is logged, not put to the person as "still running here" (review round 18).
+    case missing
+}
+
+/// #4356: `bin/kosmos stop`, when a computer switches to connect. It writes board.stopped, which
+/// launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, so the board stays down
+/// across logins until something runs `kosmos start`. Returns what it did (StopOutcome).
+func stopBoard(kosmosHome: String, port: Int?) -> StopOutcome {
+    let kosmosBin = kosmosHome + "/bin/kosmos"
+    guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
+        logLine("#4356: cannot stop the board: \(kosmosBin) is missing")
+        holdBoardStopped(kosmosHome: kosmosHome)   // so a CLI restored later still finds the board held off
+        return .missing
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: kosmosBin)
+    process.arguments = ["stop"]
+    var env = ProcessInfo.processInfo.environment
+    env["KOSMOS_HOME"] = kosmosHome
+    // The same port startBoard hands the CLI: the app's port comes from kosmos-install.json, not the
+    // environment, and `kosmos stop` judges "running" on the port it is given (review round 9).
+    if let port { env["KOSMOS_PORT"] = String(port) }
+    process.environment = env
+    // Output to the null device, as startBoard explains (an undrained Pipe can deadlock the wait);
+    // stderr to a file, which has no buffer to fill, so the CLI's reason can be read afterwards.
+    let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-stop-\(UUID().uuidString).err")
+    FileManager.default.createFile(atPath: errURL.path, contents: nil)
+    defer { try? FileManager.default.removeItem(at: errURL) }
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = (try? FileHandle(forWritingTo: errURL)) ?? FileHandle.nullDevice
+    do { try process.run() } catch {
+        logLine("#4356: could not run \(kosmosBin) stop: \(error.localizedDescription)")
+        holdBoardStopped(kosmosHome: kosmosHome)   // as every non-stopped outcome does
+        return .failed
+    }
+    process.waitUntilExit()
+    let said = (try? String(contentsOf: errURL, encoding: .utf8)) ?? ""
+    logLine("#4356: kosmos stop exited \(process.terminationStatus)")
+    if process.terminationStatus == 0 { return .stopped }
+    holdBoardStopped(kosmosHome: kosmosHome)
+    if said.contains("not started by this command") {
+        logLine("#4356: the board answering on this port is not this install's; left alone")
+        return .notOurs
+    }
+    return .failed
+}
+
+/// #4356: a stop that failed removes board.stopped on purpose (install/kosmos: a stop it could not
+/// finish must not strand a board it did not stop), and a board it did not start leaves none. On a
+/// computer set not to run a board that is the wrong default: without the marker, launchd's login
+/// item (`board-run`) and the watchdog start the board again at the next login. So the app writes it.
+func holdBoardStopped(kosmosHome: String) {
+    let marker = kosmosHome + "/board.stopped"
+    if FileManager.default.createFile(atPath: marker, contents: Data()) {
+        logLine("#4356: wrote \(marker) so nothing starts the board at the next login")
+    } else {
+        logLine("#4356: could not write \(marker)")
+    }
+}
+
 // MARK: - Starting the board (delegates entirely to `bin/kosmos start`)
 
 enum StartResult {
@@ -1017,6 +1211,25 @@ final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+/* #4356: the first screen's choice, handed to the app. Held weakly, as BadgeMessageProxy is, and
+   heard only from the board's address in the main frame, and only while the app is asking
+   (pageChoseMode): another origin cannot pick this computer's mode.
+   ⚠️ The same trust as the Dock badge: "the page at 127.0.0.1:<this install's port>". A different
+   process answering on that port (a stale or misconfigured install) would be trusted too. Accepted
+   (review round 20): per-account ports make it rare, a choice is taken only while the app asks, and
+   what posts it is the person's own click on the screen they see; only a hostile local process
+   could post one unasked, and that computer is already not ours to defend here. */
+final class ModeMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    init(_ owner: AppDelegate) { self.owner = owner }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
+        owner.pageChoseMode(message.body)
+    }
+}
+
 /* #4409: talking to an agent. The page's mic button asks this bridge to listen; the words come back
    into the composer as text, and nothing is sent. ON-DEVICE ONLY, by construction:
    `requiresOnDeviceRecognition = true`, and a language with no on-device model is REFUSED rather than
@@ -1291,6 +1504,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // #3996: the Dock badge's poll (held so it survives), when the page last handed over its count,
     // and the order answers were asked in (an older answer never overwrites a newer one).
     private var badgeTimer: Timer?
+    // #4356: this computer's choice, read once at launch (readComputerMode) and changed only by the
+    // first screen or the menu. `modeHome` is the install it was read from and is written back to;
+    // nil under the KOSMOS_URL test path, where there is no install and the app behaves as today.
+    private(set) var computerMode: ComputerMode = .unset
+    private var modeHome: String?
+    private var modePort: Int?   // the resolved install's port, for `kosmos stop` (stopBoard)
+    // #4356: how many `kosmos stop`s of ours are running: the switch to connect, a connect launch
+    // stopping a board left running, a start that landed after Connect. "Run agents on this computer"
+    // refuses, saying so, until all of them finish, or its `kosmos start` would race a stop (and the stop can win, leaving a
+    // run computer's board down). A count, not a flag: two stops can overlap, and the first to finish
+    // must not clear the wait for the second (review round 5).
+    private var stopsInFlight = 0
     private var lastPageBadgeAt: TimeInterval?   // systemUptime: a clock that never steps backwards
     private var badgeAsked = 0
     private var badgeShown = 0
@@ -1336,17 +1561,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         NSApp.setActivationPolicy(.regular)
+        // #4356: read before anything starts, so a connect computer never starts its board.
+        readLaunchComputerMode()
         buildMenu()
         buildWindow()
-        loadBoard()
+        if computerMode == .connect {
+            logLine("#4356: this computer connects to agents on another computer; its own board is not started")
+            loadConnect()
+            stopBoardIfRunning()
+        } else {
+            loadBoard()
+        }
         NSApp.activate(ignoringOtherApps: true)
-        // #2125 slice 3: keep the native Accessibility verdict fresh for the first-run
-        // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
-        // and non-fatal -- if it cannot run, the gate stays fail-safe (Continue enabled).
-        startA11yTrustChecks()
-        // #1 / #2189: notice a webview grant-button's prompt request and fire the real
-        // macOS prompt under tmux on demand. Best-effort, non-fatal.
-        startPromptRequestWatcher()
+        if computerMode != .connect {
+            // #2125 slice 3: keep the native Accessibility verdict fresh for the first-run
+            // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
+            // and non-fatal -- if it cannot run, the gate stays fail-safe (Continue enabled).
+            startA11yTrustChecks()
+            // #1 / #2189: notice a webview grant-button's prompt request and fire the real
+            // macOS prompt under tmux on demand. Best-effort, non-fatal.
+            startPromptRequestWatcher()
+        }
         // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
         // fire reloadBoard() once after N seconds, so a harness can drive the
         // reload decision path end to end without Accessibility permission for
@@ -1433,6 +1668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Refresh now, then on a repeating timer well inside a11ystatus's staleness
         // window (5 min) so the first-run screen always polls a fresh verdict.
         spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        a11yTimer?.invalidate()   // #4356: callable again after a switch back to run; never two timers
         a11yTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
         }
@@ -1470,6 +1706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         checkScanRequest()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
         // enough (a fileExists on two paths) to run continuously.
+        promptRequestTimer?.invalidate()   // #4356: callable again after a switch back to run; never two timers
         promptRequestTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.checkPromptRequests()
             self?.checkScanRequest()
@@ -1653,6 +1890,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func loadBoard() {
+        // #4356: every way into here (launch, Reload's fall-through, a navigation failure's one-shot)
+        // would run `kosmos start`, which clears board.stopped. None of them may on a connect computer.
+        guard computerMode != .connect else {
+            logLine("#4356: loadBoard refused on a connect computer; loading sign-in instead")
+            loadConnect()
+            return
+        }
         // A fresh attempt starts with a clean slate; the delegate methods
         // below re-set these if THIS attempt fails too (#965). Disarming the
         // one-shot here matters: without it, an armed fall-through from a
@@ -1788,6 +2032,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                // #4356: a start already running when the person chose Connect can finish after the
+                // stop did. Undo it, before the stale-generation check below drops the result.
+                if self.computerMode == .connect {
+                    logLine("#4356: a board start finished after Connect; stopping it again")
+                    // Retire this start as finished, or the 300 s watchdog says "still starting" on a
+                    // computer that runs no board; and hold Run agents until this stop is done.
+                    if let s = self.inFlightStart, s.generation == generation { self.inFlightStart = nil }
+                    self.boardStartInFlight = false
+                    self.boardStartGeneration += 1
+                    self.stopsInFlight += 1
+                    DispatchQueue.global(qos: .utility).async { [weak self] in
+                        _ = stopBoard(kosmosHome: resolved.kosmosHome, port: resolved.port)
+                        DispatchQueue.main.async { self?.stopsInFlight -= 1 }
+                    }
+                    return
+                }
                 // This generation's process is no longer the watchdog's
                 // business once its start resolved, stale or not.
                 if let s = self.inFlightStart, s.generation == generation {
@@ -1819,7 +2079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them.")
                 case .alreadyRunningOrStarted:
                     let urlString = "http://127.0.0.1:\(resolved.port)"
-                    guard let url = tokenizedBoardURL(urlString) else {
+                    guard let url = self.withModeQuery(tokenizedBoardURL(urlString)) else {
                         self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                         return
                     }
@@ -1827,6 +2087,226 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.boardLoadNavigation = self.webView.load(URLRequest(url: url))
                 }
             }
+        }
+    }
+
+    // MARK: #4356: this computer runs agents, or connects to agents on another computer
+
+    /// Once, at launch, before anything starts. The KOSMOS_URL test path has no install to read,
+    /// and an install that cannot be resolved is loadBoard's to explain: both behave as today.
+    private func readLaunchComputerMode() {
+        // The release switch (KOSMOS_FIRSTRUN_CHOICE): off, every Mac runs agents, as before #4356.
+        guard kosmosFirstRunChoice else { computerMode = .run; return }
+        guard ProcessInfo.processInfo.environment["KOSMOS_URL"] == nil,
+              let install = try? resolveInstall(config: KosmosInstallConfig.load())
+        else { computerMode = .run; return }
+        let home = install.kosmosHome
+        modeHome = home
+        modePort = install.port
+        computerMode = readComputerMode(kosmosHome: home)
+        logLine("#4356: this computer's mode is \(computerMode.rawValue)")
+    }
+
+    /// The board's address, plus what the page must know: `unset` shows the first screen before
+    /// first run, `unreadable` shows it even after first run (web frChoiceWanted), and `both` ends
+    /// first run at Kosmos Plus sign-in (web frPlusLast).
+    func withModeQuery(_ url: URL?) -> URL? {
+        guard let url, computerMode == .unset || computerMode == .unreadable || computerMode == .both,
+              var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
+        var items = comps.queryItems ?? []
+        items.append(URLQueryItem(name: "mode", value: computerMode.rawValue))
+        comps.queryItems = items
+        return comps.url ?? url
+    }
+
+    /// #4356: after a run or both answer, the board is started if it is not running. The screen was
+    /// served by the board, but an update can stop it while the screen waits (its pause, and it does
+    /// not start a board for an unreadable choice), leaving the answer on a dead page. `kosmos start`
+    /// on a healthy board only checks it, and it clears board.stopped, which a run computer wants.
+    /// Known race: an answer given while the update is still copying files can start from a half
+    /// copied tree and fail; the failure is said (Cmd-R), and the installer's own start or launchd
+    /// restart at the end of its run brings the finished board up.
+    private func ensureBoardRunning(home: String) {
+        guard let port = resolvedPort ?? modePort, !boardStartInFlight else { return }
+        // Counted as a board start, as loadBoard's is, so a Cmd-R meanwhile is ignored (reloadDecision)
+        // rather than racing a second `kosmos start` (review round 12).
+        boardStartInFlight = true
+        boardStartGeneration += 1
+        let generation = boardStartGeneration
+        // The same 300 s watchdog loadBoard has: a start that never returns must not leave every
+        // Cmd-R a silent beep (#965).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+            guard let self, self.boardStartInFlight, self.boardStartGeneration == generation else { return }
+            logLine("#4356: the start after the choice gave no answer in 300s; re-arming Reload")
+            self.boardStartInFlight = false
+            self.boardStartGeneration += 1
+        }
+        DispatchQueue.global(qos: .utility).async {
+            let result = startBoard(kosmosHome: home, port: port)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.boardStartGeneration == generation else { return }
+                self.boardStartInFlight = false
+                if case .failed(let why) = result {
+                    logLine("#4356: start after the choice failed: \(why)")
+                    self.showStartupFailureAlert(detail: "Kosmos could not start its board on this computer after your choice. Click OK, then press Cmd-R (View > Reload) to try again.")
+                }
+            }
+        }
+    }
+
+    private func showChoiceNotSaved(_ home: String) {
+        showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it may ask you again, or carry on as if this computer runs agents. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not save your choice")
+    }
+
+    /// #4356: `kosmos stop` did not stop the board (it did not die, or something else answers on the
+    /// port). Said when it happens: at the switch to connect, or at a launch's retry (stopBoardIfRunning).
+    private func showBoardStillRunning() {
+        logLine("#4356: kosmos stop failed; the board may still be running on this computer")
+        showStartupFailureAlert(detail: "Kosmos could not stop running in the background on this computer. You can connect to your other computer anyway. Kosmos will try again the next time it opens, and it will not start again when you restart this computer.", title: "Kosmos is still running here")
+    }
+
+    /// At every launch of a connect computer: `kosmos stop`, whatever the marker says. A board left
+    /// running (a stop that failed, one started by hand) is stopped again; the marker cannot be the
+    /// sign, since a failed stop leaves it written too (holdBoardStopped). With nothing running, the
+    /// CLI says so and writes the marker, which costs a moment and nothing else.
+    private func stopBoardIfRunning() {
+        guard let home = modeHome else { return }
+        logLine("#4356: connect computer launching; making sure its board is stopped")
+        stopsInFlight += 1
+        let port = modePort   // read here, on the main thread, not from the queue below
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let outcome = stopBoard(kosmosHome: home, port: port)
+            DispatchQueue.main.async {
+                self?.stopsInFlight -= 1
+                if outcome == .failed { self?.showBoardStillRunning() }
+            }
+        }
+    }
+
+    private func loadConnect() {
+        lastLoadFailed = false
+        logLine("LOADING \(kosmosPlusSignIn.absoluteString) (#4356 connect)")
+        boardLoadNavigation = webView.load(URLRequest(url: kosmosPlusSignIn))
+    }
+
+    /// The first screen's button. Heard only while no choice is saved (unset or unreadable): once one
+    /// is, no page can change it. An install from before #4356 has no file until its next update
+    /// writes `run` (install/setup.sh, when its first run is done); only the board's own page in the
+    /// main frame can post here.
+    func pageChoseMode(_ body: Any) {
+        guard let choice = body as? String, let home = modeHome,
+              computerMode == .unset || computerMode == .unreadable
+        else { logLine("#4356: ignored a mode message while not asking (\(body))"); return }
+        switch choice {
+        case "run":
+            // First run carries on either way; a choice that could not be saved is said (showChoiceNotSaved),
+            // and with no file the computer counts as run once its first run is done.
+            if !writeComputerMode(.run, kosmosHome: home) { showChoiceNotSaved(home) }
+            computerMode = .run
+            ensureBoardRunning(home: home)
+            logLine("#4356: this computer runs agents")
+        case "both":
+            // Runs agents like run; first run ends at Kosmos Plus sign-in, which the page does itself.
+            if !writeComputerMode(.both, kosmosHome: home) { showChoiceNotSaved(home) }
+            computerMode = .both
+            ensureBoardRunning(home: home)
+            logLine("#4356: this computer runs agents and connects to other computers")
+        case "connect":
+            guard writeComputerMode(.connect, kosmosHome: home) else {
+                showStartupFailureAlert(detail: "Kosmos could not save your choice on this computer, so it will ask again. Check that you can make changes in the Kosmos folder in your home folder (\(home)).", title: "Kosmos could not switch")
+                loadBoard()
+                return
+            }
+            switchToConnect(home: home)
+        default:
+            logLine("#4356: ignored an unknown mode message (\(choice))")
+        }
+    }
+
+    /// Everything that belongs to a board here stops: the Dock badge, the Accessibility checks and
+    /// the prompt watcher, then the board itself (`kosmos stop`, off the main thread). Sign-in loads
+    /// after the stop has finished either way, and a stop that failed is said (showBoardStillRunning).
+    private func switchToConnect(home: String) {
+        computerMode = .connect
+        stopsInFlight += 1
+        logLine("#4356: switching this computer to connect")
+        // The local board's port stops being this window's: #4347's stale-app check keys on it, and
+        // the pages from here on are Kosmos Plus's (ensureBoardRunning falls back to modePort).
+        resolvedPort = nil
+        // A Reload still in flight must not fall through to a board start when the stop kills its page.
+        recoverOnReloadFailure = false
+        reloadNavigation = nil
+        badgeTimer?.invalidate(); badgeTimer = nil
+        a11yTimer?.invalidate(); a11yTimer = nil
+        promptRequestTimer?.invalidate(); promptRequestTimer = nil
+        NSApp.dockTile.badgeLabel = nil
+        updateRunAgentsItem()
+        let port = modePort   // read here, on the main thread, not from the queue below
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let outcome = stopBoard(kosmosHome: home, port: port)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.stopsInFlight -= 1
+                guard self.computerMode == .connect else { return }
+                self.loadConnect()
+                if outcome == .failed { self.showBoardStillRunning() }
+            }
+        }
+    }
+
+    /// The Kosmos menu's "Run agents on this computer", shown only on a connect computer. It is
+    /// here and not in Settings because the Settings on screen are the OTHER computer's (#4356,
+    /// Liu Kang m2442). `kosmos start` (loadBoard) clears board.stopped, and first run, never
+    /// finished on this computer, opens as it would on a fresh one.
+    @objc func runAgentsHere(_ sender: Any?) {
+        guard computerMode == .connect, let home = modeHome else { return }
+        guard stopsInFlight == 0 else {
+            logLine("#4356: Run agents refused for now: a stop of ours is still running")
+            showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
+            return
+        }
+        guard writeComputerMode(.run, kosmosHome: home) else {
+            showStartupFailureAlert(detail: "Kosmos could not save that change on this computer, so it still connects to agents on another computer. Check that you can make changes in the Kosmos folder in your home folder (\(home)), then try again.", title: "Kosmos could not switch")
+            return
+        }
+        computerMode = .run
+        logLine("#4356: switching this computer to run agents")
+        updateRunAgentsItem()
+        loadBoard()
+        startA11yTrustChecks()
+        startPromptRequestWatcher()
+    }
+
+    private func updateRunAgentsItem() {
+        let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+        items.first(where: { $0.action == #selector(AppDelegate.runAgentsHere(_:)) })?.isHidden = computerMode != .connect
+        // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
+        // computer's; hidden there, as the plan says this computer's settings are not on that page.
+        items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
+    }
+
+    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
+    /// changes on a computer that runs agents, which had no policy before this.
+    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
+       signature compiles and is never called, which would switch the connect policy off silently.
+       The selector is WebKit's own (WKNavigationDelegate.h). */
+    @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard computerMode == .connect, let url = navigationAction.request.url,
+              let frame = navigationAction.targetFrame, frame.isMainFrame
+        else { decisionHandler(.allow); return }
+        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated) {
+        case .inApp:
+            decisionHandler(.allow)
+        case .browser:
+            logLine("#4356: opening in the browser: \(url.absoluteString)")
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+        case .block:
+            logLine("#4356: refused a navigation: \(url.absoluteString)")
+            decisionHandler(.cancel)
         }
     }
 
@@ -1908,6 +2388,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let config = WKWebViewConfiguration()
         // #3996: the page hands the app its waiting count each time it polls the board.
         config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
+        // #4356: the first screen's choice (web/index.html frChoose).
+        config.userContentController.add(ModeMessageProxy(delegate), name: "kosmosMode")
         // #4409: the mic button's bridge. Its presence is how the page knows it may draw the button.
         let voice = VoiceBridge(delegate)
         config.userContentController.add(voice, name: "kosmosVoice")
@@ -2261,6 +2743,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showLinkRefusedAlert(detail:
                 "Kosmos only opens web links, and this one is a \(scheme) link, so it was not "
                 + "opened.\n\n\(url.absoluteString)")
+            return nil
+        }
+        // #4356: on a connect computer, a new window to Kosmos Plus or one of the person's computers
+        // opens in this window, as a same-window link would (connectLinkDecision); others go on to
+        // the browser as before. A new window is a click or a page's own window.open, so "clicked".
+        if computerMode == .connect && connectLinkDecision(for: url, clicked: true) == .inApp {
+            logLine("#4356: new window to Kosmos Plus opened in the app window: \(url.absoluteString)")
+            webView.load(URLRequest(url: url))
             return nil
         }
         NSWorkspace.shared.open(url)
@@ -2644,6 +3134,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
     func pageSaidWaiting(_ body: Any) {
+        // #4356: the board's page can still post while Connect is stopping it; a connect computer has
+        // no waiting count to show.
+        guard computerMode != .connect else { return }
         lastPageBadgeAt = ProcessInfo.processInfo.systemUptime
         /* A post is a board read that worked (the page posts only from a poll that succeeded), so the
            app's miss count starts again (round 7): misses from before a stretch the page fed do not
@@ -2658,6 +3151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func showBadge(_ label: String?, asked: Int) {
         Self.badgesAllowed { allowed in
             DispatchQueue.main.async {
+                guard self.computerMode != .connect else { NSApp.dockTile.badgeLabel = nil; return }
                 guard asked >= self.badgeShown else { return }
                 self.badgeShown = asked
                 let next = allowed ? label : nil
@@ -2712,6 +3206,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Ask the board what version it is, once, after the page has loaded.
     private func checkWhetherThisAppIsBehind(port: Int) {
         guard !staleAppNoticeShown else { return }
+        // #4356: a connect computer runs no board of its own, so there is nothing here to be behind;
+        // a board answering on this port is another install's, and its "restart to update, your
+        // agents keep running" would be about agents this computer does not have (review round 18).
+        // Belt and braces: switchToConnect clears resolvedPort, which is what keeps this from being
+        // called on a connect computer today; this makes a future caller safe too (review round 24).
+        guard computerMode != .connect else {
+            sayQuietStaleReason("this computer connects to agents on another computer, so there is no board of its own to compare")
+            return
+        }
         guard let mine = runningAppVersion() else {
             sayQuietStaleReason("this app carries no CFBundleShortVersionString, so there is nothing to compare")
             return
@@ -2893,6 +3396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func offerRelaunch(mine: String, theirs: String) {
+        // #4356: a status answer that lands after a switch to Connect offers nothing: the dialogs below
+        // are about this computer's board and agents, which it no longer runs (review round 25).
+        if computerMode == .connect { logLine("stale-app: an answer landed after Connect; nothing offered"); return }
         /* #1182. Reopening was already tried at this exact version and we are
            still here, so it is not the remedy. Say so, offer nothing that loops,
            and do not quit: the person keeps the working window they have. */
@@ -2927,6 +3433,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// that slept through an update does not wake up "past the limit" before the install could finish.
     private func stepRelaunch(mine: String, theirs: String, since: TimeInterval, freshSince: TimeInterval?, toldGaveUp: Bool,
                               askedBefore: Bool = false) {
+        // #4356: a loop begun on the board's page, before a switch to Connect, stops here: the page is
+        // now Kosmos Plus's, it cannot say whether a restart is safe, and "your agents keep running"
+        // is not true of a computer that runs none (review round 19).
+        guard computerMode != .connect else { logLine("stale-app: stopped, this computer switched to connect"); return }
         /* A dialog, sheet or file picker of the app's own is open: do nothing now and look again later,
            without deciding anything, so no second dialog lands on top of it and no restart closes it. */
         if ownDialogOpen {
@@ -3280,6 +3790,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if isReloadNav || isBoardLoadNav || webView.backForwardList.currentItem == nil {
             lastLoadFailed = true
         }
+        // #4356: a connect computer whose sign-in did not load would otherwise sit on a blank window.
+        // A load our own policy sent to the browser ends as WebKit's "interrupted by policy change"
+        // (WebKitErrorDomain 102); that is not Kosmos Plus failing to answer.
+        let policyCancel = (error as NSError).domain == "WebKitErrorDomain" && (error as NSError).code == 102
+        if computerMode == .connect && !policyCancel && (isBoardLoadNav || webView.backForwardList.currentItem == nil) {
+            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
+            return
+        }
         // One-shot fall-through: the user's reload hit a dead page (the
         // board died AFTER a good load, the likeliest field case). Recover
         // on THIS press instead of making them press twice, whichever
@@ -3311,6 +3829,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     failure delegate falls through to loadBoard() once -- so that case
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
+        // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
+        // goes back to sign-in when there is none or the last load failed.
+        if computerMode == .connect {
+            if webView.backForwardList.currentItem == nil || lastLoadFailed { loadConnect() } else { webView.reload() }
+            return
+        }
         boardRecoveryIsUserInitiated = true
         // backForwardList.currentItem, not webView.url: the url is non-nil
         // during an UNCOMMITTED provisional load too, where reload() is a
@@ -3396,6 +3920,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if isActuallyQuitting {
             logLine("applicationShouldTerminate: already confirmed, terminateNow")
+            return .terminateNow
+        }
+        // #4356: "Your agents keep running" is false on a computer that runs none.
+        if computerMode == .connect {
+            logLine("applicationShouldTerminate: connect computer, no agents here, terminateNow")
             return .terminateNow
         }
         logLine("applicationShouldTerminate: showing quit dialog")
@@ -3508,6 +4037,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                       keyEquivalent: ",")
         settingsItem.target = settingsTarget
         appMenu.addItem(settingsItem)
+        /* #4356: a computer that connects to agents elsewhere switches back here, not in Settings,
+           whose page is the other computer's. Hidden unless this computer connects
+           (AppDelegate.updateRunAgentsItem); the selftest lists hidden items too. */
+        let runAgentsItem = NSMenuItem(title: "Run agents on this computer",
+                                       action: #selector(AppDelegate.runAgentsHere(_:)),
+                                       keyEquivalent: "")
+        runAgentsItem.target = settingsTarget
+        runAgentsItem.isHidden = true
+        appMenu.addItem(runAgentsItem)
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
@@ -3619,6 +4157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             NSApp.servicesMenu = appSub.items.first(where: { $0.title == "Services" })?.submenu
         }
         NSApp.windowsMenu = mainMenu.items.first(where: { $0.submenu?.title == "Window" })?.submenu
+        updateRunAgentsItem()
     }
 
     /**
@@ -3641,6 +4180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc func openSettings(_ sender: Any?) {
+        // #4356: hidden on a connect computer (updateRunAgentsItem), and refused here too, in case its
+        // Cmd-, still fires: the page's Settings there are the OTHER computer's.
+        guard computerMode != .connect else { NSSound.beep(); return }
         /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
            `windowShouldClose`, which orders the window out and returns false --
            the app keeps running with no window on screen. Switching a tab on an
@@ -4530,6 +5072,85 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     if !sawUnknownLogRow { print("\nstale-check: the COULD NOT COMPARE log row is gone, and it is the row that keeps a three-state verdict from being logged as two"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
+}
+
+// #4356: this computer's mode, and where a connect computer's window may go. Pure, so no window
+// server is needed; tools/build-kosmos-bundle.sh runs it at every bundle build.
+if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
+    var bad = 0
+    var ran = 0
+    func mode(_ bytes: [UInt8]?, _ want: ComputerMode, _ why: String) {
+        ran += 1
+        let got = computerMode(fromFile: bytes.map { Data($0) })
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + got.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    mode(nil, .unset, "no file: never chosen, behaves as today")
+    mode(Array("run".utf8), .run, "run")
+    mode(Array("run\n".utf8), .run, "run with the newline the app writes")
+    mode(Array("run\n\n".utf8), .run, "trailing newlines dropped, as the installer's $(cat) does")
+    mode(Array("connect\n".utf8), .connect, "connect")
+    mode(Array("both\n".utf8), .both, "both (runs agents, and connects to other computers)")
+    mode(Array(" run".utf8), .unreadable, "a space is not dropped (the installer would not match it either)")
+    mode(Array("run\r\n".utf8), .unreadable, "a CR is not dropped either")
+    mode(Array("RUN".utf8), .unreadable, "case matters, as in the installer")
+    mode(Array("".utf8), .unreadable, "AN EMPTY FILE ASKS AGAIN, it does not become run")
+    mode(Array("unset".utf8), .unreadable, "unset is not a stored choice")
+    mode([0xff, 0xfe], .unreadable, "bytes that are not text")
+    func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
+        ran += 1
+        let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got?.rawValue ?? "nil").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    link("https://login.kosmosplus.com/", false, .inApp, "sign-in stays in the window")
+    link("https://login.kosmosplus.com/signin?open=josh.kosmosplus.com", false, .inApp, "slice 2's open intent stays in the window")
+    link("https://josh.kosmosplus.com/#kst=abc", false, .inApp, "a computer's board, after the handoff")
+    link("https://LOGIN.KosmosPlus.com/", false, .inApp, "hosts are not case sensitive")
+    link("https://josh.kosmosplus.com:443/", false, .inApp, "443 is the default port")
+    link("https://josh.kosmosplus.com:8443/", false, .browser, "another port is not ours")
+    link("https://a.b.kosmosplus.com/", false, .browser, "two labels deep is not a computer")
+    link("https://-x.kosmosplus.com/", false, .browser, "a label must not start with a hyphen")
+    link("https://x-.kosmosplus.com/", false, .browser, "nor end with one")
+    link("https://a_b.kosmosplus.com/", false, .browser, "an underscore is not a host label (iOS refuses it too)")
+    link("https://xn--80ak6aa92e.kosmosplus.com/", false, .browser, "a punycode lookalike goes to the browser")
+    link("https://" + String(repeating: "a", count: 64) + ".kosmosplus.com/", false, .browser, "a label over 63 characters is not a host")
+    link("https://kosmosplus.com.evil.example/", false, .browser, "a lookalike suffix goes to the browser")
+    link("https://user@login.kosmosplus.com/", false, .browser, "a user part is not ours")
+    link("https://stripe.com/pay", false, .browser, "any other site goes to the browser, even from a redirect")
+    link("http://127.0.0.1:16180/", false, .block, "THIS COMPUTER'S STOPPED BOARD IS NEVER LOADED by a script or redirect")
+    link("http://example.com/", true, .browser, "plain http, clicked, goes to the browser")
+    link("mailto:help@kosmosplus.com", true, .browser, "a clicked mail link opens Mail")
+    link("mailto:help@kosmosplus.com", false, .block, "a scripted mail link does not")
+    link("javascript:alert(1)", true, .block, "javascript: is refused")
+    link("file:///etc/passwd", true, .block, "file: is refused")
+    link("about:blank", false, .inApp, "about:blank for the page's own use")
+    // The file itself: a write the reader reads back, a missing file, and one that cannot be read.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-mode-selftest-\(getpid())")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    // Removed before each exit below: exit() does not unwind, so a defer here would never run.
+    func disk(_ got: Bool, _ why: String) {
+        ran += 1
+        if !got { bad += 1 }
+        print((got ? "PASS  " : "FAIL  ") + "disk".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    disk(readComputerMode(kosmosHome: dir.path) == .unset, "no file reads unset")
+    disk(writeComputerMode(.connect, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .connect, "connect written reads back connect")
+    disk(writeComputerMode(.run, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .run, "run written reads back run")
+    disk(writeComputerMode(.both, kosmosHome: dir.path) && readComputerMode(kosmosHome: dir.path) == .both, "both written reads back both")
+    disk(!writeComputerMode(.unreadable, kosmosHome: dir.path) && !writeComputerMode(.unset, kosmosHome: dir.path), "only the three choices can be written")
+    try? FileManager.default.removeItem(atPath: computerModePath(kosmosHome: dir.path))
+    try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
+    disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
+    try? FileManager.default.removeItem(at: dir)
+    let expected = 40
+    if ran != expected {
+        print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
+        exit(1)
+    }
+    if bad > 0 { print("\nmode-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nmode-check: all good (\(ran) rows)")
+    exit(0)
 }
 
 /* #3996: the Dock badge's number, read from the board's own JSON the way the timer reads it. */

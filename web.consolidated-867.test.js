@@ -90,7 +90,7 @@ test('the agents and projects rail titles sit at the same height', () => {
 
 test('the person\'s own row stays on screen under a tall right column', () => {
   // #980 rebased this from a sticky float to a STRUCTURAL pin: rail-me is
-  // the body grid's last track (grid-row 41, rows auto/1fr/auto) under a
+  // the body grid's last track (grid-row 42, rows auto/1fr/auto) under a
   // 100vh grid, so WHILE THE GRID FITS THE VIEWPORT it sits at the foot by
   // construction. The body is overflow-y: auto since #980's floor fix, so in a
   // window too short for the floor the page scrolls and this strip scrolls with
@@ -100,7 +100,7 @@ test('the person\'s own row stays on screen under a tall right column', () => {
   // whose containing block is its own exactly-fitting row has zero
   // sticky travel, so a sticky would be dead code wearing a load-bearing
   // look (the same fact that made the card-head stickies inert).
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ grid-column: 1; grid-row: 41;/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ grid-column: 1; grid-row: 42;/,
     'rail-me left its last-track row, the structure that pins it at the column foot');
   /* ⚠️ overflow-y: auto, NOT hidden, since #980's floor fix. "No page
      scrollbar" and "always reachable" cannot both hold at every window

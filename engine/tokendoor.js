@@ -90,6 +90,13 @@ function makeTokenDoor(spec) {
     return shape({ held: true, because: v.because, unreachable: v.unreachable === true });
   }
 
+  /**
+   * #4451: whether a token is STORED, read from the disk and nothing else. It never calls the service, so
+   * an agent can ask what is connected without spending the person's metered quota (Brave, Exa, Tavily and
+   * Serper bill every call; `state()` makes one). It says a token is held, not that the service still takes it.
+   */
+  function held() { return readToken() !== null; }
+
   /** Verify first, store only what the service accepted. Answers the state, never the token. */
   async function connect(token) {
     const v = await verify(token);
@@ -103,7 +110,9 @@ function makeTokenDoor(spec) {
     } catch (err) {
       return { ...(await state()), refused: 'we could not save the token' + ((err && err.code) ? ' (' + err.code + ')' : '') };
     }
-    return state();
+    /* #4451: answered from the check this call just made. `state()` here verified the same token a second
+       time, a second metered call for every connect (an agent marking a connection makes exactly one). */
+    return shape({ connected: true, held: true, who: v.who });
   }
 
   async function forget() {
@@ -111,7 +120,7 @@ function makeTokenDoor(spec) {
     return state();
   }
 
-  return { spec, state, connect, forget, verify, setFetcher, FILE };
+  return { spec, state, held, connect, forget, verify, setFetcher, FILE };
 }
 
 module.exports = { makeTokenDoor, DIR };

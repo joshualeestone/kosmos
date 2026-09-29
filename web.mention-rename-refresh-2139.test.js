@@ -57,7 +57,9 @@ test('#2139: the d-save (rename) handler refreshes the projects data so the @ pi
   // Guarded on the shown name actually changing, so a role-only save does not
   // pay a projects round-trip. `wasCalled` is the pre-save name; `renameTo` the
   // new one. This pins that the refresh is on the rename path specifically.
-  assert.match(fn, /renameTo && renameTo !== wasCalled\) loadProjects\(\);/,
+  // #4421: `nameEdited` (the box was actually edited, which implies a non-empty renameTo) replaced the bare
+  // `renameTo &&`, so a role-only Save with a stale box sends no name and reloads nothing.
+  assert.match(fn, /nameEdited && renameTo !== wasCalled\) loadProjects\(\);/,
     'the projects refresh is not gated on the name having changed (#2139)');
 });
 

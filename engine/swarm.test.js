@@ -622,3 +622,15 @@ test('#3946: cardField carries the % and whether the account is calibrated', () 
   assert.equal(f.tokensPerPoint, 1e6);
   assert.equal(swarm.cardField(swarm.birthProfile({ dailyTokenLimit: 3e6 }), () => null).allowanceCalibrated, false);
 });
+
+test('#4433: a paused swarm\'s refusal names where the switch is now (Swarm Settings), for every reason', () => {
+  /* The Active / Paused switch left the header above the conversation for the Swarm Settings view, so "switch it back
+     on" points at nothing. The sentence names the view and the card's word. */
+  for (const why of ['person', 'limit', 'stopped', null]) {
+    const s = swarm.pausedSentence('Research crew', why);
+    assert.match(s, /\b[Ss]et it to Active in Swarm Settings\b/, why + ': ' + s);
+    assert.doesNotMatch(s, /switch it back on/i, why + ': ' + s);
+    assert.match(s, /^Research crew /, 'the sentence names the swarm');
+  }
+  assert.match(swarm.pausedSentence('X', 'limit'), /starts again tomorrow/, 'a limit pause still says it resumes by itself');
+});

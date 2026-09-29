@@ -381,7 +381,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -395,10 +395,12 @@ function heardBy(projectId, t, who, sentence, roster) {
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
     + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+  const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
+  const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
   let sent;
-  try { sent = chat.deliver(name, line, roster); }
-  catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-  return { who: name, state: sent.state, because: sent.because || null };
+  try { sent = deliver(name, line, roster); }
+  catch (err2) { return failed(err2); }
+  return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -436,7 +438,7 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -448,17 +450,20 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   let heard;
   if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
-  if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
-    // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-    return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
-  }
-  return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
+  const finish = (heardResult) => {
+    if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
+      // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
+      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
+    }
+    return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
+  };
+  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();
@@ -862,6 +867,7 @@ const tokendoors = require('./engine/tokendoors');
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
+const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
@@ -928,11 +934,12 @@ const inflight = require('./engine/inflight');
  * all of it twice.
  *
  * 🛑 COLLAPSED ON THE READ PATH ONLY, AND THAT BOUNDARY IS LOAD-BEARING RATHER
- * THAN TIDINESS. `connect()` and `forget()` on both door shapes END by calling
- * their own `state()` to answer with what they just did:
+ * THAN TIDINESS. `connect()` and `forget()` on both door shapes answer with what
+ * they just did, never with a read that started before it:
  *
- *     tokendoor.js:  return state();          // after storing the token
- *     cloudflare.js: same shape
+ *     tokendoor.js:  connect answers from the check it just made (#4451: one metered
+ *                    call, not two); forget ends with `return state();`
+ *     cloudflare.js: ends with its own `state()`
  *
  * If those shared an in-flight read that started BEFORE the write, a person who
  * had just connected would be answered with the state from before they
@@ -976,6 +983,27 @@ const readConnectionsShelf = inflight.collapse(() => {
     return doors;
   });
 });
+
+/**
+ * #4451: what is CONNECTED, read from the disk only, for agents. Never a `verify()`: `readConnectionsShelf`
+ * above makes a live authenticated call to every door and Brave, Exa, Tavily and Serper bill each one to
+ * the person's own quota, so an agent asking "what is connected?" (or asking it in a loop) must not reach it.
+ * `held` is true when a token is stored (it says nothing about whether the service still accepts it), false
+ * when none is, and null for a sign-in service whose sign-in lives in its own tool, where only a live check
+ * could say. `connect` names the door an agent uses (`kosmos connect`), absent where the person signs in.
+ */
+function connectionsHeld() {
+  const fileHeld = (file) => { try { return fs.readFileSync(file, 'utf8').trim().length > 0; } catch { return false; } };
+  const out = [
+    { name: 'GitHub', route: '/api/github', how: 'sign-in', held: fileHeld(githubdevice.FILE) ? true : null },
+    { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: null },
+    { name: 'Cloudflare', route: '/api/cloudflare', how: 'token', held: fileHeld(cloudflare.FILE), connect: 'cloudflare' },
+  ];
+  for (const [name, route] of Object.entries(tokendoors.routes())) {
+    out.push({ name, route, how: 'token', held: tokendoors.byName(name).held(), connect: route.replace(/^\/api\/svc\//, '') });
+  }
+  return out;
+}
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
@@ -1079,6 +1107,39 @@ const tasks = require('./engine/tasks');
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
 const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
+/* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
+   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
+   host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
+const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const HOOK_LOCAL_ONLY = 'This link works for programs on this computer. ';
+function hookPublicLink(id, secret) {
+  let st = null; let on = false; let signedIn = false;
+  try { st = remote.status(); } catch { st = null; }
+  let settingsOk = true;
+  try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
+  try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
+  const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
+  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
+  if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
+  if (!st || st.state !== 'up') {
+    return why(st && (st.state === 'connecting' || st.state === 'restarting')
+      ? 'Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
+      : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
+  }
+  if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet.');
+  // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
+  // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
+  let enrolledName = '';
+  try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
+  if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
+    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time.');
+  }
+  if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
+  return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
+}
+
 /* 🛑 NO SHARED CAP IN FRONT OF VERIFY, on purpose. A bucket every /hooks/ call counts toward is a
    lever any local program (another account on this computer included) can pull to silence every
    real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
@@ -2492,8 +2553,8 @@ function markGuide(rows, guideName) {
     a.isGuide = Boolean(guideName) && a.sessionName === guideName;
     if (!a.isGuide) continue;
     a.role = roles.GUIDE_TITLE;
-    /* Claude only: plannedModelName is read as a model id by the OpenAI picker, and the page already names
-       another runner ("OpenAI Codex") when no model is known. */
+    /* Claude only: every other runner's card already names its provider when no model is known ("OpenAI Codex",
+       "Gemini", "Grok"), and a Gemini or Grok job's pinned default is named by plannedFor. */
     if (!a.modelName && !a.plannedModelName && (!a.runner || a.runner === 'claude')) {
       a.plannedModelName = 'Claude (its default model)';
     }
@@ -2912,6 +2973,28 @@ function guideMaskedRows(rows, wholeThread) {
    engine/messages.js; the same mask applies there, keyed on the resolved sender. */
 messages.setSenderTextFilter(guideMasked);
 
+/* #4423: a room note in the words it would have if written NOW. A recommender note keeps its facts by session
+   (`rec`, messages.roomNote), so its sentence is re-made with each agent's current name (readIdentity: the recorded
+   name, whatever the provider); every other note, and any written before notes kept their facts, is its text.
+   `names` is one room read's cache (session -> identity), so a room with many notes reads each agent once. If any
+   name would be only the bare id (no record and no readable brief), the sentence as written is kept: it named them
+   properly then, and the id is the thing this card exists to keep off the screen. */
+function noteTextNow(m, names) {
+  const r = m && m.rec;
+  if (!r || typeof r.stuck !== 'string' || !Array.isArray(r.asked) || typeof r.because !== 'string') return (m && m.text) || null;
+  const cache = names instanceof Map ? names : new Map();
+  const idOf = (s) => {
+    if (!cache.has(s)) { let id = null; try { id = readIdentity(s); } catch { id = null; } cache.set(s, id); }
+    return cache.get(s);
+  };
+  const people = [r.stuck, ...r.asked].map(idOf);
+  if (people.some((id) => !id || id.derived !== true || !id.displayName)) return m.text || null;
+  try {
+    return recommender.roomNoteText({ name: people[0].displayName, because: r.because,
+      asked: people.slice(1).map((id) => ({ name: id.displayName })) });
+  } catch { return m.text || null; }
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
@@ -2934,7 +3017,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2983,7 +3066,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  const delivery = messages.sendPost({
+  const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
     project: found.id,
@@ -3014,8 +3097,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
     replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
-  federateOut(found.id, delivery, false);
-  return delivery;
+  const finish = (result) => {
+    federateOut(found.id, result, false);
+    return result;
+  };
+  return delivery && typeof delivery.then === 'function' ? delivery.then(finish) : finish(delivery);
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -3671,14 +3757,45 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
+   token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
+   hold the person's credential for its everyday verbs, and a request carrying only an agent
+   token is that agent, never the person. Person-only routes (removing, restarting or
+   reconfiguring agents, settings, POST /api/agents) are not in this set and keep requiring the
+   board token. The header only, never `token` in the body: this gate runs before the body is
+   read, and the handlers resolve the header first (presentedAgentToken), so both see the same
+   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
+   does not see it: what stops an internet caller there is the tunnel itself, which forwards only
+   for an admitted device and then presents the person's board token anyway (read from
+   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react, whose handler identifies
+   the caller from the token and refuses a non-member. POST /api/community/post is deliberately NOT here: it
+   writes to the public feed, and alone an agent token would let an agent that cannot read the board token
+   (the sandboxed setup guide) publish (#4491).
+   ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
+   removal. If that best-effort revoke failed and the agent's process is still alive, its token
+   still passes here, exactly as it already does on the exempt report and reply routes.
+   A token is only as private as its launch: #4497 moved it off tmux's command line (see
+   supervisor.agent-token-argv-4497.test.js). */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react']);
+function agentTokenOk(req) {
+  const t = req && req.headers && req.headers['x-kosmos-agent-token'];
+  /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
+     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan:
+     any local process can make this single-threaded board read every token file per request by
+     sending random hex, with no rate valve. That is the same accepted cost the exempt report and
+     reply routes already carry, not a new class. */
+  return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
+}
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
-   remoteWriteGuard refuses every DIRECT network peer, and the link the screen shows is a
-   127.0.0.1 address. ⚠️ Traffic through the Kosmos+ tunnel reaches the board over loopback, so
-   whether a webhook is reachable from the internet is decided by the tunnel's own path filter
-   (crates/tunnel, not in this repo), not by this line; if it forwards /hooks/, a call still needs
-   the secret. The coordinator must never mint or honour a webhook secret. */
+   remoteWriteGuard refuses every DIRECT network peer. ⚠️ Traffic through the Kosmos+ tunnel
+   reaches the board over loopback, so whether a webhook is reachable from the internet is decided
+   by the tunnel's own path filter (crates/tunnel, not in this repo), not by this line. #4419: the
+   screen shows the https://<name>.kosmosplus.com link only when the running connector reports
+   admits_hooks: true (hookPublicLink); either way, the secret is the only thing that lets a call
+   through. The coordinator must never mint or honour a webhook secret. */
 const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
@@ -3867,7 +3984,7 @@ function setupGuideFailing() {
   return null;
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
   if (pathname === null) {
@@ -3965,6 +4082,8 @@ const server = http.createServer((req, res) => {
     // board token, and re-enforces auth in the handler (agent token OR board
     // token; no-credential refused on an enforcing board). It stays OUT of
     // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
+    // #4491: AGENT_TOKEN_ROUTES are exempt too, but only with a valid agent token in the header
+    // (the `exemptAgentToken` term below), unlike the two sets above.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
       || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     // #3055: the names-only world list is exempt too (see PUBLIC_WORLD_ROUTES) -- it carries
@@ -3978,7 +4097,11 @@ const server = http.createServer((req, res) => {
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #4491: an agent route, reached with a valid agent token and no board token (see
+    // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
+    // token never pays for the token-store scan.
+    const exemptAgentToken = () => AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -4295,8 +4418,10 @@ const server = http.createServer((req, res) => {
         // would prefer the job for it while this never populated the field, so
         // "Will start on" would silently stop appearing.
         if (a.modelName && a.state !== STATE.STOPPED) return null;
-        const arg = create.plannedModelArg(a.sessionName);
-        return arg ? modelDisplayName(arg) : null;
+        /* #4416: ONE read of the job, on either platform (create.plannedModelOf). A Gemini or Grok job with no model
+           starts on the launcher's pinned model, marked as the default rather than a choice. */
+        const planned = create.plannedModelOf(a.sessionName);
+        return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -4403,6 +4528,11 @@ const server = http.createServer((req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
+        /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
+           plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
+           plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
+           Codex only: that is the one picker keyed on it, and the read costs a launch-file read per poll. */
+        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelId(a.sessionName) : null,
         /* Which Claude account this agent runs on, read from its startup file
            and resolved to something a person recognises. `null` means the
            default account, which is what an absent key has always meant.
@@ -4565,6 +4695,8 @@ const server = http.createServer((req, res) => {
                  leftover shape and keeps that sentence. */
               const unseen = !create.jobMissing(k.name) && k.folder
                 && runningNow.has(k.name);
+              /* #246/#2811's runner for this row, read once: the `runner` field below and #4416's plannedModelId both use it. */
+              const rowRunner = runnerOfCard({ sessionName: k.name, runner: null });
               return {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
@@ -4699,6 +4831,7 @@ const server = http.createServer((req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
+                plannedModelId: rowRunner === 'codex' ? create.plannedModelId(k.name) : null,   // #4416: the raw id, for the OpenAI picker (codex only, as on the roster)
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
@@ -4747,7 +4880,7 @@ const server = http.createServer((req, res) => {
                    of the two: the plist is the launch truth, as this file says
                    everywhere else, and the profile is the fallback when there is
                    no job to read. */
-                runner: runnerOfCard({ sessionName: k.name, runner: null }),
+                runner: rowRunner,
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
@@ -6307,6 +6440,9 @@ const server = http.createServer((req, res) => {
    *     are global per engine/policy.js; createdBy is the prerequisite for ever
    *     enforcing "a created agent cannot exceed its creator"). Both are future
    *     decisions, named on #1279, not smuggled in here.
+   *   - #4474: an AGENT's members are vetted (team.vetAgentMember): only the fields
+   *     an agent may send, never the setup role, a made-up role only as `own` with its
+   *     label and text, and none at all from the setup guide.
    */
   if (pathname === '/api/team' && req.method === 'POST') {
     readBody(req)
@@ -6439,6 +6575,7 @@ const server = http.createServer((req, res) => {
            DEFINITIVELY dead is collected here and removed from the set handed to
            createTeam; everything else proceeds. */
         const livenessRefused = [];
+        const fromGuide = callerKind === 'agent' && isSetupGuide(effectiveCreator);   // #4474: the guide writes no roles
         let liveMembers = members;
         if (members && members.length && !overCap) {
           // The sweep fans out one verdict per member concurrently. Its
@@ -6446,8 +6583,16 @@ const server = http.createServer((req, res) => {
           // over-cap skip above -- so at most `cap` accountConnectable calls
           // (each possibly a real `claude -p` / `/v1/models` probe) run at once,
           // never an unbounded fan-out from the request body.
-          const verdicts = await Promise.all(members.map(async (m) => {
+          const verdicts = await Promise.all(members.map(async (asked) => {
+            let m = asked;
             if (!m || typeof m !== 'object' || Array.isArray(m)) return { m, dead: false };
+            /* #4474: an agent's member is vetted FIRST, so one the vetting refuses is never probed (a real account
+               check) nor counted against the per-creator cap. createTeam vets again; the vetting is idempotent. */
+            if (callerKind === 'agent') {
+              const vet = team.vetAgentMember(m, { fromGuide });
+              if (vet.because) return { m, dead: true, because: vet.because };
+              m = vet.member;
+            }
             if (create.nameProblem(m.name)) return { m, dead: false };
             try {
               const liveness = await create.accountConnectable({ provider: m.provider, accountDir: m.account });
@@ -6531,6 +6676,8 @@ const server = http.createServer((req, res) => {
           creator: effectiveCreator,
           purpose: body.purpose,
           members: overCap ? members : liveMembers,
+          fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
+          fromGuide,
         };
         let result;
         if (callerKind === 'agent') {
@@ -6769,7 +6916,7 @@ const server = http.createServer((req, res) => {
     }
     const command = '/' + ctx[2];
     let delivery;
-    try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
     return;
@@ -6834,7 +6981,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -6902,7 +7049,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -7386,6 +7533,30 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, date: saved.date });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that report' }));
+    return;
+  }
+
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
+     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
+     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  if (pathname === '/api/community/read' && req.method === 'GET') {
+    if (!presentedAgentToken(req, null)) {
+      sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;
+    }
+    const authRoster = safeRoster();
+    if (authRoster === null) {
+      sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+    }
+    const reader = resolveAgentSender(req, null, authRoster);
+    if (!reader.ok || !reader.card || !reader.card.sessionName) {
+      sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
+    }
+    const q = new URL(req.url, ROUTING_BASE).searchParams;
+    communityread.read({ channel: q.get('channel'), post: q.get('post') })
+      /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
+         the two need different next steps. The words are always the board's own, never the service's. */
+      .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+      .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
     return;
   }
 
@@ -11391,6 +11562,14 @@ const server = http.createServer((req, res) => {
      is what the page holds (SVC_BUILT). A door whose check threw answers
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
+  /* #4451: the agents' read of what is connected: the disk only, never a verify() (see connectionsHeld).
+     Behind the same cross-site refusal as the sweep below, for the same reason and in the same place. */
+  if (pathname === '/api/connections/held' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    sendJson(res, 200, { services: connectionsHeld() });
+    return;
+  }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
        person merely visits can `fetch()` this in a loop. It learns nothing - CORS
@@ -12160,8 +12339,9 @@ const server = http.createServer((req, res) => {
            the failure this card exists to remove, reappearing at the timeout
            rather than at the reader.
 
-           ⚠️ `/api/whoami` is also unauthenticated on a single-threaded server,
-           so that is up to 15s of blocking from any local process.
+           ⚠️ `/api/whoami` is reachable by any local process on a non-enforcing board,
+           and on an enforcing one by any holding the board token or an agent token
+           (#4491), on a single-threaded server, so that is up to 15s of blocking.
 
            📌 NOT FIXED HERE, DELIBERATELY. The timeouts live in `runningas`'s
            default readers and belong to every caller of that module, so
@@ -12185,7 +12365,8 @@ const server = http.createServer((req, res) => {
            `source` above (that says which reader answered for the account/model).
            resolveAgentSender identifies by the presented launch token when there
            is one, and otherwise falls back to the tmux pane. A pane id is
-           enumerable and this route is unauthenticated, so a pane-identified
+           enumerable and, on a non-enforcing board, this route needs no
+           credential (#4491: an enforcing one wants the board or an agent token), so a pane-identified
            agent is the weak case the card cares about; naming it makes a possible
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share
@@ -12880,7 +13061,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12904,7 +13085,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
           return;
         }
-        const delivery = messages.send({
+        const delivery = await messages.sendAsync({
           fromPane: body.from_pane,
           sender: tokenSender,
           to: body.to,
@@ -12924,7 +13105,7 @@ const server = http.createServer((req, res) => {
      the project record so the engine owns no membership model. */
   if (pathname === '/api/post' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12981,7 +13162,7 @@ const server = http.createServer((req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
-        const delivery = sendRoomPostAsAgent({
+        const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
           project: body.project,
@@ -12990,7 +13171,7 @@ const server = http.createServer((req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
-        }, roster);
+        }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -13063,7 +13244,7 @@ const server = http.createServer((req, res) => {
   }
 
   /* #2255: an AGENT reacts to a room post. The agent surface, mirroring
-     /api/post: the sender is read from `from_pane` (never trusted from the body)
+     /api/post: the sender is the presented agent token, else `from_pane` (never trusted from the body)
      and can never mint operator authority -- that flag is only ever set by the
      operator's own /api/project/:id/room/:postId/react route. `react()` toggles
      the emoji as this agent (its session name), and refuses a bad emoji or a
@@ -13457,7 +13638,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(dm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -13713,7 +13894,7 @@ const server = http.createServer((req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = chat.deliver(name, body.text, roster, envelope,
+        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
@@ -14783,7 +14964,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/projects' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -14883,13 +15064,13 @@ const server = http.createServer((req, res) => {
         // happened") and create had the same shape.
         let told = [];
         try {
-          told = made.agents.map((a) => {
+          told = await Promise.all(made.agents.map(async (a) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = projects.speakOfMembership(a, made, 'joined', roster);
+            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
-          });
+          }));
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
@@ -15066,14 +15247,14 @@ const server = http.createServer((req, res) => {
       // SPEAK the display name, and the roster that resolves the two is already
       // in hand here. `shownAs` falls back to the machine name, because a name
       // we cannot resolve is still the only name we have.
-      told = gone.agents.map((a) => {
+      told = await Promise.all(gone.agents.map(async (a) => {
         const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === a) : null;
         const verdict = projects.syncAgent(a, roster);
         // A running member hears that the project is gone (#304); a stopped
         // one reads it at its next start, and could_not here is that fact.
-        const said = projects.speakOfMembership(a, gone, 'removed', roster);
+        const said = await projects.speakOfMembershipAsync(a, gone, 'removed', roster);
         return { agent: a, shownAs: (card && card.name) || a, ...verdict, said };
-      });
+      }));
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
@@ -15218,6 +15399,7 @@ const server = http.createServer((req, res) => {
     }
     try {
       const rec = messages.record();
+      const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
@@ -15239,7 +15421,7 @@ const server = http.createServer((req, res) => {
           : m.kind === 'external'
           ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
-          ? { kind: 'note', text: m.text || null, at: m.at }
+          ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'
           ? (() => {
               /* #2255: the post's reactions, replayed from the reaction events in
@@ -15380,7 +15562,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -15427,7 +15609,7 @@ const server = http.createServer((req, res) => {
           }
           replyTo = body.reply_to;
         }
-        const delivery = messages.sendPost({
+        const delivery = await messages.sendPostAsync({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
           replyTo,
@@ -15658,7 +15840,7 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15702,7 +15884,7 @@ const server = http.createServer((req, res) => {
         fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
         for (const a of made.agents || []) {
-          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          try { projects.syncAgent(a, roster); await projects.speakOfMembershipAsync(a, made, 'joined', roster); }
           catch { /* membership is recorded; telling the agent is best-effort here */ }
         }
         let project = null;
@@ -15873,7 +16055,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(taskMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15925,7 +16107,7 @@ const server = http.createServer((req, res) => {
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
           if (viaScreen || heardBudgetAllows(made.who, roster)) {
-            heard = heardBy(id, made, made.who, made.sentence, roster);
+            heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
             // not be told once it is back.
@@ -16200,7 +16382,7 @@ const server = http.createServer((req, res) => {
         let made;
         try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
         const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
-        sendJson(res, 201, { webhook: made.hook, url });
+        sendJson(res, 201, { webhook: made.hook, url, ...hookPublicLink(made.hook.id, made.secret) });
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
@@ -16341,7 +16523,7 @@ const server = http.createServer((req, res) => {
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -16433,7 +16615,7 @@ const server = http.createServer((req, res) => {
         }));
         for (const one of recipients) {
           let outcome;
-          try { outcome = chat.deliver(one, line, roster); }
+          try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
@@ -16459,7 +16641,7 @@ const server = http.createServer((req, res) => {
   if (partMake && req.method === 'POST') {
     const id = decodeSegment(partMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16481,7 +16663,7 @@ const server = http.createServer((req, res) => {
         const roster = safeRoster();
         let heard;
         if (screen || heardBudgetAllows(body && body.who, roster)) {
-          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
+          heard = await heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster, chat.deliverAsync);
           if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
@@ -16500,7 +16682,7 @@ const server = http.createServer((req, res) => {
   if (partAct && req.method === 'POST') {
     const id = decodeSegment(partAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16510,7 +16692,7 @@ const server = http.createServer((req, res) => {
           // givePart (module scope): the parts valve for a process caller (#803: a process
           // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
           // on a real move (#304's rule) the pane line against the heard budget.
-          const g = givePart(id, partAct[2], partAct[3], body && body.who, { screen });
+          const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true });
           if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
           if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
           sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
@@ -16629,7 +16811,7 @@ const server = http.createServer((req, res) => {
     // its next start.
     let said = null;
     if (moved && project) {
-      said = projects.speakOfMembership(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
+      said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
     sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
     return;
@@ -16877,7 +17059,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(thread[2]);
     if (id === null || name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -16955,7 +17137,7 @@ const server = http.createServer((req, res) => {
          */
         const files = attachments.resolveForMessage(body, 'project', id, 'that attachment is not one this project can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(files.recs));
+        const delivery = await chat.deliverAsync(name, body.text, roster, undefined, attachments.wireNote(files.recs));
         // #2005: file the record under the canonical name (member.sessionName), not
         // the possibly mis-cased URL name -- appendMessage's threadFile requires the
         // exact key, so a mis-cased name would deliver above but fail to record here.
@@ -17726,7 +17908,7 @@ function start(port = PORT) {
           const members = setting.on ? recommender.membersFrom(projects.readAll()) : new Map();
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
-            roomNote: (projectId, text) => messages.roomNote(projectId, text),
+            roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
           });

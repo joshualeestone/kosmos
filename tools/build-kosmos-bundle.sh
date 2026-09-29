@@ -356,6 +356,7 @@ _menu_table_expected='menu:Kosmos
   item:About Kosmos	shortcut:-	action:orderFrontStandardAboutPanel:	target:-
   sep
   item:Settings…	shortcut:cmd+,	action:openSettings:	target:set
+  item:Run agents on this computer	shortcut:-	action:runAgentsHere:	target:set
   sep
   item:Services	shortcut:-	action:submenuAction:	target:set
   sep
@@ -603,6 +604,30 @@ case "$_badge_out" in
   *) echo "the #3996 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
 esac
 echo "==> native app: the Dock badge reads the board's waiting count (#3996)"
+
+# ---- this computer's mode (kosmos#4356) ---------------------------------------
+# A computer either runs agents or connects to agents on another computer. The app reads that from
+# $KOSMOS_HOME/mode the way the installer does, and a connect computer's window keeps to Kosmos Plus.
+# Both are pure functions with their own rows, so no window server is needed.
+_mode_rc=0
+_mode_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-mode-selftest 2>&1)" || _mode_rc=$?
+if [ "$_mode_rc" -ne 0 ]; then
+  case "$_mode_out" in
+    *"mode-check: only "*)
+      printf '%s\n' "the #4356 selftest is no longer testing anything, so it cannot vouch for the computer's mode:" "$_mode_out" >&2 ;;
+    *"mode-check:"*)
+      printf '%s\n' "the native app reads this computer's mode, or a connect computer's links, wrong (#4356). Its own rows:" "$_mode_out" >&2 ;;
+    *)
+      printf '%s\n' "the #4356 gate did not finish (exit $_mode_rc): a timeout, a missing binary, or something that is not the mode. It could not judge it either way." "$_mode_out" >&2 ;;
+  esac
+  exit 1
+fi
+printf '%s\n' "$_mode_out" | sed 's/^/    /'
+case "$_mode_out" in
+  *"mode-check: all good"*) ;;
+  *) echo "the #4356 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: it reads this computer's mode, and a connect computer keeps to Kosmos Plus (#4356)"
 
 # ---- dictation's decisions (kosmos#4409) --------------------------------------
 # Which language the mic listens in (on-device only: no model means a refusal, never a network

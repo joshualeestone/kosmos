@@ -469,6 +469,12 @@ kosmos_refuse_if_suite_live() {
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
   fi
+  # #4498: a suite that is only WAITING for the box (kosmos_wait_until_clear with the suite queue)
+  # runs no tests yet, so it is not a live suite. Without this, two waiting suites would each wait on
+  # the other until both gave up.
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_suite_waiters || true)"
+  fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a test suite is running (the probe exited $rc); refusing to guess for $what. $override." >&2
     return 1
@@ -479,6 +485,152 @@ kosmos_refuse_if_suite_live() {
     return 1
   fi
   return 0
+}
+
+# --- #4498: wait for a quiet box instead of refusing at once ------------------
+# The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
+# agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every
+# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes), then refuses with
+# the check's own message. KOSMOS_NO_WAIT=1 asks once, as before. KOSMOS_WAIT_SLEEP is a test seam.
+#
+# 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
+#   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
+#   2. two suites freed by the same finish would start together, the overlap this exists to stop.
+# So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, the same
+# recycled-pid check as the run markers), the suite check skips a waiter (and its direct subshells),
+# and only the OLDEST waiter may go. When it goes it drops its marker and asks once more: a harness
+# that started in the moment it was still marked (it skipped this waiter) is seen by that second ask,
+# and the suite goes back to waiting in its old place. A harness process exists before it asks, so
+# one of the two always sees the other.
+# KNOWN RESIDUAL: a harness jumps the queue (a waiting suite yields to any test-install, even one
+# that arrived later), so a suite behind a long harness can reach its bound. That is the safe side.
+_kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
+
+# _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
+# Unlinks a marker it can prove stale, as _kosmos_marker_other_live does.
+_kosmos_suite_waiter_live() {
+  local pid="$1" f stored live
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  f="$(_kosmos_suite_waiter_file "$pid")"
+  [ -f "$f" ] || return 1
+  if ! kill -0 "$pid" 2>/dev/null; then rm -f "$f" 2>/dev/null; return 1; fi
+  # Command AND start time (review 1): every suite's command is the same `bash tools/run-tests.sh`, so a command
+  # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
+  # unsafe side. A start time cannot repeat on a recycled pid.
+  stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
+  if [ -z "$stored" ] || [ "$stored" != "$live" ] \
+     || [ "$(sed -n '3p' "$f" 2>/dev/null)" != "$(_kosmos_pid_started "$pid")" ]; then
+    rm -f "$f" 2>/dev/null; return 1
+  fi
+  return 0
+}
+# A process's start time as ps prints it (the same on macOS and Linux procps); empty when ps cannot say, which
+# then matches nothing recorded, so the marker is treated as stale (counted as a live suite: the safe side).
+_kosmos_pid_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
+
+# Drops `pid command` lines that are a waiter or descend from one: a waiter's check forks $( ) subshells several
+# levels deep, each showing `bash tools/run-tests.sh` (review 1). The walk is bounded, like
+# _kosmos_pid_is_self_or_descendant's.
+_kosmos_descends_from_suite_waiter() {
+  local pid="$1" hops=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    _kosmos_suite_waiter_live "$pid" && return 0
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  return 1
+}
+_kosmos_drop_suite_waiters() {
+  local line pid
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    _kosmos_descends_from_suite_waiter "$pid" && continue
+    printf '%s\n' "$line"
+  done
+}
+
+# kosmos_mark_suite_waiting [epoch]: this run is waiting. The epoch keeps a run's place in the queue
+# when it goes back to waiting. Best-effort, like kosmos_mark_run: a marker it cannot write only
+# means other waiters count this one as live, which refuses more, never less.
+kosmos_mark_suite_waiting() {
+  local ts="${1:-$(date +%s)}" dir
+  dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
+  printf '%s %s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+    && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
+  return 0
+}
+kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null; return 0; }
+
+# kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
+# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter.
+kosmos_refuse_if_earlier_suite_waiter() {
+  local what="${1:-this run}" dir f pid mine_ts mine_pid ts wpid
+  dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
+  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  for f in "$dir"/suitewait.*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    _kosmos_suite_waiter_live "$pid" || continue
+    read -r ts wpid 2>/dev/null < "$f" || continue
+    case "$ts" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
+      echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
+# kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
+# command that returns 0 for "go" and prints its refusal on stderr) until it passes or the bound runs
+# out. --suite-queue joins the suite queue above (run-tests.sh). Returns 0 to go, 1 to refuse.
+kosmos_wait_until_clear() {
+  local what="$1"; shift
+  local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-1200}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
+  local waited=0 said=0 err ts="" start next_note=300
+  start="$(date +%s)"
+  case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
+  case "$max" in ''|*[!0-9]*) max=1200 ;; esac
+  while :; do
+    if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
+      if [ "$queue" = 1 ] && [ -n "$ts" ]; then
+        kosmos_unmark_suite_waiting
+        # The second ask (see the queue note above): anything that started while this run was still
+        # marked has been seen by now, or it saw this run unmarked and is waiting on it.
+        if ! err="$("$@" 2>&1)"; then kosmos_mark_suite_waiting "$ts"; else ts=""; fi
+      fi
+      if [ -z "$ts" ]; then
+        [ "$waited" -gt 0 ] && echo "the box is clear after waiting ${waited}s; $what starts now." >&2
+        return 0
+      fi
+    fi
+    if [ -z "$err" ]; then
+      if [ "$queue" = 1 ]; then err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
+      else err="the box is busy (the check refused without saying why)."; fi
+    fi
+    # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$waited" -ge "$max" ] || [ $(( $(date +%s) - start )) -ge "$max" ]; then
+      [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
+      printf '%s\n' "$err" >&2
+      [ "$waited" -gt 0 ] && echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      return 1
+    fi
+    if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
+    if [ "$said" = 0 ]; then
+      printf '%s\n' "$err" >&2
+      echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      said=1
+    elif [ "$waited" -ge "$next_note" ]; then
+      echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      next_note=$((next_note + 300))
+    fi
+    "$sleeper" "$every"
+    waited=$((waited + every))
+  done
 }
 
 # --- Machine reservation claim (#1962) ---------------------------------------

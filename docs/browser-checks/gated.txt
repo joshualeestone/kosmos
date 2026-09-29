@@ -42,6 +42,7 @@ render-cluster-reorder-2929
 render-codex-account-picker-2811
 render-composer-reset
 render-composer-stroke
+render-conn-ask-4451
 render-conn-top-3708
 render-connect-win32-install-570
 render-connlost-reconnect-3410
@@ -75,6 +76,7 @@ render-fed-external-3311
 render-fed-plus-gate
 render-firstrun-access-onebox
 render-firstrun-agy-4081
+render-firstrun-choice-4356
 render-firstrun-connect-box-2187
 render-firstrun-connect-fires
 render-firstrun-enter-2186
@@ -155,6 +157,8 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-live-3595
 render-remove-force-2651
+render-rename-4421
+render-rename-followups-4423
 render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019

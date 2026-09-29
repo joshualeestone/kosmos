@@ -293,6 +293,113 @@ function pastedMessages(calls) {
   return msgs;
 }
 
+test('#4468: status answers during a 25-recipient post, and concurrent posts never merge', async (t) => {
+  const chat = require('./engine/chat');
+  const messages = require('./engine/messages');
+  const projects = require('./engine/projects');
+  const logBefore = fs.existsSync(messages.LOG) ? fs.readFileSync(messages.LOG) : null;
+  // The sender is not fanned back to itself, so 26 members make 25 recipients.
+  const specs = Array.from({ length: 26 }, (_, i) => fleet.agent(`load${i}`, {
+    state: 'idle', pane: `0.${i}`,
+  }));
+  const made = fleet.install(specs);
+  t.after(() => {
+    chat.resetForTests();
+    messages.resetForTests();
+    if (logBefore === null) fs.rmSync(messages.LOG, { force: true });
+    else fs.writeFileSync(messages.LOG, logBefore);
+    made.restore();
+  });
+
+  messages.setRunner(() => ({ ok: true, session: 'load0-discord' }));
+  const paneEvents = new Map();
+  const buffers = new Map();
+  chat.setRunner((args) => {
+    if (args[0] === 'set-buffer') buffers.set(args[args.indexOf('-b') + 1], args[args.length - 1]);
+    if (args[0] === 'paste-buffer') {
+      const target = args[args.indexOf('-t') + 1];
+      const buffer = args[args.indexOf('-b') + 1];
+      if (!paneEvents.has(target)) paneEvents.set(target, []);
+      paneEvents.get(target).push(`paste:${buffers.get(buffer) || ''}`);
+    }
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') {
+      const target = args[args.indexOf('-t') + 1];
+      if (!paneEvents.has(target)) paneEvents.set(target, []);
+      paneEvents.get(target).push('Enter');
+    }
+    return {
+      ran: true, spawnFailed: false, status: 0,
+      out: args[0] === 'display-message' ? '2.1.212\t\t0\n' : '', err: '',
+    };
+  });
+  chat.setDryRun(false);
+  const gaps = [];
+  let releaseFirstGap;
+  let firstGapStarted;
+  const firstGap = new Promise((resolve) => { firstGapStarted = resolve; });
+  chat.setPauser((ms) => new Promise((resolve) => {
+    gaps.push(ms);
+    if (gaps.length === 1) {
+      releaseFirstGap = resolve;
+      firstGapStarted();
+      return;
+    }
+    setTimeout(resolve, 5);
+  }));
+
+  const folder = fs.mkdtempSync(nodePath.join(process.env.AGENT_WORKFORCE_PROJECTS, 'load-room-'));
+  const project = projects.create({
+    name: 'Load Room 4468', folder,
+    agents: specs.map((s) => s.name), roster: made.agents,
+  });
+  let postSettled = false;
+  const post = postJson('/api/post', {
+    project: project.id, text: 'status must stay responsive', from_pane: '%4468',
+  }).then((answer) => { postSettled = true; return answer; });
+  await firstGap;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(postSettled, false, 'the route ignored the asynchronous paste gap');
+  const statusDuringPost = await Promise.race([
+    req('/api/status'),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('status waited behind the room post')), 500)),
+  ]);
+  assert.equal(statusDuringPost.status, 200);
+  let dmSettled = false;
+  const personDm = postJson('/api/agent/load1/thread', {
+    text: 'the person waits behind the room fanout',
+  }).then((answer) => { dmSettled = true; return answer; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(dmSettled, false, 'the person-facing DM was refused instead of queued behind the busy pane');
+  releaseFirstGap();
+  const [delivered, dmDelivered] = await Promise.all([post, personDm]);
+  assert.equal(JSON.parse(delivered.body).delivery.state, chat.DELIVERY.PLACED);
+  assert.equal(JSON.parse(dmDelivered.body).delivery.state, chat.DELIVERY.PLACED);
+  assert.equal(gaps.length, 26, 'one unchanged paste-to-Enter gap per room recipient plus the queued DM');
+  const busyPane = [...paneEvents.values()].find((events) => events.some((event) => /the person waits behind the room fanout/.test(event))) || [];
+  assert.equal(busyPane.length, 4, 'the busy pane did not get the room post and person DM as two complete deliveries');
+  assert.equal(busyPane[1], 'Enter', 'the person DM pasted before the room post submitted');
+  assert.match(busyPane[2], /the person waits behind the room fanout/);
+  assert.equal(busyPane[3], 'Enter');
+
+  paneEvents.clear();
+  const firstPost = postJson('/api/post', {
+    project: project.id, text: 'first concurrent post', from_pane: '%4468',
+  });
+  const secondPost = postJson('/api/post', {
+    project: project.id, text: 'second concurrent post', from_pane: '%4468',
+  });
+  const both = await Promise.all([firstPost, secondPost]);
+  assert.ok(both.every((answer) => JSON.parse(answer.body).delivery.state === chat.DELIVERY.PLACED));
+  assert.equal(paneEvents.size, 25);
+  for (const [target, events] of paneEvents) {
+    assert.equal(events.length, 4, `${target} did not get exactly two paste/Enter pairs`);
+    assert.match(events[0], /^paste:/);
+    assert.equal(events[1], 'Enter', `${target} received another paste before the first Enter`);
+    assert.match(events[2], /^paste:/);
+    assert.equal(events[3], 'Enter', `${target} received an Enter out of order`);
+  }
+});
+
 // #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape
 // check before any roster/project work. A non-boolean is refused with 400 rather than coerced --
 // a truthy "false" string must never read as reply-required. A boolean or an omitted field passes
@@ -540,7 +647,12 @@ test('the board reports when its own engine is behind the disk, and says nothing
   /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
      is, and the changed file is named. A throwaway module at the app root (never a real source file:
      another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
-  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  /* At the app folder's root (still under the checked root), in its own folder. It is NOT a folder no suite walks:
+     three test files list the tree and can meet this one while it exists (#4478):
+       tools.windows-kosmos-cli-verbs-parity.test.js
+       engine/projects.test.js
+       tools.all-node-tests-considered-1934.test.js
+     Each skips a path gone before it is read, so this folder may come and go beside them. */
   const dir = nodePath.join(__dirname, `.probe-freshness-${process.pid}`);
   const probe = nodePath.join(dir, 'x.js');
   const rel = nodePath.basename(dir) + '/x.js';
@@ -8813,7 +8925,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is nine sections behind a nav, in the ruled order', () => {
+test('the agent detail page is ten sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -8833,8 +8945,11 @@ test('the agent detail page is nine sections behind a nav, in the ruled order', 
   // Advanced. Memory still folds under the AI Settings pill and Skills under Instructions (#2916).
   // "Remove agent" now folds INTO Advanced (DETAIL_SECTION_PILL remove->term), so there is no
   // top-level Remove pill. The pill order a person sees:
-  assert.deepEqual(gos, ['talk', 'profile', 'instr', 'model', 'term'],
-    'the nav pill order moved; #3500 reads Direct Message, then the four-pack Profile, Instructions, AI Settings, Advanced (no Remove pill - it folded into Advanced)');
+  // #4433 (#3946 item 14): a swarm's Swarm Settings box comes last, below the four-pack (shown only for a swarm).
+  assert.deepEqual(gos, ['talk', 'profile', 'instr', 'model', 'term', 'swarm'],
+    'the nav pill order moved; #3500 reads Direct Message, then the four-pack Profile, Instructions, AI Settings, Advanced (no Remove pill - it folded into Advanced), then #4433 Swarm Settings');
+  assert.match(nav, /data-go="swarm"[\s\S]*?>Swarm Settings</, 'the Swarm Settings box is mislabelled');
+  assert.match(nav, /<\/div>\s*(<!--[\s\S]*?-->\s*)?<button type="button" data-go="swarm"/, 'Swarm Settings is no longer below the four-pack');
   // The pill LABELS now live in a .dnav-lab span beside the icon; model is relabelled "AI Settings".
   assert.match(nav, /data-go="model"[\s\S]*?>AI Settings</, 'the AI Settings pill (was Model and Memory) is mislabelled');
   assert.match(nav, /data-go="term"[\s\S]*?>Advanced</, 'the Advanced pill is mislabelled');
@@ -8845,7 +8960,8 @@ test('the agent detail page is nine sections behind a nav, in the ruled order', 
   // The eight sections are unchanged and still in reading order; the folded pair sits right after
   // the section it folds under (memory after model, skills after instr).
   // #3757: the Files screen, reached from View All beside the sidebar's list, comes last.
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'],
+  // #4433: Swarm Settings, reached from its own box, after Files.
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'],
     'the section order moved');
   // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
@@ -11247,16 +11363,34 @@ test('putting a running agent on a project types one line into its pane, once, a
   });
   chatEngine.setDryRun(false);
   try {
-    // Join: the line is typed, and the response says so.
-    let r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
+    let releaseBusy;
+    let busyStarted;
+    const started = new Promise((resolve) => { busyStarted = resolve; });
+    let pauses = 0;
+    chatEngine.setPauser(() => new Promise((resolve) => {
+      pauses += 1;
+      if (pauses === 1) { releaseBusy = resolve; busyStarted(); } else resolve();
+    }));
+    const busy = chatEngine.deliverAsync('mara', 'the pane is busy first', board.agents);
+    await started;
+    let joinSettled = false;
+    const join = req('/api/project/' + made.id + '/agent/mara', { method: 'POST' })
+      .then((answer) => { joinSettled = true; return answer; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(joinSettled, false, 'the membership notice was refused instead of queued behind the busy pane');
+    releaseBusy();
+    await busy;
+    // Join: the line is queued, typed second, and the response says so.
+    let r = await join;
     assert.equal(r.status, 200, r.body);
     let out = JSON.parse(r.body);
     assert.equal(out.told.state, 'told', out.told.because);
     assert.ok(out.said, 'membership moved and nothing was spoken');
     assert.equal(out.said.state, 'placed', out.said.because);
     let typed = pastedMessages(sends);
-    assert.equal(typed.length, 1, 'the join line was not typed exactly once');
-    assert.match(typed[0], /put you on the project "Pane Line"/);
+    assert.equal(typed.length, 2, 'the busy message and queued join line were not both typed exactly once');
+    assert.match(typed[0], /the pane is busy first/);
+    assert.match(typed[1], /put you on the project "Pane Line"/);
     // Re-adding the same member moves nothing and types nothing.
     sends.length = 0;
     r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
@@ -11273,6 +11407,7 @@ test('putting a running agent on a project types one line into its pane, once, a
     assert.match(typed[0], /took you off the project "Pane Line"/);
     assert.doesNotMatch(typed[0], /post pane-line/);
   } finally {
+    chatEngine.setPauser(null);
     chatEngine.setRunner(null);
   }
 });
@@ -15426,10 +15561,10 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     /* deliver gets the person's words UNCHANGED as the message, and the quote in the envelope: every check
        deliver makes on the message (its length budget, the commands a paused swarm may take) sees exactly what
        the person typed, reply or not. */
-    const realDeliver = chatEngine.deliver;
+    const realDeliver = chatEngine.deliverAsync;
     const seen = [];
-    chatEngine.deliver = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
-    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliver = realDeliver; }
+    chatEngine.deliverAsync = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
+    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliverAsync = realDeliver; }
     assert.equal(seen.length, 1, 'CONTROL: deliver was not reached, so this arm tests nothing');
     assert.equal(seen[0].raw, '/status', 'the quote was glued onto the person\'s words: ' + JSON.stringify(seen[0].raw));
     assert.match(seen[0].envelope, /\] \(answering: "Done with the login fix"\)$/, 'the quote is not in the envelope: ' + seen[0].envelope);

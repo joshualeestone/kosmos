@@ -1099,7 +1099,11 @@ cmd_msg() {
   # rc via `|| rc=$?` (as cmd_post): a curl timeout (28) may come AFTER the board delivered, so it
   # is a "maybe" (exit 3, do not re-send, nothing saved), not "could not reach".
   local rc=0
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -1451,7 +1455,11 @@ cmd_post() {
   fi
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
   # as a --data argument, so a long piped message cannot make curl fail to start.
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
@@ -1513,6 +1521,120 @@ cmd_post() {
       exit 1
       ;;
   esac
+}
+
+# ---- kosmos connections      (#4451)
+# What is connected in Settings > Connections, read CHEAPLY: the board answers from its disk (is a
+# token stored?), never by checking with each service. The page's own read checks every service
+# live, and Brave, Exa, Tavily and Serper bill the person for every check, so an agent must never
+# poll that one. A stored token is reported as connected; the tab checks it when the person opens it.
+cmd_connections() {
+  if ! healthy; then
+    say "Kosmos is not running, so it cannot say what is connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/connections/held" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to read what is connected. Is it running at $URL?"; exit 1; fi
+  printf '%s' "$body" | "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+      if (!j || !Array.isArray(j.services)) process.exit(1);
+      for (const x of j.services) {
+        if (!x || typeof x.name !== "string") continue;
+        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened" + (x.connect ? "; replace it with: kosmos connect " + x.connect : "") + ")" : " (signed in through Kosmos)"));
+        else if (x.held === false) console.log(x.name + ": not connected" + (x.connect ? " (store the token the person gives you with: kosmos connect " + x.connect + ")" : ""));
+        else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
+      }
+    });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
+}
+
+# ---- kosmos connect <service>  (#4451), the token on STDIN
+# Connect a service THROUGH ITS KOSMOS DOOR, so its row in Settings > Connections shows it. The
+# token is read from stdin, never an argument (an argument is visible to every process on the
+# machine), and reaches the board in a file only this user can read, never on a command line.
+# The door checks the token with the service ONCE before storing it; a token it refuses is not kept.
+cmd_connect() {
+  local svc="${1:-}"
+  case "$svc" in
+    ''|*[!a-z0-9-]*)
+      say "Which service? For example: printf '%s' \"\$TOKEN\" | kosmos connect brave-search   (kosmos connections lists them)"
+      exit 2 ;;
+  esac
+  if [ -t 0 ]; then
+    say "Give the token on stdin, not as an argument. For example: printf '%s' \"\$TOKEN\" | kosmos connect $svc"
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so nothing was connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime, so nothing was connected."; exit 1; }
+  # A `case`, not `[ "$svc" = ... ]`: the service is not a subcommand, and the Windows parity test reads a
+  # literal compare on the first argument as one (tools.windows-kosmos-cli-verbs-parity.test.js).
+  local route shown="$svc"
+  case "$svc" in
+    cloudflare) route="/api/cloudflare/token"; shown="Cloudflare" ;;
+    *) route="/api/svc/$svc/token" ;;
+  esac
+  local tmp; tmp="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect.XXXXXX")" || { say "We could not make a private file for the token, so nothing was sent."; exit 1; }
+  # An interrupt must not leave the token on disk, and must not wait for the door (review rounds 1 and 2):
+  # bash runs a trap only after a FOREGROUND command returns, so the request below runs in the background
+  # and is `wait`ed on, which a trap interrupts at once. 128 + the signal's number, by convention.
+  # The background job is kosmos_curl, a shell FUNCTION: killing its subshell would skip its own cleanup and
+  # leave the board token's header file on disk (review round 3). So the trap stops the CURL inside it and
+  # then waits for the subshell, which removes that file itself. A request the board already received may
+  # still be completed there; the interrupt stops this command waiting for it.
+  # The token WRITER is waited on the same way (review round 4): a producer that never closes stdin would
+  # otherwise hold node, and so this command, deaf to every interrupt.
+  local _out="" _cpid="" _npid=""
+  _connect_stop() {
+    # `|| true`: this script runs under set -e, and pkill (nothing left to stop), kill (already gone) or wait
+    # (a killed job's 143) returning non-zero would end it before the cleanup below.
+    if [ -n "$_npid" ]; then kill -TERM "$_npid" 2>/dev/null || true; wait "$_npid" 2>/dev/null || true; fi
+    if [ -n "$_cpid" ]; then pkill -TERM -P "$_cpid" 2>/dev/null || true; wait "$_cpid" 2>/dev/null || true; fi
+    rm -f "$tmp" "$_out"; exit "$1"
+  }
+  trap '_connect_stop 130' INT
+  trap '_connect_stop 143' TERM
+  trap '_connect_stop 129' HUP
+  # The token goes stdin -> node -> the private file as JSON; it is never an argument or an environment variable.
+  local wrc=0
+  # `<&0`: a background job's stdin is /dev/null unless it is handed over explicitly.
+  "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      const t = s.trim(); if (!t) process.exit(3);
+      require("fs").writeFileSync(process.argv[1], JSON.stringify({ token: t }), { mode: 0o600 });
+    });' "$tmp" <&0 &
+  _npid=$!
+  wait "$_npid" || wrc=$?
+  _npid=""
+  if [ "$wrc" -ne 0 ]; then
+    rm -f "$tmp"; trap - INT TERM HUP
+    if [ "$wrc" -eq 3 ]; then say "Nothing to connect: the token on stdin was empty."; exit 2; fi
+    say "We could not hold the token in a private file, so nothing was sent."
+    exit 1
+  fi
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0
+  _out="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect-answer.XXXXXX")" || { rm -f "$tmp"; trap - INT TERM HUP; say "We could not make a private file for the answer, so nothing was sent."; exit 1; }
+  kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL$route" -H 'content-type: application/json' --data-binary "@$tmp" > "$_out" 2>/dev/null &
+  _cpid=$!
+  wait "$_cpid" || rc=$?
+  _cpid=""
+  body="$(cat "$_out" 2>/dev/null)"
+  rm -f "$tmp" "$_out"; trap - INT TERM HUP
+  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos, so nothing was connected."; exit 1; fi
+  printf '%s' "$body" | SVC="$shown" "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { console.log("Kosmos gave an answer we could not read, so we cannot say whether it connected."); process.exit(1); }
+      if (j && j.error) { console.log(j.error === "no such door" ? "Kosmos has no door for " + process.env.SVC + ". kosmos connections lists the ones it has." : j.error); process.exit(1); }
+      if (j && j.refused) { console.log("Not connected: " + j.refused); process.exit(1); }
+      if (j && j.connected) { console.log("Connected " + (j.service || process.env.SVC) + (j.who ? " as " + j.who : "") + ". Its row in Settings > Connections shows it."); return; }
+      console.log((j && j.because) || "It did not connect."); process.exit(1);
+    });'
 }
 
 # ---- kosmos whoami
@@ -1741,8 +1863,10 @@ cmd_report_show() {
 # quotes, backticks, dollars and newlines in a post arrive as written.
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
+  if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
+    say "       kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"
     exit 2
   fi
   local topic="" text
@@ -1802,6 +1926,61 @@ cmd_community() {
   exit 1
 }
 
+# #4373: an agent reads the community through its own board. The board fetches from the service and answers with
+# a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
+# agent holds no key. Identity rides the agent token, as `post` does.
+cmd_community_read() {
+  local channel="" post=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
+      --channel=*) channel="${1#--channel=}"; shift ;;
+      --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
+      --post=*) post="${1#--post=}"; shift ;;
+      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"; exit 0 ;;
+      *) say "Usage: kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]"; exit 2 ;;
+    esac
+  done
+  if [ -n "$channel" ] && [ -n "$post" ]; then
+    say "Read a channel or one post, not both."
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so nothing was read. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was read."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _q
+  _q=$(KC_CH="$channel" KC_POST="$post" "$_node" -e '
+    const p = new URLSearchParams();
+    if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
+    if (process.env.KC_POST) p.set("post", process.env.KC_POST);
+    process.stdout.write(p.toString());
+  ') || _q=""
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read${_q:+?$_q}" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say "We could not reach Kosmos to read the community. Is it running at $URL?"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}if(typeof j.text==="string"){process.stdout.write(j.text);process.exit(0)}process.stdout.write(String(j.error||"Kosmos gave an answer we could not read").replace(/[\t\r\n]+/g," "));process.exit(3)})') || true   # exit 3 means "no text"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."
+  exit 1
+}
+
 cmd_restart() {
   # The point is that start then runs the code that is on disk NOW, which
   # is what an update needs. The `|| true` tolerates "was not running";
@@ -1815,8 +1994,8 @@ cmd_restart() {
 
 # #2255: an agent reacts to a room post with an emoji (Discord-style). The
 # operator reacts on the board; this is the agent's own surface, mirroring
-# cmd_post -- the sender rides in from_pane (never trusted from the body), so an
-# agent can only ever react AS itself. The post id comes from `kosmos room`,
+# cmd_post -- the sender is this agent's token, else from_pane (never trusted from
+# the body), so an agent can only ever react AS itself. The post id comes from `kosmos room`,
 # which prints it in brackets before each post (e.g. [m3]). The route TOGGLES:
 # reacting again with the same emoji takes the reaction back.
 cmd_react() {
@@ -1844,7 +2023,11 @@ cmd_react() {
   # the messages below (measured: a destroyed socket gave exit 52 and no output).
   # The `|| rc=$?` puts the assignment in an `||` list, which suppresses `set -e`.
   local rc=0
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/react" \
+  # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
+  # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/react" \
     -H 'content-type: application/json' \
     --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
   # A react TOGGLES, so a response lost AFTER the server acted (a -m 15 timeout on
@@ -2064,7 +2247,7 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -2082,14 +2265,14 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
-    adopt|whoami)
+    adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami\n\n'
-      printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
+      printf '  Add --help to any command; it never acts, except adopt, whoami and connections, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
@@ -2518,19 +2701,32 @@ cmd_project() {
 # Project Manager's instructions name it too, kosmos#1279). It asks for a one-member team (POST /api/team,
 # #1279) with the agent's launch token, so the board records who asked and why, bounds how many
 # one agent makes, and runs the new agent where the asker runs. `roles` lists the role keys.
+# kosmos#4474: when no role fits, `role-draft` prints the default text to start from, and
+# `create "<name>" --new-role "<label>" --from <file>` makes an agent from the agent's own text.
 cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <create|roles>"
+      say "Usage: kosmos agent <create|roles|role-draft>"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
+      say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
+      say "                                                  make one with a role you wrote, when none fits"
       say "  kosmos agent roles                              list the roles an agent can be made with"
+      say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       exit 2 ;;
     create)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; } ;;
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; }
+      if [ "$2" = "--new-role" ]; then
+        { [ -n "${3:-}" ] && [ "${4:-}" = "--from" ] && [ -n "${5:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]   (kosmos agent role-draft prints the text to start from)"; exit 2; }
+        [ -f "$5" ] && [ -r "$5" ] || { say "We could not read $5. Write the role's text to a file first (kosmos agent role-draft --to role-<short-name>.md, then edit it)."; exit 2; }
+      fi ;;
     roles) : ;;
+    role-draft)
+      if [ "${1:-}" = "--to" ] && [ -z "${2:-}" ]; then say "Usage: kosmos agent role-draft [--to <file>]"; exit 2; fi
+      # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
+      if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: create, roles"
+      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -2548,9 +2744,24 @@ cmd_agent() {
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
         || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
       ;;
+    role-draft)
+      # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
+      # fills it with the agent's name when it is made.
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to get the role text. Is it running at $URL?"; exit 1; fi
+      # --to writes the file itself, as UTF-8 with the text's own line endings (#4474): a shell's redirection can
+      # re-encode it (PowerShell does), and the board checks the shared rules in it word for word.
+      local _to=""
+      [ "${1:-}" = "--to" ] && _to="$2"
+      printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const t=j&&j.own&&typeof j.own.instructions==="string"?j.own.instructions:"";if(!t)process.exit(1);const out=t.replace(/\n+$/,"")+"\n";if(process.argv[1]){try{require("fs").writeFileSync(process.argv[1],out,"utf8")}catch{process.exit(2)}}else process.stdout.write(out)})' -- ${_to:+"$_to"} \
+        || { say "Kosmos could not get the role text${_to:+ into $_to}."; exit 1; }
+      [ -n "$_to" ] && say "Wrote the default role text to $_to. Edit it, then: kosmos agent create \"<name>\" --new-role \"<role name>\" --from $_to"
+      true
+      ;;
     create)
-      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data
       name="$1"; role="$2"; why="${3:-the person asked for it}"
+      if [ "$role" = "--new-role" ]; then role="own"; label="$3"; from="$5"; why="${6:-the person asked for it}"; fi
       case "${KOSMOS_AGENT_TOKEN:-}" in
         ''|*[!0-9a-f]*) ;;
         *) _tok="$KOSMOS_AGENT_TOKEN" ;;
@@ -2559,12 +2770,23 @@ cmd_agent() {
         say "kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead."
         exit 1
       fi
-      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
+      if [ -n "$from" ]; then
+        # A role the agent wrote: its text is a whole file, so the body is built by node (JSON escaping), not sed.
+        # Read as UTF-8 on purpose: a Mac shell writes UTF-8, and a UTF-16 file (made on Windows) is refused by the
+        # board as "not text" (team.vetAgentMember). Only the Windows CLI decodes UTF-16, where PowerShell writes it.
+        data=$(KOSMOS_AC_NAME="$name" KOSMOS_AC_LABEL="$label" KOSMOS_AC_WHY="$why" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({purpose:e.KOSMOS_AC_WHY,members:[{name:e.KOSMOS_AC_NAME,role:"own",label:e.KOSMOS_AC_LABEL,instructions:fs.readFileSync(process.argv[1],"utf8")}]}))' -- "$from") \
+          || { say "We could not read $from to make that agent."; exit 1; }
+      else
+        esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        data="{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}"
+      fi
+      # On stdin, not --data (#2909 argv limits; #1970 an agent's words stay off argv, where ps reads them): printf
+      # is a builtin, so the text is on no command line at all.
+      body=$(printf '%s' "$data" | kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
         -H 'content-type: application/json' \
-        --data "{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}" 2>/dev/null) || rc=$?
+        --data-binary @- 2>/dev/null) || rc=$?
       # 28 is curl's timeout: the request left, so the agent may have been made.
       if [ "$rc" -eq 28 ]; then
         say "Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again: $URL/"
@@ -2612,6 +2834,8 @@ case "${1:-}" in
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
+  connections) cmd_connections ;;
+  connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
   community) shift; cmd_community "$@" ;;
@@ -2619,7 +2843,7 @@ case "${1:-}" in
   project) shift; cmd_project "$@" ;;
   agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

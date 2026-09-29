@@ -26,7 +26,13 @@ const FAKE_TMUX = nodePath.join(SANDBOX, 'rec-tmux.sh');
 fs.writeFileSync(FAKE_TMUX, [
   '#!/bin/bash',
   'case "$1" in',
-  '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
+  '  new-session)',
+  '    before=""',
+  '    for arg in "$@"; do',
+  '      if [ "$before" = --pane-entry ]; then cp "$arg" "$REC.secrets"; break; fi',
+  '      before="$arg"',
+  '    done',
+  '    printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
   '  has-session) exit 1 ;;',
   '  *) exit 0 ;;',
   'esac',
@@ -54,7 +60,9 @@ function runSupervisor({ runner, model, envHome, envVar }) {
     model,                    // model
     runner,                   // runner
   ], { env, encoding: 'utf8', timeout: 20000 });
-  return { code: r.status, stdout: r.stdout, stderr: r.stderr, rec: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };
+  const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const secrets = fs.existsSync(`${rec}.secrets`) ? fs.readFileSync(`${rec}.secrets`, 'utf8').split('\n').filter(Boolean).map((line) => `-e ${line}`).join('\n') : '';
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr, rec: `${secrets}\n${argv}` };
 }
 
 test('gemini: a per-account key file is injected as GEMINI_API_KEY into the pane', () => {
@@ -123,14 +131,18 @@ function runSupervisorWithDoor({ runner, model, doorVar, doorValue, keyBasename 
   const fake = nodePath.join(tree, 'rec-tmux.sh');
   fs.writeFileSync(fake, [
     '#!/bin/bash', 'case "$1" in',
-    '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
+    '  new-session)',
+    '    before=""; for arg in "$@"; do if [ "$before" = --pane-entry ]; then cp "$arg" "$REC.secrets"; break; fi; before="$arg"; done',
+    '    printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
     '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac',
   ].join('\n') + '\n', { mode: 0o755 });
   const envVar = runner === 'gemini' ? 'GEMINI_CLI_HOME' : 'GROK_HOME';
   const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree };
   env[envVar] = acct;
   spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), `agent-${runner}`, tree, '/usr/bin/true', fake, '', model, runner], { env, encoding: 'utf8', timeout: 20000 });
-  const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const secrets = fs.existsSync(`${rec}.secrets`) ? fs.readFileSync(`${rec}.secrets`, 'utf8').split('\n').filter(Boolean).map((line) => `-e ${line}`).join('\n') : '';
+  const out = `${secrets}\n${argv}`;
   fs.rmSync(tree, { recursive: true, force: true });
   return out;
 }
@@ -205,7 +217,9 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   const fake = nodePath.join(tree, 'rec-tmux.sh');
   fs.writeFileSync(fake, [
     '#!/bin/bash', 'case "$1" in',
-    '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
+    '  new-session)',
+    '    before=""; for arg in "$@"; do if [ "$before" = --pane-entry ]; then cp "$arg" "$REC.secrets"; break; fi; before="$arg"; done',
+    '    printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
     '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac',
   ].join('\n') + '\n', { mode: 0o755 });
   fs.mkdirSync(nodePath.join(tree, 'data'), { recursive: true });
@@ -215,7 +229,9 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   const runner = nodePath.join(tree, 'fake-grok.sh');
   fs.writeFileSync(runner, '#!/bin/bash\nexit 0\n', { mode: 0o755 });
   const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, runner, fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
-  const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
+  const secrets = fs.existsSync(`${rec}.secrets`) ? fs.readFileSync(`${rec}.secrets`, 'utf8').split('\n').filter(Boolean).map((line) => `-e ${line}`).join('\n') : '';
+  const out = `${secrets}\n${argv}`;
   fs.rmSync(tree, { recursive: true, force: true });
   return withStderr ? { rec: out, stderr: r.stderr || '' } : out;
 }
@@ -225,7 +241,7 @@ test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs u
   assert.ok(rec.includes('new-session'), 'the grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY value of any kind reaches the pane');
   // The prefix follows the last vendor-compat -e (which cells, and their order, create.test.js pins, #4426 #4446).
-  assert.match(rec, /GROK_[A-Z]+_[A-Z]+_ENABLED=\S+ \/usr\/bin\/env -u XAI_API_KEY \S*fake-grok\.sh /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
+  assert.match(rec, /--pane-entry \S+ \/usr\/bin\/env -u XAI_API_KEY \S*fake-grok\.sh /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
   // The pair structure survived the filter: every -e is still followed by a NAME=value.
   const argv = rec.trim().split(/\s+/);
   argv.forEach((a, i) => { if (a === '-e') assert.match(argv[i + 1] || '', /^[A-Z_][A-Z0-9_]*=/, 'every -e still carries a NAME=value after the filter'); });

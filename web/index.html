@@ -1109,12 +1109,6 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    step must not borrow. Ink keeps the mark visible and calm. Like .dwarn-m the
    glyph is aria-hidden decoration; the words carry the meaning. */
 .dwarn-ok { color: var(--k-ink); font-weight: 700; margin-right: 6px; }
-/* #4450: the light-gold note at the top of Global Skills. A tint, not a fill: the text stays
-   --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold that holds
-   3:1 on light grounds. No hover, no cursor: it is not a control. */
-.gs-ask { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
-  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
-  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -1750,13 +1744,47 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swpanel[hidden] { display: none; }
 .swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
 .swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
-.swctl { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }   /* #3564 review: Stop now kept apart from the two settings beside it; wrapped under them it lines up, no indent */
-.swmode { margin: 0; flex: 1 1 auto; }
-.swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
 .swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
 .swstop:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.swstop:disabled { opacity: .5; }
 .swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
+/* #4433 (#3946 item 14, Mona's design): the Swarm Settings box and view. A state is a colour AND a word; the
+   colour is a soft tint (about 14%) so the ink keeps its contrast, never a solid fill and never a left bar. */
+#d-nav-swarm, .swcard { --sw-st: var(--ok); }
+#d-nav-swarm[data-st="paused"], .swcard[data-st="paused"] { --sw-st: var(--warn-ink); }
+#d-nav-swarm[data-st="stopped"], .swcard[data-st="stopped"] { --sw-st: var(--danger); }
+#d-nav.dnav-boxed button[hidden] { display: none; }
+#d-nav.dnav-boxed button.dnav-swarm { position: relative; padding: 10px 16px; border-radius: 14px;
+  background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }
+#d-nav.dnav-boxed button.dnav-swarm:not(.on):hover { background: color-mix(in srgb, var(--sw-st) 20%, var(--k-surface)); }
+#d-nav.dnav-boxed button.dnav-swarm.on { background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }   /* the gold edge marks it open */
+.swpill { display: inline-flex; align-items: center; gap: 5px;   /* under the label: at the right it covered the label in the 220px column */
+  padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--sw-st) 45%, transparent);
+  background: var(--k-surface); font: 600 .75rem var(--font-ui); color: var(--k-ink); white-space: nowrap; }
+.swpill i { width: 8px; height: 8px; border-radius: 50%; background: var(--sw-st); flex: none; }
+.swsub { margin: 4px 0 var(--space-4); }
+#d-sec-swarm .swpanel { margin-top: 0; }
+.swstates { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 10px; }
+.swcard { display: grid; grid-template-columns: auto 1fr auto; column-gap: 8px; row-gap: 4px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); cursor: pointer; }
+.swcard:hover { border-color: var(--sw-st); }
+.swcard:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.swcard[aria-checked="true"] { border: 1.5px solid var(--sw-st); padding: 11.5px 13.5px; background: color-mix(in srgb, var(--sw-st) 8%, var(--k-surface)); }
+.swdot { width: 10px; height: 10px; border-radius: 50%; background: var(--sw-st); }
+.swname { font: 650 var(--text-body) var(--font-ui); color: var(--k-ink); }
+.swcheck { visibility: hidden; color: var(--sw-st); font-weight: 700; }
+.swcard[aria-checked="true"] .swcheck { visibility: visible; }
+.swline { grid-column: 1 / -1; font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); }
+.swline[hidden], .swconfirm[hidden], #d-swarm-tolimit[hidden] { display: none; }
+/* #4433 (Mona's review): under the cards at the left, where the Paused card is read, not centred on its own. Not
+   inside the card: a card is a radio, and a button inside a radio is not reachable as itself by a screen reader. */
+#d-swarm-tolimit { justify-self: start; margin-top: -4px; }
+.swlimit { color: var(--k-ink); }
+.swconfirm { border: 1.5px solid var(--danger); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--danger) 6%, var(--k-surface)); }
+.swconfirm-q { margin: 0 0 8px; font-weight: 600; color: var(--k-ink); }
+.swconfirm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+/* #4433 (Mona Lisa, design): Keep it running gets an edge as firm as Stop's. As a plain .btn its 0.5px --border-strong
+   edge sat under 3:1 on the tinted confirm box. Same weight as Stop, in --label; fill and text unchanged. */
+#d-swarm-keep { border: 1.5px solid var(--label); }
 .swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
 .swbar i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }   /* the mock's green: gold means selected */
 .swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
@@ -3311,6 +3339,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    once opened. Chevron rotates open, native details behaviour otherwise. */
 .con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
              color: var(--label-2); margin: 18px 0 6px; }
+/* The "Ask your agent" note: a flat light-gold panel with words, not a button. One class for every such note, so
+   they read as one kind of thing: Global Skills (#g-skills-ask) and Connections (#conn-ask).
+   A tint, not a fill: the text stays --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold
+   that holds 3:1 on light grounds. No hover, no cursor: it is not a control.
+   `.panel` in the selector is load-bearing: both notes are <p> inside the Settings panel, and `.panel p` (0,1,1) would
+   otherwise outrank a bare class and set their font and colour (render-conn-ask-4451 pins that this rule wins). */
+.panel .ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 .con-cat { border-bottom: 0.5px solid var(--separator); }
 .con-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer;
                    list-style: none; font: var(--text-body) var(--font-ui); color: var(--label); }
@@ -4223,7 +4260,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(38, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(39, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -4245,7 +4282,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        discussion gets its breathing room from its own padding instead. */
     column-gap: 0; align-content: stretch;
     /* 🛑 `overflow-y: auto`, NOT `hidden`, and the row below carries a FLOOR.
-       These two are one fix for one hole: the 38 pre-rail tracks are `auto`
+       These two are one fix for one hole: the 39 pre-rail tracks are `auto`
        and take whatever the notices need, while the row holding #alist and
        #panel-projects was `minmax(0, 1fr)` and could be squeezed to ZERO. With
        `overflow: hidden` that content was then unreachable -- no page scroll
@@ -4278,7 +4315,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(38, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
      only): it is a rounded, bordered card drawn against the body's
@@ -4291,7 +4328,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      inset here rather than inventing one keeps the two cards, which
      appear in the same place, agreeing about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -4307,7 +4344,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 41; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -4325,7 +4362,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 41
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
      is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
@@ -4338,7 +4375,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 42; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -4616,7 +4653,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
-  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 39
      pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
      Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
      reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
@@ -4675,7 +4712,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -5023,7 +5060,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 39). */
+     to sit flush with row 40). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -8570,6 +8607,43 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    review rounds. Removed rather than commented, per this codebase's own rule
    about `.pjthread`: a rule that parses green and renders never is worse than
    no rule. With it gone, the same defect renders transparent and is obvious. */
+/* #4356: the first screen, built to Mona's approved mockup (Josh: "perfect!"). Measured from her
+   2560x1600 light and dark PNGs at 1280x800: the K 61 wide, three 280x225 cards 22 apart, the art in
+   the cards' top, the label under it. Its own tokens: the wizard behind it is one light look in both
+   themes, and this screen has an approved dark version. Above the boot cover and the wizard. */
+#fr-choice { --frc-bg: #faf9f7; --frc-card: #ffffff; --frc-border: #e3e1dc; --frc-ink: #14161a;
+             --frc-line: #4a4f57; --frc-dim: #9c9ea3; --frc-gold: #e3b341; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #fr-choice { --frc-bg: #0c0d0f; --frc-card: #17191c; --frc-border: #2a2d31;
+                                             --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
+}
+/* The offsets below are the mockup's, measured at 1280x800: 47.8px under the block places it where
+   Mona's centred column sits (not the window's centre), the K sits 2.5px left of centre as drawn, and
+   27.5px / 36.7px are her gaps from the K to the heading and the heading to the cards. */
+.frc-back { position: fixed; inset: 0; z-index: 70; background: var(--frc-bg); overflow-y: auto;
+            display: flex; padding: var(--space-8) var(--space-5) calc(var(--space-8) + 47.8px); }
+/* The tab layout reserves a scrollbar gutter on <html> (#1309), which a fixed layer cannot paint over: on a Mac
+   that draws classic scrollbars (a mouse attached; CI's runner) a strip of the page showed down the right edge
+   beside this screen (#4489's CI). While the screen is up the page does not scroll and reserves nothing, as for
+   the restart screen (html.restart-up). :has follows every way the screen is shown or hidden. */
+html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
+.frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;
+           max-width: 884px; width: 100%; text-align: center; }
+.frc-logo { width: 61px; height: 73.5px; display: block; margin-bottom: 27.5px; position: relative; left: -2.5px; }
+.frc-title { font: 700 26px/1.2 var(--font-ui); letter-spacing: -0.025em; margin: 0 0 36.7px; color: var(--frc-ink); }
+.frc-buttons { display: flex; flex-wrap: wrap; gap: 22px; justify-content: center; width: 100%; }
+.frc-btn { flex: 0 1 280px; min-height: 225px; box-sizing: border-box; padding: 30px 19px 16px; border-radius: 16px;
+           border: 1px solid var(--frc-border); background: var(--frc-card); color: var(--frc-ink);
+           display: flex; flex-direction: column; align-items: center; cursor: pointer;
+           font: 600 17px/22px var(--font-ui); }
+.frc-art { display: block; flex: none; width: 278px; height: 90px; margin: 0 -19px 32.5px;
+           fill: none; stroke: var(--frc-line); stroke-width: 4; stroke-linejoin: round; }
+.frc-art .frc-gold { fill: var(--frc-gold); stroke: none; }
+.frc-art .frc-fill { fill: var(--frc-line); stroke: none; }
+.frc-art .frc-dim { stroke: var(--frc-dim); stroke-width: 3.5; stroke-linecap: round; }
+.frc-btn:hover:not(:disabled) { border-color: var(--frc-gold); }
+.frc-btn:focus-visible { outline: 2px solid var(--frc-gold); outline-offset: 2px; }
+.frc-btn:disabled { opacity: 0.6; cursor: default; }
 .fr-back { position: fixed; inset: 0; z-index: 60;
            overflow-y: auto; display: flex; justify-content: center;
            padding: var(--space-8) var(--space-5); }
@@ -9556,6 +9630,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
+:root[data-theme="dark"] #fr-choice { --frc-bg: #0c0d0f; --frc-card: #17191c; --frc-border: #2a2d31;
+                                             --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
+
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -9645,7 +9722,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
-/* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
+/* #4080: the Lost your phone? dialog is a child of this section (the body's 39-row limit), and the rule above, at id
    specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
 #s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
 /* 0.7.03 walk, against Josh's 22:22 mock: while connected the status line and the device message are empty, and their
@@ -9905,45 +9982,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* A defence only: Start this agent shows for an agent that is off, and a stopped sign-in counts as on, so
      today the two never show together. If they ever do, the name row, Start and a pinned 44px Sign in again
      need about 150px, more than an SE's 120px cap, so the cap has a 152px floor (an SE gives up 32px;
-     larger phones are already past it). The case that does happen, a swarm agent whose sign-in stopped,
-     has its own floor below. The header steps aside while typing, so writing gets the room back. */
+     larger phones are already past it). The header steps aside while typing, so writing gets the room back. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-start-wrap:not([hidden])) {
     max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(152px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
-  /* A swarm agent whose sign-in stopped: the name row, Stop now and a pinned 44px Sign in again share the
-     block, and Stop now carries its warning (it says work is dropped), up to 116px on an SE. The floor is
-     tall enough that Stop now is never under the pinned button and scrolling brings the whole warning into
-     view above it and its fade (116 + 16 + 44 + padding). The conversation gives up about 70px on an SE and
-     at most 37px on larger phones, only in this state, when the agent cannot answer anyway. Both floors are
-     held to 30% of the visible height, which leaves every portrait phone its full floor (30% of an SE's
-     667px is 200px) and keeps a phone held sideways (360px tall) its conversation; there the warning may
-     need a scroll past the button (sideways phones are outside #718's sizes). */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) {
-    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(190px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
-  /* The floor is measured for a one-line name row; a long name, or a task sentence that wraps, would push
-     Stop now back under the pinned button. So for a swarm agent whose sign-in stopped (not for the defensive
-     Start case, which never happens today) the row stays one line: the task sentence is
-     not shown (the state badge, "Sign-in isn't working", and the pinned Sign in again already say it), nor
-     the role (both are on Profile; with the role beside it the name was squeezed to "A.." on an SE), the
-     state badge keeps its size, and the name takes the rest (a short name whole; a long one ellipsized, it
-     is on Profile in full). */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .dnamerow { flex-wrap: nowrap; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-task { display: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-meta { display: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-name { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .detail-state { flex: none; }
-  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
-     they come before the notes, so they sit at the top of the capped block, on screen. The helper
-     and daily-limit sliders stay on Profile. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
-  /* Stop now acts at once, so its explanation is never cut short (it says work is dropped). It can sit below
-     the capped block's fold (an SE shows part of it on first view); while a swarm agent's sign-in has
-     stopped, the pinned Sign in again (#3892) also lies over it until the block is scrolled, and scrolling
-     brings the whole of it into view above the pinned button. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
-    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; margin: 0; }
+  /* #4433: a swarm's controls left the header for the Swarm Settings view, so the swarm-specific floor and the
+     compact header controls that were here went with them. */
   /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
   /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
@@ -9978,6 +10021,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
@@ -10560,42 +10604,9 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
-      <!-- #3564: a swarm's controls, under its name on every section (the mock, section 3). Shown only for a swarm
-           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu.
-           #3946: Josh's item 13 (these buttons above this panel) is superseded by his item 14 (a Swarm Settings view);
-           the panel stays here until that view replaces it, because the phone's chat-first header (#718) relies on
-           it sitting in the header. -->
-      <section class="swpanel" id="d-swarm-panel" hidden aria-label="Swarm controls">
-        <div class="swbox">
-          <h3 class="swlab">Swarm</h3>
-          <div class="swctl">
-            <fieldset class="pj-mode swmode" aria-describedby="d-swarm-pause-hint"><legend class="vh">Active or paused</legend>
-              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
-              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
-            </fieldset>
-            <button type="button" class="btn swstop" id="d-swarm-stop" aria-describedby="d-swarm-stop-hint">Stop now</button>
-          </div>
-          <!-- #3946: Josh asked how Paused differs from Stop now; the toggle said nothing, so it says so here. -->
-          <p class="dhint" id="d-swarm-pause-hint">Paused finishes what it is doing, then takes nothing new until you switch it back to Active.</p>
-          <p class="dhint" id="d-swarm-stop-hint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
-          <p class="swwhy" id="d-swarm-why" hidden></p>
-        </div>
-        <div class="swbox">
-          <label class="swlab" for="d-swarm-max">Maximum helpers</label>
-          <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
-          <p class="dhint" id="d-swarm-warn"></p>
-        </div>
-        <div class="swbox">
-          <h3 class="swlab">Today</h3>
-          <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
-          <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
-          <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
-          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily usage limit</label>
-          <p class="dhint" id="d-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
-          <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
-        </div>
-        <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
-      </section>
+      <!-- #4433 (#3946 item 14): a swarm's controls used to sit here, under its name on every section. Josh,
+           2026-09-28 17:11: "get it out of the left-hand column". They live in the Swarm Settings view now
+           (#d-sec-swarm), opened by the Swarm Settings box under the four-pack. -->
       <!-- #569 put two notes under the badge: where the state came from, and the two
            witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
            slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
@@ -10723,6 +10734,16 @@ window.kosmosMeasureScrollbarWidth();
         <span class="dnav-lab" data-win-copy="terminalTab">Advanced</span>
       </button>
     </div>
+    <!-- #4433 (#3946 item 14, Mona's design on #3946): swarm agents only, below the four-pack, the same size and
+         shape as Direct Message. Its state shows in colour AND in words (WCAG 1.4.1): a soft tint of the state colour
+         on the whole box, and a pill with a dot and the word. swarmPagePaint shows it and keeps the pill current. -->
+    <button type="button" data-go="swarm" aria-controls="d-sec-swarm" class="dnav-swarm" id="d-nav-swarm" data-st="active" hidden>
+      <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="13" r="6"/><circle cx="19" cy="6" r="2.5"/><circle cx="20" cy="15.5" r="2.5"/></svg></span>
+      <span class="dnav-lab">Swarm Settings</span>
+      <!-- The pill's word IS the box's spoken state (the button's name reads "Swarm Settings Active"). Not a .vh copy:
+           the .snav rule hides any .vh on a button without data-dot, which silenced the first version (review round 5). -->
+      <span class="swpill"><i aria-hidden="true"></i><span id="d-nav-swarm-word">Active</span></span>
+    </button>
   </nav>
   <!-- #3614 (Josh, 2026-09-24): the files this agent makes for you in a Direct Message, under the
        four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
@@ -11505,6 +11526,61 @@ window.kosmosMeasureScrollbarWidth();
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
     <p class="dhint" id="d-filesall-more" hidden></p>
+  </section>
+  <!-- #4433 (#3946 item 14): every swarm control, in one view. Mona's design (#3946, 2026-09-26 12:46):
+       three state cards as a real radio group, Stopped asks first, then Maximum helpers, the daily limit and Today.
+       The controls keep the ids the old header panel had, so swarmPagePaint, swarmSend and their checks still hold. -->
+  <section class="dsec" id="d-sec-swarm" data-sec="swarm" tabindex="-1" aria-label="Swarm Settings" hidden>
+    <h2 class="dfiles-title" id="d-swarm-h">Swarm Settings</h2>
+    <p class="fhint swsub">Choose how this swarm works, how many helpers it brings in, and how much it can use.</p>
+    <p class="dhint" id="d-swarm-none" hidden>Swarm settings are not available for this agent right now.</p>
+    <section class="swpanel" id="d-swarm-panel" hidden>
+      <!-- 🔑 A CUSTOM radio group, not native radios: a native radio picks on an arrow key, and a pick here applies at
+           once, so arrowing from Active past Paused would pause a live swarm. Arrow keys move, Space or Enter picks
+           (Mona's spec); a click picks. -->
+      <div class="swstates" id="d-swarm-states" role="radiogroup" aria-label="How this swarm works" aria-describedby="d-swarm-why">
+        <div class="swcard" role="radio" data-st="active" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-active" aria-describedby="d-swarm-l-active">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-active">Active</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-active">Takes work. Brings in helpers when parts of a task can run at the same time.</span>
+        </div>
+        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-paused" aria-describedby="d-swarm-l-paused">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-paused">Paused</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-paused">Takes nothing new. Anything already in progress finishes.</span>
+          <span class="swline swlimit" id="d-swarm-l-limit" hidden>It reached today's limit and resumes tomorrow.</span>
+        </div>
+        <div class="swcard" role="radio" data-st="stopped" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-stopped" aria-describedby="d-swarm-l-stopped">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-stopped">Stopped</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-stopped">Stops now. Helpers stop, the lead is interrupted, and unfinished work is dropped. It stays stopped until you set it to Active.</span>
+        </div>
+      </div>
+      <!-- Stopped asks first: dropping unfinished work cannot be undone. Active and Paused apply at once. -->
+      <div class="swconfirm" id="d-swarm-confirm" role="group" aria-labelledby="d-swarm-confirm-q" hidden>
+        <p class="swconfirm-q" id="d-swarm-confirm-q">Stop now? Unfinished work is dropped.</p>
+        <div class="swconfirm-btns">
+          <button type="button" class="btn swstop" id="d-swarm-stop">Stop now</button>
+          <button type="button" class="btn" id="d-swarm-keep">Keep it running</button>
+        </div>
+      </div>
+      <p class="swwhy" id="d-swarm-why" hidden></p>
+      <button type="button" class="linkish" id="d-swarm-tolimit" hidden>Change today's limit</button>
+      <div class="swbox">
+        <label class="swlab" for="d-swarm-max">Maximum helpers</label>
+        <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
+        <p class="dhint" id="d-swarm-warn"></p>
+      </div>
+      <div class="swbox">
+        <label class="swlab" for="d-swarm-cap">Daily usage limit</label>
+        <p class="dhint" id="d-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
+        <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
+      </div>
+      <div class="swbox">
+        <h3 class="swlab">Today</h3>
+        <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
+        <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
+        <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+      </div>
+      <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
+    </section>
   </section>
   </div>
   </div>
@@ -12366,6 +12442,30 @@ window.kosmosMeasureScrollbarWidth();
 
      Deep-linkable as /?first-run=1 (and &fr-step=N), which is the only way to
      screenshot it on a machine that has already been through it. -->
+<!-- #4356: the first screen, before first run. Shown only in the Mac app, and only when the app
+     says this computer has not chosen yet (?mode=unset, first run not done) or its choice could not be
+     read (?mode=unreadable). Josh's copy rule (#4356, 2026-09-28): the logo, this heading and the
+     buttons, NOTHING else on the screen; Mona's line art is on the buttons (inline SVG below). Three
+     buttons since Josh's 10:31 ruling; the third one's words are Splinter's proposal and may change.
+     THE LABELS LIVE HERE ONLY: web.firstrun-choice-4356.test.js and the browser check pin them. -->
+<div class="frc-back" id="fr-choice" hidden>
+  <div class="frc-box">
+    <!-- The gold dotted K from Mona's approved mockup (#4356), recovered from its light and dark
+         versions by difference matting, so it is the mark's own pixels on no background. A raster, on
+         purpose: the vector K (kosmos-community web/public/kosmos-k.svg) has the same dot positions
+         but different dot sizes and golds, so it is not the approved mark. It is 122x147 and drawn at
+         61x73.5, native on a 2x screen and never scaled up; the test pins that. -->
+    <img class="frc-logo" src="data:image/png;base64,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" alt="Kosmos" width="61" height="73.5">
+    <h1 class="frc-title" id="frc-title">How would you like to set up Kosmos on this computer?</h1>
+    <div class="frc-buttons" role="group" aria-labelledby="frc-title">
+      <!-- Mona's line art (#4356, approved by Josh): gold dots are agents. Drawn in the mockup's own
+           2x coordinates, card-relative, so it lines up with her PNGs; decorative (aria-hidden). -->
+      <button type="button" class="frc-btn" data-mode="run"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="195.5" y="90.5" width="164" height="109" rx="10"/><path d="M181 215.5H374L364 230.5H192Z"/><circle class="frc-gold" cx="242" cy="145" r="11"/><circle class="frc-gold" cx="277.5" cy="133.5" r="11"/><circle class="frc-gold" cx="313" cy="145" r="11"/></svg><span>Run agents on this computer</span></button>
+      <button type="button" class="frc-btn" data-mode="connect"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><path class="frc-dim" d="M122 145H184M122 164.5H161"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Connect to agents on another computer</span></button>
+      <button type="button" class="frc-btn" data-mode="both"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><circle class="frc-gold" cx="118" cy="145" r="11"/><circle class="frc-gold" cx="153" cy="133" r="11"/><circle class="frc-gold" cx="188" cy="145" r="11"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Run agents here and connect to other computers</span></button>
+    </div>
+  </div>
+</div>
 <div class="fr-back" id="firstrun" hidden>
   <!-- The pack's dot field (#44, Josh's clean-install catch): the setup
        backdrop animates the same slow pale drift the pack draws behind its
@@ -14957,7 +15057,7 @@ window.kosmosMeasureScrollbarWidth();
          The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
     <div class="field" id="pjs-hooks-field">
       <span class="flabel" id="pjs-hooks-label">Webhooks</span>
-      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. The link works for programs on this computer.</p>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone.</p>
       <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
@@ -15466,6 +15566,10 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
   <section class="dbox">
     <h3 class="dlab">Connections</h3>
+    <!-- #4451 (Josh, 2026-09-28 19:57): "promote your agent to ask them what connections you need and have them
+         make them for you". Words, not a button: the person asks in a conversation, and an agent that connects a
+         service does it through Kosmos (kosmos connect), so its row below shows it. Same look as #4450's callout. -->
+    <p class="ask-agent" id="conn-ask">Ask your agent: <b>&ldquo;What connections do we need?&rdquo;</b> It can set them up for you.</p>
     <!-- 🔑 THE SHAPE IS TWO GROUPS AND QUIET ROWS (#282, #325). Sixteen
          categories is roughly sixty services; flat, the page is a wall and
          nearly all of it is irrelevant to any one person. So: a category with
@@ -15640,7 +15744,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4450 (Josh, 2026-09-28 19:56): a light-gold note, NOT a button. Josh took
            the gold buttons out that afternoon (#4407), so this is a flat tinted panel
            with text and nothing to press. -->
-      <p class="gs-ask" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
+      <p class="ask-agent" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
       <p class="dhint" style="margin:0 0 12px;">
         Skills every agent on this computer gets, alongside whatever each one has
         of its own. Agents read them when they start, so anything you add
@@ -16708,8 +16812,8 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
-       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 38 rows
-       for body's children (web.consolidated-980.test.js) and main already has 38. The section's own child rule would
+       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 39 rows
+       for body's children (web.consolidated-980.test.js) and main already has 39. The section's own child rule would
        make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
     <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
@@ -17938,10 +18042,9 @@ function asSentence(s) {
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
-     carries the provider does not become "Claude Claude...". ⚠️ The prefix
-     ASSUMES every agent runs Claude, which is true of everything the
-     engine can create today -- the day a second provider lands, this line
-     would stamp "Claude" onto its names and MUST change with it. */
+     carries the provider does not become "Claude Claude...". The "Claude"
+     prefix is only for a Claude agent: every other runner returns below
+     before it is reached. */
   /* ⚠️ THE PLANNED MODEL COUNTS HERE, with no tense and no marker, and that is
      Mona Lisa's ruling (2026-08-19) rather than a shortcut. A TENSE IS ASSERTED
      BY WORDS, NOT BY A VALUE: "Right now:" appears exactly once in this page,
@@ -17970,14 +18073,17 @@ function modelLine(a) {
      closed. One question, one derivation. */
   /* #246: the day this comment warned about arrived. An OpenAI agent's
      runner is recorded (the supervisor's option on running panes, the
-     profile on stopped ones) and its model is codex's own choice, which we
-     deliberately do not scrape a name for -- naming the provider is the
-     truth we hold, and it is what the switch changed. */
-  if (a.runner === 'codex') return 'OpenAI Codex';
+     profile on stopped ones). #4416: its model is named from codex's own
+     rollout (turn_context), never scraped off the screen; the provider is
+     the fallback while no turn has named one. */
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
-  /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
-     it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
+  /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
+     codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
+  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
+  /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
+     gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
+     Flash"), or the provider when none is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
@@ -17988,6 +18094,14 @@ function modelLine(a) {
      (tied pane, no plist), so every surface splits the same way. */
   if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
+}
+/* #4416: what the Gemini/Grok model menu says it runs on: the card's own line (modelLine), never a second reading of
+   the model, so a stopped agent is not named two ways. While no model is known at all the menu says the runner picks
+   its own ('' here). Antigravity and Muse really do pick their own. Defined after modelLine and derived from it on
+   purpose: several tests lift modelLine alone, so modelLine must not call anything new. */
+function menuRunsOn(a) {
+  if (!a || (a.runner !== 'gemini' && a.runner !== 'grok')) return '';
+  return (a.modelName || a.plannedModelName) ? modelLine(a) : '';
 }
 /**
  * The Runs on line, in the tense that is true of it.
@@ -18089,7 +18203,8 @@ function runsOnLine(a, switched) {
        invent one. `modelLine` is reused rather than re-prefixed so the "Claude
        Claude" guard stays in one place. */
     if (a.plannedModelName) {
-      return { lead: 'Will start on ', name: modelLine({ plannedModelName: a.plannedModelName }) };
+      /* #4416: the runner travels too, or a stopped Gemini, Grok or Codex agent reads "Claude Gemini 2.5 Flash". */
+      return { lead: 'Will start on ', name: modelLine({ plannedModelName: a.plannedModelName, runner: a.runner }) };
     }
     /* Stopped, and the job does not say. We know what it ran as and not what it
        will start on, so the name is stated as an attribute with no tense. */
@@ -19997,6 +20112,11 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
     + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
     + '<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working.</div>';
+  /* #4356: an update over the first screen is shown, not hidden under it: the screen goes (and its
+     inert hold with it), so the person sees why the buttons stopped; the reload that ends every
+     update brings the screen back, still asking (review round 21). */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
   document.body.appendChild(back);
   /* After it is in the document: the loader measures the canvas, and a detached
      one has no layout to measure. */
@@ -20364,8 +20484,10 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* A world switch restarts the board on purpose and can take minutes (worldswReconnect), so it
      stands down like an update does. Any stand-down also restarts the 15 s clock, so a board still
      down afterwards gets a fresh wait rather than the screen on the very next poll. */
+  /* #4356: nor while Connect on the first screen stops this board on purpose (FR_CHOICE_CONNECTING). */
   if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING
-    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) {
+    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)
+    || (typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING)) {
     BOARD_NO_ANSWER_SINCE = null;
     if (shown) {
       shown.remove();
@@ -20376,6 +20498,14 @@ function paintRestartScreen(down, deviceIsOffline) {
       const back = RESTART_SCREEN_RETURN;
       RESTART_SCREEN_RETURN = null;
       if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+      /* #4356: the board came back without a reload, and the first screen it hid is still waiting for
+         an answer (firstRunBoot awaits it): give it back, with its own inert hold, or first run
+         never opens (review round 26). */
+      if (typeof FR_CHOICE_HIDDEN_BY_RESTART !== 'undefined' && FR_CHOICE_HIDDEN_BY_RESTART) {
+        FR_CHOICE_HIDDEN_BY_RESTART = false;
+        const frc = document.getElementById('fr-choice');
+        if (frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function') { frc.hidden = false; frChoiceInert(true); }
+      }
     }
     return;
   }
@@ -20400,6 +20530,14 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
      not answer go to the log, not onto the page. */
   if (detail.length) { try { console.info('Kosmos requires a full restart: ' + asSentence(detail.join(', '))); } catch { /* no console */ } }
+  /* #4356: a board that is really down under the first screen shows this screen, not dead buttons:
+     the first screen goes (and gives back only its own inert holds) before this one takes the page. */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) {
+      frc.hidden = true;
+      if (typeof frChoiceInert === 'function') frChoiceInert(false);
+      if (typeof FR_CHOICE_PENDING !== 'undefined' && FR_CHOICE_PENDING) FR_CHOICE_HIDDEN_BY_RESTART = true;
+    } }
   RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
   document.documentElement.classList.add('restart-up');
@@ -20719,6 +20857,7 @@ async function tick() {
     // one call. Same fact, one source: the shape this whole branch is about.
     if (CURRENT) {
       const fresh = data.agents.find((a) => a.sessionName === CURRENT.sessionName);
+      followRename(fresh);   // #4421: before anything below paints a name from CURRENT
       if (fresh) swarmPagePaint(fresh);   // #3564: the swarm panel and cluster follow every poll
 
       /* The window box rides the SAME fresh-card lookup as the write
@@ -20773,6 +20912,7 @@ async function tick() {
       /* The Start button follows the same poll: with the pill live, a button frozen at open
          could sit beside "Working" and restart a running agent (review, iteration 11). */
       if (fresh) refreshStartAffordance(fresh);
+      followCard(fresh);   // #4423: the title line and Reports-to menu, drawn once at open, follow the card too
       /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
       if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
@@ -21426,8 +21566,9 @@ function syncUrl() {
     } else if (tab && tab !== 'agents') {
       q.set('tab', tab);
     }
-    /* Carry through the two debugging knobs a person may have typed. */
-    for (const k of ['limit', 'first-run']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
+    /* Carry through the two debugging knobs a person may have typed, and #4356's ?mode=, which the
+       Mac app puts there for first run to read (dropping it here lost the first screen). */
+    for (const k of ['limit', 'first-run', 'mode']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
     const want = q.toString() ? '?' + q.toString() : location.pathname;
     const have = location.search || location.pathname;
     if (want !== have) history.replaceState(null, '', q.toString() ? '?' + q.toString() : location.pathname);
@@ -28413,7 +28554,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -28480,7 +28621,7 @@ async function communityNoticeCheck() {
    one (first run, the update overlay) owns the keys, and the keys are taken in the capture phase and
    stopped, so one Escape closes one window. */
 function cnCovered() {
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back');
 }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || cnCovered()) return;
@@ -28929,7 +29070,8 @@ document.addEventListener('keydown', (e) => {
      attribute; the inner `.rm-box[aria-modal]` is NOT itself `hidden`-toggled, so we
      test the backdrop, not aria-modal. Keeps a keystroke during a destructive-action
      confirmation from being stolen into the composer. */
-  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden])')) return;
+  // #4356: and the first screen (.frc-back), which covers the board as first run does.
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return;
   const c = activeComposer();
   if (!c) return;
   /* Focus WITHOUT preventDefault so the character that triggered this keydown
@@ -28993,6 +29135,7 @@ document.getElementById('klink').addEventListener('click', () => {
 const ORG_R0 = 120;          // the first ring
 const ORG_STEP = 74;         // how much further out each generation sits
 const ORG_MIN_ARC = 62;      // the arc a 44px node needs to not touch its neighbour
+const ORG_FACE_R = 22;       // #4502: a face's radius (a 44px node), the clearance a line to another agent keeps from it
 
 /* ---- the organic layer (#285) ----------------------------------------------
    Josh: "grab a hold of one of the nodes and move it and it moves the whole
@@ -29025,6 +29168,10 @@ const ORG_SIM = {
   damping: 0.82,
   maxForce: 6,
   minGap: 52,      // two 44px discs plus breathing room
+  home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
+  clear: 0.6,      // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
+  faceR: 22,       // a 44px node's radius (#4502: the same fact as ORG_FACE_R, pinned equal by a test)
+  clearMargin: 4,  // #4502: how much nearer than a face's radius a line may come before the clearance push starts
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29049,7 +29196,7 @@ function orgStep(nodes, hub, alpha, box) {
       let f = ORG_SIM.repel / d2;
       // Bodies have size: a 104px hub and a 44px node need more room than two
       // nodes do, or the first ring sits touching the hub.
-      const gap = (a.size || 22) + (b.size || 22) + 8;
+      const gap = (a.size || ORG_SIM.faceR) + (b.size || ORG_SIM.faceR) + 8;
       if (d < gap) f += (gap - d) * 0.35;
       f = cap(f) * alpha;
       const fx = (dx / d) * f; const fy = (dy / d) * f;
@@ -29063,7 +29210,7 @@ function orgStep(nodes, hub, alpha, box) {
     const p = n.parent || hub;
     const dx = p.x - n.x; const dy = p.y - n.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    const stretch = d - rest;
+    const stretch = d - (n.rest || rest);
     n.vx += cap(stretch * ORG_SIM.spring) * alpha * (dx / d);
     n.vy += cap(stretch * ORG_SIM.spring) * alpha * (dy / d);
     // The ring it was born on: depth keeps meaning.
@@ -29072,25 +29219,135 @@ function orgStep(nodes, hub, alpha, box) {
     const off = n.ring - hd;
     n.vx += cap(off * ORG_SIM.ring) * alpha * (hx / hd);
     n.vy += cap(off * ORG_SIM.ring) * alpha * (hy / hd);
+    /* #4434: in a TREE layout every node is also pulled back to where orgPlace put it, relative to the hub
+       (so dragging the hub still carries the chart). This keeps the physics close to the placement, so a
+       settle, a released drag and a re-parent end near it; what guarantees they END free of crossings and
+       overlaps is orgPlanarRepair at every rest (review it6: with this pull off, the crossing tests stay
+       green and only the drift test reds). A flat fleet has no `home`; its own line clearance is below (#4502). */
+    if (n.home) {
+      n.vx += cap((hub.x + n.home.dx - n.x) * ORG_SIM.home) * alpha;
+      n.vy += cap((hub.y + n.home.dy - n.y) * ORG_SIM.home) * alpha;
+    }
+  }
+  /* #4502: in a FLAT fleet every line runs from the hub, so a face nearer the hub that sits on an agent's
+     line reads as that agent's manager. orgPlace places the lanes to avoid it, but the springs and the push
+     between faces pack the lanes at rest; this force keeps the lines clear as they settle: an agent whose
+     line runs within a face (plus a little) of a nearer face is pushed sideways, away from that face, which
+     swings its line off it. Flat only: a tree's own placement and repair keep its lines (#4434). */
+  if (!nodes.some((n) => n.home)) {   // flat: no placed home, the same test as inTree and orgPlanarRepair
+    const reach = ORG_SIM.faceR + ORG_SIM.clearMargin;
+    for (const n of nodes) {
+      if (n.fixed) continue;
+      const nx = n.x - hub.x; const ny = n.y - hub.y;
+      const nd = Math.sqrt(nx * nx + ny * ny) || 1;
+      const ux = nx / nd; const uy = ny / nd;          // along n's line, outward
+      for (const m of nodes) {
+        if (m === n) continue;
+        const mx = m.x - hub.x; const my = m.y - hub.y;
+        const along = mx * ux + my * uy;
+        if (along <= 0 || along >= nd) continue;     // beside the line's length only (nearer the hub than n)
+        const across = my * ux - mx * uy;              // m's signed distance from n's line
+        const short = reach - Math.abs(across);
+        if (short <= 0) continue;
+        const f = cap(short * ORG_SIM.clear) * alpha * (across >= 0 ? -1 : 1);
+        n.vx += -uy * f; n.vy += ux * f;               // sideways, away from m
+      }
+    }
   }
   if (!hub.fixed) {
     hub.vx += cap((hub.home.x - hub.x) * ORG_SIM.centre) * alpha;
     hub.vy += cap((hub.home.y - hub.y) * ORG_SIM.centre) * alpha;
   }
+  /* #4434: in a TREE, a body outside the box (kept from a larger canvas) is brought in at most ORG_GLIDE_MAX a
+     step rather than put on the edge in one: a press during a glide runs this step, and the hard clamp moved
+     faces up to ~1180px in one frame (review it15). Inside the box it is the hard clamp, as before; a flat fleet
+     is unchanged. */
+  const inTree = nodes.some((n) => n.home);
+  const outside = (v) => v < box.lo || v > box.hi;
   for (const n of all) {
     if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
     n.vx *= ORG_SIM.damping; n.vy *= ORG_SIM.damping;
-    const nx = box ? clamp(n.x + n.vx, box.lo, box.hi) : n.x + n.vx;
-    const ny = box ? clamp(n.y + n.vy, box.lo, box.hi) : n.y + n.vy;
+    const tx = n.x + n.vx; const ty = n.y + n.vy;
+    let nx = box ? clamp(tx, box.lo, box.hi) : tx;
+    let ny = box ? clamp(ty, box.lo, box.hi) : ty;
+    if (box && inTree && (outside(n.x) || outside(n.y))) {
+      // The whole move, not each axis, is capped (review it17: per axis a corner body moved 56.6px).
+      const d = Math.hypot(nx - n.x, ny - n.y);
+      if (d > ORG_GLIDE_MAX) { nx = n.x + (nx - n.x) * ORG_GLIDE_MAX / d; ny = n.y + (ny - n.y) * ORG_GLIDE_MAX / d; }
+    }
     moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
     n.x = nx; n.y = ny;
   }
   return moved;
 }
+/* #4434: the last word on a settle. orgPlace's positions never cross (a uniform squeeze keeps that), but the
+   physics is soft: on a chart squeezed to a narrow screen, faces packed closer than the physics' gap push one
+   another off their places, and a large fleet could settle with a crossing (review it2: 60-90 agents at
+   375px, 9 of 150 trees). So when a TREE layout comes to rest with any two lines crossing, or two faces
+   overlapping (review it5: a hub dragged into a corner and let go), every node goes back to its placed
+   position (relative to the hub), which is free of both by construction. Crossings and overlaps can then
+   only exist mid-motion, never at rest. No DOM, for the tests; returns whether it moved anything, or with
+   `dry`, whether it would (the animation then glides home with orgHomeStep rather than jumping). */
+function orgPlanarRepair(nodes, hub, dry) {
+  const tree = nodes.filter((n) => n.home);
+  if (!tree.length) return false;
+  /* Never while something is held: a held node (or hub) is the person's, and snapping it away from the
+     pointer is worse than any crossing (review it3: a drag held still let the animation stop and the repair
+     moved the held node 515px). The next rest after the release repairs. */
+  if (hub.fixed || nodes.some((n) => n.fixed)) return false;
+  const o = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const side = (v, g) => { const e = 1e-9 * ((g.b.x - g.a.x) ** 2 + (g.b.y - g.a.y) ** 2); return v > e ? 1 : (v < -e ? -1 : 0); };
+  const segs = nodes.map((n) => ({ a: n.parent || hub, b: n }));
+  let crossed = false;
+  for (let i = 0; i < segs.length && !crossed; i += 1) {
+    for (let j = i + 1; j < segs.length; j += 1) {
+      const s = segs[i]; const t = segs[j];
+      if (s.a === t.a || s.a === t.b || s.b === t.a || s.b === t.b) {
+        /* Sharing an end, two lines still overlap if they lie along each other (measured: the canvas edge
+           clamped a manager and two reports onto one vertical line). */
+        const sh = s.a === t.a || s.a === t.b ? s.a : s.b;
+        const so = sh === s.a ? s.b : s.a; const to = sh === t.a ? t.b : t.a;
+        if (Math.abs(o(sh, so, to)) < 1e-6 && (so.x - sh.x) * (to.x - sh.x) + (so.y - sh.y) * (to.y - sh.y) > 0) { crossed = true; break; }
+        continue;
+      }
+      /* A side counts only when it is clear of rounding: two radial lines at exactly opposite angles lie on one
+         line through the hub and never meet, but their orientations come out as tiny numbers of mixed sign
+         (measured, randomTree(401, 58) and others in the tests). */
+      if (side(o(t.a, t.b, s.a), t) * side(o(t.a, t.b, s.b), t) < 0 && side(o(s.a, s.b, t.a), s) * side(o(s.a, s.b, t.b), s) < 0) { crossed = true; break; }
+    }
+  }
+  // Two faces overlapping (closer than a 44px disc) is as wrong at rest as two lines crossing.
+  for (let i = 0; i < tree.length && !crossed; i += 1) {
+    for (let j = i + 1; j < tree.length; j += 1) {
+      if (Math.hypot(tree[i].x - tree[j].x, tree[i].y - tree[j].y) < 44) { crossed = true; break; }
+    }
+  }
+  if (!crossed) return false;
+  if (dry) return true;
+  orgHomeStep(tree, hub, 1);
+  return true;
+}
+/* #4434: move a TREE fraction f of the way back to its placement around the hub's HOME, not where the hub
+   drifted (the placement fits the canvas by construction; offsets from a drifted hub can land past the
+   edge). Every body moves the same fraction, so the chart keeps its shape on the way, and no body moves
+   more than ORG_GLIDE_MAX px in one call unless f is 1 (the repair's snap). Returns how far the furthest
+   body still is. */
+const ORG_GLIDE_MAX = 40;
+function orgHomeStep(nodes, hub, f) {
+  const hx = hub.home ? hub.home.x : hub.x; const hy = hub.home ? hub.home.y : hub.y;
+  const tree = nodes.filter((n) => n.home);
+  let far = Math.hypot(hx - hub.x, hy - hub.y);
+  for (const n of tree) far = Math.max(far, Math.hypot(hx + n.home.dx - n.x, hy + n.home.dy - n.y));
+  const k = f >= 1 || far <= 0.5 ? 1 : Math.min(f, ORG_GLIDE_MAX / far);
+  hub.x += (hx - hub.x) * k; hub.y += (hy - hub.y) * k; hub.vx = 0; hub.vy = 0;
+  for (const n of tree) { n.x += (hx + n.home.dx - n.x) * k; n.y += (hy + n.home.dy - n.y) * k; n.vx = 0; n.vy = 0; }
+  return far * (1 - k);
+}
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
+let ORG_POS_TREE = null; // #4434: whether ORG_POS came from a tree layout (null: nothing painted yet)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
 /* #718: true while a drag is really under way: the node has moved (a tap is not a
@@ -29172,55 +29429,200 @@ function orgTreeOf(agents) {
 }
 
 function orgPlace(nodes) {
-  /* Ring by ring. Within a ring, a node sits at its parent's angle when it has
-     one, so a chain runs outward along its own branch rather than being
-     scattered by index. */
-  const byDepth = new Map();
-  for (const n of nodes) {
-    if (!byDepth.has(n.depth)) byDepth.set(n.depth, []);
-    byDepth.get(n.depth).push(n);
-  }
   const placed = new Map();
   let maxR = ORG_R0;
-  for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
-    const ring = byDepth.get(depth);
-    const base = ORG_R0 + depth * ORG_STEP;
+  /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
+     (nobody reports to anybody) keeps its ring layout: its lines all run straight out from the hub and cannot
+     cross, and it is the first screen most people see. #4502 places those rings so an outer agent's line does
+     not run through an inner face (below). */
+  if (!nodes.some((n) => n.parent)) {
+    /* Ring by ring: one ring here, since nobody has a manager. */
+    const ring = nodes;
+    const base = ORG_R0;
     /* The spill: how many fit at this radius before they touch. A ring that
        needs more than that is split across two distances. */
     const fit = Math.max(4, Math.floor((2 * Math.PI * base) / ORG_MIN_ARC));
+    /* #4502: every line runs from the hub, so an outer agent at the angle of an inner one has its line drawn
+       straight through that face and reads as reporting to it. The second lane takes the first lane's gap
+       centres (below), so up to two full lanes no line passes within a face of another (ORG_FACE_R). Lanes
+       further out are spread evenly and turned to the offset that keeps their lines furthest from every inner
+       face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
+       room for one line), and the turn keeps the near passes to the fewest it can. */
+    const LANE_STEP = 58;    // how much further out each spill lane sits; the placement and the search read this one
+    const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
-    /* 🔑 CHILDREN ARE ANGLED AMONG THEIR SIBLINGS (#352). The first version
-       took a child's index among every node at this depth, so its place in
-       its parent's arc was decided by how many COUSINS came before it: a lone
-       child sat at the edge of the arc rather than straight out, and two
-       managers' pairs were each shoved to one side. The no-parent ring keeps
-       the depth-wide index, because that ring is one circle around the hub
-       and the index is exactly what spaces it. */
-    const siblings = new Map();
-    for (const n of ring) {
-      const key = n.parent || '';
-      if (!siblings.has(key)) siblings.set(key, []);
-      siblings.get(key).push(n);
+    for (let lane = 0; lane < lanes; lane += 1) {
+      const members = ring.slice(lane * fit, (lane + 1) * fit);
+      const r = base + lane * LANE_STEP;
+      const step = (Math.PI * 2) / members.length;
+      let turn = 0;
+      /* The turn depends only on the lane and how many sit in it (the ring size is fixed by ORG_R0), and paintOrg
+         places the chart on every poll: it is worked out once per (lane, count) and remembered on the function. */
+      const memo = orgPlace.turns || (orgPlace.turns = new Map());
+      const memoKey = lane + '/' + members.length + '/' + fit;
+      if (lane > 1 && memo.has(memoKey)) turn = memo.get(memoKey);
+      else if (lane > 1) {
+        /* A line at angle a clears a face at radius q and angle b when their angles differ by more than the
+           half-cone asin(face / q). The turn with the most clearance, searched in small steps across one step. */
+        const inner = [];
+        for (let k = 0; k < lane; k += 1) {
+          const half = Math.asin(Math.min(1, ORG_FACE_R / (base + k * LANE_STEP)));
+          for (const b of laneAngles[k]) inner.push({ b, half });
+        }
+        const clearance = (t) => {
+          let worst = Infinity;
+          for (let m = 0; m < members.length; m += 1) {
+            const a = -Math.PI / 2 + t + step * m;
+            for (const f of inner) {
+              let d = (a - f.b) % (Math.PI * 2);
+              if (d < 0) d += Math.PI * 2;
+              if (d > Math.PI) d = Math.PI * 2 - d;
+              worst = Math.min(worst, d - f.half);
+            }
+          }
+          return worst;
+        };
+        let best = -Infinity;
+        const tries = 180;
+        for (let s = 0; s < tries; s += 1) {
+          const t = (step * s) / tries;
+          const c = clearance(t);
+          if (c > best + 1e-9) { best = c; turn = t; }
+        }
+        memo.set(memoKey, turn);
+      }
+      /* The second lane takes the first lane's gap centres themselves, as many as it has, spread round the
+         circle: an evenly spaced lane of another count cannot line up with them (8 at 45 degrees against 12
+         gaps 30 degrees apart leaves most of the 8 on a spoke). */
+      const gapOf = (m) => {
+        const g = laneAngles[0];
+        const k = Math.round((m * g.length) / members.length) % g.length;
+        return g[k] + Math.PI / g.length;
+      };
+      laneAngles.push([]);
+      members.forEach((n, m) => {
+        const ang = lane === 1 ? gapOf(m) : -Math.PI / 2 + turn + step * m;
+        laneAngles[lane].push(ang);
+        placed.set(n.agent.sessionName, { ang, r, node: n });
+        maxR = Math.max(maxR, r);
+      });
     }
-    ring.forEach((n, i) => {
-      const lane = Math.floor(i / fit);
-      const r = base + lane * 58;
-      const parent = n.parent ? placed.get(n.parent) : null;
-      const kin = parent ? siblings.get(n.parent) : ring.filter((x, j) => Math.floor(j / fit) === lane);
-      const inLane = kin.length;
-      const idx = parent ? kin.indexOf(n) : i % fit;
-      /* Around the parent's own angle when there is one; evenly round the
-         circle when there is not. The half-lane offset stops two lanes lining
-         up spoke-for-spoke, which reads as one ring with gaps. */
-      const spread = parent ? Math.PI / 2.6 : Math.PI * 2;
-      const centre = parent ? parent.ang : -Math.PI / 2;
-      const span = inLane > 1 ? spread : 0;
-      const ang = parent
-        ? centre - span / 2 + (span * idx) / Math.max(1, inLane - 1 || 1)
-        : centre + (Math.PI * 2 * idx) / inLane + (lane * Math.PI) / Math.max(1, inLane);
-      placed.set(n.agent.sessionName, { ang, r, node: n });
-      maxR = Math.max(maxR, r);
-    });
+    return { placed, maxR };
+  }
+  /* 🔑 A TREE IS LAID OUT BY SECTORS, so no two connector lines can cross (#4434). The old layout fanned
+     every manager's reports over a FIXED arc centred on the manager, whatever room that manager had:
+     two managers side by side with several reports each had overlapping fans, and their lines crossed.
+
+     - Each first-ring agent owns a slice of the circle sized by its LEAF count (the people at the ends of
+       its branch, who are what fill the outer rings), and sits at the slice's centre.
+     - A manager's reports share a window centred on the manager: its slice, capped. For a manager that has
+       a manager, the cap is the tangent angle acos(r_manager / r_report), so each line runs steadily AWAY
+       from the hub. A first-ring manager's reports stay within ~85 degrees either side of it, so no line
+       folds back past the hub (their lines can still come within ~107px of it; the manager sits at 120).
+       Each report gets a sub-slice by its own leaf count and sits at its centre, so a lone report is
+       straight out and a pair is centred on its manager (#352).
+     - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap), and
+       below the first ring the tangent cap keeps each line's distance from the hub rising, so a manager's
+       own line and its reports' lines meet only at the manager. web.org-sectors-4434.test.js counts
+       crossings.
+     - Each ring's radius grows from its base until no two nodes on it are closer than ORG_MIN_ARC.
+     Same input, same positions: nothing here is random or order-dependent beyond the input order. */
+  const kids = new Map();
+  for (const n of nodes) {
+    const k = n.parent || '';
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(n);
+  }
+  const leaves = new Map();
+  const weigh = (n) => {
+    const name = n.agent.sessionName;
+    if (leaves.has(name)) return leaves.get(name);
+    leaves.set(name, 1);   // a guard: orgTreeOf yields a tree, but a repeated name must not recurse
+    const ks = kids.get(name) || [];
+    const w = ks.length ? ks.reduce((sum, k) => sum + weigh(k), 0) : 1;
+    leaves.set(name, w);
+    return w;
+  };
+  const TAU = Math.PI * 2;
+  const norm = (a) => ((a % TAU) + TAU) % TAU;
+  /* The closest two angles in a set, as a chord at radius r: what "do they touch" means on a ring. */
+  const tightest = (angs, r) => {
+    if (angs.length < 2) return Infinity;
+    const s = angs.map(norm).sort((a, b) => a - b);
+    let gap = TAU - s[s.length - 1] + s[0];
+    for (let i = 1; i < s.length; i += 1) gap = Math.min(gap, s[i] - s[i - 1]);
+    return 2 * r * Math.sin(Math.min(Math.PI, gap) / 2);
+  };
+  // The first ring: slices by leaf count, the first one centred at the top as before.
+  const roots = kids.get('') || [];
+  const total = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
+  let at = -Math.PI / 2 - (TAU * weigh(roots[0])) / total / 2;
+  const lanes = [];   // per lane, the angles already on it
+  for (const n of roots) {
+    const span = (TAU * weigh(n)) / total;
+    const ang = at + span / 2;
+    /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
+       lane cannot cause a crossing; it only keeps two faces from touching. */
+    let lane = 0;
+    while (lanes[lane] && tightest(lanes[lane].concat(ang), ORG_R0 + lane * 58) < ORG_MIN_ARC) lane += 1;
+    if (!lanes[lane]) lanes[lane] = [];
+    lanes[lane].push(ang);
+    const r = ORG_R0 + lane * 58;
+    placed.set(n.agent.sessionName, { ang, r, node: n, lo: at, hi: at + span });
+    maxR = Math.max(maxR, r);
+    at += span;
+  }
+  // The rings beyond: each manager's reports inside its window, the ring pushed out until nothing touches.
+  let depth = 1;
+  let prev = roots;
+  while (true) {
+    const ring = [];
+    for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
+    if (!ring.length) break;
+    const inner = Math.max(...prev.map((n) => placed.get(n.agent.sessionName).r));
+    const lay = (r) => {
+      const out = new Map();
+      for (const p of prev) {
+        const ks = kids.get(p.agent.sessionName) || [];
+        if (!ks.length) continue;
+        const ps = placed.get(p.agent.sessionName);
+        /* The tangent cap applies only to a manager that has a manager of its own: only then does a line
+           from it lie next to another line (its own manager's) that a report's line could dip across. A
+           first-ring manager's reports need no cap, but stay within ~85 degrees of it so no line folds back
+           through the hub. (Capping every manager made one with six plain reports outgrow a phone: #4434
+           review it1.) */
+        /* 0.9 is a safety margin inside the exact tangent. 1.0 is still correct (0 crossings in 4,500 trees
+           with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
+           pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
+        const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
+        const half = Math.min((ps.hi - ps.lo) / 2, cap);
+        const w = ks.reduce((sum, k) => sum + weigh(k), 0);
+        let from = ps.ang - half;
+        for (const k of ks) {
+          const span = (2 * half * weigh(k)) / w;
+          out.set(k.agent.sessionName, { ang: from + span / 2, r, node: k, lo: from, hi: from + span });
+          from += span;
+        }
+      }
+      return out;
+    };
+    let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
+    let spots = lay(r);
+    /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
+       room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
+    for (let tries = 0; tries < 400 && tightest([...spots.values()].map((s) => s.ang), r) < ORG_MIN_ARC; tries += 1) {
+      r = Math.max(r + 8, r * 1.03);
+      spots = lay(r);
+    }
+    for (const [name, spot] of spots) placed.set(name, spot);
+    maxR = Math.max(maxR, r);
+    prev = ring.map((x) => x.n);
+    depth += 1;
+  }
+  /* Anything orgTreeOf returned that the walk above did not reach (it never happens for a tree, but an
+     agent missing from the picture is the one failure a picture cannot admit to): the first ring. */
+  for (const n of nodes) {
+    if (!placed.has(n.agent.sessionName)) placed.set(n.agent.sessionName, { ang: -Math.PI / 2, r: ORG_R0, node: n, lo: -Math.PI, hi: Math.PI });
   }
   return { placed, maxR };
 }
@@ -29250,12 +29652,30 @@ const ORG_SQUEEZE_MIN = 0.7;
 /* The square a fleet of outer radius maxR draws at when nothing has to fit: one
    derivation, read by orgFit and by paintOrg's .orgtight test. */
 function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
-function orgFit(maxR, avail) {
+/* #4434: the kMin orgFit takes for a placement: a tree is never squeezed below the scale that keeps its
+   closest two faces 46px apart. A flat fleet has no floor (0), as before. */
+function orgFloorOf(placed) {
+  const spots = [...placed.values()];
+  if (!spots.some((sp) => Number.isFinite(sp.lo))) return 0;
+  let closest = Infinity;
+  for (let i = 0; i < spots.length; i += 1) {
+    for (let j = i + 1; j < spots.length; j += 1) {
+      closest = Math.min(closest, Math.hypot(Math.cos(spots[i].ang) * spots[i].r - Math.cos(spots[j].ang) * spots[j].r,
+        Math.sin(spots[i].ang) * spots[i].r - Math.sin(spots[j].ang) * spots[j].r));
+    }
+  }
+  return Number.isFinite(closest) ? 46 / closest : 0;
+}
+/* kMin (optional, #4434): the smallest squeeze that keeps a TREE's faces apart. Squeezing scales every radius, so
+   a tree placed with its closest two nodes d apart stays overlap-free only down to k = 46 / d; below it the
+   faces touch, and the physics that separates them would push lines across each other (review it3). A tree
+   that needs more room than the screen scrolls instead. */
+function orgFit(maxR, avail, kMin) {
   const natural = orgNatural(maxR);
   if (!(avail > 0) || natural <= avail) return { size: natural, k: 1 };
   const half = Math.floor(avail / 2);
   if (maxR + ORG_PAD_MIN <= half) return { size: half * 2, k: 1 };
-  const k = Math.max(ORG_SQUEEZE_MIN, (half - ORG_PAD_MIN) / maxR);
+  const k = Math.min(1, Math.max(ORG_SQUEEZE_MIN, kMin || 0, (half - ORG_PAD_MIN) / maxR));
   return { size: Math.max(half * 2, Math.round((maxR * k + ORG_PAD_MIN) * 2)), k };
 }
 
@@ -29302,7 +29722,14 @@ function paintOrg() {
      here would draw at the natural size and overwrite ORG_POS in that frame. The
      next paint with a width draws it. */
   if (viewW === 0) return;
-  const fit = orgFit(maxR, viewW);
+  const fit = orgFit(maxR, viewW, orgFloorOf(placed));   // #4434: never squeeze a tree's faces together
+  /* #4434: where the canvas is on screen before this paint moves it (see the carry before orgLiveStart), and
+     whether a drawn canvas was there at all: a failed poll or an empty board empties the map and clears its
+     width, and a rect read from that empty block is not where any kept position was drawn (review it17: a
+     recovering tree slid ~250px). */
+  const mapWas = document.getElementById('orgmap');
+  const mapBefore = mapWas.getBoundingClientRect();
+  const mapWasDrawn = mapWas.childElementCount > 0 && !!mapWas.style.width;
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
   /* #718: what changed since the last paint. Only a change in the box's width is
@@ -29312,6 +29739,15 @@ function paintOrg() {
   // A box with no width yet (an ancestor not laid out) is not a width change, and
   // does not move ORG_SIZE either: the next real paint compares against the last one.
   const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
+  const tree = [...placed.values()].some((sp) => Number.isFinite(sp.lo));
+  /* #4434: a tree glides from its kept positions to its placement, at most ORG_GLIDE_MAX a frame. A tree that
+     just turned FLAT (its last manager removed) starts from the flat placement instead, a one-step re-layout
+     like a window resize: handed the tree's far larger canvas as it is, the flat physics clamped faces to the
+     new edge and they rested on top of each other (review it8), and gliding them in kept state across repaints
+     that a mid-glide repaint broke the same way (review it15). */
+  const turnedFlat = ORG_POS_TREE === true && !tree;
+  ORG_POS_TREE = tree;
+  if (turnedFlat) ORG_POS.clear();
   const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
@@ -29522,6 +29958,18 @@ function paintOrg() {
   map.style.width = size + 'px';
   map.style.height = size + 'px';
   map.innerHTML = html;
+  /* #4434: a TREE's canvas changes size far more than a flat one's (an agent added, removed or re-parented grows
+     or shrinks its rings), and the canvas moves on screen when it does: a narrow one is centred in its box, a
+     wide one's scroll is carried (and clamped by the browser), and a box that starts or stops scrolling gains
+     or loses its top padding. Kept positions are in the old canvas's frame, so every face would jump by that
+     move in one paint (review it13, it15). Measured, not modelled: the canvas's screen position before this
+     paint and now, and kept positions move by the difference, so every face starts where it was on screen and
+     the glide takes it on. A width change is carried in proportion above instead, and a flat fleet as before. */
+  if (tree && !widthChanged && mapWasDrawn) {
+    const mapAfter = map.getBoundingClientRect();
+    const dx = mapBefore.left - mapAfter.left; const dy = mapBefore.top - mapAfter.top;
+    if (dx || dy) for (const p of ORG_POS.values()) { p.x += dx; p.y += dy; }
+  }
   ORG_HTML = html;
   if (hadName) {
     const again = map.querySelector('.onode[data-agent="' + CSS.escape(hadName) + '"]');
@@ -29565,12 +30013,49 @@ function orgLiveStart(map, placed, cx, cy, size) {
       x: was ? was.x : cx + Math.cos(spot.ang) * spot.r,
       y: was ? was.y : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
+      /* #4434: a tree node rests where orgPlace put it (relative to the hub), and its parent spring rests
+         at the placed edge length, not the ring step: orgPlace grows rings, and a spring at ORG_STEP would
+         pull a grown ring back in across other branches. */
+      home: Number.isFinite(spot.lo) ? { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r } : null,
+      rest: 0,
       wire: map.querySelector('line[data-for="' + CSS.escape(key) + '"]'),
       agent: spot.node.agent,   // #4040: its picture, where its wires stop
     });
   }
   for (const n of nodes.values()) n.parent = n.parentKey ? (nodes.get(n.parentKey) || null) : null;
+  // #4434: a tree node's spring rests at its placed distance from its parent (or the hub).
+  for (const n of nodes.values()) {
+    if (!n.home) continue;
+    const ph = n.parent && n.parent.home ? n.parent.home : { dx: 0, dy: 0 };
+    n.rest = Math.hypot(n.home.dx - ph.dx, n.home.dy - ph.dy);
+  }
   ORG_LIVE = { nodes, hub, size, raf: 0, alpha: still ? 0 : 1, box: { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN } };
+  /* #4434: a TREE whose every node already sits at its placement (first load, and every repaint after a rest
+     the repair ended) is at rest: orgPlace's positions are free of crossings and overlaps. Paint it and do
+     not run the physics, which on a large or squeezed tree drifts it into a crossing and the repair then
+     snaps it back (review it4: 150 to 300 agents at full size, up to ~150px; it3 harness: a squeezed 60-100
+     agent chart replayed that on every repaint). A drag, a re-parent or a new agent starts it off its
+     placement, and those still move. A flat fleet has no placement to glide home to (it settles under orgStep,
+     with its #4502 line clearance). */
+  const placedAt = (n) => n.home && Math.abs(n.x - hub.x - n.home.dx) < 0.5 && Math.abs(n.y - hub.y - n.home.dy) < 0.5;
+  if (nodes.size && Math.abs(hub.x - cx) < 0.5 && Math.abs(hub.y - cy) < 0.5 && [...nodes.values()].every(placedAt)) {
+    ORG_LIVE.alpha = 0.02;
+    orgLiveSync();
+    return;
+  }
+  /* #4434: a TREE that is not at its placement (a re-parent, an agent added or removed, the first manager
+     assigned) goes straight to it: the placement is its resting state, so it glides there (orgHomeStep, at
+     most ORG_GLIDE_MAX a frame) rather than running the physics, which drifts a large tree and then needs
+     the repair (review it9: the first manager assigned snapped the chart with no animation). Under reduced
+     motion it is placed there at once. The physics is for drags. */
+  if ([...nodes.values()].some((n) => n.home)) {
+    ORG_LIVE.alpha = 0.02;
+    if (still) { orgHomeStep([...nodes.values()], hub, 1); orgLiveSync(); return; }
+    ORG_LIVE.homing = true;
+    orgLiveSync();
+    orgLiveRun();
+    return;
+  }
   if (still) {
     /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
        path skipped the relaxation entirely, leaving a reduced-motion user with
@@ -29670,11 +30155,27 @@ function orgLiveRun() {
   const tickOnce = () => {
     if (!ORG_LIVE) return;
     const L = ORG_LIVE;
+    /* #4434: a tree that came to rest crossed glides back to its placement (orgHomeStep) instead of
+       jumping there; a grab mid-glide ends it and the physics takes the drag. */
+    if (L.homing && !L.dragging) {
+      const left = orgHomeStep([...L.nodes.values()], L.hub, 0.2);
+      orgLiveSync();
+      if (left > 0.5) { L.raf = requestAnimationFrame(tickOnce); return; }
+      orgHomeStep([...L.nodes.values()], L.hub, 1);
+      orgLiveSync();
+      L.homing = false; L.raf = 0;
+      return;
+    }
+    /* A press during the glide stops it (the physics takes the drag); the release resumes it (see release). */
+    if (L.homing) { L.homing = false; L.glidePaused = true; }
     const moved = orgStep([...L.nodes.values()], L.hub, L.alpha, L.box);
     orgLiveSync();
     L.alpha *= 0.985;
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
-    else { L.raf = 0; L.alpha = Math.max(L.alpha, 0.02); }
+    else {
+      L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
+      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub, true)) { L.homing = true; L.raf = requestAnimationFrame(tickOnce); }   // #4434: never rest with a crossing (and never mid-drag)
+    }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
 }
@@ -29729,7 +30230,13 @@ function orgLiveRun() {
     const was = drag;
     drag = null;
     was.body.fixed = false;
-    if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+    if (ORG_LIVE) {
+      ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null;
+      /* #4434: a press that never moved (a click) leaves a TREE where it rests: nothing moved, so there is
+         nothing to settle, and running the physics would drift it (review it5). A flat fleet runs as before. */
+      if (was.moved || ![...ORG_LIVE.nodes.values()].some((n) => n.home)) { ORG_LIVE.glidePaused = false; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+      else if (ORG_LIVE.glidePaused || orgPlanarRepair([...ORG_LIVE.nodes.values()], ORG_LIVE.hub, true)) { ORG_LIVE.glidePaused = false; ORG_LIVE.homing = true; orgLiveRun(); }   // a click that stopped a glide: finish it
+    }
     was.el.classList.remove('dragging');
     /* 🛑 THE CLICK THAT ENDS A DRAG MUST NOT OPEN THE AGENT (#381). The first
        version swallowed it with a one-shot capture listener removed on a
@@ -30585,6 +31092,118 @@ function renderAvatar(a) {
 }
 
 /**
+ * #4421: the open agent's NAME follows every poll. CURRENT is the card as it was when the agent was opened, and a
+ * dozen places read CURRENT.name: the "Direct Message to" title, every agent message's label, the "is working"
+ * line, the send path, the Fresh start and restart sentences. After a rename (Josh, 2026-09-28: "Demis Hassabis -
+ * Gemini" in the heading, "Gemini-Sub" everywhere under it) they all kept the old name until the agent was opened
+ * again, and a restart does not reopen it. The fresh card's name is the one derivation (engine/status.js
+ * readIdentity: the recorded name, whatever the provider), so it is copied onto CURRENT here, once per poll,
+ * rather than each reader looking it up. Only the name: the rest of CURRENT keeps its open-time meaning. The
+ * heading follows too, so a rename made anywhere else (another tab, the Tasks page) reaches this page.
+ * No card this poll, or a card with no name, keeps the last one rather than guessing.
+ */
+function followRename(fresh) {
+  if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
+  if (typeof fresh.name !== 'string' || !fresh.name) return;
+  if (fresh.name !== CURRENT.name) {
+    CURRENT.name = fresh.name;
+    const h = document.getElementById('d-name');
+    if (h) h.textContent = fresh.name;
+    detailNavNames(fresh.name);
+    fitDetailName();
+    /* The other places openDetail named it once (#4421 sweep). The letter disc's letter AND its tint and ink, which
+       are derived from the name (review iteration 2); only while the disc is what shows, so a photo is not fetched
+       again and a swarm's cluster is left to swarmPagePaint (review iteration 3). */
+    const ini = document.getElementById('d-initials');
+    if (ini) {
+      ini.textContent = initials(fresh.name);
+      if (!ini.hidden) {
+        ini.style.background = discTint(fresh.name);
+        ini.style.color = discInk(fresh.name);
+        if (ini.parentElement) ini.parentElement.style.background = discTint(fresh.name);
+      }
+    }
+    paintInstrLede(CURRENT);
+    /* fresh: the title line's role and "no name was chosen" note are the card's CURRENT facts. */
+    paintDetailMeta(fresh);
+    /* CURRENT, not fresh: only the name changes here. The reading stays CURRENT's, the one the ring and badge beside
+       the box were last painted from (open, or an avatar refresh), rather than a newer one they do not show. */
+    const mem = document.getElementById('d-memory');
+    if (mem) mem.innerHTML = memoryBox(CURRENT);
+  }
+  /* 🛑 THE RENAME BOX, and this one is not cosmetic: before Save sent a name only when edited, a box still holding
+     the old name renamed the agent BACK on the next Save of its role. It is moved only while untouched (it still
+     holds what it was last filled with, `dataset.shown`) and not focused; a name somebody is typing is theirs.
+     Checked on EVERY poll, not only the one where the name changed, so a box that had focus on that poll still
+     catches up once it is left (review iteration 2). */
+  const box = document.getElementById('d-rename');
+  if (box && box.value === (box.dataset.shown || '') && box.dataset.shown !== fresh.name && document.activeElement !== box) {
+    box.value = fresh.name;
+    box.dataset.shown = fresh.name;
+  }
+}
+
+/**
+ * #4423: what openDetail painted once and the poll never repainted, beyond the agent's own name (followRename):
+ *  - the title line and its "no name was chosen" note (paintDetailMeta), so a role changed elsewhere, or a name
+ *    chosen, shows without reopening the agent;
+ *  - the Reports-to menu (paintReportsTo), which names the OTHER agents, so one renamed while this page is open
+ *    shows its new name. Only while the menu still shows what it was last painted with and is not focused: a
+ *    choice somebody has picked and not yet saved is theirs, and a repaint would put the saved one back.
+ * Both from the fresh card, both written only when what they would write changed (compared with what they last
+ * wrote, since the browser reads markup back differently).
+ */
+function followCard(fresh) {
+  if (!CURRENT || !fresh || fresh.sessionName !== CURRENT.sessionName) return;
+  paintDetailMeta(fresh);
+  const sel = document.getElementById('d-reports');
+  if (!sel || document.activeElement === sel) return;
+  /* Untouched = still showing what paintReportsTo last showed (`shown`), not "equals the record": the record can
+     name an agent no longer listed, or change elsewhere, and either would stop the menu following for good. */
+  if (sel.value !== ((sel.dataset && sel.dataset.shown) || '')) return;
+  paintReportsTo(fresh);
+}
+
+/* "What <name> is for", the Instructions lede: one sentence, painted at open and after a rename (#4421).
+   Falls back to the generic when there is no name, rather than "What  is for". */
+function paintInstrLede(a) {
+  const lede = document.getElementById('d-instr-lede');
+  if (!lede) return;
+  const who = (a && (a.name || a.sessionName)) || '';
+  lede.textContent = (who ? 'What ' + who + ' is for' : 'What this agent is for')
+    + ', in your words. The first thing they read every time they start, '
+    + 'and the only thing that survives a restart.';
+}
+
+/* The title line under the agent's name, and #684's "no name was chosen" note: painted at open and after a rename
+   (#4421: an agent given a name keeps the note no longer). */
+function paintDetailMeta(a) {
+  const roleSeg = roleLine(a, ROLE_TITLES);
+  /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
+     only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
+     Account · Model) is dropped here per Josh: "remove the provider account and model information
+     that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
+     title, reading as the title line under the name. The model still shows in the AI Settings
+     section (drun; the model + memory fold) and the account in Settings, so nothing is lost, only
+     moved off this header. */
+  const metaBits = [];
+  if (roleSeg) metaBits.push(esc(roleSeg));
+  // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
+  // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
+  if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
+  // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
+  // before it stacked a redundant blank line when both the title and the #684 disclosure show.
+  // The block note already starts on its own line; the title alone or the note alone are single
+  // segments where the separator never renders.
+  const dmeta = document.getElementById('d-meta');
+  { const html = metaBits.join(''); const mem = dmeta.dataset || {}; if (mem.html !== html) { dmeta.innerHTML = html; mem.html = html; } }   // #4423: every poll now; compared with what was written (read-back differs)
+  // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
+  // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
+  // double the gap between the name and the status badge (#3385 iteration-9).
+  dmeta.hidden = metaBits.length === 0;
+}
+
+/**
  * Refresh the open agent's picture from the latest poll, keeping everything
  * else on the panel, including anything typed and not yet saved.
  */
@@ -30592,6 +31211,9 @@ function refreshAvatar() {
   if (!CURRENT) return;
   const a = LAST.find((x) => x.sessionName === CURRENT.sessionName);
   if (!a) return;
+  /* #4421: before CURRENT is replaced, or a rename this card carries would never be painted. Belt and braces: its
+     callers poll first, and the poll is where a rename is normally followed. */
+  followRename(a);
   CURRENT = a;
   renderAvatar(a);
 }
@@ -31521,12 +32143,16 @@ const TERM_DRAFTS = {};
  * ⚠️ THE RECORD HOLDS THE SESSION NAME — the log holds what the wire holds —
  * and every surface resolves it at the edge. `name` is the display name the
  * page already has for the agent whose box this is, so a reply from THEM reads
- * as them; anything else is a session name we have no card for here and is
- * shown as it is rather than guessed at.
+ * as them; anyone else is named by their current card (#4421: the internal id
+ * was shown even when a card named them), and by the session name only when
+ * there is no card at all, rather than guessed at.
  */
 function dmWho(from, name) {
   if (!CURRENT) return String(from);
-  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from)) : String(from);
+  /* #4421: others by their card. `typeof`-guarded like dmRow's LAST, so a test that lifts this without
+     tskAgentName falls back to the id rather than throwing. */
+  return from === CURRENT.sessionName ? (name || CURRENT.name || String(from))
+    : (typeof tskAgentName === 'function' ? tskAgentName(from) : String(from));
 }
 
 function dmRow(m, name, replyAdjacent) {
@@ -31580,13 +32206,16 @@ function dmRow(m, name, replyAdjacent) {
        without a LAST) fall back to the disc rather than throwing. */
     const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
       ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    const shownFrom = dmWho(m.from, name);   // #4421: one name for the label and the disc
     /* No data-open-agent here (unlike pjRoomRow): the [data-open-agent] click handler is
        bound to #pj-room only, and this DM already lives inside m.from's own detail panel,
        so opening the agent from here would re-open the current view. The name/avatar are
        therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
     const av = (card && card.hasAvatar)
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+      /* #4421: the disc is the NAME's (shownFrom, the label's own), not the id's: a renamed agent's rows read its
+         new name, and a letter and tint derived from the id would disagree with the label and the working line. */
+      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(shownFrom) + ';color:' + discInk(shownFrom) + '">' + esc(initials(shownFrom)) + '</div>';
     /* #3650: the person can react to the agent's message, as in a project room: the
        room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
@@ -31596,7 +32225,7 @@ function dmRow(m, name, replyAdjacent) {
         typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
-      + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
+      + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
@@ -31699,7 +32328,14 @@ function dmReplyPaint(agent) {
   if (!el) return;
   const r = agent ? DM_REPLY[agent] : null;
   const input = document.getElementById('d-say');
-  const key = r ? agent + '\u0000' + r.at : '';
+  /* #4423: the name as it is NOW (a rename while a reply is pending), and part of the key so a new name redraws. */
+  /* DM_ROWS_NAME is the name of the agent whose thread was last drawn, which is not yet this one's just after a
+     switch (paintTalk paints this strip before the thread): only pass it when it belongs to this agent. */
+  const fresh = r && r.from ? dmWho(r.from, DM_ROWS_OF === agent ? DM_ROWS_NAME : '') : '';
+  /* A sender whose card is gone (removed while the reply was pending) comes back as the bare id: keep the name taken
+     at the click rather than show the id (Johnny's review of #4510). */
+  const who = r ? (r.from && fresh && fresh !== r.from ? fresh : r.who) : '';
+  const key = r ? agent + '\u0000' + r.at + '\u0000' + who : '';
   if (el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
   el.dataset.key = key;
   if (!r) {
@@ -31709,7 +32345,7 @@ function dmReplyPaint(agent) {
   }
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'd-reply-what');   // heard each time the box is reached
-  el.innerHTML = '<span class="pj-replying-t" id="d-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+  el.innerHTML = '<span class="pj-replying-t" id="d-reply-what">Replying to <b>' + esc(who) + '</b>: ' + esc(r.words) + '</span>'
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function dmReplySay(words) {
@@ -31727,7 +32363,8 @@ function dmReplyStart(at) {
   // Between an agent switch and the new thread's first paint the rows are the last agent's. The real
   // guard is the server's: it refuses a reply to a message that is not in this conversation.
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
-  DM_REPLY[agent] = { at, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  /* #4423: `from` kept beside the name, so the strip names the sender as they are called NOW (dmReplyPaint). */
+  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
   dmReplyPaint(agent);
   dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
@@ -33146,29 +33783,7 @@ function openDetail(sessionName, section, fromProject) {
      agent with no role -- in which case #d-meta renders empty (see the metaBits build below).
      #3385 dropped the #1841 <b> title bolding along with the rest of the #2833 subtitle; the
      title is now plain text, so nothing wraps the role in markup. */
-  const roleSeg = roleLine(a, ROLE_TITLES);
-  /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
-     only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
-     Account · Model) is dropped here per Josh: "remove the provider account and model information
-     that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
-     title, reading as the title line under the name. The model still shows in the AI Settings
-     section (drun; the model + memory fold) and the account in Settings, so nothing is lost, only
-     moved off this header. */
-  const metaBits = [];
-  if (roleSeg) metaBits.push(esc(roleSeg));
-  // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
-  // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
-  if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
-  // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
-  // before it stacked a redundant blank line when both the title and the #684 disclosure show.
-  // The block note already starts on its own line; the title alone or the note alone are single
-  // segments where the separator never renders.
-  const dmeta = document.getElementById('d-meta');
-  dmeta.innerHTML = metaBits.join('');
-  // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
-  // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
-  // double the gap between the name and the status badge (#3385 iteration-9).
-  dmeta.hidden = metaBits.length === 0;
+  paintDetailMeta(a);
   paintDetailState(a);
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
@@ -33177,13 +33792,7 @@ function openDetail(sessionName, section, fromProject) {
      rendering "What  is for": a missing name is a state this panel can be in
      for a tick, and a sentence with a hole in it reads as broken rather than
      as generic. */
-  const lede = document.getElementById('d-instr-lede');
-  if (lede) {
-    const who = (a && (a.name || a.sessionName)) || '';
-    lede.textContent = (who ? 'What ' + who + ' is for' : 'What this agent is for')
-      + ', in your words. The first thing they read every time they start, '
-      + 'and the only thing that survives a restart.';
-  }
+  paintInstrLede(a);
   /* ⚠️ AFTER the badge/task block, deliberately: a test extracts that block by
      its first and last lines and runs it in isolation, so a call placed inside
      it needs a stub the test would then be asserting against instead of the
@@ -33191,6 +33800,10 @@ function openDetail(sessionName, section, fromProject) {
   paintModelPicker(a);
   paintProviderPicker(a);
   paintAccountPicker(a);
+  /* #4423: opening an agent SHOWS its saved choice, even when the list is the same as last time: without this, the
+     write-only-on-change check would keep a pick abandoned on an earlier visit, and a later role-only Save would send
+     it (review iteration 3). */
+  { const rsel = document.getElementById('d-reports'); if (rsel && rsel.dataset) delete rsel.dataset.html; }
   paintReportsTo(a);
   /* #3271 (Josh, 2026-09-18): NO reported-reason line under the agent name. `a.because`
      (e.g. "Finished responding.") used to paint into #d-why here, added by #3043; Josh
@@ -33363,6 +33976,7 @@ function openDetail(sessionName, section, fromProject) {
      over the instruction file); `a.sessionName` is where it lives, and is not
      what this field edits. */
   document.getElementById('d-rename').value = a.name || '';
+  document.getElementById('d-rename').dataset.shown = a.name || '';   // #4421: Save sends a name only if edited
   document.getElementById('d-initials').textContent = initials(a.name);
 
   renderAvatar(a);
@@ -33564,7 +34178,7 @@ function detailPaintWindow(a) {
    `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
-const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'];   // #3757: files has no pill (View All reaches it)
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'];   // #4433: swarm, only while the Swarm Settings box shows   // #3757: files has no pill (View All reaches it)
 /* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
@@ -33593,6 +34207,9 @@ function detailSectionGroup(section) {
 let TALK_SCROLL = null;
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
+  /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
+  if (section === 'swarm') { const sb = document.getElementById('d-nav-swarm'); if (!sb || sb.hidden) section = 'talk'; }
+  if (section !== 'swarm' && typeof swarmConfirmShow === 'function') swarmConfirmShow(false);   // leaving the view closes an open stop question
   /* The reader's place is kept only across THEIR OWN click away from Talk
      (the open path passes focus:false and never captures: it is a different
      agent's thread, and openDetail has just reset the offset for it). */
@@ -33659,6 +34276,11 @@ function detailGo(section, opts) {
      to the open-time record: a missing one means the agent left the board,
      which is the case the helper's first arm exists for. */
   if (section === 'files' && CURRENT && arriving) paintAgentFilesAll(CURRENT.sessionName);   // #3757
+  if (section === 'swarm' && CURRENT && arriving) {   // #4433: the view reads today's row as it opens
+    if (typeof swarmMsgClear === 'function') swarmMsgClear();
+    const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
+    if (fresh) swarmPagePaint(fresh, { force: true });
+  }
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
@@ -34910,7 +35532,7 @@ function wnWire(back) {
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4288 part B: and the one-time Community notice, so the two windows never stack. #4343: and the restart screen.
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -39015,17 +39637,22 @@ document.getElementById('d-save').addEventListener('click', async () => {
   msg.textContent = 'Saving…';
   try {
     const renameTo = document.getElementById('d-rename').value.trim().slice(0, 80);
+    /* 🛑 #4421: a name only when the box was EDITED (still showing what it was filled with = not edited), or a box
+       left on the old name by a rename made elsewhere renames the agent BACK on a role-only Save. */
+    const renameBox = document.getElementById('d-rename');
+    const nameEdited = !!renameTo && renameTo !== ((renameBox.dataset.shown || '').trim().slice(0, 80));
+    /* #4423: read once, before the request: what is SENT is what the menu is marked as showing after it lands. */
+    const reportsSent = document.getElementById('d-reports-wrap').hidden ? null : document.getElementById('d-reports').value;
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/profile',
       { method: 'PUT', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ role: document.getElementById('d-role').value.trim(),
-                               displayName: renameTo,
+                               ...(nameEdited ? { displayName: renameTo } : {}),
                                /* Only when the field is showing. On a one-agent
                                   board it is hidden and empty, and sending an
                                   empty string CLEARS the record -- so an
                                   unconditional send would erase a reporting
                                   line every time somebody saved a role. */
-                               ...(document.getElementById('d-reports-wrap').hidden
-                                 ? {} : { reportsTo: document.getElementById('d-reports').value }) }) });
+                               ...(reportsSent === null ? {} : { reportsTo: reportsSent }) }) });
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     if (!res.ok) throw new Error('that did not save');
     const saved = await res.json().catch(() => null);
@@ -39051,7 +39678,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
     /* The route says what the file said before (`was`); the screen's name is
        the fallback for an older engine that does not. */
     const before = (ren && ren.changed && (ren.was || wasCalled) || '').trim();
-    const renamedFrom = before && renameTo && before !== renameTo ? before : '';
+    const renamedFrom = before && nameEdited && before !== renameTo ? before : '';
     msg.textContent = !ren ? 'Saved.'
       : ren.changed ? (isRunning
           ? 'Saved. Its instructions say the new name too, so restart it when you are ready and it will know.'
@@ -39103,12 +39730,6 @@ document.getElementById('d-save').addEventListener('click', async () => {
        name the record does not hold. An empty-after-trim name is dropped by the
        route (deliberately, so nobody blanks an agent into anonymity), so the
        heading is left alone in that case rather than being emptied. */
-    if (renameTo) {
-      const h = document.getElementById('d-name');
-      if (h) h.textContent = renameTo;
-      detailNavNames(renameTo);
-      fitDetailName();   // #3385: re-fit the name to the column after a rename (long shrinks, short grows back)
-    }
     /* #2139: the @mention picker sources each candidate's shown name from
        PROJECTS[].agents[].name (mentionCandidates -> pjById(PJ_CURRENT).agents),
        and PROJECTS is populated only by loadProjects() reading /api/projects --
@@ -39118,8 +39739,23 @@ document.getElementById('d-save').addEventListener('click', async () => {
        shown name actually changed. Non-blocking and self-handling (loadProjects
        swallows its own read errors in an internal try/catch and never rethrows),
        so it never delays or breaks the save feedback; the picker reads PROJECTS
-       live on the next keystroke, so an async refresh is enough. */
-    if (renameTo && renameTo !== wasCalled) loadProjects();
+       live on the next keystroke, so an async refresh is enough.
+       #4421: before the switched-agent return below, since PROJECTS is every project's, not this panel's. */
+    if (nameEdited && renameTo !== wasCalled) loadProjects();
+    if (!CURRENT || CURRENT.sessionName !== forAgent) return;   // #4421 (review iteration 3): switched during the read
+    /* #4423: the Reports-to choice just SAVED (the value sent, not whatever the menu says after the wait: a pick made
+       during the request stays an unsaved pick) is now what the menu "shows", or it would read as edited forever. */
+    { const rsel = document.getElementById('d-reports'); if (rsel && rsel.dataset && reportsSent !== null) rsel.dataset.shown = reportsSent; }
+    if (nameEdited) {
+      renameBox.dataset.shown = renameTo;
+      /* The box shows what was saved (trimmed, capped), or it would never again equal `shown` and would stop
+         following renames (review iteration 3). Not under somebody's cursor. */
+      if (document.activeElement !== renameBox) renameBox.value = renameTo;
+      const h = document.getElementById('d-name');
+      if (h) h.textContent = renameTo;
+      detailNavNames(renameTo);
+      fitDetailName();   // #3385: re-fit the name to the column after a rename (long shrinks, short grows back)
+    }
     await tick();
   } catch (err) {
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
@@ -41727,8 +42363,8 @@ let OPENAI_DETAIL_GEN = 0;
    the account's models with "Let OpenAI choose" first and the agent's CURRENT model
    pre-selected, or a single "OpenAI picks its own model for now" option when the
    account cannot list models -- NEVER a Claude model. The current model KEY comes
-   from a.plannedModelName, which for OpenAI is the raw model id (modelDisplayName
-   falls through to the id for non-Claude models).
+   from a.plannedModelId, the job's RAW model id (#4416: plannedModelName is now a readable name, "GPT 5.6 Sol",
+   which no option's value matches).
    🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
    account list (server.js). A codex agent WITH its own configDir gets
    {dir: <that codex dir>, isDefault:null} -- a real OpenAI account the route
@@ -41770,7 +42406,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const refusal = !ours
     ? 'Kosmos did not start this agent, so it cannot change its model.'
     : 'Kosmos did not record how this agent starts, so there is no model to change here.';
-  const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
+  const currentKey = (a && typeof a.plannedModelId === 'string') ? a.plannedModelId : '';   // #4416: the raw id, not the readable name
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';
@@ -41859,9 +42495,8 @@ async function paintModelPicker(a) {
      -- the exact "Claude models under an OpenAI agent" bug Josh flagged on the create
      form (#2167), here on the detail surface. Delegate and return. */
   if (a && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
-  /* #3566: a Gemini or Grok agent runs its CLI's own default model and Kosmos has no
-     list of theirs to offer, so the menu states that as its one option and Switch
-     stays down. The Claude flow below would otherwise offer Claude models under a
+  /* #3566: Kosmos has no list of Gemini's or Grok's models to offer, so the menu states
+     what the agent runs as its one option and Switch stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
   if (a && (a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
@@ -41869,7 +42504,10 @@ async function paintModelPicker(a) {
     OPENAI_DETAIL_GEN += 1;
     if (msg && msg.textContent) msg.textContent = '';
     const word = a.runner === 'grok' ? 'Grok' : a.runner === 'muse' ? 'Meta Muse' : 'Gemini';   // gemini and antigravity (Gemini by subscription)
-    const one = '<option value="" selected>' + esc(word + ' picks its own model') + '</option>';
+    /* #4416: a Gemini or Grok agent runs the model its job names, or the one Kosmos pins when it names none, so the
+       menu says the same model the card does. Antigravity and Muse really do pick their own. */
+    const runsOn = menuRunsOn(a);
+    const one = '<option value="" selected>' + esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model') + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
     sel.disabled = true;
@@ -42006,7 +42644,12 @@ function paintReportsTo(a) {
      part way through choosing from. This is the one control on the panel whose
      value is a stored preference rather than typed text, so it has no dirty
      flag to protect it -- the guard IS the protection. */
-  if (sel.innerHTML !== html) sel.innerHTML = html;
+  /* #4423: compared with what was last WRITTEN, not read back: a browser reads `selected` back as `selected=""`, so
+     comparing with innerHTML never matched and followCard would rebuild the menu every poll. `shown` is the value
+     it now shows, which followCard reads as "untouched" (the #4421 rename box's pattern). */
+  const mem = sel.dataset || {};   // an element without a dataset (a test's stand-in) just writes every time, as before
+  if (mem.html !== html) { sel.innerHTML = html; mem.html = html; }
+  mem.shown = sel.value;
 }
 /* #1959: read the OBSERVED-liveness badge (engine/observed.js, overlaid onto
    /api/accounts Claude rows as connection.badge by the /api/accounts route)
@@ -43924,7 +44567,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
         : toAgy
           ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.'
         : toOther
-          ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
+          ? 'Its ' + fromWord + ' model and account choices do not cross: it starts on Kosmos\u2019s default ' + label + ' model, '
             + ((() => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
@@ -45352,7 +45995,7 @@ function swarmStatusWords(a) {
   const st = a && a.state;
   return st === 'working' ? 'Working alone' : st === 'idle' ? 'Idle, working alone' : 'No helpers working';
 }
-/* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
+/* The swarm's Swarm Settings view (#4433; was the mock's section 3): the three states, Most helpers, the limit and Today. Painted from the
    status row every poll; a control the person is using is not repainted under them. */
 var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
 var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's page starts with an empty message line
@@ -45362,8 +46005,14 @@ function swarmPagePaint(a, { force = false } = {}) {
   const sw = a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? a.swarm : null;
   SWARM_ROW = sw ? a : null;
   const who = a && a.sessionName;
-  if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
+  if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; swarmConfirmShow(false); }
   panel.hidden = !sw;
+  /* #4433: the Swarm Settings box follows the field. This runs on every poll, and the poll never chooses the
+     section (web.agent-nav.test.js), so a view left open when the field goes says so instead of moving the reader. */
+  const navBox = document.getElementById('d-nav-swarm');
+  if (navBox) navBox.hidden = !sw;
+  if (!sw) swarmConfirmShow(false);
+  { const none = document.getElementById('d-swarm-none'); if (none) none.hidden = !!sw; }
   /* The page's header face follows the field: it gains or loses the cluster when a poll brings or drops `swarm`. */
   { const head = document.getElementById('d-swarm'); if (head && a && (!!sw) === head.hidden && typeof renderAvatar === 'function') renderAvatar(a); }
   /* A swarm runs on Claude only (the engine refuses a move off it), so it is not offered a switch that cannot work. */
@@ -45371,20 +46020,31 @@ function swarmPagePaint(a, { force = false } = {}) {
   if (!sw) return;
   renderAvatarSwarmOnly(a);
   const on = sw.active !== false;
-  const want = document.querySelector(`input[name="d-swarm-active"][value="${on ? 'on' : 'off'}"]`);
-  if (want && !want.checked && SWARM_BUSY !== who) want.checked = true;
+  /* #4433: the three states. Active is active; Paused is a person's pause or the daily limit's; Stopped is a stop. */
+  const st = on ? 'active' : sw.pausedBecause === 'stopped' ? 'stopped' : 'paused';
+  const limitPaused = !on && sw.pausedBecause === 'limit';
+  if (SWARM_BUSY !== who) swarmCardsPaint(st);
+  document.getElementById('d-swarm-l-limit').hidden = !limitPaused;
+  /* A hidden element named by aria-describedby is still READ (the accessible-name rules), so the limit line joins the
+     Paused card's description only while it is true (review round 7). */
+  { const pc = document.querySelector('#d-swarm-states .swcard[data-st="paused"]');
+    if (pc) pc.setAttribute('aria-describedby', limitPaused ? 'd-swarm-l-paused d-swarm-l-limit' : 'd-swarm-l-paused'); }
+  document.getElementById('d-swarm-tolimit').hidden = !limitPaused || !(Number(sw.dailyTokenLimit) > 0);
+  if (SWARM_BUSY !== who) swarmPillPaint(st, limitPaused);
+  /* #4433: when is a stop USED UP? Only when nothing is left to stop: stopped (or paused at the limit), no helper
+     counted in a full read (metered false may be missing one), and the lead itself known idle (the meter counts helpers
+     only, and a stop whose interrupt failed leaves it stopped with its turn running). Anything uncertain counts as
+     not used up. This decides one thing: whether picking Stopped when it is ALREADY the chosen card asks again. From
+     Paused (by the person or the limit), Stopped always asks, because it is a real change: a limit pause resumes by
+     itself, a stop does not. */
+  SWARM_STOP_SPENT = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
+  /* The line claims work is still running, so it needs evidence, not the cautious rule above (review round 3): a helper
+     counted, or the lead reported working. Right after a stop the row still says working until a poll lands, so the
+     line may show for one poll beside the done message; it is true of the last reading. */
   const why = document.getElementById('d-swarm-why');
-  const words = on ? '' : sw.pausedBecause === 'limit' ? `Paused at today's limit. It starts again at midnight, or switch it back to Active.`
-    : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
-    : 'Paused. It takes no new work until you switch it back to Active.';
+  const busyNow = (sw.metered !== false && Number(sw.activeHelpers) > 0) || a.state === 'working';
+  const words = st === 'stopped' && busyNow ? 'It is still finishing what it was doing. Pick Stopped again to stop it now.' : '';
   why.textContent = words; why.hidden = !words;
-  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works, and while
-     the count itself could not be read in full (metered false), since it may be missing one that is. */
-  /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
-     once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
-  /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
-     still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
-  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
   if ((force || document.activeElement !== range) && SWARM_BUSY !== who) range.value = String(max);
@@ -45432,7 +46092,7 @@ function swarmPagePaint(a, { force = false } = {}) {
     } else {
       capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
       capR.value = String(Math.max(1, Math.round(cap / 1000000)));
-      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US') + ' tokens';   // #4433: the unit, as Today says it
       capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
     }
   }
@@ -45475,7 +46135,6 @@ document.addEventListener('change', async (e) => {
   const t = e.target;
   if (!t || !CURRENT) return;
   const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
-  if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
   /* Saved but the lead could not be told (told.could_not): the page must not show the new number as if it runs. */
   if (t.id === 'd-swarm-max') {
     await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) },
@@ -45491,10 +46150,11 @@ document.addEventListener('change', async (e) => {
 });
 /* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
 document.body.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'd-swarm-cap' || e.target.id === 'd-swarm-max')) swarmMsgClear();   // #4433: the person moved on
   if (e.target && e.target.id === 'd-swarm-cap') {
     const pct = e.target.dataset.mode === 'pct';
     const t = pct ? e.target.value + '%' : (Number(e.target.value) * 1000000).toLocaleString('en-US');
-    document.getElementById('d-swarm-cap-v').textContent = t;
+    document.getElementById('d-swarm-cap-v').textContent = pct ? t : t + ' tokens';
     e.target.setAttribute('aria-valuetext', pct ? t + ' of your weekly allowance' : t + ' tokens a day');
   }
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
@@ -45505,8 +46165,86 @@ document.body.addEventListener('input', (e) => {
 });
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
-  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for this swarm, as swarmPick
+  swarmConfirmShow(false);
+  swarmCardsPaint('stopped'); swarmPillPaint('stopped', false);   // shown at once; a refused stop repaints the saved state
+  const who = CURRENT.sessionName;
+  await swarmSend('/api/agent/' + encodeURIComponent(who) + '/swarm/stop', 'POST', {},
     (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
+  if (CURRENT && CURRENT.sessionName === who) swarmCardFocus();
+});
+/* #4433 (Mona's design on #3946): the three state cards. A custom radio group: arrow keys (and Home, End) move
+   between them, Space or Enter picks, a click picks. Active and Paused apply at once; Stopped asks first. */
+var SWARM_STOP_SPENT = false;   // set by swarmPagePaint: a stop now would change nothing
+function swarmCards() { return [...document.querySelectorAll('#d-swarm-states .swcard')]; }
+/* The Swarm Settings box's state, in colour and words. Painted with the cards, so the two never disagree. */
+function swarmPillPaint(st, limitPaused) {
+  const navBox = document.getElementById('d-nav-swarm');
+  if (!navBox) return;
+  const word = st === 'active' ? 'Active' : st === 'stopped' ? 'Stopped' : limitPaused ? 'Paused (limit)' : 'Paused';
+  navBox.dataset.st = st;
+  document.getElementById('d-nav-swarm-word').textContent = word;
+}
+function swarmCardsPaint(st) {
+  const cards = swarmCards();
+  const focused = cards.find((c) => c === document.activeElement);   // a poll leaves the tab stop where the person is
+  for (const c of cards) { const chosen = c.dataset.st === st; c.setAttribute('aria-checked', String(chosen)); c.tabIndex = (focused ? c === focused : chosen) ? 0 : -1; }
+}
+function swarmCardFocus() {
+  const c = document.querySelector('#d-swarm-states .swcard[aria-checked="true"]');
+  if (c && !document.getElementById('d-sec-swarm').hidden) c.focus();
+}
+/* #4433 (Mona's review): a refusal on the message line explains the one change it refused, and says so until the
+   person's next move in the view (a slider moved, the stop question opened, the view opened again). Left longer, it
+   read as "something is still broken" beside settings that were fine. A change the board answers writes its own. */
+function swarmMsgClear() { const m = document.getElementById('d-swarm-msg'); if (m) m.textContent = ''; }
+function swarmConfirmShow(show) {
+  const box = document.getElementById('d-swarm-confirm');
+  if (!box) return;
+  box.hidden = !show;
+  if (show) swarmMsgClear();
+  /* The safe answer takes focus, never Stop now: a held or doubled Enter on the Stopped card would otherwise
+     land on Stop now and confirm a stop that cannot be undone (review round 1). */
+  if (show) document.getElementById('d-swarm-keep').focus();
+}
+async function swarmPick(card) {
+  if (!card || !CURRENT || !SWARM_ROW || SWARM_ROW.sessionName !== CURRENT.sessionName) return;
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for THIS swarm; another swarm's stuck request never freezes it
+  const chosen = card.getAttribute('aria-checked') === 'true';
+  const st = card.dataset.st;
+  if (st === 'stopped') {
+    if (chosen && SWARM_STOP_SPENT) { document.getElementById('d-swarm-msg').textContent = 'It is already stopped, with nothing left running.'; return; }
+    swarmConfirmShow(true); return;
+  }
+  swarmConfirmShow(false);
+  if (chosen) return;
+  swarmCardsPaint(st); swarmPillPaint(st, false);   // shown at once; a refusal repaints the saved state (swarmSend's finally)
+  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm', 'PUT', { active: st === 'active' });
+}
+document.addEventListener('click', (e) => {
+  const t = e.target && e.target.closest;
+  if (!t) return;
+  const card = e.target.closest('#d-swarm-states .swcard');
+  if (card) { card.focus(); swarmPick(card); return; }
+  if (e.target.closest('#d-swarm-keep')) { swarmConfirmShow(false); swarmCardFocus(); return; }
+  if (e.target.closest('#d-swarm-tolimit')) { const cap = document.getElementById('d-swarm-cap'); if (cap) cap.focus(); }
+});
+document.addEventListener('keydown', (e) => {
+  const card = e.target && e.target.closest && e.target.closest('#d-swarm-states .swcard');
+  if (card) {
+    const all = swarmCards(), i = all.indexOf(card);
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? all[(i + 1) % all.length]
+      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? all[(i + all.length - 1) % all.length]
+      : e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1] : null;
+    if (to) { e.preventDefault(); all.forEach((c) => { c.tabIndex = c === to ? 0 : -1; }); to.focus(); return; }
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); swarmPick(card); }
+    else if (e.key === ' ' || e.key === 'Enter') e.preventDefault();   // a held key picks once
+    return;
+  }
+  /* Escape in the stop question keeps it running, as the other button does. */
+  if (e.key === 'Escape' && e.target && e.target.closest && e.target.closest('#d-swarm-confirm')) {
+    e.preventDefault(); e.stopPropagation(); swarmConfirmShow(false); swarmCardFocus();
+  }
 });
 function swminiSay(group, words) {
   const row = group.closest('.pj-member');
@@ -49511,7 +50249,7 @@ async function pjReload() {
 
 function tkMemberName(p, sessionName) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
-  return (m && m.name) || sessionName;
+  return (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
 }
 
 /* THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
@@ -51531,7 +52269,7 @@ function pjsHooksPaint() {
      that follows making one must not take the link out from under the person copying it). */
   const typed = new Map();
   let focusedName = null;
-  const onLink = !!document.activeElement && document.activeElement.id === 'pjs-hook-url';
+  const onLink = document.activeElement && (document.activeElement.id === 'pjs-hook-url' || document.activeElement.id === 'pjs-hook-public') ? document.activeElement.id : null;
   /* And on a row's own button (Delete, Keep it, Done...), found again by its data-hook-* key: after
      a rename the person tabs on to that row's Delete, and the read that follows repaints the list. */
   let onButton = null;
@@ -51549,12 +52287,18 @@ function pjsHooksPaint() {
     const id = esc(h.id);
     const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
       ? '<div class="pjs-hook-reveal">'
-        + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
-        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
-        + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
+        + '<p><b>' + (PJS_HOOKS.reveal.publicUrl ? 'Copy these links now.' : 'Copy this link now.') + '</b> For your safety Kosmos shows ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + ' only once.</p>'
+        + (PJS_HOOKS.reveal.publicUrl ? '<p class="fhint" style="margin:0 0 4px;">On this computer:</p>' : '')
+        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + ' on this computer">'
+        + '<button class="btn" type="button" data-hook-copy="pjs-hook-url" aria-label="Copy the link for this computer">Copy</button></div>'
+        + (PJS_HOOKS.reveal.publicUrl
+          ? '<p class="fhint" style="margin:10px 0 4px;">From the internet (Zapier, GitHub and the like):</p>'
+            + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-public" value="' + esc(PJS_HOOKS.reveal.publicUrl) + '" aria-label="The internet link for ' + esc(h.name) + '">'
+            + '<button class="btn" type="button" data-hook-copy="pjs-hook-public" aria-label="Copy the internet link">Copy</button></div>'
+          : (PJS_HOOKS.reveal.publicWhy ? '<p class="fhint" style="margin:8px 0 0;">' + esc(PJS_HOOKS.reveal.publicWhy) + '</p>' : ''))
         + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
-        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
+        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + '</button></div>'
       : '';
     const confirm = PJS_HOOKS.confirm === h.id
       ? '<div class="pjs-hook-confirm"><span id="pjs-hook-confirm-' + id + '">Delete ' + esc(h.name) + '? Anything using its link stops working.</span> '
@@ -51568,7 +52312,7 @@ function pjsHooksPaint() {
   }).join('');
   typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
   if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
-  if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
+  if (onLink) { const u = document.getElementById(onLink); if (u) { u.focus(); u.select(); } }
   if (onButton) { const b = box.querySelector('[' + onButton[0] + '="' + CSS.escape(onButton[1]) + '"]'); if (b) b.focus(); }
 }
 function pjsHooksInit(method, body) {
@@ -51591,7 +52335,7 @@ async function pjsHookAdd() {
     /* Settings moved to another project while this was being made: it belongs to the first one,
        so it is not shown here. Its link can no longer be shown; the person deletes it there. */
     if (PJS_HOOKS.projectId !== forProject) return;
-    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
+    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url, publicUrl: out.publicUrl || null, publicWhy: out.publicWhy || null };
     PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
     msg.textContent = '';
     pjsHooksPaint();
@@ -51656,20 +52400,21 @@ async function pjsHookDelete(id) {
   pjsHooksPaint();
   msg.focus();
 }
-async function pjsHookCopy() {
-  const input = document.getElementById('pjs-hook-url');
+async function pjsHookCopy(which) {
+  const input = document.getElementById(which === 'pjs-hook-public' ? 'pjs-hook-public' : 'pjs-hook-url');
   const said = document.getElementById('pjs-hook-copied');
   if (!input) return;
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and copy it yourself.';
+  const internet = which === 'pjs-hook-public';
+  if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : (internet ? 'Kosmos could not copy it. Select the internet link and copy it yourself.' : 'Kosmos could not copy it. Select the link and copy it yourself.');
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.hookCopy) { pjsHookCopy(); return; }
+  if (b.dataset.hookCopy) { pjsHookCopy(b.dataset.hookCopy); return; }
   if (b.dataset.hookDone) { PJS_HOOKS.reveal = null; pjsHooksPaint(); document.getElementById('pjs-hook-add').focus(); return; }
   if (b.dataset.hookDelete) {
     PJS_HOOKS.confirm = b.dataset.hookDelete;
@@ -54193,6 +54938,15 @@ function pjReplyPaint(projectId) {
   if (!el) return;
   const r = projectId ? PJ_REPLY[projectId] : null;
   const input = document.getElementById('pj-post');
+  /* #4423: named as they are called NOW; the name taken at the click only if the project is not loaded. Keyed like
+     dmReplyPaint, so the room poll that now calls this rewrites the strip only when what it says changed (a rewrite
+     every poll would pull focus off its close button). */
+  const rp = r && r.from ? pjById(projectId) : null;
+  const freshName = rp ? pjNameOf(rp, r.from) : '';
+  const who = r ? (freshName && freshName !== r.from ? freshName : r.who) : '';   // a removed sender keeps the click-time name
+  const key = r ? String(projectId) + '\u0000' + r.id + '\u0000' + who : '';
+  if (el.dataset && el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
+  if (el.dataset) el.dataset.key = key;
   if (!r) {
     el.hidden = true; el.innerHTML = '';
     if (input) input.removeAttribute('aria-describedby');
@@ -54201,7 +54955,7 @@ function pjReplyPaint(projectId) {
   el.hidden = false;
   if (input) input.setAttribute('aria-describedby', 'pj-reply-what');   // a screen reader hears "Replying to" each time it lands on the box
   /* #4359: no "Add @name" hint any more; Reply puts the agent's @mention in the box itself. */
-  el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+  el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(who) + '</b>: ' + esc(r.words) + '</span>'
     + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
 }
 function pjReplyStart(postId) {
@@ -54212,7 +54966,8 @@ function pjReplyStart(postId) {
   // not in this room, so nothing is ever misfiled.
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
+  /* #4423: who it answers, kept as the id (or "you"), so the strip names them as they are called NOW (pjReplyPaint). */
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -54466,7 +55221,10 @@ function rxnsInner(list, withReply, withSpeak) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
-    const who = Array.isArray(r.who) ? r.who.join(', ') : '';
+    /* #4423: the server lists reactors by SESSION name (and "you"); named here by their current card, the one
+       derivation dmWho and pjNameOf use, and by the id only when there is no card. Guarded like dmWho's call. */
+    const who = Array.isArray(r.who)
+      ? r.who.map((w) => (w === 'you' || typeof tskAgentName !== 'function') ? w : tskAgentName(w)).join(', ') : '';
     return '<button class="rxn' + (r.mine ? ' mine' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(who) + '">'
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
@@ -54958,7 +55716,10 @@ function pjRoomRow(m, p, hideHeader) {
       + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   const isOp = m.operator === true;
-  const card = !isOp && (p.agents || []).find((a) => a.sessionName === m.from);
+  /* #4423: a former member (a post from before it left) is found on the board's cards too, so its photo shows
+     rather than a letter disc; `typeof`-guarded like dmRow's, for the tests that lift this without LAST. */
+  const card = !isOp && ((p.agents || []).find((a) => a.sessionName === m.from)
+    || ((typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x && x.sessionName === m.from) : null));
   // #3130: the operator's post carries no name (the header omits it), so there is
   // no "You" to compute; only an agent's name is used, in the header's agent arm.
   const name = isOp ? '' : pjNameOf(p, m.from);
@@ -54975,7 +55736,8 @@ function pjRoomRow(m, p, hideHeader) {
       : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
       ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
+      /* #4421: the disc from the member's NAME (`name`, the label's own pjNameOf), not the id. */
+      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(name) + ';color:' + discInk(name) + '">' + esc(initials(name)) + '</div>');
   /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
      royal-blue for the person's own post (`.msg.you`), the cream `--agent-msg` for an
      agent's (the same tokens the DM view uses; see the .msg-bd rules).
@@ -55204,6 +55966,7 @@ function paintRoom(body) {
      nothing. This is what keeps a reader on the floor when the composer grows
      under them (#1037, the resize trigger). */
   holdFloorOnResize(box);
+  pjReplyPaint(PJ_CURRENT);   // #4423: a pending reply names its sender as they are called now (keyed, so no churn)
   const allRows = body.rows || [];
   /* #1150. Note when we LEARNED of each agent's newest post, so the working
      line below cannot assert a state older than a message we have already put
@@ -56275,7 +57038,9 @@ function pjPinWho(who) {
 /** The name to SPEAK for a member. Act on the machine name, speak this one. */
 function pjNameOf(p, sessionName) {
   const m = (p.agents || []).find((a) => a.sessionName === sessionName);
-  return (m && m.name) || sessionName;
+  /* #4421: an agent that is no longer a member (a post from before it left) is named by its current card, the
+     same lookup the Tasks page uses, and by its id only when there is no card at all. */
+  return (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // guarded as dmWho's
 }
 
 /**
@@ -63590,6 +64355,27 @@ function frClose() {
  * ⚠️ AND THE SECOND CLICK ALWAYS PROCEEDS, whatever happened. Somewhere to say
  * it is not the same as somewhere to be stuck.
  */
+/* #4356: "Run agents here and connect to other computers" is today's first run, then Kosmos Plus
+   sign-in as its last step: the Settings sign-in that already exists (plusSiEnter), not a new one.
+   The app says so with ?mode=both, so a first run finished after a relaunch still ends there. */
+let FR_FORCED = false;   // first run opened by hand (Settings' re-run, ?first-run=1), not first-time setup
+function frPlusLast() {
+  // The first-time setup of a both computer only: a re-run from Settings does not push the sign-in again.
+  return !FR_FORCED && new URLSearchParams(location.search).get('mode') === 'both';
+}
+function frPlusSignIn() {
+  showTab('settings');
+  settingsGo('plus');
+  plusSiEnter();
+}
+/* #4356: how first run ends, whichever way it closes. On a "both" computer the Kosmos Plus sign-in is
+   the last step and takes the place of the ending the screen offered (the agents list, or Create an
+   agent, which stays one click away on the board). Josh: the sign-in is the LAST step. */
+function frEnd(then) {
+  frClose();
+  if (frPlusLast()) frPlusSignIn(); else then();
+}
+
 async function frFinish(then) {
   /**
    * ⚠️ ONE FLAG, NOT A DISABLED BUTTON. The first version guarded re-entry by
@@ -63644,14 +64430,14 @@ async function frFinish(then) {
     why = err.message;
   }
   FR_FINISHING = false;
-  if (ok || FR_FORGOT) { frClose(); then(); return; }
+  if (ok || FR_FORGOT) { frEnd(then); return; }
   FR_FORGOT = true;
   next.disabled = false;
   document.getElementById('fr-forgot').innerHTML =
     '<div class="fr-note"><b>We could not remember that you have been here.</b> '
     + 'Everything else works; this may just appear again the next time you open it. ('
     + esc(why) + ')</div>';
-  frActions({ label: 'Carry on anyway', go: () => { frClose(); then(); } });
+  frActions({ label: 'Carry on anyway', go: () => frEnd(then) });
 }
 
 // ⚠️ Skipping MARKS IT SEEN, and that is not a bug. The flag records that
@@ -63837,7 +64623,8 @@ function tipMenuOpen() {
 }
 
 function tipModalOpen() {
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
+  // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
 }
 
 function tipVisibleAny(sel) {
@@ -64628,6 +65415,9 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
+  // #4356: nor under the first screen, which covers the board as first run does.
+  const frc = document.getElementById('fr-choice');
+  if (frc && !frc.hidden) return false;
   return !!asbGuideRow() || asbIsHosted() || asbStepping();
 }
 /* The hosted assistant has just ended, and the person has yet to read why: folded with the dot, or open for the
@@ -65352,6 +66142,114 @@ function asbStart() {
    win32-board-copy: a platform copy layer is back, for Windows rather than for the
    Success screen alone: onWindows() and windowsCopyTable() at the top of this script. */
 
+/* #4356: the app's own handler for this computer's choice: the Mac app's kosmosMode handler, or
+   the Windows app's window (WebView2), which takes { kosmosMode: "run|connect|both" } the way it
+   takes { kosmosBadge: n } (#4381, Homer's half). Absent in a browser, and on a board opened any
+   other way, so the choice screen never shows there; and only an app that knows the choice puts
+   ?mode= on the address (frChoiceWanted), so an older Windows app never shows it either. A WebView2
+   post cannot fail, so the page believes it was heard: the Windows app must handle { kosmosMode }
+   before it ever puts ?mode= on its address, or a choice is dropped (#4381). */
+function frChoiceBridge() {
+  const h = window.webkit && window.webkit.messageHandlers;
+  if (h && h.kosmosMode) return h.kosmosMode;
+  const wv = window.chrome && window.chrome.webview;
+  if (wv && typeof wv.postMessage === 'function') return { postMessage: (mode) => wv.postMessage({ kosmosMode: mode }) };
+  return null;
+}
+
+/* #4356: the app puts ?mode=unset on a computer that has not chosen, and ?mode=unreadable when its
+   stored choice could not be read. An unread choice asks again even after first run, rather than
+   quietly becoming one of the three. */
+function frChoiceWanted(done) {
+  if (!frChoiceBridge()) return false;
+  // Only on this computer's own board: in connect mode the window shows ANOTHER computer's page,
+  // which is this same page, and a crafted ?mode= there must not raise the screen over it.
+  if (!/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return false;
+  const mode = new URLSearchParams(location.search).get('mode');
+  return mode === 'unreadable' || (mode === 'unset' && !done);
+}
+
+/* #4356: once the app has the choice, the address stops asking. Reload keeps the address, and the
+   app no longer hears a choice it has already made, so the screen would come back with buttons that
+   do nothing. `both` stays on the address, as the app itself puts it there, because the end of
+   first run reads it (frPlusLast). */
+function frChoiceForget(mode) {
+  try {
+    const u = new URL(location.href);
+    if (!u.searchParams.has('mode')) return;
+    if (mode === 'both') u.searchParams.set('mode', 'both'); else u.searchParams.delete('mode');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
+}
+
+/* #4356: the page under the first screen is inert while it is up, INCLUDING what arrives later: seven
+   places append to <body> (the setup assistant's layer, toasts, tips), and a layer added after the
+   screen went up would take Tab and screen-reader focus from behind it (review round 4). */
+let FR_CHOICE_WATCH = null;
+let FR_CHOICE_INERTED = [];   // only what this screen made inert is given back, as the restart screen (#4343) does
+let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being stopped on purpose
+let FR_CHOICE_PENDING = false;      // the first screen is waiting for an answer (frChoose)
+let FR_CHOICE_HIDDEN_BY_RESTART = false;   // the restart screen hid it, and gives it back if it clears
+function frChoiceHold(n) {
+  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
+  n.inert = true;
+  FR_CHOICE_INERTED.push(n);
+}
+function frChoiceInert(on) {
+  if (FR_CHOICE_WATCH) { FR_CHOICE_WATCH.disconnect(); FR_CHOICE_WATCH = null; }
+  if (!on) {
+    FR_CHOICE_INERTED.forEach((n) => { n.inert = false; });
+    FR_CHOICE_INERTED = [];
+    return;
+  }
+  document.querySelectorAll('body > *:not(#fr-choice)').forEach(frChoiceHold);
+  if (typeof MutationObserver === 'function') {
+    FR_CHOICE_WATCH = new MutationObserver((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) frChoiceHold(n);
+    });
+    FR_CHOICE_WATCH.observe(document.body, { childList: true });
+  }
+}
+
+/* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
+   connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
+   stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
+   live rather than sit dead. */
+function frChoose() {
+  const el = document.getElementById('fr-choice');
+  const btns = [...el.querySelectorAll('.frc-btn')];
+  return new Promise((resolve) => {
+    btns.forEach((b) => {
+      b.onclick = () => {
+        const mode = b.dataset.mode;
+        let told = true;
+        try { frChoiceBridge().postMessage(mode); } catch { told = false; }
+        // The app has its answer and stops listening, so a Reload must not ask again. Told or not, a
+        // both choice keeps ?mode=both for this session's last step (frPlusLast); if the app did not
+        // hear it, the next launch asks again anyway.
+        if (told || mode === 'both') frChoiceForget(mode);
+        if (mode !== 'connect' || told) FR_CHOICE_PENDING = false;
+        if (mode === 'connect') {
+          if (!told) return;
+          FR_CHOICE_CONNECTING = true;   // the board goes down now on purpose: no restart screen over it
+          btns.forEach((x) => { x.disabled = true; });
+          resolve('connect');
+          return;
+        }
+        el.hidden = true;
+        frChoiceInert(false);
+        resolve(mode);
+      };
+    });
+    FR_CHOICE_PENDING = true;
+    el.hidden = false;
+    // Everything else on the page goes inert while the screen is up, as first run's frOpen does: no
+    // Tab, click or screen reader reaches the board under it (and first run re-applies its own).
+    frChoiceInert(true);
+    revealBoot();
+  });
+}
+
 async function firstRunBoot(force, step) {
   try {
     let state;
@@ -65365,7 +66263,13 @@ async function firstRunBoot(force, step) {
     // The net effect was still "no overlay", but by accident rather than by the
     // rule three lines up, and an accident is not a fail-closed guarantee.
     if (!state || typeof state !== 'object') return;
-    if (state.done && !force) return;
+    // #4356: this computer's choice comes first. Connect hands the window to the app. A choice asked
+    // again after first run (an unreadable one) skips the wizard, so "both" goes straight to its
+    // last step, the Kosmos Plus sign-in.
+    const chose = frChoiceWanted(state.done) ? await frChoose() : null;
+    if (chose === 'connect') return;
+    if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }
+    FR_FORCED = !!force;
     FR = state;
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot

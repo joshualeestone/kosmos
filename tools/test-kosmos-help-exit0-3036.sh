@@ -72,11 +72,17 @@ fi
 # They show read-only output on --help; their own status must stand. Pin that
 # they are a SEPARATE case from the message verbs (which get `exit 0`), so a
 # future edit cannot fold them into the exit-0 rule unnoticed.
-if grep -Eq '^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|community\|task\|project\|agent\)' "$K" \
-   && grep -Eq '^[[:space:]]*adopt\|whoami\)' "$K"; then
+# #4451: each case may gain verbs (connect joined the exit-0 case, connections the read-only one), so the
+# lists are matched as prefixes. What the guard is FOR is then asserted directly: no read-only verb
+# (adopt, whoami, connections) sits on the exit-0 case's line.
+EXIT0_RE='^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|community\|task\|project\|agent(\|[a-z]+)*\)'
+READONLY_RE='^[[:space:]]*adopt\|whoami(\|[a-z]+)*\)'
+exit0_line="$(grep -E "$EXIT0_RE" "$K" | head -1)"
+if [ -n "$exit0_line" ] && grep -Eq "$READONLY_RE" "$K" \
+   && ! printf '%s' "$exit0_line" | grep -Eq '(^|[|[:space:]])(adopt|whoami|connections)[|)]'; then
   ok "source: message verbs and adopt|whoami are separate --help cases"
 else
-  bad "source: expected a message-verb case AND a distinct adopt|whoami case in $K"
+  bad "source: expected a message-verb case AND a distinct adopt|whoami case in $K, with no read-only verb in the exit-0 case"
 fi
 
 echo "test-kosmos-help-exit0-3036: $FAILS failures"

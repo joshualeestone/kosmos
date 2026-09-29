@@ -48,7 +48,18 @@ cat > "$SB/tmux" <<'STUB'
 #!/bin/sh
 case "$1" in
   has-session) exit 1 ;;
-  new-session) printf '%s\n' "$@" > "$STUB_DIR/new-session.args"; exit 0 ;;
+  new-session)
+    printf '%s\n' "$@" > "$STUB_DIR/new-session.args"
+    before=""
+    for arg in "$@"; do
+      if [ "$before" = --pane-entry ]; then
+        cp "$arg" "$STUB_DIR/pane-secrets"
+        break
+      fi
+      before="$arg"
+    done
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 STUB
@@ -63,8 +74,8 @@ if [ -s "$ARGS" ]; then ok "the supervisor reached new-session"; else bad "new-s
 # and parks on Claude Code's folder-trust prompt on every new agent (Josh's laptop, 0.6.86). tmux hands
 # a pane the SERVER's env, not the client's, so only an -e puts the right HOME there.
 if grep -qx "HOME=$SB/knownhome" "$ARGS"; then ok "HOME is re-injected into the pane (a default-account agent reads the config trustFolder wrote, no trust prompt)"; else bad "HOME did NOT reach the pane: the agent would read the tmux server's HOME/.claude.json and hit the trust prompt: $(tr '\n' ' ' < "$ARGS")"; fi
-if grep -qx 'DISCORD_BOT_TOKEN=sekrit-discord' "$ARGS"; then ok "a token door's file rides into the pane as its variable"; else bad "DISCORD_BOT_TOKEN did not reach the pane: $(tr '\n' ' ' < "$ARGS")"; fi
-if grep -qx 'BRAVE_API_KEY=sekrit-brave' "$ARGS"; then ok "and a second one beside it, with no edit to the supervisor"; else bad "BRAVE_API_KEY did not reach the pane"; fi
+if grep -qx 'DISCORD_BOT_TOKEN=sekrit-discord' "$SB/pane-secrets" && ! grep -q 'sekrit-discord' "$ARGS"; then ok "a token door reaches the pane through the private file, not argv"; else bad "DISCORD_BOT_TOKEN did not use the private handoff"; fi
+if grep -qx 'BRAVE_API_KEY=sekrit-brave' "$SB/pane-secrets" && ! grep -q 'sekrit-brave' "$ARGS"; then ok "and a second one does too, with no edit to the supervisor"; else bad "BRAVE_API_KEY did not use the private handoff"; fi
 for junk in lower-case 1STARTS_WITH_DIGIT BAD.NAME EMPTY_TOKEN; do
   if grep -q "$junk" "$ARGS"; then bad "$junk was typed into the pane; only variable names with content may ride"; else ok "$junk stays out of the pane"; fi
 done
@@ -99,10 +110,10 @@ AGENT_WORKFORCE_DATA="$DATA2" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB2/bin/agent-supervisor.sh" ptrtest "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
 ARGS2="$SB2/new-session.args"
 if [ -s "$ARGS2" ]; then ok "the pointer run reached new-session"; else bad "pointer run never reached new-session: $(tail -3 "$SB2/out.log")"; fi
-if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]+$' "$ARGS2"; then
-  ok "#1139: engine-path beside the script mints, in the layout every real agent runs in"
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q '^KOSMOS_AGENT_TOKEN=' "$ARGS2"; then
+  ok "#1139: engine-path beside the script mints into the one-use file, not tmux argv, in the layout every real agent runs in"
 else
-  bad "#1139: no token minted with engine-path present -- an installed agent still cannot identify itself: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
+  bad "#1139: no private-file token with engine-path present, or it leaked into tmux argv: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
 fi
 if grep -q "$PWD/engine" "$SB2/out.log" "$SB2/start.log" 2>/dev/null; then bad "the engine path leaked into a log"; else ok "the pointer does not appear in the supervisor's output"; fi
 
@@ -144,10 +155,10 @@ DATA3="$(mktemp -d)"
 ) > "$SB3/out.log" 2>&1 || true
 ARGS3="$SB3/new-session.args"
 if [ -s "$ARGS3" ]; then ok "the launchd-PATH run reached new-session"; else bad "launchd-PATH run never reached new-session: $(tail -3 "$SB3/out.log")"; fi
-if grep -qx 'KOSMOS_AGENT_TOKEN=deadbeef' "$ARGS3"; then
-  ok "#1897: node derived from the engine pointer mints with NO node on PATH -- the layout every installed agent runs in"
+if grep -qx 'KOSMOS_AGENT_TOKEN=deadbeef' "$SB3/pane-secrets" 2>/dev/null && ! grep -q '^KOSMOS_AGENT_TOKEN=' "$ARGS3"; then
+  ok "#1897: node derived from the engine pointer mints into the one-use file with NO node on PATH, never tmux argv"
 else
-  bad "#1897: no token from the bundled node with node off PATH -- an installed agent still cannot identify itself: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
+  bad "#1897: no private-file token from the bundled node with node off PATH, or it leaked into tmux argv: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
 fi
 
 # ---------------------------------------------------------------- #1911
@@ -200,13 +211,13 @@ printf '%s\n' 'cf-canary-3769' > "$SB5/secrets/cloudflare.token"
 printf '%s\n' 'gh-canary-3769' > "$SB5/secrets/github.token"
 printf '%s\n' 'door-canary-3769' > "$SB5/secrets/env/BRAVE_API_KEY"
 guide_run() {
-  rm -f "$SB5/new-session.args"
+  rm -f "$SB5/new-session.args" "$SB5/pane-secrets"
   STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
     bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" > "$SB5/out.log" 2>&1 || true
 }
 guide_run
-if grep -qx 'CLOUDFLARE_API_TOKEN=cf-canary-3769' "$SB5/new-session.args" && grep -qx 'BRAVE_API_KEY=door-canary-3769' "$SB5/new-session.args" \
-  && grep -q '^GH_TOKEN=' "$SB5/new-session.args"; then
+if grep -qx 'CLOUDFLARE_API_TOKEN=cf-canary-3769' "$SB5/pane-secrets" && grep -qx 'BRAVE_API_KEY=door-canary-3769' "$SB5/pane-secrets" \
+  && grep -q '^GH_TOKEN=' "$SB5/pane-secrets" && ! grep -q 'canary-3769' "$SB5/new-session.args"; then
   ok "#3769 CONTROL: an ordinary agent gets the Cloudflare, GitHub and token-door values"
 else
   bad "#3769 CONTROL: an ordinary agent did not get the tokens, so the guide arm below proves nothing: $(tr '\n' ' ' < "$SB5/new-session.args")"
@@ -214,8 +225,8 @@ fi
 printf '%s\n' 'guidetest' > "$SB5/work/.kosmos-setup-guide"
 guide_run
 if [ -s "$SB5/new-session.args" ]; then ok "#3769: the setup guide still starts"; else bad "#3769: the guide never reached new-session: $(tail -3 "$SB5/out.log")"; fi
-if grep -q 'canary-3769' "$SB5/new-session.args"; then
-  bad "#3769: a token reached the setup guide's pane: $(grep 'canary-3769' "$SB5/new-session.args" | tr '\n' ' ')"
+if grep -q 'canary-3769' "$SB5/new-session.args" "$SB5/pane-secrets" 2>/dev/null; then
+  bad "#3769: a token reached the setup guide's pane"
 else
   ok "#3769: the setup guide's pane gets no Cloudflare, GitHub or token-door value, not even an inherited GH_TOKEN"
 fi
@@ -224,12 +235,12 @@ if grep -qx "HOME=$SB5/knownhome" "$SB5/new-session.args"; then ok "#3769: and t
 # no other. The Claude guide above must not get it (the key file is present for both runs).
 printf '%s\n' 'xai-own-key-3769' > "$SB5/secrets/env/XAI_API_KEY"
 guide_run
-if grep -q 'xai-own-key-3769' "$SB5/new-session.args"; then bad "#3769: a Claude guide got the Grok key door"; else ok "#3769: a Claude guide does not get another runner's key door"; fi
-rm -f "$SB5/new-session.args"
+if grep -q 'xai-own-key-3769' "$SB5/new-session.args" "$SB5/pane-secrets" 2>/dev/null; then bad "#3769: a Claude guide got the Grok key door"; else ok "#3769: a Claude guide does not get another runner's key door"; fi
+rm -f "$SB5/new-session.args" "$SB5/pane-secrets"
 STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" "" grok > "$SB5/out.log" 2>&1 || true
-if grep -qx 'XAI_API_KEY=xai-own-key-3769' "$SB5/new-session.args"; then ok "#3769: a Grok guide on a default key still gets its own XAI_API_KEY, so it can sign in"; else bad "#3769: a Grok guide lost its own key and cannot sign in: $(tr '\n' ' ' < "$SB5/new-session.args")"; fi
-if grep -q 'canary-3769' "$SB5/new-session.args"; then bad "#3769: the Grok guide got another token: $(grep 'canary-3769' "$SB5/new-session.args" | tr '\n' ' ')"; else ok "#3769: and no other token"; fi
+if grep -qx 'XAI_API_KEY=xai-own-key-3769' "$SB5/pane-secrets" && ! grep -q 'xai-own-key-3769' "$SB5/new-session.args"; then ok "#3769: a Grok guide on a default key gets its own XAI_API_KEY privately, so it can sign in"; else bad "#3769: a Grok guide lost its own key or exposed it in argv"; fi
+if grep -q 'canary-3769' "$SB5/new-session.args" "$SB5/pane-secrets" 2>/dev/null; then bad "#3769: the Grok guide got another token"; else ok "#3769: and no other token"; fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"

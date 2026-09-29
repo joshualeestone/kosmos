@@ -608,23 +608,28 @@ boot_board_rich() {
 # reduced-motion settle is load-bearing. render-org-reduced-motion asserts no two
 # discs overlap after the synchronous settle; on the flat write_fleet_rich board
 # static orgPlace is already 0 overlaps, so that arm would be vacuous there. This
-# is a manager (boss) with EIGHT direct reports -- which orgPlace packs into a
-# ~69deg arc so the discs sit ~33px apart, inside their 44px diameter -- plus two
-# second-level reports for depth. Every agent RUNNING (a pane) so it enters the
+# was a manager (boss) with EIGHT direct reports -- which orgPlace packed into a
+# ~69deg arc so the discs sat ~33px apart, inside their 44px diameter -- plus two
+# second-level reports for depth. #4434: a tree is now laid out with no faces
+# touching, so render-org-reduced-motion boots this board with ORG_FLAT_DENSE
+# (below) and this default tree is unused. Every agent RUNNING (a pane) so it enters the
 # roster; the tree is expressed by reportsTo in each profile. Seeded in node,
 # not bash: macOS bash is 3.2 and has no associative arrays.
 # 🛑 NOT write_fleet_rich with more agents: render-org-chart's fill-band
 # assertion is keyed to node count (see write_fleet_rich), so a denser shared
 # board would take that check red. This board is separate for that reason.
+# #4434: an optional second argument is the tree as JSON ([[name, reportsTo], ...]); without it, the
+# dense #1870 tree above.
 write_fleet_org() {
   local sb="$1"
   mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers"
-  SB_ORG="$sb" node -e '
+  SB_ORG="$sb" ORG_TREE="${2:-}" node -e '
     const f = require("./test-support/fleet");
     const fs = require("fs");
     const sb = process.env.SB_ORG;
-    const tree = [["boss",""],["c1","boss"],["c2","boss"],["c3","boss"],["c4","boss"],
-      ["c5","boss"],["c6","boss"],["c7","boss"],["c8","boss"],["g1","c1"],["g2","c1"]];
+    const tree = process.env.ORG_TREE ? JSON.parse(process.env.ORG_TREE)
+      : [["boss",""],["c1","boss"],["c2","boss"],["c3","boss"],["c4","boss"],
+         ["c5","boss"],["c6","boss"],["c7","boss"],["c8","boss"],["g1","c1"],["g2","c1"]];
     const lines = [];
     for (const [a, to] of tree) {
       lines.push(f.line({ session: a + "-discord" }));
@@ -637,7 +642,7 @@ write_fleet_org() {
 }
 boot_board_org() {
   local sb="$1" port="$2"
-  write_fleet_org "$sb"
+  write_fleet_org "$sb" "${3:-}"
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -815,15 +820,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 16 ]; do
+  while [ "${#picked[@]}" -lt 17 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -916,9 +921,11 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # board above is needed. The slice is the frame and the accounts page at the
 # smallest phone, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
-# full sweep (16 shots per screen) is a by-hand tool, not a gate.
+# desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
+# must be taken, and nav-menu, a phone-only screen, must be skipped there
+# rather than error. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
@@ -1491,11 +1498,29 @@ fi
 # --- node count). render-org-reduced-motion asserts no two discs overlap after
 # --- the synchronous reduced-motion settle #1738 added; it reds on a revert of
 # --- that settle (measured on the PR: 7 overlapping pairs, 33px).
+# --- #4434: the board is now thirty FLAT agents (the check runs at 375px). A tree
+# --- is laid out without overlaps and painted without a settle, so the old
+# --- manager-and-eight tree no longer exercised it; a flat fleet always settles
+# --- (reverted: 12 pairs, 43px). The default tree of write_fleet_org is unused.
+ORG_FLAT_DENSE="$(node -e 'process.stdout.write(JSON.stringify(Array.from({ length: 30 }, (_, i) => ["f" + i, ""])))')"
 sbo="$(new_sandbox)"
-if boot_board_org "$sbo" "$P16"; then
+if boot_board_org "$sbo" "$P16" "$ORG_FLAT_DENSE"; then
   run_one "render-org-reduced-motion" env KOSMOS_URL="http://127.0.0.1:$P16" node docs/browser-checks/render-org-reduced-motion.js
 else
   FAILED+=("render-org-reduced-motion (dense org board did not boot)")
+fi
+
+# --- kosmos#4434: an UNEVEN org board: fifteen agents, five of them managers with different team sizes and
+# --- depths, leaves between them. render-org-sectors-4434 counts crossings among the wires as drawn,
+# --- animated and reduced-motion. It is RED on main on this board even after the chart settles (measured:
+# --- n4 x n5); a tidier tree that only crosses before settling was tried first and was green on main, so
+# --- it could not guard anything. Its own board: the dense #1870 board has one manager.
+ORG_UNEVEN_TREE='[["n0",""],["n1",""],["n2",""],["n3",""],["n4","n2"],["n5","n3"],["n6","n3"],["n7",""],["n8","n1"],["n9","n4"],["n10","n2"],["n11","n4"],["n12","n8"],["n13",""],["n14",""]]'
+sbu="$(new_sandbox)"
+if boot_board_org "$sbu" "$P17" "$ORG_UNEVEN_TREE"; then
+  run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" SHOT_DIR="$RUN_DIR/shots-org-sectors" node docs/browser-checks/render-org-sectors-4434.js
+else
+  FAILED+=("render-org-sectors-4434 (uneven org board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.
