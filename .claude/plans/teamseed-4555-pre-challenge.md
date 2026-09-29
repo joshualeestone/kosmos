@@ -2,21 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: teamseed-4555
-diff_hash: 07330bc49b0f7a99e910aa9fc17d0b86b2ef119245cdaf62fc7e51f9179f4783
-validation: passed
+diff_hash: 27d3bf523845064d85406a1e748a0cd26b0a5e8221cd909386750a46fb0ed4af
+validation: passed (CI-starved rule as amended 18:22: full run 12161/12163, the 2 fails load timeouts, green alone)
 subdir_audit: passed
-timestamp: 2026-09-29T18:29:39Z
-iterations: 23
+timestamp: 2026-09-29T23:24:45Z
+iterations: 25
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 23 (iteration 1 is the 6.0 fix-and-validate pass; 22 blind reviews, iterations 2-23)
-**Converged:** Yes (iteration 23: every finding deduplicated against resolved entries)
+**Iterations:** 25 (iteration 1 is the 6.0 fix-and-validate pass; 24 blind reviews, iterations 2-25)
+**Converged:** Yes (iteration 23, and again at iteration 25 after rebasing onto main)
 **Total actionable findings:** about 60 (0 BLOCKERs; the rest WARNINGs and CONVENTIONs), plus NITs
 **Fixed:** about 50 | **Deferred:** 9 | **Asked (awaiting user):** 0
-**Final validation (6j):** full suite on ca91bc19 PASSED (node 11939 tests, 0 fail; shell suite; type-check, lint, build), subdir audit PASSED.
+**Final validation (6j):** on 57327a5b6 (rebased, same file blobs as this head except one CLAUDE.md row): node 12161 of 12163; the 2 failures were load timeouts (~5.7s) in server.forget-claude-1659.test.js and server.forget-openai-1372.test.js, files this diff does not touch; both files pass alone on the same head, 17/17. Counted as a pass under the CI-starved rule as amended by Splinter at 18:22. Earlier: full suite on ca91bc19 PASSED clean. Subdir audit PASSED. Head 248cb3193 rebased onto main fetched 18:22; only CLAUDE.md differs from the reviewed blobs; targeted suites 653/653.
 **Reviewer models:** alternated opus (even iterations 2-22) and sonnet (odd iterations 3-23).
 **Self-generated:** 4 findings acted on as SELF (iterations 4, 8, 13); after the branch was squashed at iteration 16 the loop's fix commits are no longer ancestors, so later findings classify BRANCH (the fail-safe direction).
 
@@ -124,6 +124,13 @@ converged: true
 
 #### Iteration 23 (sonnet)
 **Converged** - caution budget (dup of iterations 19/21) and ROLES reorder (dup of iteration 3); no new findings.
+
+#### Iteration 24 (opus, after rebasing onto main)
+- [WARNING] engine/catalogue.js - team section wrote a CLI path outside the healed messaging block --> FIXED (cdcacc004)
+- [WARNING] engine/catalogue.js - doc did not say team.vetAgentMember refuses explicit text for built-in roles from agents --> FIXED (cdcacc004)
+
+#### Iteration 25 (sonnet)
+**Converged** - no new findings.
 
 ### Deferred (with reasons)
 - [WARNING] cloning cost (iter 5): six seats per submit.
