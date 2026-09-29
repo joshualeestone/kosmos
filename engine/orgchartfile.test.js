@@ -409,3 +409,38 @@ test('#4559: a file with no manager column says so, rather than reading as every
   const withBoss = o.tableToPeople([['Name', 'Title', 'Manager'], ['Avery Quill', 'Chief Executive', ''], ['Bo Linden', 'Head of Sales', 'Avery Quill']]);
   assert.ok(!withBoss.problems.includes(o.NO_MANAGER_COLUMN), 'CONTROL: a manager column, even with an empty top cell, is not flagged');
 });
+
+test('#4559: a Claude Code too old for these flags says so, instead of "did not answer" (a fake binary, no provider)', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-old-'));
+  const fake = path.join(dir, 'claude');
+  fs.writeFileSync(fake, '#!/bin/sh\ncat > /dev/null\necho "error: unknown option \'--tools\'" >&2\nexit 1\n', { mode: 0o755 });
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fake;
+  o.setModelRunner(null);
+  const warn = console.warn; const warned = [];
+  console.warn = (m) => warned.push(String(m));
+  try {
+    const r = await o.readWithModel('chart.png', Buffer.from([1, 2, 3]));
+    assert.match(r.problems[0], /too old to read files/, JSON.stringify(r));
+    assert.ok(warned.some((w) => /unknown option/.test(w)), 'the boundary logs what claude said');
+  } finally {
+    console.warn = warn;
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#4559: direction-override and zero-width characters are dropped from names and titles', () => {
+  assert.equal(o.plain('Avery‮ Quill​', 80), 'Avery Quill');
+  assert.equal(o.plain('Bo⁦ Linden⁩', 80), 'Bo Linden');
+});
+
+test('#4559: common HR headers for the manager column are recognised (Supervisor Name, Manager Employee ID)', () => {
+  const r = o.tableToPeople([['Name', 'Title', 'Supervisor Name'], ['Avery Quill', 'Chief Executive', ''], ['Bo Linden', 'Head of Sales', 'Avery Quill']]);
+  assert.equal(r.rows[1].reportsTo, 0, JSON.stringify(r));
+  const byId = o.tableToPeople([['Employee ID', 'Name', 'Title', 'Manager Employee ID'], ['E1', 'Avery Quill', 'Chief Executive', ''], ['E2', 'Bo Linden', 'Head of Sales', 'E1']]);
+  assert.equal(byId.rows[1].reportsTo, 0, JSON.stringify(byId));
+});

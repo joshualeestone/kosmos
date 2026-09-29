@@ -6540,7 +6540,18 @@ const server = http.createServer(async (req, res) => {
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
       })
-      .catch(() => sendJson(res, 400, { error: 'We could not read that file. Try again, or export it as CSV.' }));
+      .catch((err) => {
+        /* readBody's only rejection is an oversized body (it then drops the connection, so this answer often
+           never arrives); anything else is our failure, logged, not the file's. */
+        if (res.headersSent) return;
+        const big = /too large/.test(String((err && err.message) || ''));
+        if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
+        try {
+          sendJson(res, big ? 413 : 500, { error: big
+            ? 'That file is larger than ' + Math.round(orgchartfile.MAX_BYTES / 1048576) + ' MB. Export just the people, or type the list.'
+            : 'We could not read that file. Try again, or export it as CSV.' });
+        } catch { /* socket gone */ }
+      });
     return;
   }
 
