@@ -61,7 +61,7 @@ if grep -qxF "$MODEL_ID" "$A"; then ok "codex passes the EXACT chosen model id (
 if grep -qx -- '--dangerously-bypass-approvals-and-sandbox' "$A"; then ok "codex arm launched (its bypass flag is present)"; else bad "codex bypass flag missing (wrong arm?): $(tr '\n' ' ' < "$A")"; fi
 if grep -qx -- '--model' "$A"; then bad "codex must use -m, not --model: $(tr '\n' ' ' < "$A")"; else ok "codex does NOT use --model (that is the claude flag)"; fi
 # #4477: codex reads AGENTS.md only up to project_doc_max_bytes; every codex launch raises it
-# to Kosmos's instruction cap, as a -c immediately before the value.
+# to twice Kosmos's instruction cap, as a -c immediately before the value.
 docbytes_ok() { awk -v want='project_doc_max_bytes=524288' 'prev=="-c" && $0==want {f=1} {prev=$0} END {exit !f}' "$1"; }
 if docbytes_ok "$A"; then ok "codex+model: -c project_doc_max_bytes=524288 reached the launch"; else bad "codex+model: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$A")"; fi
 

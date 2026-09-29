@@ -608,8 +608,8 @@ if [ -z "$adopt" ]; then
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
     # #4477: codex reads AGENTS.md only up to project_doc_max_bytes (32 KiB by default) and
     # silently drops the rest, which is Kosmos's own rules (appended after the person's brief).
-    # This number is a COPY of twice engine/workerfile.js MAX_BYTES (2 x 256 KiB), so the whole
-    # file fits even with Kosmos's blocks appended to a brief near the cap. Held equal by
+    # This number is a COPY of twice engine/workerfile.js MAX_BYTES (2 x 256 KiB): codex spends one
+    # budget across every AGENTS.md from the repository root down, not only the agent's own. Held equal by
     # engine/codex-docbytes-4477.test.js; the Windows launch computes it from that constant.
     # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
     DOCBYTES_CFG="project_doc_max_bytes=524288"

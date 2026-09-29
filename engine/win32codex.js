@@ -42,8 +42,8 @@ const AUTONOMY_FLAG = '--dangerously-bypass-approvals-and-sandbox';
    default) and drops the rest without a word. Kosmos appends its own working rules AFTER the
    person's brief, so the tail it drops is ours. Measured with `codex debug prompt-input`
    (codex-cli 0.149.1): a 42 KB AGENTS.md lost its last line by default and kept it with this
-   override. Set to TWICE Kosmos's instruction cap (workerfile.MAX_BYTES), so the whole file fits
-   even when a brief near the cap has Kosmos's blocks appended after it. The Mac launch in
+   override. Set to twice Kosmos's instruction cap (workerfile.MAX_BYTES), because codex spends one
+   budget across every AGENTS.md from the repository root down, not only the agent's own. The Mac launch in
    bin/agent-supervisor.sh carries a copy of this number, held equal by
    engine/codex-docbytes-4477.test.js. */
 const DOC_BYTES_CFG = `project_doc_max_bytes=${2 * require('./workerfile').MAX_BYTES}`;

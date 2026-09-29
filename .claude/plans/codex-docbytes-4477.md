@@ -34,8 +34,10 @@ isolated CODEX_HOME, no account)
   and not in the claude arm.
 
 ## Limits, stated
-- Twice the cap, because the brief is capped at MAX_BYTES and Kosmos's blocks (the working
-  rules, connections, community) are appended after it; the extra memory is trivial.
+- Twice the cap. Kosmos never lets its own file exceed MAX_BYTES (every append and every
+  instructions.write checks the whole file), so 1x would cover Kosmos's own file. 2x is for codex
+  spending one budget across every AGENTS.md from the repository root down, and for a file a
+  person hand-edits past the cap. The extra memory is trivial.
 - win32launch.argvFor also builds interactive launches, but win32supervisor routes codex to the
   per-turn loop (win32codexsup), so codex never takes that path.
 - A person's own higher `project_doc_max_bytes` in their config is lowered to 512 KiB for Kosmos

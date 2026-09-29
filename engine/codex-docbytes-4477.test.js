@@ -2,8 +2,8 @@
 /**
  * #4477: codex reads a project's AGENTS.md only up to `project_doc_max_bytes` (32 KiB by default)
  * and silently drops the rest. Kosmos appends its own working rules after the person's brief, so
- * the tail codex would drop is Kosmos's. Both codex launch sites raise the limit to Kosmos's own
- * instruction-file cap, and these tests hold the two sites and the cap to one number.
+ * the tail codex would drop is Kosmos's. Both codex launch sites raise the limit to twice Kosmos's
+ * instruction-file cap, and these tests hold the two sites and that number together.
  *
  *   node --test engine/codex-docbytes-4477.test.js
  */
@@ -16,7 +16,7 @@ const workerfile = require('./workerfile');
 const codex = require('./win32codex');
 
 const SUPERVISOR = path.join(__dirname, '..', 'bin', 'agent-supervisor.sh');
-/* Twice the cap: the brief is capped at MAX_BYTES and Kosmos's blocks are appended after it. */
+/* Twice the cap: codex spends one budget across every AGENTS.md from the repository root down. */
 const WANT = `project_doc_max_bytes=${2 * workerfile.MAX_BYTES}`;
 
 test('#4477: the Windows codex turn raises codex\'s AGENTS.md limit to twice Kosmos\'s instruction cap', () => {
@@ -38,6 +38,7 @@ test('#4477: the Mac supervisor passes the same limit on every codex launch', ()
   for (const l of launches) assert.match(l, /-c "\$DOCBYTES_CFG"/, `a codex launch does not pass the limit: ${l.trim()}`);
 });
 
+/* Arithmetic on constants only: it guards against the cap ever shrinking below codex's default. */
 test('#4477: the limit is above codex\'s own default, or the override would lower it', () => {
   assert.ok(2 * workerfile.MAX_BYTES > 32 * 1024, `the limit (${2 * workerfile.MAX_BYTES}) is not above codex's 32 KiB default`);
 });
