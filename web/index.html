@@ -9436,20 +9436,20 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    tools/sync-forced-theme.js derives the forced-dark copy like every other dark rule. */
 :root[data-look="new"] {
   --k-bg: #ffffff; --bg: #ffffff;
-  --k-surface: #f5f5f7; --bg-elevated: #f5f5f7; --bg-sunken: #f5f5f7; --k-sunk: #f5f5f7;
+  --k-surface: #f5f5f7; --bg-elevated: #f5f5f7; --bg-sunken: #f5f5f7;
   --k-ink: #1d1d1f; --label: #1d1d1f;
   --k-ink-2: #424245; --label-2: #424245;
-  --label-3: #6e6e73; --k-rule: #e8e8ed;
+  --k-rule: #e8e8ed;
   --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2; --nl-face: #e8e8ed;
   --nl-green: #2e9a5a; --nl-gold: #e3b341; --nl-amber: #c98a12;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"])[data-look="new"] {
     --k-bg: #000000; --bg: #000000;
-    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e; --k-sunk: #2c2c2e;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e;
     --k-ink: #f5f5f7; --label: #f5f5f7;
     --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
-    --label-3: #98989d; --k-rule: #3a3a3c;
+    --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
     --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
   }
@@ -9482,9 +9482,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
 /* The room's messages as drawn: your own in the one grey, an agent's with no bubble (its avatar,
-   name and time already say who). Set as the two tokens, on this page only, so every rule that
-   paints a bubble (and its tail) follows; an outside sender keeps its dashed edge (#3311). */
-:root[data-look="new"] body:not(.consolidated) #pj-one-view { --usermsg-tint: var(--nl-grey); --agent-msg: transparent; }
+   name and time already say who). Set as FILLS on this page's bubbles, not by redefining the two
+   bubble tokens, so no other surface changes and the tokens' one-per-theme tests still hold. Both
+   are opaque (the tail wing inherits the fill, #3267); "no bubble" is the page's own ground. The
+   tail's mask (::after) is painted in the thread's ground, which here is the page, not the surface.
+   An outside sender keeps its dashed edge (#3311). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg.you .msg-bd { background-color: var(--nl-grey); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg .msg-bd::after { background: var(--k-bg); }
 /* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
    no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
    AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
@@ -9538,7 +9543,12 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    end behind a dot. The state washes go ONLY because the word and dot now carry the state
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
 .pj-member-st { display: none; }
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { border: 0; background: none; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+/* A child combinator on purpose: the #2804 guard in server.test.js reads an unqualified member-row
+   rule that mentions the stroke as stripping it, and this one only rounds the hover ground. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents > .pj-member { background: none; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+/* The stroke goes only on members the board can see; an unseen one keeps its dashed presence
+   border (#2804), which is the only thing on the row saying we cannot see that agent. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(.unseen) { border-color: transparent; }
 /* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
    rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working { animation: none; }
@@ -9739,10 +9749,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 
 :root[data-theme="dark"][data-look="new"] {
     --k-bg: #000000; --bg: #000000;
-    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e; --k-sunk: #2c2c2e;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e;
     --k-ink: #f5f5f7; --label: #f5f5f7;
     --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
-    --label-3: #98989d; --k-rule: #3a3a3c;
+    --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366; --nl-face: #3a3a3c;
     --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
   }
