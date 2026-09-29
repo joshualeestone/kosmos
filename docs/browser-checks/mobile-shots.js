@@ -780,9 +780,10 @@ async function run() {
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
               /* A screen that changed the board's state puts it back here, whatever happened above,
-                 so no later screen photographs it (#4545). A failure to is a flag on this row. */
+                 so no later screen photographs it (#4545). A failure to is a flag on this row (counted
+                 once: a row whose go() already errored is one errored screen, not two). */
               if (sc.after) {
-                try { await sc.after(page, ctxData); } catch (e) { errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
+                try { await sc.after(page, ctxData); } catch (e) { if (!/ERROR/.test(note)) errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
               /* report.json and report.md travel with the shots: everything this row carries (the
