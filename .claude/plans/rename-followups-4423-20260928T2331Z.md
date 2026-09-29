@@ -62,6 +62,12 @@ Sweep: 34 files (with the registration tests), each alone, 0 fail.
 - W3 FIXED: the unit fixture could not see the open path; REOPEN covers it in the browser.
 - NITs FIXED: plan wording (the cache, the test count); STEADY also counts writes to the title line.
 
+## Review iteration 4 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 1 NIT: CONVERGED
+Sweep: 33 files, each alone, 0 fail; the browser check 11/11; the reviewer reproduced all three regressions
+(base page, innerHTML comparison, no reset on open) and each failed its own arm.
+- NIT NOTED: web.reply-where.test.js's 3400-char window sits at 3379 on main and on this branch alike; the next line
+  added to that block of `tick` will trip it. Not moved by this card; named in the PR for whoever edits there next.
+
 ## Weakest part
 Item 4 names each distinct agent through readIdentity once per room read (the per-read cache from review
 iteration 1), on every room poll in both views. Cheap today (a profile and one small file); a short-lived cache
