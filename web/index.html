@@ -30652,7 +30652,7 @@ function orgPlace(nodes) {
        clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
        nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
        report's straight-out ray). The team spacing and no crossings ARE guaranteed (first-ring lanes are kept apart by the
-       12px hub-line rule, measured at 59.5px at the closest).
+       12px hub-line rule, measured at 59.3px at the closest; the floor is about 59.2).
      - Each TEAM (one manager's reports) sits at its own radius (#4472), just outside its manager, pushed out
        until its faces are ORG_MIN_ARC from each other and from every face already placed, and until each of its
        branches has room for its leaves further out. (One radius per ring let one crowded team push the whole
@@ -30679,9 +30679,9 @@ function orgPlace(nodes) {
   /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
      sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
   const ORG_LANE = ORG_MIN_ARC;
-  /* #4499: a team first tries a WIDE window, this many quarter-turns either side of its manager (a first-ring
-     manager's own figure), kept only if an exact test finds no crossing, no line over the hub and every clearance
-     met; otherwise the capped window below. Measured best of 0.95-1.2 and 0.95-1.9 (deep median 2749 -> 1931). */
+  /* #4499: where the capped window does not fit, a team tries a WIDE window, this many quarter-turns either side of
+     its manager (a first-ring manager's own figure), kept only if an exact test finds no crossing, no line over the
+     hub and every clearance met (see layBest). Measured best of 0.95-1.2 and 0.95-1.9 (deep median 2749 -> 1931). */
   const ORG_WIDE = 0.95;
   const ORG_WIDE_FIRST = 1.45;
   /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
@@ -30738,13 +30738,15 @@ function orgPlace(nodes) {
   const rootTotal = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
   const rootSpans = roots.map((n) => (TAU * weigh(n)) / rootTotal);
   /* #4499: the first ring from `base` outward. Returns its spots, and whether any agent had to fall back to the old
-     spill rule (no lane and angle in its slice cleared ORG_LINE_CLEAR both ways). */
-  const firstRing = (base) => {
+     spill rule (no lane and angle in its slice cleared ORG_LINE_CLEAR both ways). A `probe` only asks that question,
+     so it stops at the first agent that falls back (its spots are then incomplete and never used). */
+  const firstRing = (base, probe) => {
     let at = -Math.PI / 2 - (roots.length ? rootSpans[0] : 0) / 2;
     const lanes = [];   // per lane, the angles already on it
     const spots = [];
     let fellBack = false;
-    roots.forEach((n, ri) => {
+    for (let ri = 0; ri < roots.length; ri += 1) {
+      const n = roots[ri];
       const span = rootSpans[ri];
       const ang = at + span / 2;
       /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
@@ -30791,16 +30793,22 @@ function orgPlace(nodes) {
         const a = freeOn(L);
         if (a !== null) { lane = L; ang2 = a; }
       }
+      /* A leaf that has to move off its slice's centre on that lane takes the next lane out instead when it can sit at
+         the centre there, leaving the inner room to managers, whose reports go further out. Without this a shifted leaf
+         blocked the manager beside it, which spilled a lane out and took its branch with it: 20 agents at 660px where
+         #4472 laid them at 544 (review 9). Only the one next lane is tried: scanning every lane for every leaf of a
+         crowded first ring cost 17ms per 1000 agents. freeOn returns exactly `ang` when the centre is free. */
+      if (lane >= 0 && ang2 !== ang && !heightOf(n) && lane + 1 <= lanes.length && freeOn(lane + 1) === ang) { lane += 1; ang2 = ang; }
       const fits = (L, a) => {
         const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * (base + L * ORG_FIRST_LANE))));
         return !(lanes[L] || []).some((b) => { const d = Math.abs(a - b) % TAU; return Math.min(d, TAU - d) < need; });
       };
-      if (lane < 0) { fellBack = true; lane = 0; while (!fits(lane, ang)) lane += 1; }
+      if (lane < 0) { fellBack = true; if (probe) break; lane = 0; while (!fits(lane, ang)) lane += 1; }
       if (!lanes[lane]) lanes[lane] = [];
       lanes[lane].push(ang2);
       spots.push({ ang: ang2, r: base + lane * ORG_FIRST_LANE, node: n, lo: at, hi: at + span });
       at += span;
-    });
+    }
     return { spots, fellBack };
   };
   /* #4499: a first ring too crowded to clear ORG_LINE_CLEAR (about 40 agents over several lanes: each full inner lane
@@ -30810,8 +30818,9 @@ function orgPlace(nodes) {
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
   const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) + 1);
-  let first = firstRing(ORG_R0);
-  if (first.fellBack) {
+  let first = firstRing(ORG_R0, true);
+  if (!first.fellBack) first = firstRing(ORG_R0);
+  else {
     /* Bisect for a base that clears, within half a lane of the nearest (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
        at a time was 30 placements and 350ms). `hi` only ever holds a base that cleared or settledBase, which always
        clears, so the ring is laid once more there. Clearing need not hold at every larger base, which is why this
@@ -30819,7 +30828,7 @@ function orgPlace(nodes) {
     let lo = ORG_R0; let hi = settledBase;
     while (hi - lo > ORG_FIRST_LANE / 2) {
       const m = (lo + hi) / 2;
-      if (firstRing(m).fellBack) lo = m; else hi = m;
+      if (firstRing(m, true).fellBack) lo = m; else hi = m;
     }
     first = firstRing(hi);
   }
@@ -31082,7 +31091,9 @@ function orgPlace(nodes) {
            which is what made every line run away from the hub (enough to rule crossings out, but more than needed):
            a line that dips inward can meet lines already drawn from its manager's ancestors, or a sibling's line that
            passes over its slice, and this finds them all. A capped team is tested too, though by the sector argument it cannot fail (counted: never, in the
-           7,319-tree sweep), so a wrong argument would cost only size, never a crossing. */
+           7,319-tree sweep), so a wrong argument would cost only size, never a crossing. (The one exception is the
+           last resort after 400 tries, which keeps its placement whatever it finds; by then the radius has grown
+           over 100,000x, out of reach in practice.) */
         for (const g of mineLines) for (const h of teamLines) if (h.hi >= g.lo && h.lo <= g.hi && crosses(g, h)) return false;
         if (spots.wide) for (const g of mineLines) if (g.lo < ORG_HUB_CLEAR) return false;
         if (!strict) return true;
@@ -31112,8 +31123,6 @@ function orgPlace(nodes) {
          radius clears it (one team grew to 46,656,912px unbounded), and chasing clearance far out made single
          trees much bigger than #4473 (review it1: a 1000-agent tree 2.4x). Past the reach, the team keeps the
          spacing radius, as #4473 places it. */
-      /* #4499: at each radius the wide window first, kept only when it passes every check including the clearance;
-         else the capped one. */
       /* #4499: at each radius the capped window first, and the wide one only where the capped one does not fit: a
          small team that fits capped keeps the shape it had before #4499 (review it7: a lead with 8 reports fanned 114
          degrees instead of 75, for no size gain). The wide one is kept only when it passes every check, the

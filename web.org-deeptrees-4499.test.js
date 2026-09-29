@@ -4,8 +4,8 @@
  * kosmos#4499: deep org charts near their pre-#4434 size, and no line within 12px of a face that is not its own.
  *
  * Main's deep 100-agent median (1580px) is its DEPTH floor: every ring one step past the last, faces allowed to
- * overlap. With no overlaps and no crossings the layout cannot sit on that floor, so #4499 aims near it: a team first
- * tries a WIDE window (no tangent cap), kept only when an exact test finds no crossing with any line already drawn,
+ * overlap. With no overlaps and no crossings the layout cannot sit on that floor, so #4499 aims near it: a team that
+ * does not fit the capped window tries a WIDE one (no tangent cap), kept only when an exact test finds no crossing with any line already drawn,
  * no report line over the hub and every clearance met; shares below the first ring are leaf count to the 0.85; and a
  * first-ring agent that spills to a further lane finds an angle in its own slice whose hub line clears 12px.
  *
@@ -157,29 +157,31 @@ test('no line within 12px of a face that is not one of its ends, first ring incl
 });
 
 test('the exact crossing test: a tree that crosses without it does not cross (#4499)', () => {
-  /* Measured: with the exact test removed from orgPlace, randomTree(3, 200, 0.01) has 2 crossings (the smallest such
-     tree found in 750 of 100 to 250 agents); the wide window alone does not rule them out. */
-  const { pos } = paint(randomTree(3, 200, 0.01));
+  /* Measured with the exact test removed from orgPlace (review 9): randomTree(3, 250, 0.005) has 8 crossings; the wide
+     window alone does not rule them out. The tree used here before, randomTree(3, 200, 0.01), stopped reaching the
+     wide window once the capped window was tried first (review it7), and stayed green with the check deleted. */
+  const { pos } = paint(randomTree(3, 250, 0.005));
   const lines = linesOf(pos);
-  assert.equal(lines.length, 200, 'CONTROL: every agent has a line');
+  assert.equal(lines.length, 250, 'CONTROL: every agent has a line');
   let crossings = 0;
   for (let i = 0; i < lines.length; i += 1) for (let j = i + 1; j < lines.length; j += 1) if (cross(lines[i], lines[j])) crossings += 1;
-  assert.equal(crossings, 0, crossings + ' crossing(s) in randomTree(3, 200, 0.01)');
+  assert.equal(crossings, 0, crossings + ' crossing(s) in randomTree(3, 250, 0.005)');
 });
 
-test('the layout stays within its speed budget: 1000 agents in well under 400ms, a tree, a crowded first ring, one huge team (#4499)', () => {
-  /* orgPlace runs on every repaint (each 5s poll and each drag's rest). Measured on the Mac mini: at most ~48ms for
-     these shapes (#4472: 17.6ms for the tree). 400ms is headroom for a runner 2-4x slower than this box, not a target:
-     it catches a change of order (review it1's crowded first ring took 481ms), not of a few ms (review it7). Median
-     of 5 runs. */
-  /* Two shapes: a deep tree, and a crowded first ring (1000 agents with no manager plus one small team), where the
-     first-ring search once checked every face for every agent on every lane and took 481ms (review it1; now ~40ms,
-     #4472 ~14ms). */
+test('the layout stays within its speed budget, per shape, tight enough to see a 10x slowdown (#4499)', () => {
+  /* orgPlace runs on every repaint (each 5s poll and each drag's rest). The budget is about 20ms per 1000 agents for
+     a real fleet's shapes. Measured on the Mac mini (median of 5; orglanes #4472 in brackets):
+       a 1000-agent tree 18ms (19), 1000 agents with no manager plus one small team 5.5ms (15), a lead with 1000
+       reports 47ms (91), a 1000-deep chain 96ms (54).
+     The last two are over the budget and are not realistic fleets: a 1000-report team and a 1000-level chain; the
+     chain is disclosed in the plan. Each ceiling is about 5x its measured value: room for a CI runner 2-4x slower than
+     this box, while a 10x slowdown fails (review 9: one 400ms ceiling for every shape could not see that). */
   const flatPlusTeam = [['lead'], ['a', 'lead'], ['b', 'lead'], ['c', 'lead']].concat(Array.from({ length: 1000 }, (_, i) => ['f' + i]));
-  /* And one huge team: a lead with 1000 reports visited every pair of its team on every try (review it3: ~200ms;
-     now ~42ms, #4472 ~92ms). */
   const bigTeam = [['lead']].concat(Array.from({ length: 1000 }, (_, i) => ['r' + i, 'lead']));
-  for (const [label, spec] of [['a 1000-agent tree', randomTree(1, 1000, 0.05)], ['1000 agents with no manager and one team', flatPlusTeam], ['a lead with 1000 reports', bigTeam]]) {
+  const chain = Array.from({ length: 1000 }, (_, i) => (i ? ['c' + i, 'c' + (i - 1)] : ['c0']));
+  const cases = [['a 1000-agent tree', randomTree(1, 1000, 0.05), 100], ['1000 agents with no manager and one team', flatPlusTeam, 30],
+    ['a lead with 1000 reports', bigTeam, 250], ['a 1000-deep chain', chain, 500]];
+  for (const [label, spec, ceiling] of cases) {
     const agents = page.orgTreeOf(cards(spec));
     page.orgPlace(agents);
     const ms = [];
@@ -189,6 +191,6 @@ test('the layout stays within its speed budget: 1000 agents in well under 400ms,
       ms.push(Number(process.hrtime.bigint() - t) / 1e6);
     }
     ms.sort((a, b) => a - b);
-    assert.ok(ms[2] < 400, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over 400ms');
+    assert.ok(ms[2] < ceiling, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over ' + ceiling + 'ms');
   }
 });
