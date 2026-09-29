@@ -103,7 +103,7 @@ test('#4408: a stale board that can restart itself says so, and the button runs 
     const twice = await post();   // a second open page pressing too
     assert.equal(twice.status, 202);
     await wait(900);   // the restart runs after the response has flushed
-    assert.deepEqual(spawned, [['/fake/home/bin/kosmos', 'restart']], 'not exactly one `kosmos restart` for two presses');
+    assert.deepEqual(spawned, [['/fake/home/bin/kosmos', 'restart', '--force']], 'not exactly one `kosmos restart` for two presses');
   } finally {
     delete require.cache[probe];
     fs.rmSync(dir, { recursive: true, force: true });

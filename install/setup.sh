@@ -1274,7 +1274,10 @@ uninstall() {
   # the folder under a running server leaves it serving ghosts.
   if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
     info "stopping the board"
-    "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+    # #4466: --force on every board start/stop/restart in this installer. `kosmos` refuses an AGENT's
+    # stop/restart of a board that answers, and an install or update run from an agent's pane is not
+    # the agent restarting the board. An older kosmos ignores the extra word.
+    "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
     # than glossed: the files still come off, but an orphan process would
     # keep the port and answer errors from a deleted tree, so the user
@@ -2691,7 +2694,7 @@ _kosmos_mode_keeps_board_off() {
 _kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
-  "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.
@@ -3787,7 +3790,10 @@ if [ "$_kosmos_board_off" = yes ]; then
 else
   step "Starting Kosmos."
   _kosmos_started=yes
-  KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+  # #4466: KOSMOS_RECLAIM_BUSY=1 because at this point no board of this install should be serving (an update
+  # has just stopped the old one; a fresh install never had one), so a Kosmos that holds the port without
+  # answering is a stale build, not a busy one (the #3079 reclaim frees it, as it did before #4466).
+  KOSMOS_SAY_INDENT="     " KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 fi
 ok
 
@@ -4065,7 +4071,7 @@ if [ "$_board_ok" = yes ]; then
         # #4356: not on a computer that connects elsewhere; restart would clear board.stopped.
         # (read again first: a choice made since the start step decides)
         _kosmos_board_decide
-        [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        [ "$_kosmos_board_off" = yes ] || "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true
       fi
     fi
   else
@@ -4250,7 +4256,7 @@ fi
 # ask. The summary below then describes this reading.
 _kosmos_board_decide
 if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
-  "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
 elif [ "$_kosmos_board_off" = no ] && [ "$_kosmos_wrote_marker" = yes ]; then
   # Now run or both (the app's menu, during this run): the marker this run wrote would keep launchd

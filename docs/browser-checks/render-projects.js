@@ -691,7 +691,7 @@ async function main() {
       // Since agent-page-nav the page lands on Talk and captures the window
       // only on arrival at the Terminal section; without this click the box
       // is hidden for every agent and the leg below reads a wrong cause.
-      await page.click('#d-nav button[data-go="term"]');
+      await page.click('#d-nav button[data-go="model"]');
       await page.waitForTimeout(800);
       const win = await page.evaluate(() => {
         const box = document.getElementById('d-window-box');
