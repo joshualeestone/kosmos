@@ -164,5 +164,11 @@ Lesson (mine, again): focused tests are not the suite; the meta-guards run only 
   ('the pane closed'). Red-checked with an unresolvable sender: fails "the deliver was never reached".
 - W: the _sendPostWithDelivery excuse named post/postAsync; the wrappers are sendPost/sendPostAsync. Fixed here and in
   the excuse.
-- NIT (pre-existing, noted): withFleet restores the fleet when an async callback returns its promise; safe today because
+- NIT (this branch's own, not main's: the `await withFleet` shape was added here; noted): withFleet restores the fleet when an async callback returns its promise; safe today because
   sender resolution is synchronous before the first await.
+
+## Review round 10 (fable): 1 WARNING fixed, 1 NIT fixed
+- W: the FAILED-in-flight test's `tries >= 1` stayed green with the in-flight fold disabled (the retry delivered itself
+  and failed the same way). It now asserts exactly one delivery. Measured by the reviewer: fold off gives 2 vs 1 (red),
+  and the real fold is green.
+- NIT: the withFleet note called the async shape pre-existing; it is this branch's own. Reworded.

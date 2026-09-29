@@ -2983,7 +2983,8 @@ test('#4580: a retry waiting on a first send that FAILED gets the failure, never
     const [, b] = await Promise.all([p1, p2]);
     // Only the injected deliver says 'the pane closed', so a sender that never resolved (a refusal is
     // also COULD_NOT, with no duplicate flag) cannot pass this test for the wrong reason.
-    assert.ok(tries >= 1, 'the deliver was never reached: the send was refused before delivery');
+    // Exactly one: the retry WAITED on the first send (the in-flight fold) rather than delivering again.
+    assert.equal(tries, 1, 'the deliver ran ' + tries + ' times: 0 = the send was refused before delivery, 2 = the retry did not wait on the first');
     assert.equal(b.because, 'the pane closed', JSON.stringify(b));
     assert.equal(b.state, chat.DELIVERY.COULD_NOT, JSON.stringify(b));
     assert.equal(b.duplicate, undefined, 'nothing went out, so nothing is a duplicate');
