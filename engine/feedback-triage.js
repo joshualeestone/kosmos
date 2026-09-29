@@ -78,18 +78,24 @@ const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
 const NEG_CARRIES = new Set(['or', 'nor']);
 /** Review 3: saying something could not be done IS the problem ("could not add a file", "no way to add a provider"),
  *  though its verb reads as negated. Matched on the normalised clause (apostrophes already gone). */
-const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\s+(\S+)(?:\s+(\S+))?/;
-/** Review 4: praise and eagerness wear the same words ("cannot wait for this", "can't recommend it enough", "no way to
- *  break it", "could not be happier", "can not complain"); after these, it is not a failure. */
-const FAILED_TO_PRAISE = new Set(['wait', 'recommend', 'complain', 'be', 'break', 'stop', 'believe', 'thank', 'imagine', 'praise', 'ask']);
-/** "could not find / see any <problem>" says the problem was ABSENT. */
+const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\s+(\S+)(?:\s+(\S+))?/g;
+/** Review 4, narrowed by review 5: praise and eagerness wear the same words ("cannot wait for this", "can't
+ *  recommend it enough", "could not be happier", "can not complain", "no way to break it"). Only these IDIOMS are
+ *  praise: a lone "be", "stop" or "break" is how most failures are written ("cannot be created", "could not be
+ *  opened", "cannot stop the agent", "cannot break out of the loop"). */
+const PRAISE_WORD = new Set(['wait', 'recommend', 'complain', 'believe', 'thank', 'imagine', 'praise']);
+const PRAISE_PAIR = new Set(['be happier', 'be better', 'be more', 'be easier', 'be simpler', 'be prouder', 'break it', 'break this', 'fault it']);
+function praiseAfter(w1, w2) { return PRAISE_WORD.has(w1) || PRAISE_PAIR.has(w1 + ' ' + (w2 || '')); }
+/** "could not find / see ANY <problem>" says the problem was absent; "could not find A button" is a missing feature. */
 const LOOKED_FOR = new Set(['find', 'see', 'spot', 'detect', 'notice', 'reproduce']);
 function failedTo(clauseWords) {
-  const m = FAILED_TO.exec(clauseWords.join(' '));
-  if (!m) return false;
-  if (FAILED_TO_PRAISE.has(m[1])) return false;
-  if (LOOKED_FOR.has(m[1]) && /^(?:any|a|anything|no)$/.test(m[2] || '')) return false;
-  return true;
+  // Review 5: every occurrence in the clause, not the first only ("could not be simpler or could not save").
+  for (const m of clauseWords.join(' ').matchAll(FAILED_TO)) {
+    if (praiseAfter(m[1], m[2])) continue;
+    if (LOOKED_FOR.has(m[1]) && /^(?:any|anything|no)$/.test(m[2] || '')) continue;
+    return true;
+  }
+  return false;
 }
 
 /** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
@@ -234,7 +240,7 @@ function classify(item) {
     const negates = (j) => NEGATORS.has(cw[j]) && !NOT_NEGATING_NEXT.has(cw[j + 1]);
     cw.forEach((w, i) => {
       if (!ACTION.has(w)) return;
-      if ((w === 'cannot' || w === 'cant' || w === 'couldnt') && FAILED_TO_PRAISE.has(cw[i + 1])) return;   // "cannot wait", "cant recommend it enough"
+      if ((w === 'cannot' || w === 'cant' || w === 'couldnt') && praiseAfter(cw[i + 1], cw[i + 2])) return;   // "cannot wait", "cant recommend it enough"
       let negated = false;
       for (let j = i - 1; j >= Math.max(0, i - NEGATION_REACH); j--) {
         if (negates(j)) { negated = true; break; }
@@ -257,9 +263,17 @@ function classify(item) {
      works fine" has a problem in its other clause and is a report; "the queue is idle and ready rather than stuck" is
      clean. (A problem WORD anywhere already made actionHits non-empty.) */
   const clauses = String(item).split(CLAUSE_BREAK).map((c) => normalize(c)).filter(Boolean);
-  const cleanAt = clauses.findIndex((c) => CLEAN.test(c));
+  /* Review 5: a clean phrase with a negation just before it is the OPPOSITE ("not working correctly", "never works
+     correctly", "has not worked well"): only an un-negated clean phrase makes a clause clean. */
+  const cleanClause = (c) => {
+    const m = CLEAN.exec(c);
+    if (!m) return false;
+    const before = c.slice(0, m.index).split(' ').filter(Boolean).slice(-NEGATION_REACH);
+    return !before.some((x) => NEGATORS.has(x));
+  };
+  const cleanAt = clauses.findIndex(cleanClause);
   if (!actionHits.length && cleanAt !== -1
-    && clauses.every((c, k) => k === cleanAt || CLEAN.test(c) || !c.split(' ').some((x) => NEGATORS.has(x)))) {
+    && clauses.every((c, k) => k === cleanAt || cleanClause(c) || !c.split(' ').some((x) => NEGATORS.has(x) || x === 'cannot' || x === 'cant'))) {
     reasons.push('reports that nothing was wrong');
     return { score: 0, reasons };
   }

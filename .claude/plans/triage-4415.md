@@ -47,6 +47,14 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   NITs: a watermark in the future is treated as unreadable (last day); gh is bounded at 120 s; the dead-holder arm
   asserts the run posted. The shell test drives a lock taken over mid-post. Residual, stated: two runs judging the
   same stale lock in the same instant is narrowed by the rename, not proven impossible.
+- Review iteration 5 (Opus): two BLOCKERs in my own iteration-1 and iteration-4 rules. (1) A clean phrase with a
+  negation just before it ("not working correctly", "never works correctly", "has not worked well") marked the report
+  clean: now only an un-negated clean phrase does. (2) "be", "stop", "break" and "ask" in the praise list hid the most
+  common failure wording ("cannot be created", "could not be opened", "cannot stop the agent"): praise is now only
+  whole idioms ("be happier", "break it", "wait", "recommend"). (WARNING) "could not see a button" read as nothing
+  found: only "any / anything / no" means absent. NIT: every "could not" in a clause is examined. ACCEPTED: a run hung
+  past the hour, taken over, then waking to post, can move the watermark back and repost a window (at least once, as
+  stated); the same-instant takeover race can skip one day, which the next run recovers (iteration-4 residual).
 ## Rejected
 - Opening cards from the digest: a person decides (#2246).
 - A digest over all reports every day: the same wall each morning. Only what arrived since the last post.

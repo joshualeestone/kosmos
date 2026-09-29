@@ -292,3 +292,30 @@ test('#4415 review 4: praise in failure words is not a problem, and one statemen
   assert.match(hits('Export cannot add a provider'), /\(cannot, add\)$/, '"cannot" was counted twice (as itself and as "could not")');
   assert.match(hits('I could not add a file to the project.'), /could not/, 'control: a real failure still counts');
 });
+
+test('#4415 review 5: a NEGATED clean phrase is a problem, not a clean report', () => {
+  const t = require('./feedback-triage');
+  const clean = (s) => t.classify(s).reasons.some((r) => /nothing was wrong/.test(r));
+  for (const s of ['The board is not working correctly on Windows after I updated to the new version today',
+    'Sync never works correctly with two phones connected at once to the board',
+    'It has not worked well since the update, the board keeps reloading itself']) {
+    assert.equal(clean(s), false, s + ': a negated clean phrase marked the report clean');
+    assert.ok(t.classify(s).score > 0, s + ': scored as nothing');
+  }
+  assert.equal(clean('Everything works correctly today.'), true, 'control: an un-negated clean phrase is still clean');
+});
+
+test('#4415 review 5: "cannot be / could not be / cannot stop" are failures; only real praise idioms are not', () => {
+  const t = require('./feedback-triage');
+  const named = (s) => (t.classify(s).reasons.find((r) => r.startsWith('names something')) || '');
+  for (const s of ['The agent cannot be created from the board.', 'The file could not be opened.', 'The board could not be reached.',
+    'I could not ask the agent a question from the phone', 'no way to stop the agent', 'Cannot break out of the loop in the chat panel',
+    'I could not see a button to export.', 'It could not be simpler or could not save']) {
+    assert.notEqual(named(s), '', s + ': a failure was read as praise or absence');
+  }
+  assert.equal(t.classify('The chat works fine but the phone app cannot be opened.').reasons.some((r) => /nothing was wrong/.test(r)), false,
+    'a failure in the other clause was cleaned away');
+  for (const s of ['I could not be happier with the export', 'There is no way to break it', 'I cannot wait for this feature']) {
+    assert.equal(named(s), '', s + ': praise counted as a problem');
+  }
+});
