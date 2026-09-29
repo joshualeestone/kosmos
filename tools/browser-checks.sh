@@ -921,9 +921,11 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # board above is needed. The slice is the frame and the accounts page at the
 # smallest phone, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
-# full sweep (16 shots per screen) is a by-hand tool, not a gate.
+# desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
+# must be taken, and nav-menu, a phone-only screen, must be skipped there
+# rather than error. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and

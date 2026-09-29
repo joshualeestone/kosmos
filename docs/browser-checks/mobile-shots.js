@@ -43,7 +43,8 @@
  *
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
- * plus `noServiceWorker: true` if `go` stubs a request with page.route.
+ * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
  * `go` starts on a freshly loaded board at the phone size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -111,7 +112,8 @@ const SCREENS = [
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
-  { name: 'nav-menu', owner: 'Raiden', go: async (page) => {
+  // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
+  { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
   } },
@@ -678,6 +680,7 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
+              if (s.desktop && sc.phoneOnly) { console.log(`skip  ${sc.name}--${sz}: a phone-only screen`); continue; }
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
@@ -754,9 +757,10 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields });
+              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited: !s.desktop });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
-                + `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`);
+                + (s.desktop ? '  phone audits: n/a at desktop'
+                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
               await ctx.close();
             }
           }
@@ -784,7 +788,7 @@ async function run() {
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.`, '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.taps.length} | ${r.fields.length} |`)];
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(rows, null, 1) + '\n');
