@@ -786,8 +786,8 @@ function block() {
  *     stopped there (its own account, relayed on the card). The section now sends a file made for the person to
  *     the Files folder, names the dmfiles section that carries its path, and says the folder above Files is for
  *     working notes only. SAME HEADING, so it reaches new agents and agents with a managed span; every EXISTING
- *     agent gets the same rule from the managed dmfiles pointer at the top of its file (engine/dmfiles.js), which
- *     needs no consent because that block is Kosmos's to keep current.
+ *     agent gets the same rule from the managed dmfiles pointer, placed just before its working rules (or at the end
+ *     when it has none; engine/dmfiles.js spliceTop), which needs no consent because that block is Kosmos's.
  *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
  *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
  */

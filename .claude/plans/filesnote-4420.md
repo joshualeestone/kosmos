@@ -32,3 +32,14 @@ inside your own folder", which names the folder the agent then used.
 ## Weakest premise
 That position and wording are why the model missed it. A model can still ignore a top line; this makes the rule the
 first thing it reads and names the exact mistake, which is what is in our control.
+
+## Where the pointer goes, and the exception it is (review iteration 1)
+- Before the working rules' heading line; if that line is inside a managed span (a consented refresh), before the
+  span's start marker, never inside it (inside, the refresh read as out of date forever and the two blocks deleted
+  each other in turns). Tested with a real accepted-refresh file: planFor stays current, a second sync is a no-op.
+- ⚠️ An EXCEPTION to #1071: plain-text rules are the person's (#122), and the pointer is inserted into them. It is
+  insert-only (exactly block + blank line at a line start; cutting that out gives the file back byte for byte,
+  tested on three shapes). Chosen because it is the only placement an existing agent reads before the old sentence
+  it obeyed. Rejected: appending (the Files block was already at the end, and the agent still obeyed the earlier
+  sentence). Weakest premise: that position in the file changes what a model obeys.
+- No working rules in the file: appended like any managed block.

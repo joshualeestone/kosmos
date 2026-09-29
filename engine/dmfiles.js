@@ -160,7 +160,7 @@ function blockBody(dir) {
   ].join('\n');
 }
 
-/* #4420: the pointer near the top, for EVERY agent (Splinter, 15:34: the fix is for all agents, not Gemini's). It
+/* #4420: the pointer, for EVERY agent (Splinter, 15:34: the fix is for all agents, not Gemini's). It
    sits above the doctrine's "Where the files you make go", which an existing agent holds as plain text Kosmos may not
    rewrite without consent, so this is the line that reaches them. One line; the rule itself stays in the block. PURE. */
 function topLine(dir) {
@@ -170,25 +170,46 @@ function topLine(dir) {
     + 'working notes. The full rule is under "Where to save files you make for the person" in these instructions.';
 }
 
-/* Where the pointer goes: right BEFORE the working rules' heading when the file carries them (it has to be read before
-   their "Where the files you make go"; and the person's own words stay first, #591). A file without them is the
-   person's own text, which a board start must pass through byte for byte (#1071): there the pointer is appended like
-   every other managed block, never inserted into it. Replaced where it already is; refused (text unchanged) on two
-   pointers. PURE. */
+/* Where the pointer goes. It exists to be read BEFORE the working rules' "Where the files you make go": an existing
+   agent obeyed that section's old sentence, and its copy of the rules is text Kosmos may not rewrite (#122).
+   - The working rules' heading is on a line of its own: the pointer goes right before that line, or, when that line
+     sits inside a managed span (a consented refresh puts the rules between DOCTRINE markers), right before that
+     span's start marker, never inside it (a block inside another block would make the refresh read as out of date
+     forever, and the two would take turns deleting each other).
+   - ⚠️ THAT IS AN EXCEPTION TO #1071, stated as one: when the rules are plain text, which is the person's (#122),
+     this INSERTS a marked block in the middle of their file. It is insert-only: exactly `block + "\n\n"` goes in at
+     the start of a line and no existing byte changes, so cutting out exactly that string gives the file back byte
+     for byte (dmfiles.top-4420.test.js pins it). A future remover must cut exactly that, not projects.removeBlock,
+     which also collapses the blank line before it. The person's own words above the rules stay first (#591).
+   - No working rules in the file: appended like every other managed block, so the person's text is untouched.
+   Replaced where it already is; refused (text unchanged) on two pointers. PURE. */
 const DOCTRINE_HEADING = '## How you work, whatever the job';
+const HEADING_LINE = /(^|\n)## How you work, whatever the job[ \t]*(?=\n|$)/;
 function spliceTop(text, dir) {
   const original = String(text == null ? '' : text);
   const block = TOP_START + '\n' + topLine(dir) + '\n' + TOP_END;
   const at = projects.findBlock(original, TOP_START, TOP_END);
   if (at && at.ambiguous) return original;
   if (at) return original.slice(0, at.start) + block + original.slice(at.end);
-  const rules = original.indexOf('\n' + DOCTRINE_HEADING);
-  if (rules !== -1) return original.slice(0, rules + 1) + block + '\n\n' + original.slice(rules + 1);
-  if (original.startsWith(DOCTRINE_HEADING)) return block + '\n\n' + original;
+  const m = HEADING_LINE.exec(original);
+  if (m) {
+    let pos = m.index + m[1].length;   // the start of the heading's line
+    const all = projects.ALL_MARKERS();
+    for (let i = 0; i + 1 < all.length; i += 2) {
+      if (all[i] === TOP_START) continue;
+      const span = projects.findBlock(original, all[i], all[i + 1]);
+      if (span && !span.ambiguous && span.start <= pos && pos < span.end) {
+        const ls = original.lastIndexOf('\n', span.start - 1) + 1;   // the start of the marker's line
+        pos = ls;
+        break;
+      }
+    }
+    return original.slice(0, pos) + block + '\n\n' + original.slice(pos);
+  }
   return projects.spliceBlock(original, topLine(dir), TOP_START, TOP_END);
 }
 
-/* #4420: both managed parts for one agent, the block and the pointer at the top. The ONE composition, used at birth
+/* #4420: both managed parts for one agent, the block and the pointer (spliceTop says where it goes). The ONE composition, used at birth
    (create.js) and by tellAgent. Null when the agent has no folder to name. */
 function applyTo(text, sessionName) {
   const dir = filesDir(sessionName);
@@ -239,7 +260,7 @@ function tellAgent(sessionName, roster, opts) {
     if (topFound && topFound.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${topFound.pairs} Kosmos files pointers, so we cannot tell which is ours and did not change anything` };
     }
-    const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer at the top
+    const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer
     if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
     /* Unchanged is TOLD, not a failure: the block already says this. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };

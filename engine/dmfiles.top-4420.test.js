@@ -3,7 +3,7 @@
  * #4420 (Josh, 2026-09-28 15:29): a Gemini agent saved a file for him in its own folder (the one above Files), so it
  * never showed on its page, then said it was in the files panel. The Files block did reach its GEMINI.md (measured),
  * but at the END of a long file, and the doctrine's earlier "Where the files you make go" said "your own folder"
- * (the agent stopped there, by its own account). So: a one-line pointer at the TOP of EVERY agent's file, the doctrine
+ * (the agent stopped there, by its own account). So: a one-line pointer in EVERY agent's file, before its working rules, the doctrine
  * section rewritten, and two sentences in the block that make the mistake and the false claim explicit.
  *
  *   node --test engine/dmfiles.top-4420.test.js
@@ -101,4 +101,35 @@ test('#4420: the pointer\'s markers are registered (every neutraliser guards the
   assert.ok(all.includes(dm.TOP_START) && all.includes(dm.TOP_END));
   const create = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
   assert.match(create, /const spliced = dmMod\.applyTo\(text, name\);/, 'a new agent is born without the pointer');
+});
+
+test('#4420: rules in a MANAGED span (a consented refresh): the pointer goes before the span, never inside it, and the refresh stays current', () => {
+  const doctrine = require('./doctrine');
+  const NOW = new Date('2026-09-28T12:00:00Z');
+  const accepted = doctrine.planFor('# managed\nYou are a project manager.\n', NOW).fileNext;   // what an accepted refresh writes
+  assert.equal(doctrine.planFor(accepted, NOW).state, 'current', 'precondition: the fixture is an up-to-date refresh');
+  assert.ok(accepted.indexOf('\n## How you work, whatever the job') > accepted.indexOf(doctrine.START), 'precondition: the heading is INSIDE the span');
+  const f = agent('managed', 'google', 'GEMINI.md');
+  fs.writeFileSync(f, accepted);
+  dm.tellAgent('managed', null, { trusted: true });
+  const once = fs.readFileSync(f, 'utf8');
+  assert.ok(once.indexOf(dm.TOP_END) < once.indexOf(doctrine.START), 'the pointer went inside the working-rules span');
+  assert.equal(doctrine.planFor(once, NOW).state, 'current', 'the pointer made the rules read as out of date');
+  dm.tellAgent('managed', null, { trusted: true });
+  assert.equal(fs.readFileSync(f, 'utf8'), once, 'a second board start rewrote the file');
+});
+
+test('#4420: with the rules as plain text (the person\'s, #122) the pointer is INSERT-ONLY: cutting it out gives the file back byte for byte', () => {
+  const doctrineText = require('./defaults').block();
+  for (const before of ['# born\nYou are a project manager.\n', '# born\nYou are a project manager.\n\n', '']) {
+    const original = before + doctrineText + '\nMy own closing line.\n';
+    const spliced = dm.spliceTop(original, '/Users/x/work/workers/born/Files');
+    const block = dm.TOP_START + '\n' + dm.topLine('/Users/x/work/workers/born/Files') + '\n' + dm.TOP_END;
+    assert.equal(spliced.split(block + '\n\n').length, 2, 'the pointer is not in its one fixed shape');
+    assert.equal(spliced.replace(block + '\n\n', ''), original, 'a byte of the person\'s file changed: ' + JSON.stringify(before));
+    assert.ok(spliced.indexOf(block) < spliced.indexOf('## How you work, whatever the job'), 'the pointer is not before the rules');
+  }
+  // A heading line that only STARTS with the words is not the heading (the match is on a whole line).
+  const lookalike = '# x\n## How you work, whatever the job, and more\n';
+  assert.ok(dm.spliceTop(lookalike, '/f').endsWith(dm.TOP_END + '\n'), 'a lookalike heading drew the pointer into the middle');
 });

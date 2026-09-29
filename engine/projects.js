@@ -218,8 +218,8 @@ const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const DMFILES_START = '<!-- kosmos:dmfiles:start -->';
 const DMFILES_END = '<!-- kosmos:dmfiles:end -->';
-/* #4420: a one-line pointer to the Files folder near the TOP of a non-Claude agent's instructions (the full dmfiles
-   block is appended at the end, and a Gemini agent saved to its folder root and then said the file was in the panel). */
+/* #4420: a one-line pointer to the Files folder in every agent's instructions, before its working rules (the full
+   dmfiles block is appended at the end, and a Gemini agent saved to its folder root and then said it was in the panel). */
 const DMFILES_TOP_START = '<!-- kosmos:dmfiles-top:start -->';
 const DMFILES_TOP_END = '<!-- kosmos:dmfiles-top:end -->';
 /* #3564: a swarm lead's own block (how many helpers, isolation, one voice). */
