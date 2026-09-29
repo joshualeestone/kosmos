@@ -208,6 +208,10 @@ H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.plist"
 run_wd "$H"; rc=$?; [ "$rc" = 0 ] && ok "missing CLI: silent no-op" || bad "missing CLI: nonzero exit $rc"; rm -rf "$H"
 
 # ---- the CLI's marker wiring, against the REAL install/kosmos --------------
+# The CLI refuses start/stop when an agent invokes it (#4466, agent_board_guard via _invoked_by_agent), and these
+# cases test the person's path. Run from an agent's pane (every gated run on the fleet), the agent identity would
+# be inherited and cmd_start/cmd_stop refused before touching the marker, so it is cleared here, as CI has none.
+unset KOSMOS_AGENT_SESSION KOSMOS_AGENT_TOKEN TMUX_PANE
 CLI="$PWD/install/kosmos"
 FREEPORT=39517
 
@@ -221,6 +225,18 @@ rm -rf "$H"
 H="$(mktemp -d)"; mkdir -p "$H/logs"
 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" stop >/dev/null 2>&1 || true
 [ -f "$H/board.stopped" ] && ok "cmd_stop writes the deliberate-stop marker" || bad "cmd_stop did not write the marker"
+rm -rf "$H"
+
+# 15. The guard itself (#4466), with an agent identity set ON PURPOSE (the cases above clear it): an agent's start
+#     may not clear a person's deliberate stop, and an agent's stop of a board that is not running writes no
+#     marker (it would switch the watchdog off). Set explicitly, so this holds whoever runs the suite.
+H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.stopped"
+KOSMOS_AGENT_SESSION=test-4466 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" start >/dev/null 2>&1; rc=$?
+[ "$rc" = 1 ] && [ -f "$H/board.stopped" ] && ok "an agent's start is refused and keeps the person's deliberate-stop marker" || bad "an agent's start was not refused (exit $rc) or cleared the marker"
+rm -rf "$H"
+H="$(mktemp -d)"; mkdir -p "$H/logs"
+KOSMOS_AGENT_SESSION=test-4466 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" stop >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && [ ! -f "$H/board.stopped" ] && ok "an agent's stop of a board that is not running writes no marker" || bad "an agent's stop wrote the marker (exit $rc)"
 rm -rf "$H"
 
 echo "board-watchdog-2955: $fails failures"; [ "$fails" -eq 0 ]
