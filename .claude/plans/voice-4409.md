@@ -34,6 +34,11 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   A browser whose voice list loads late waits for it once. Driven by web.voice-4409.test.js (switch, closed Guide,
   hidden page, repaint); removing the view check or the repaint hand-off reds them. The native changes are read from
   source and typecheck at the floor target; they need a person at a Mac to be seen working (same as the mic itself).
+- Review iteration 2: (WARNING) moving from one mic to another is cancel-then-start in one turn, and the cancel's
+  "stopped" arrived after the new start and ended it: mic on, button off. The page now tags each start with an id,
+  the app echoes it on every event, and the page ignores another session's events (an app without ids is taken as
+  before). NITs: a window hidden during the permission prompt now cancels the pending start; two messages with the
+  same words keep read-aloud on the one it started on; the tests now drive voiceToggle and the watch itself.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand

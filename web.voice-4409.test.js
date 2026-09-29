@@ -101,14 +101,17 @@ function voiceHarness() {
   const mkBtn = () => ({ attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, title: '' });
   const mkBox = (id) => ({ id, value: '', maxLength: 0, isConnected: true, shown: true, getClientRects() { return this.shown ? [1] : []; }, setSelectionRange() {}, dispatchEvent() {} });
   // eslint-disable-next-line no-new-func
-  const make = new Function('window', 'document', 'posted',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; let VOICE_WATCH = 1; const SPEAK = { btn: null, text: \'\', where: \'\', seq: 0 };\n'
+  const timers = [];
+  const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; let VOICE_WATCH = 0; const SPEAK = { btn: null, text: \'\', where: \'\', seq: 0 };\n'
     + PAGE.slice(PAGE.indexOf('const VOICE = {'), PAGE.indexOf(';', PAGE.indexOf('const VOICE = {')) + 1) + '\n'
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceCancel', 'voiceOnEvent', 'speakStop', 'speakPaint', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
-    + '\nreturn { VOICE, SPEAK, voiceWhere, voiceOnEvent, speakFollow, viewKey, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
-  const doc = { hidden: false, getElementById: () => null, querySelectorAll: () => [] };
-  return { h: make(win, doc, posted), posted, mkBtn, mkBox, doc };
+  const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
+  const h = make(win, doc, posted, (f) => { timers.push(f); return timers.length; }, (n) => { timers[n - 1] = null; });
+  const tick = () => timers.forEach((f) => f && f());
+  return { h, posted, mkBtn, mkBox, doc, tick, timers };
 }
 
 test('#4409 review 1: a word heard after switching to another agent goes nowhere and stops the mic', () => {
@@ -141,6 +144,47 @@ test('#4409 review 1: closing the Guide (its box hidden) or a hidden page also s
   assert.equal(box2.value, '', 'words landed while the window was hidden');
 });
 
+test('#4409 review 2: moving from one mic to another, the old session\'s late "stopped" does not end the new one', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  doc.boxes['d-say'] = mkBox('d-say'); doc.boxes['asp-say'] = mkBox('asp-say');
+  const dm = mkBtn(); dm.attrs['data-voice-for'] = 'd-say';
+  const guide = mkBtn(); guide.attrs['data-voice-for'] = 'asp-say';
+  h.voiceToggle(dm);
+  const first = posted.at(-1);
+  assert.equal(first.op, 'start');
+  h.voiceOnEvent({ kind: 'listening', id: first.id });
+  h.voiceToggle(guide);   // cancel(first) then start(second), in one turn
+  assert.deepEqual(posted.slice(-2).map((m) => m.op), ['cancel', 'start']);
+  const second = posted.at(-1);
+  assert.notEqual(second.id, first.id, 'two starts share one id');
+  h.voiceOnEvent({ kind: 'stopped', id: first.id });   // the cancel's answer, arriving late
+  assert.equal(h.VOICE.btn, guide, 'the old stopped ended the new session: mic on, button off');
+  h.voiceOnEvent({ kind: 'partial', text: 'hello', id: second.id });
+  assert.equal(doc.boxes['asp-say'].value, 'hello', 'the new session\'s words were dropped');
+  h.voiceOnEvent({ kind: 'partial', text: 'stale', id: first.id });
+  assert.equal(doc.boxes['asp-say'].value, 'hello', 'a word from the old session landed');
+  h.voiceOnEvent({ kind: 'stopped', id: second.id });
+  assert.equal(h.VOICE.btn, null, 'control: the new session\'s own stopped ends it');
+});
+
+test('#4409 review 2: the watch stops the mic after a switch with nothing heard, and stops itself after', () => {
+  const { h, posted, mkBtn, mkBox, doc, tick, timers } = voiceHarness();
+  doc.boxes['d-say'] = mkBox('d-say');
+  const dm = mkBtn(); dm.attrs['data-voice-for'] = 'd-say';
+  h.set('april', null);
+  h.voiceToggle(dm);
+  assert.ok(h.watching(), 'no watch while listening');
+  tick();
+  assert.equal(h.VOICE.btn, dm, 'control: the watch cancelled with nothing moved');
+  h.set('casey', null);
+  tick();
+  assert.equal(h.VOICE.btn, null, 'the mic listened on after a silent switch');
+  assert.equal(posted.at(-1).op, 'cancel');
+  tick();
+  assert.equal(h.watching(), 0, 'the watch never stops');
+  assert.equal(timers.filter(Boolean).length, 0);
+});
+
 test('#4409 review 1: read-aloud follows its message through a repaint, and stops when the view moves', () => {
   const { h, mkBtn, doc } = voiceHarness();
   const row = { isConnected: true, getClientRects: () => [1], querySelector: () => null, cloneNode() { return { querySelectorAll: () => [], textContent: 'Hello there.' }; } };
@@ -155,6 +199,19 @@ test('#4409 review 1: read-aloud follows its message through a repaint, and stop
   h.set('casey', null);
   h.speakFollow();
   assert.equal(h.SPEAK.btn, null, 'reading went on after switching agent');
+});
+
+test('#4409 review 2: two messages with the same words: read-aloud stays on the one it started on', () => {
+  const { h, mkBtn, doc } = voiceHarness();
+  const mkRow = () => ({ isConnected: true, getClientRects: () => [1], querySelector: () => null, cloneNode() { return { querySelectorAll: () => [], textContent: 'Done.' }; } });
+  const r1 = mkRow(), r2 = mkRow();
+  const a = Object.assign(mkBtn(), { isConnected: true, closest: () => r1 });
+  const b = Object.assign(mkBtn(), { isConnected: true, closest: () => r2 });
+  doc.querySelectorAll = () => [a, b];
+  h.set('april', null);
+  Object.assign(h.SPEAK, { btn: Object.assign(mkBtn(), { isConnected: false, closest: () => r2 }), text: 'Done.', where: h.viewKey(), nth: 1 });
+  h.speakFollow();
+  assert.equal(h.SPEAK.btn, b, 'the pressed state jumped to the other "Done."');
 });
 
 test('#4409: read aloud uses on-device voices only, and only an agent\'s message offers it', () => {
@@ -190,6 +247,8 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(SWIFT, /voice\?\.hostCancel\(\)   \/\/ #4409: a hidden window never leaves the mic on/, 'closing the window leaves the mic on');
   assert.match(SWIFT, /func windowDidMiniaturize\(_ notification: Notification\) \{\n        voice\?\.hostCancel\(\)/, 'minimising leaves the mic on');
   assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
+  assert.match(bridge, /event\["id"\] = pageId/, 'events carry no session id, so a late one ends the next session');
+  assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');
 });
 
 test('#4409: the signature carries the microphone entitlement and the bundle carries both usage strings', () => {

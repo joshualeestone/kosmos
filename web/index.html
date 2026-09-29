@@ -54491,7 +54491,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', where: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', where: '', id: '', seq: 0 };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -54558,23 +54558,28 @@ function voiceToggle(btn) {
   const v = box.value;
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), where: voiceWhere(box) });
+  VOICE.seq += 1;
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), where: voiceWhere(box), id: 's' + VOICE.seq });
   voiceSay(btn, '');
   voicePaint(btn, 'asking');
-  h.postMessage({ op: 'start' });
+  h.postMessage({ op: 'start', id: VOICE.id });
   voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
 function voiceCancel() {
   if (!VOICE.btn) return;
   const btn = VOICE.btn;
-  VOICE.btn = null; VOICE.box = null; VOICE.where = '';
+  VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = '';
   voicePaint(btn, 'off');
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'cancel' });
 }
 function voiceOnEvent(ev) {
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
+  /* #4409 (review 2): an event from an EARLIER session (moving from one mic to another is cancel-then-start in one
+     turn, and the cancel's "stopped" lands after the new start) must not end the new one. The app echoes the id the
+     page started with; an app from before the id carries none, and is taken as it always was. */
+  if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
   if (ev.kind === 'listening') { voicePaint(btn, 'on'); return; }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
@@ -54589,7 +54594,7 @@ function voiceOnEvent(ev) {
     return;
   }
   if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
-  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; voicePaint(btn, 'off'); }
+  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); }
 }
 window.kosmosVoiceEvent = voiceOnEvent;
 /* While listening or reading aloud, look twice a second: a switch with nothing heard since must still stop the mic
@@ -54626,7 +54631,7 @@ window.addEventListener('popstate', () => voiceCancel());
 try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
-const SPEAK = { btn: null, text: '', where: '', seq: 0 };
+const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };
 function speakCan() {
   try { return !!(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function'); } catch { return false; }
 }
@@ -54696,13 +54701,18 @@ function speakStop() {
    reading is gone and the new one says "not reading" while the voice goes on, and pressing it restarts from the top.
    Reading is keyed on the message's WORDS and the view, not the element: the watch hands the pressed state to the
    repainted button, and stops when the message is no longer on screen or the view moved. */
+function speakSameText(text) {
+  const rowOf = (b) => b && b.closest && b.closest('.msg, .asp-m');
+  return Array.from(document.querySelectorAll('.rxn-speak, .asp-speak')).filter((b) => shownNow(rowOf(b)) && speechTextOfRow(rowOf(b)) === text);
+}
 function speakFollow() {
   if (!SPEAK.btn) return;
   if (viewKey() !== SPEAK.where) { speakStop(); return; }
   const rowOf = (b) => b && b.closest && b.closest('.msg, .asp-m');
   if (SPEAK.btn.isConnected && shownNow(rowOf(SPEAK.btn))) return;
-  const next = Array.from(document.querySelectorAll('.rxn-speak, .asp-speak'))
-    .find((b) => shownNow(rowOf(b)) && speechTextOfRow(rowOf(b)) === SPEAK.text);
+  /* Two messages can say the same words ("Done."): keep the one in the same position among them. */
+  const same = speakSameText(SPEAK.text);
+  const next = same[SPEAK.nth] || same[0];
   if (!next) { speakStop(); return; }
   SPEAK.btn = next;
   speakPaint(next, true);
@@ -54726,7 +54736,7 @@ function speakRow(btn) {
     }
     btn.title = 'No voice on this computer can read this aloud'; btn.setAttribute('aria-label', btn.title); return;
   }
-  SPEAK.btn = btn; SPEAK.text = text; SPEAK.where = viewKey();
+  SPEAK.btn = btn; SPEAK.text = text; SPEAK.where = viewKey(); SPEAK.nth = Math.max(0, speakSameText(text).indexOf(btn));
   const mine = ++SPEAK.seq;
   speakPaint(btn, true);
   voiceSpeakWatch();

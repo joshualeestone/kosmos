@@ -1047,6 +1047,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// Which start the callbacks belong to. A callback from an older start is dropped, so a stop
     /// followed by a quick start can never be finished by the first one's late answer.
     private var session = 0
+    /// #4409 (review 2): the page's own id for the start it asked for, echoed on every event. The page moves between
+    /// mics with cancel-then-start in one turn, and the cancel's "stopped" arrives AFTER the page has begun the next
+    /// session: without an id it switched the new button off while the mic went on listening.
+    private var pageId = ""
+    /// A start is waiting on a permission answer: nothing to stop yet, but a hidden window must still cancel it.
+    private var pending = false
     private var limit: DispatchWorkItem?
     init(_ owner: AppDelegate) { self.owner = owner }
 
@@ -1056,7 +1062,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
         guard let body = message.body as? [String: Any], let op = body["op"] as? String else { return }
         switch op {
-        case "start": start()
+        case "start":
+            pageId = (body["id"] as? String) ?? ""
+            start()
         case "stop": stop()
         case "cancel": cancel()
         default: return
@@ -1091,6 +1099,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func emit(_ event: [String: Any]) {
+        var event = event
+        event["id"] = pageId   // read NOW: a cancel's "stopped" carries the id of the session it ended
         guard let web = webView,
               let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -1098,6 +1108,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func refuse(_ reason: String) {
+        pending = false
         logLine("voice: not listening (" + reason + ")")
         emit(["kind": "error", "reason": reason])
         emit(["kind": "stopped"])
@@ -1107,6 +1118,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         stopAudio(); task?.cancel(); task = nil; request = nil
         session += 1
         let mine = session
+        pending = true
         guard Self.usageStringsPresent(Bundle.main.infoDictionary) else { refuse("not-set-up"); return }
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
@@ -1124,6 +1136,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func begin(_ mine: Int) {
+        pending = false
         let preferred = Locale.preferredLanguages + [Locale.current.identifier]
         guard let id = Self.pickLocale(preferred: preferred, onDevice: { SFSpeechRecognizer(locale: Locale(identifier: $0))?.supportsOnDeviceRecognition == true }),
               let recognizer = SFSpeechRecognizer(locale: Locale(identifier: id)), recognizer.isAvailable else {
@@ -1184,7 +1197,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// #4409 (review 1): the app itself ends listening when the person can no longer see it: the window closed
     /// (stay-running mode only hides it, so the page gets no pagehide) or minimised. No-op when not listening.
     func hostCancel() {
-        guard engine != nil || request != nil || task != nil else { return }
+        guard pending || engine != nil || request != nil || task != nil else { return }
         logLine("voice: cancelled, window hidden")
         cancel()
     }
@@ -1192,6 +1205,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     /// Stop and throw away anything still coming (the person pressed Send).
     private func cancel() {
         session += 1
+        pending = false
         stopAudio()
         task?.cancel(); task = nil; request = nil; recognizer = nil
         emit(["kind": "stopped"])
