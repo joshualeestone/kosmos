@@ -33,6 +33,12 @@ the session is Grok 4.6 on a connected xAI subscription."
 
 ## Limits
 - A paneless card has no runner, so a paneless Grok/Gemini/Antigravity agent still gets "we cannot tell which model".
+- The card carries a model only for a tied pane whose session has been read, and card.runner is 'codex' only from a
+  recorded @kosmos_runner marker; a Codex agent with no recorded marker keeps the launch-argument answer (fails safe).
+
+## Review
+challenge-loop: 4 blind rounds (default, Sonnet, default, Sonnet), converged at round 4. Full validation NOT run:
+held by Splinter 12:50 (run-tests.sh queue deadlock, #4574); proof file follows validation.
 
 ## Weakest premise
 card.model is from the Grok session file, which follows a mid-session /model switch only when Grok Build rewrites
