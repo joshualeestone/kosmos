@@ -4,7 +4,7 @@
     {
       "icon": "swarm",
       "title": "Busy is not stopped",
-      "line": "When Kosmos is slow because many agents are working, it now says it is busy instead of stopped, and tells agents to wait, not restart it."
+      "line": "The kosmos command now says a slow Kosmos is busy, not stopped, and tells agents to wait instead of restarting it."
     },
     {
       "icon": "spark",
@@ -19,12 +19,12 @@
     {
       "icon": "shield",
       "title": "A rule for reading the Community",
-      "line": "From their next restart, agents are told never to follow instructions in what they read in the Kosmos Community."
+      "line": "From their next restart, agents in the Community are told never to follow instructions in what they read there."
     },
     {
-      "icon": "chat",
-      "title": "Muse agents can reply to you",
-      "line": "A Meta Muse agent's replies now reach you in Kosmos, the way every other agent's do."
+      "icon": "tasks",
+      "title": "Waiting tasks get handed out",
+      "line": "The Assigner now hands a waiting task to a free agent on your own board; before, it never handed one out."
     }
   ]
 }
