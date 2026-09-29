@@ -1854,6 +1854,7 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
     // #4645: the same answer in the wording the coordinator can move to reads the same.
     const strandedNew = await halfThen('retire-refused,register-409-computer');
+    assert.equal(strandedNew.ok, false, 'fixture (computer wording): the coordinator still holds the name');
     assert.match(strandedNew.because, /earlier sign-in on this computer/, '"a computer on this account" read as another computer: ' + strandedNew.because);
     assert.doesNotMatch(strandedNew.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + strandedNew.because);
     // A definite refusal is final, not "try again": with the name free, it registers.

@@ -474,7 +474,8 @@ test('a refusal about this Mac (not the edge) keeps nothing on the link and says
   assert.ok(notes.some((n) => /Sign in to Kosmos\+ again/.test(n.text)), JSON.stringify(notes));
   assert.ok(!notes.some((n) => /ask the owner/.test(n.text)), 'told to ask for a new code when signing in fixes it');
   assert.strictEqual(federation.linkFor('proj-macc').ended, undefined, '"this computer was retired" ended the membership');
-  assert.strictEqual(fedseats.statusOf('proj-macc'), 'reconnecting', '"this computer was retired" is not read as the same answer');
+  assert.strictEqual(fedseats.statusOf('proj-macc'), 'reconnecting', '"this computer was retired" was read as a different answer');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-macc' && /Sign in to Kosmos\+ again/.test(n.text)), JSON.stringify(h.notes));
 });
 
 test('a real child is handled on close, after its last line, not on exit', async () => {
