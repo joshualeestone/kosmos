@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -171,9 +171,8 @@ function chk(ok, label, extra) {
       await page.waitForTimeout(300);
       const before = await page.evaluate(() => ({
         tab: document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0,
-        rail: document.getElementById('rail-projects-tasks').hidden === false,
       }));
-      chk(!before.tab && !before.rail, '[gate] below 25 tasks the Tasks tab and the rail button are hidden', JSON.stringify(before));
+      chk(!before.tab, '[gate] below 25 tasks the Tasks tab is hidden', JSON.stringify(before));
       require('../../engine/store').writeSettings({ tasksTabShown: true });
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -858,7 +857,8 @@ function chk(ok, label, extra) {
       await page.close();
     }
 
-    /* The consolidated view: the tab bar is hidden there, so the projects rail carries the way in. */
+    /* The consolidated view: #4595 (Josh) took the Tasks pill out of the projects rail; the tab bar is the way in,
+       and it opens Tasks inside the display column (#2842). */
     const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
     await page.goto(URL, { waitUntil: 'networkidle' });
     await clearFirstRun(page);
@@ -868,11 +868,13 @@ function chk(ok, label, extra) {
     await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 }).catch(() => {});
     const inCons = await page.evaluate(() => ({
       cons: document.body.classList.contains('consolidated'),
-      btn: (() => { const b = document.getElementById('rail-projects-tasks'); return !!b && b.getClientRects().length > 0; })(),
+      noPill: !document.getElementById('rail-projects-tasks') && !document.querySelector('#rail-projects .rail-tasks'),
+      btn: (() => { const b = document.querySelector('#tabs .tab[data-tab="tasks"]'); return !!b && b.getClientRects().length > 0; })(),
     }));
-    chk(inCons.cons && inCons.btn, '[consolidated] the projects rail shows a Tasks button', JSON.stringify(inCons));
+    chk(inCons.cons && inCons.noPill, '[consolidated] #4595: the projects rail has no Tasks pill', JSON.stringify(inCons));
+    chk(inCons.cons && inCons.btn, '[consolidated] the Tasks tab is on screen, the way in', JSON.stringify(inCons));
     if (inCons.btn) {
-      await page.click('#rail-projects-tasks');
+      await page.click('#tabs .tab[data-tab="tasks"]');
       await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 5, null, { timeout: 8000 }).catch(() => {});
       const got = await page.evaluate(() => {
         const pt = document.getElementById('panel-tasks');
@@ -907,7 +909,7 @@ function chk(ok, label, extra) {
       /* #3949: the white band bleeds only to the column. The projects rail beside it, at the height of Group by, keeps
          the page's ground: the column's scroll box is what contains the bleed, and nothing else would. */
       {
-        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects-tasks').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects-tasks').parentElement;
+        const cg = await page.evaluate(() => { const rail = document.getElementById('rail-projects').closest('aside, nav, section, div[class*="rail"]') || document.getElementById('rail-projects').parentElement;
           const r = rail.getBoundingClientRect(); const u = document.getElementById('tsk-under').getBoundingClientRect();
           const probe = (v) => { const e = document.createElement('i'); e.style.color = v; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
           return { x: Math.round(r.right - 6), y: Math.round(u.top + u.height / 2), railRight: Math.round(r.right), colLeft: Math.round(document.getElementById('panel-tasks').getBoundingClientRect().left),

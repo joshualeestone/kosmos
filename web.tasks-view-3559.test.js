@@ -142,8 +142,10 @@ test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consol
   assert.match(SCRIPT, /const KNOWN_TABS = \[[^\]]*'tasks'/, 'a ?tab=tasks bookmark would land on Agents');
   assert.match(SCRIPT, /if \(tab === 'tasks'\) tskLoad\(true\);/, 'arriving on the tab does not load the view as an arrival');
   assert.match(PAGE, /<section class="panel panel-wide" id="panel-tasks" hidden>/);
-  assert.match(PAGE, /id="rail-projects-tasks"/);
-  assert.match(SCRIPT, /getElementById\('rail-projects-tasks'\)\.addEventListener\('click', openConsolidatedTasks\)/, 'the consolidated button must open Tasks inside the column, not kick out to the tabs (#2842)');
+  // #4595 (Josh): no Tasks pill in the projects rail; the tab bar is the way in, and in the
+  // consolidated view the tab still opens Tasks inside the column (#2842).
+  assert.doesNotMatch(PAGE, /id="rail-projects-tasks"/, 'the projects rail grew its Tasks pill back (#4595)');
+  assert.match(SCRIPT, /else if \(t === 'tasks'\) openConsolidatedTasks\(\);/, 'the consolidated tab must open Tasks inside the column, not kick out to the tabs (#2842)');
   assert.match(SCRIPT, /placeTasksPanel\(cons\);/, 'showTab does not place the Tasks panel with the layout');
   assert.match(SCRIPT, /for \(const id of \['panel-settings', 'panel-create', 'panel-tasks'(?:, '[a-z-]+')*\]\)/, 'taking over the display column does not hide the Tasks view');
   assert.match(SCRIPT, /if \(URL_TAB === 'tasks'\) return \{ screen: 'tasks' \};/, 'the setup guide is told the wrong screen on Tasks');

@@ -3857,11 +3857,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The consolidated projects rail's way into Tasks (kept since #4345 put the tab bar back: it is the
-   way in when the rail is what the person is looking at). */
-.rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
-.rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -14433,11 +14428,8 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
-           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
-           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
-           way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
+      <!-- #4595 (Josh, 2026-09-29): no Tasks button here; Tasks is reached from the tab bar. -->
+      <span class="lead"><span class="railname">Projects</span></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -52401,14 +52393,13 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
-/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
-   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+/* #3559, Josh's ruling: the top-level way into Tasks (the tab; #4595 took out the projects rail's
+   own button, Josh 2026-09-29: people reach Tasks from the top) appears once the person has 25 tasks ever,
    from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
    A project's View All still opens this view below 25: it is that project's only full list. */
 function tskTabGate(show) {
-  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
-    if (el && el.hidden === show) el.hidden = !show;
-  }
+  const el = document.querySelector('.tab[data-tab="tasks"]');
+  if (el && el.hidden === show) el.hidden = !show;
   /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
      every load. A convenience only: the status tick stays the authority and corrects it. */
   try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
@@ -52669,7 +52660,6 @@ document.getElementById('tsk-bclear').addEventListener('click', () => {
   // The bar hides with the ticks, taking this button with it: land on the search, not the body.
   document.getElementById('tsk-search').focus();
 });
-document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
