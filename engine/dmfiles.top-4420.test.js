@@ -38,19 +38,18 @@ function agent(name, provider, file) {
 }
 const count = (s, needle) => s.split(needle).length - 1;
 
-test('#4420: every agent, Claude included, gets the pointer right under its first heading, naming its own Files folder', () => {
+test('#4420: every agent, Claude included, gets the pointer naming its own Files folder; with no working rules in the file it is appended, and the person\'s text is untouched (#1071)', () => {
   for (const [name, provider, file] of [['claudy', 'anthropic', 'CLAUDE.md'], ['gem', 'google', 'GEMINI.md'], ['agyx', 'antigravity', 'AGENTS.md'], ['cody', 'openai', 'AGENTS.md'], ['groky', 'xai', 'AGENTS.md']]) {
     const f = agent(name, provider, file);
     const r = dm.tellAgent(name, null, { trusted: true });
     assert.equal(r.state, projects.TOLD.TOLD, name + ': ' + JSON.stringify(r));
-    const lines = fs.readFileSync(f, 'utf8').split('\n');
-    assert.equal(lines[0], '# ' + name, name + ': the heading moved');
-    assert.equal(lines[2], dm.TOP_START, name + ': with no working rules in the file, the pointer is not right under the heading');
-    assert.match(lines[3], new RegExp('goes directly in `' + path.join(path.dirname(f), 'Files').replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '`'));
-    assert.match(lines[3], /the only folder they see on your page in Kosmos\. Your own folder above it is for your working notes\./);
-    const text = lines.join('\n');
+    const text = fs.readFileSync(f, 'utf8');
+    assert.ok(text.startsWith('# ' + name + '\nYou are a project manager.\n' + LONG), name + ': the person\'s own text changed (#1071: it passes through byte for byte)');
+    const line = text.slice(text.indexOf(dm.TOP_START) + dm.TOP_START.length + 1).split('\n')[0];
+    assert.equal(count(text, dm.TOP_START), 1, name + ': no pointer, or two');
+    assert.match(line, new RegExp('goes directly in `' + path.join(path.dirname(f), 'Files').replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '`'));
+    assert.match(line, /the only folder they see on your page in Kosmos\. Your own folder above it is for your working notes\./);
     assert.equal(count(text, dm.START), 1, name + ': the full block is missing');
-    assert.ok(text.indexOf(dm.TOP_START) < text.indexOf(dm.START), name + ': the pointer is below the block it points to');
     if (file !== 'CLAUDE.md') assert.equal(fs.existsSync(path.join(path.dirname(f), 'CLAUDE.md')), false, name + ': a CLAUDE.md was invented');
   }
 });

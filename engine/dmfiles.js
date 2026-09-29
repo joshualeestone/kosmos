@@ -167,12 +167,14 @@ function topLine(dir) {
   const where = projects.neutralise(String(dir == null ? '' : dir));
   return 'A file you make for the person goes directly in `' + where + '` (or in a project\u2019s folder when it is that '
     + 'project\u2019s work): it is the only folder they see on your page in Kosmos. Your own folder above it is for your '
-    + 'working notes. The full rule is under "Where to save files you make for the person" below.';
+    + 'working notes. The full rule is under "Where to save files you make for the person" in these instructions.';
 }
 
 /* Where the pointer goes: right BEFORE the working rules' heading when the file carries them (it has to be read before
-   their "Where the files you make go"; and the person's own words stay first, #591), else right under the file's first
-   heading, else at the very top. Replaced where it already is; refused (text unchanged) on two pointers. PURE. */
+   their "Where the files you make go"; and the person's own words stay first, #591). A file without them is the
+   person's own text, which a board start must pass through byte for byte (#1071): there the pointer is appended like
+   every other managed block, never inserted into it. Replaced where it already is; refused (text unchanged) on two
+   pointers. PURE. */
 const DOCTRINE_HEADING = '## How you work, whatever the job';
 function spliceTop(text, dir) {
   const original = String(text == null ? '' : text);
@@ -183,9 +185,7 @@ function spliceTop(text, dir) {
   const rules = original.indexOf('\n' + DOCTRINE_HEADING);
   if (rules !== -1) return original.slice(0, rules + 1) + block + '\n\n' + original.slice(rules + 1);
   if (original.startsWith(DOCTRINE_HEADING)) return block + '\n\n' + original;
-  const nl = original.indexOf('\n');
-  if (/^#\s/.test(original) && nl !== -1) return original.slice(0, nl + 1) + '\n' + block + '\n' + original.slice(nl + 1);
-  return block + '\n\n' + original;
+  return projects.spliceBlock(original, topLine(dir), TOP_START, TOP_END);
 }
 
 /* #4420: both managed parts for one agent, the block and the pointer at the top. The ONE composition, used at birth

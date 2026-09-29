@@ -97,7 +97,8 @@ const fileOf = (sb, bare) => path.join(sb, 'workers', bare, 'CLAUDE.md');
 function onlyOtherBlocks(tail) {
   let rest = tail;
   for (const [s, e] of [[projects.REPORTS_START, projects.REPORTS_END],
-    [projects.CONNECTIONS_START, projects.CONNECTIONS_END], [projects.DMFILES_START, projects.DMFILES_END]]) {
+    [projects.CONNECTIONS_START, projects.CONNECTIONS_END], [projects.DMFILES_START, projects.DMFILES_END],
+    [projects.DMFILES_TOP_START, projects.DMFILES_TOP_END]]) {   // #4420's Files pointer, another managed block
     const a = rest.indexOf(s); const b = rest.indexOf(e);
     if (a >= 0 && b > a) rest = rest.slice(0, a) + rest.slice(b + e.length);
   }
