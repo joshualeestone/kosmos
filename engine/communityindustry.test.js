@@ -1,0 +1,201 @@
+'use strict';
+/**
+ * kosmos#4375: the owner's industry on their agents' public Community profiles. The setting (a key from a fixed
+ * list, or none) and the send layer's PATCH /agents/me { industry } for each registered agent, against a fake
+ * kosmos-community on a loopback port with the #4370 contract. Sandboxed data root before the require.
+ */
+require('../test-support/tmpscope');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const http = require('node:http');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-communityindustry-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+const communitystore = require('./communitystore');
+const feedpublish = require('./feedpublish');
+const ind = require('./communityindustry');
+const cs = require('./communitysend');
+
+// The service's list (kosmos-community app/taxonomy.py) as this board copies it.
+const KNOWN = new Set(ind.INDUSTRIES.map((i) => i.key));
+
+function backend() {
+  const st = { agents: new Map(), seen: [], mode: {}, n: 0 };
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (d) => { raw += d; });
+    req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : undefined;
+      st.seen.push({ method: req.method, url: req.url, body, auth: req.headers.authorization || null });
+      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+      if (req.method === 'POST' && req.url === '/agents/register') {
+        const id = 'a' + (++st.n);
+        const a = { id, name: body.name, key: 'k' + id, token: 't' + id, industry: null };
+        st.agents.set(id, a);
+        return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
+      }
+      const a = [...st.agents.values()].find((x) => 'Bearer ' + x.token === req.headers.authorization);
+      if (req.method === 'POST' && req.url === '/posts') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        return send(201, { id: 'p' + (++st.n), ...body });
+      }
+      if (req.method === 'PATCH' && req.url === '/agents/me') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        const extra = Object.keys(body).filter((k) => !['industry', 'install_group'].includes(k));
+        if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
+        if (st.mode.refuse || (body.industry !== null && !KNOWN.has(body.industry))) return send(400, { detail: 'unknown industry' });
+        if (st.mode.status) return send(st.mode.status, { detail: 'no' });
+        a.industry = body.industry;
+        res.writeHead(204); return res.end();
+      }
+      return send(404, { detail: 'not found' });
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = `http://127.0.0.1:${server.address().port}/`;
+    resolve({ st, server });
+  }));
+}
+
+let be;
+let SW = { on: false, ok: true };
+async function on() { SW = { on: true, ok: true }; await cs.sweep(); }
+test.beforeEach(async () => {
+  const data = process.env.AGENT_WORKFORCE_DATA;
+  assert.ok(data.startsWith(SANDBOX + path.sep), 'refusing to delete a data root outside this test\'s sandbox');
+  SW = { on: false, ok: true };
+  cs.setSwitch(() => SW);
+  fs.rmSync(data, { recursive: true, force: true });
+  cs.setSender((url, init) => fetch(url, init));
+  cs.setTimeoutMs(2000);
+  be = await backend();
+});
+test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
+
+// An agent is registered with the service when its first post goes (the send layer's rule).
+async function registered(agent) {
+  communitystore.grantTrust(agent);
+  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), topic: 't', body: 'hello from ' + agent }, { agentId: agent });
+  assert.equal(r.status, 'published');
+  await cs.sweep();
+  assert.ok([...be.st.agents.values()].length > 0, 'the agent was not registered');
+}
+const patches = () => be.st.seen.filter((s) => s.method === 'PATCH' && s.url === '/agents/me');
+
+test('the setting lands under the sandboxed data root', () => {
+  assert.ok(ind.FILE.startsWith(SANDBOX + path.sep));
+});
+
+test('the setting: missing is "none, known"; a listed key round-trips; anything else is refused', () => {
+  assert.deepEqual(ind.read(), { industry: null, ok: true });
+  assert.deepEqual(ind.set('legal'), { ok: true });
+  assert.deepEqual(ind.read(), { industry: 'legal', ok: true });
+  for (const bad of ['Acme Legal LLP', 'LEGAL', '', 3, undefined, {}]) assert.equal(ind.set(bad).ok, false, JSON.stringify(bad));
+  assert.deepEqual(ind.read(), { industry: 'legal', ok: true }, 'a refused set changed the setting');
+  assert.deepEqual(ind.set(null), { ok: true });
+  assert.deepEqual(ind.read(), { industry: null, ok: true });
+});
+
+test('the setting: an unreadable file, or a key not on the list, is UNKNOWN (ok false), never "none"', () => {
+  fs.mkdirSync(path.dirname(ind.FILE), { recursive: true });
+  for (const raw of ['{not json', '[]', '"legal"', JSON.stringify({ industry: 'Acme Legal LLP' })]) {
+    fs.writeFileSync(ind.FILE, raw);
+    assert.deepEqual(ind.read(), { industry: null, ok: false }, raw);
+  }
+});
+
+test('the list is the service\'s: 16 unique kebab keys, each label finishing "Works for ..."', () => {
+  assert.equal(ind.INDUSTRIES.length, 16);
+  assert.equal(KNOWN.size, 16);
+  for (const i of ind.INDUSTRIES) {
+    assert.match(i.key, /^[a-z][a-z-]{1,39}$/);
+    assert.match(i.label, /^(a|an) [a-z]/, i.key);
+  }
+  assert.equal(ind.labelFor('legal'), 'a law firm');
+  assert.equal(ind.labelFor('nope'), null);
+});
+
+test('never set: nothing is sent', async () => {
+  await on();
+  await registered('ava');
+  await cs.sweep();
+  assert.equal(patches().length, 0);
+});
+
+test('set: each registered agent is sent it once; cleared: null once; then nothing', async () => {
+  await on();
+  await registered('ava');
+  await registered('bo');
+  ind.set('legal');
+  await cs.sweep();
+  assert.equal(patches().length, 2);
+  assert.deepEqual(patches().map((p) => p.body), [{ industry: 'legal' }, { industry: 'legal' }]);
+  assert.deepEqual([...be.st.agents.values()].map((a) => a.industry), ['legal', 'legal']);
+  await cs.sweep();
+  assert.equal(patches().length, 2, 'sent again with nothing changed');
+  ind.set(null);
+  await cs.sweep();
+  assert.equal(patches().length, 4);
+  assert.deepEqual(patches().slice(2).map((p) => p.body), [{ industry: null }, { industry: null }]);
+  await cs.sweep();
+  assert.equal(patches().length, 4, 'the clear was sent again');
+});
+
+test('an agent registered after the industry was set is sent it too', async () => {
+  await on();
+  ind.set('software');
+  await registered('ava');
+  await cs.sweep();
+  assert.deepEqual(patches().map((p) => p.body), [{ industry: 'software' }]);
+});
+
+test('an unreadable setting sends nothing, above all no null that would wipe the profile', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
+  await cs.sweep();
+  assert.equal(patches().length, 1);
+  fs.writeFileSync(ind.FILE, '{not json');
+  await cs.sweep();
+  assert.equal(patches().length, 1, 'an unreadable setting sent something');
+});
+
+test('with the switch off nothing is sent', async () => {
+  await on();
+  await registered('ava');
+  SW = { on: false, ok: true };
+  ind.set('legal');
+  await cs.sweep();
+  assert.equal(patches().length, 0);
+});
+
+test('a key the service refuses is recorded and not sent again until it changes', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { refuse: true };
+  ind.set('legal');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(patches().length, 1, 'a refused key was sent again');
+  be.st.mode = {};
+  ind.set('software');
+  await cs.sweep();
+  assert.equal(patches().length, 2);
+  assert.deepEqual(patches()[1].body, { industry: 'software' });
+});
+
+test('no usable answer: tried again next sweep', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 503 };
+  ind.set('legal');
+  await cs.sweep();
+  be.st.mode = {};
+  await cs.sweep();
+  assert.equal(patches().length, 2);
+  assert.equal([...be.st.agents.values()][0].industry, 'legal');
+});

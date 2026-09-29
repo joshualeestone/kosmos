@@ -871,7 +871,8 @@ const communityread = require('./engine/communityread'); // #4373: an agent read
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
-const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
+const communityswitch = require('./engine/communityswitch');
+const communityindustry = require('./engine/communityindustry');   // #4375 // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const guidestate = require('./engine/guidestate');
 /* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
@@ -7466,6 +7467,33 @@ const server = http.createServer(async (req, res) => {
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, communityBody());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #4375: the owner's industry, shared on their agents' public Community profiles ("Works for ...").
+     Optional, from a FIXED list (engine/communityindustry.js), never free text. GET gives the list with
+     the setting so the page draws exactly the keys the board will accept; `ok:false` is an unreadable
+     setting, drawn as unknown, never as "not set". PUT { industry: <key>|null }. The send layer PATCHes
+     each registered agent when it differs from what that agent was last sent. */
+  const industryBody = () => { const r = communityindustry.read(); return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES }; };
+  if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, industryBody()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/community-industry' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object' || !Object.prototype.hasOwnProperty.call(body, 'industry')) {
+          sendJson(res, 400, { error: 'that has to name an industry, or none' }); return;
+        }
+        const saved = communityindustry.set(body.industry);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, industryBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;

@@ -47,6 +47,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
 const communitystore = require('./communitystore');
+const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
 
 const DEFAULT_ENDPOINT = 'https://community.installkosmos.com';
@@ -389,6 +390,39 @@ async function sweepTakedowns(keys, sent, now) {
   }
 }
 
+/**
+ * #4375: the owner's industry on each registered agent's public profile ("Works for ..."), as
+ * PATCH /agents/me { industry } (kosmos-community #4370). Sent when it differs from what this agent
+ * was last sent: a key when set, null ONCE when a set industry is cleared, and nothing for an agent
+ * that was never sent one while none is set. An unreadable setting is unknown and sends nothing.
+ * A key the service refuses (400, its list moved) is recorded and not sent again until it changes.
+ */
+async function sweepIndustry(keys) {
+  const cur = industry.read();
+  if (!cur.ok) return;
+  const want = cur.industry;                        // a key, or null
+  for (const agentKey of Object.keys(keys)) {
+    if (!switchOn()) break;
+    const k = keys[agentKey];
+    if (!k || !k.apiKey || k.refused) continue;
+    const sentBefore = Object.prototype.hasOwnProperty.call(k, 'industrySent');
+    if (sentBefore ? k.industrySent === want : want === null) continue;
+    if (Object.prototype.hasOwnProperty.call(k, 'industryRefused') && k.industryRefused === want) continue;
+    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
+    if (r.status === 204 || r.status === 200) {
+      k.industrySent = want;
+      delete k.industryRefused;
+      saveJson(keysFile(), keys);
+    } else if (r.status === 400 || r.status === 422) {
+      k.industryRefused = want;
+      saveJson(keysFile(), keys);
+      log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
+    } else {
+      log(`industry for ${agentKey}: no usable answer (status ${r.status || 'none'}); the next sweep tries again`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -445,6 +479,10 @@ async function sweepOnce(now) {
     await sweepTakedowns(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  if (on) {
+    try { await sweepIndustry(keys); }
+    catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
