@@ -31,6 +31,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
 (async () => {
   setupAssistant.guideName = () => 'guidebot';
   setupAssistant.isGuideFolder = (n) => n === 'guidebot';
+  /* A real guide is made by Kosmos, so it has a launch job; before its first session the engine reports it as
+     not started (context.notYet), the state its empty ring is for. Ida keeps no job: made outside Kosmos. */
+  const create = require('../../engine/create');
+  const hasJob = create.hasJob;
+  create.hasJob = (n, ...rest) => n === 'guidebot' || hasJob(n, ...rest);
   fleet.install([
     fleet.agent('guidebot', { state: 'idle', displayName: 'Josh' }),
     fleet.agent('ida', { state: 'idle', displayName: 'Ida', role: 'Bookkeeper' }),
@@ -77,14 +82,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     });
     /* The page's own test for a reading (pctOf): a finite context.percent. */
     const known = (name) => page.evaluate((n) => { const a = (LAST || []).find((x) => x.sessionName === n); return !!(a && a.context && Number.isFinite(a.context.percent)); }, name);
-    say(!(await known('guidebot')), 'CONTROL: the guide has no memory reading yet, so the ring has nothing to fill');
+    const gctx = await page.evaluate(() => { const a = (LAST || []).find((x) => x.sessionName === 'guidebot'); return a ? a.context : 'no row'; });
+    say(!(await known('guidebot')) && !!(gctx && gctx.notYet === true), 'CONTROL: the guide has not started (the engine says notYet), so the ring has nothing to fill', JSON.stringify(gctx));
     const gring = await ringOf();
     say(gring.track && !gring.fill, 'the guide\'s page draws the empty memory ring, not nothing', JSON.stringify(gring));
     await page.goto(URL + '/?tab=detail&agent=ida', { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);
     const iknown = await known('ida');
     const iring = await ringOf();
-    say(!iknown && !iring.track, 'CONTROL: an ordinary agent with no reading still draws no ring', JSON.stringify({ iknown, iring }));
+    const ishown = await page.evaluate(() => /Ida/.test((document.getElementById('panel-detail') || {}).innerText || '') && !!document.getElementById('d-ring'));
+    say(ishown && !iknown && !iring.track, 'CONTROL: an ordinary agent with no reading (its page shown) still draws no ring', JSON.stringify({ ishown, iknown, iring }));
     say(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
