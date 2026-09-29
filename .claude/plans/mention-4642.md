@@ -34,6 +34,10 @@ A posted message is painted from what happened, not from today's rule: the room 
 recorded `mentioned` (always an array on a post row), and pjRoomBody limits blue to those agents. So a post
 sent before this change (`@Kano`, delivered as background) is not repainted as a request, and an external post
 (recorded, never delivered) paints no blue. A hand-built row without the field keeps the rule alone.
+A post row written before #185 persisted `mentioned` (2026-08-24) is served as `[]` like any post that
+addressed nobody, since the engine omits the field when empty and the two cannot be told apart; its @names show
+plain. Measured on this board: 221 posts, the first on 09-10, 0 affected (detector control: 12 of 12 rows that
+do carry the field are flagged).
 
 ## Tests
 - engine/messages.mention-4642.test.js (all roots sandboxed), through the real sendPost:
@@ -77,6 +81,10 @@ sent before this change (`@Kano`, delivered as background) is not repainted as a
   message then paints from the record. Not pinned by a test.
 - If the roster ever held two cards for one session, each card's display name becomes an alias for that same
   member. It can only demote (an ambiguity), never address the wrong agent.
+
+## Follow-up, not in this card
+Tell the sender when a mention was ambiguous (a line in the `kosmos post` answer and the composer), so a rename
+that makes two names collide cannot silently turn `@Name` requests into background. Today it is logged only.
 
 ## What would change my mind
 A ruling that first names should address (then it needs an explicit, unique-in-room first-word alias, not a

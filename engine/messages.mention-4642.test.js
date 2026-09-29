@@ -148,3 +148,14 @@ test('#4642 control: a display name that normalises to under two characters addr
   ];
   assert.deepEqual(post('@k and @K. please', agents).addressed, []);
 });
+
+test('#4642: the sender is never addressed, so its own display name can only reach another member who holds it', () => {
+  const agents = [
+    fleet.agent('leo', { state: 'idle', displayName: 'Leo' }),
+    fleet.agent('kano', { state: 'idle' }),
+    fleet.agent('subzero', { state: 'idle' }),
+    fleet.agent('mara', { state: 'idle' }),
+  ];
+  // leo is the sender: @Leo names nobody else, so it addresses nobody (and never leo itself)
+  assert.deepEqual(post('note to self, @Leo', agents).addressed, []);
+});

@@ -15540,7 +15540,9 @@ const server = http.createServer(async (req, res) => {
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
                 /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
                    paints blue from what happened and not from today's rule and roster. Always an array on
-                   a post row, [] for none, so the page can tell "nobody" from a row that predates this. */
+                   a post row, [] for none: the engine leaves the field off when nobody was addressed. A
+                   row written before #185 recorded it (08-24) also reads [], and its @names show plain,
+                   the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
                 mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}) };
             })()
