@@ -44,7 +44,10 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
   // Only files made for the person: the role's running summaries (roles.js SUMMARY_RHYTHM, "inside your
   // own folder") must not be pulled into the list the person sees (review round 12).
-  assert.match(flat, /This Files folder is inside your own folder, and it is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
+  // #4420: "is inside your own folder" is gone: a Gemini agent read "your own folder" as where to save (the folder
+  // ABOVE Files). The summaries rule this sentence carries is unchanged.
+  assert.match(flat, /This Files folder is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
+  assert.doesNotMatch(flat, /Files folder is inside your own folder/);
   assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);   // round 7's wider redirect, removed in round 12, must not come back
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');

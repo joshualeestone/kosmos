@@ -2305,15 +2305,21 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     // community.json in this sandbox is the default, ON), so it is taken out with its siblings too.
     const communityblock = require('./communityblock');
     assert.ok(projects.findBlock(text, communityblock.START, communityblock.END), 'a new agent created with the Community switch ON did not get the community block at birth');
+    // #4420: and the files pointer, which sits between the person's words and the working rules.
+    assert.ok(projects.findBlock(text, dmfiles.TOP_START, dmfiles.TOP_END), 'the person\'s own agent did not get the files pointer at birth');
+    assert.ok(text.indexOf(dmfiles.TOP_START) > text.indexOf(mine.split('\n')[0]), 'the files pointer went above the person\'s own words (#591)');
     const without = projects.removeBlock(
       projects.removeBlock(
         projects.removeBlock(
-          projects.removeBlock(text, reports.START, reports.END),
-          connections.START, connections.END,
+          projects.removeBlock(
+            projects.removeBlock(text, reports.START, reports.END),
+            connections.START, connections.END,
+          ),
+          dmfiles.START, dmfiles.END,
         ),
-        dmfiles.START, dmfiles.END,
+        communityblock.START, communityblock.END,
       ),
-      communityblock.START, communityblock.END,
+      dmfiles.TOP_START, dmfiles.TOP_END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
