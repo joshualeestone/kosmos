@@ -110,19 +110,22 @@ function markerFile(env, ppid) {
 
 /* Whether this report should be sent: always for a change of state, and for a repeated `working`
    only once THROTTLE_MS has passed. Records what it lets through. Never throws; on any doubt, send. */
-function shouldSend(state, nowMs, env) {
+function shouldSend(state, nowMs, env, text) {
   const fs = require('node:fs');
   const path = require('node:path');
   const file = markerFile(env);
   let last = null;
   try {
-    const [s, t] = fs.readFileSync(file, 'utf8').trim().split(' ');
-    last = { state: s, at: Number(t) };
+    const raw = fs.readFileSync(file, 'utf8').trim();
+    const [s, t] = raw.split(' ');
+    // #4569 fix 4: the text after the time, so a new waiting count is not held back as a repeat (older markers have none).
+    last = { state: s, at: Number(t), text: raw.split(' ').slice(2).join(' ') };
   } catch { /* no marker yet */ }
-  if (last && state === 'working' && last.state === 'working' && Number.isFinite(last.at) && nowMs - last.at < THROTTLE_MS) return false;
+  const said = String(text || '').replace(/\s+/g, ' ').trim();
+  if (last && state === 'working' && last.state === 'working' && last.text === said && Number.isFinite(last.at) && nowMs - last.at < THROTTLE_MS) return false;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, state + ' ' + nowMs);
+    fs.writeFileSync(file, state + ' ' + nowMs + (said ? ' ' + said : ''));
   } catch { /* a marker we cannot write only costs a duplicate report */ }
   return true;
 }
@@ -170,6 +173,11 @@ function reportFor(eventName, payload) {
     return { state, text: '' };
   }
   let text = '';
+  /* #4569 fix 4: the Muse front (engine/musefront.js) runs this bridge too, and puts the card's line for a working
+     agent ("3 messages waiting, 1 of them yours") in `kosmosNote`. agy's own payloads never carry it. */
+  if (state === 'working' && payload && typeof payload === 'object' && typeof payload.kosmosNote === 'string') {
+    text = payload.kosmosNote.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 120);
+  }
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
@@ -231,7 +239,7 @@ async function main() {
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
   const mapped = reportFor(eventName, payload);
   if (!mapped) return;
-  if (!shouldSend(mapped.state, Date.now(), process.env)) return;
+  if (!shouldSend(mapped.state, Date.now(), process.env, mapped.text)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
   const headers = { 'content-type': 'application/json' };

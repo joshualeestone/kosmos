@@ -123,6 +123,9 @@ const DIGEST_MAX = 40;
    session ("already in use", muserun.BUSY). The note is tried again this many times, this far apart, before it
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
+/* #4569 fix 4: how long the front waits before telling the board a new waiting count, so a burst of room posts is
+   one report (each report starts a node process), not one per post. */
+const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
 const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY; a drift turns the busy-retry test red
 const MUSE_STOPPED = 'Stopped before Muse Code finished';                      // muserun.STOPPED; a drift turns the Escape-in-wait test red
@@ -137,7 +140,7 @@ const DIGEST_MAX_CHARS = 32 * 1024;
  * Returns { feed(bytes), stop(), drained() }. feed takes raw input; stop ends the running turn and drops
  * the waiting ones; drained resolves once no turn is queued or running (tests only).
  */
-function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS }) {
+function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS }) {
   let line = '';
   const queue = [];
   let running = false;
@@ -148,6 +151,29 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   const decoder = new StringDecoder('utf8');   // a character split across two reads stays one character
 
   const settle = () => { if (!running && !queue.length) { const w = waiters; waiters = []; w.forEach((f) => f()); } };
+
+  /* #4569 fix 4 (Priya's write-up: "Working, 14 messages waiting"): the line the card shows under Working while
+     messages wait, from the queue as it is now. '' when nothing waits. Stop notes are the person's own stop. */
+  function waitingNote() {
+    const n = queue.length;
+    if (!n) return '';
+    const yours = queue.filter((t) => kindOf(t) === 'operator' || STOP_NOTES.has(t)).length;
+    return n + (n === 1 ? ' message waiting' : ' messages waiting')
+      + (yours ? (yours === n ? (n === 1 ? ', it is yours' : ', all yours') : ', ' + yours + ' of them yours') : '');
+  }
+  let noteTimer = null;
+  let noteSent = '';
+  /* Tell the board the count while a turn runs, once things settle for noteEveryMs. */
+  function noteSoon() {
+    if (noteTimer) return;
+    noteTimer = setTimeout(() => {
+      noteTimer = null;
+      if (!running) return;
+      const note = waitingNote();
+      if (note !== noteSent) { noteSent = note; report('working', note); }
+    }, noteEveryMs);
+    if (noteTimer.unref) noteTimer.unref();
+  }
 
   /* #4569: the next turn. A person's message is already at the front (submit puts it there). When the
      next is background, every waiting background post is taken with it, as one turn, including ones that
@@ -175,8 +201,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       while (queue.length) {
         const prompt = next();
         stopNoteRunning = STOP_NOTES.delete(prompt);
-        report('working');
-        const beat = setInterval(() => report('working'), workingEveryMs);
+        noteSent = waitingNote();
+        report('working', noteSent);
+        const beat = setInterval(() => report('working', noteSent), workingEveryMs);
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
@@ -196,7 +223,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        if (!queue.length) report('idle');
+        if (!queue.length) { noteSent = ''; report('idle'); }
         write(PROMPT);
       }
     } finally {
@@ -210,7 +237,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     line = '';
     write('\n');
     if (!text) { write(PROMPT); return; }
-    if (isStopRequest(text) && (running || queue.length)) { stopFor(text); return; }
+    if (isStopRequest(text) && (running || queue.length)) { stopFor(text); noteSoon(); return; }
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;
@@ -221,6 +248,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       queue.push(text);
       if (running) write('(queued: Muse is still on the last message)\n');
     }
+    if (running) noteSoon();
     pump().catch(() => { /* report and write never throw; a turn's own failure is said inside pump */ });
   }
 
@@ -332,13 +360,14 @@ function makeReporter(o = {}) {
   const env = o.env || process.env;
   const bridge = o.bridge || env.KOSMOS_MUSE_BRIDGE || path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
   const EVENT = { working: 'PreInvocation', idle: 'Stop' };
-  return (state) => {
+  return (state, note) => {
     const ev = EVENT[state];
     if (!ev) return;
     try {
       const child = spawn(o.node || process.execPath, [bridge, ev], { stdio: ['pipe', 'ignore', 'ignore'], env });
       child.on('error', () => { /* a missed report must never stop a turn */ });
-      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end('{}'); }
+      // #4569 fix 4: the waiting line rides in the payload; agy's own payloads never carry this field.
+      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(note ? { kosmosNote: String(note) } : {})); }
       if (child.unref) child.unref();
     } catch { /* same */ }
   };

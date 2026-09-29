@@ -522,3 +522,57 @@ test('#4569 review round 8: two stops in one read: the second finds the first no
   assert.equal(notes.length, 1, 'the second stop replaced or duplicated the waiting note');
   assert.match(notes[0].prompt, /dropped unread: "are you there"/);
 });
+
+/* #4569 fix 4 (Priya's write-up: "Working, 14 messages waiting" on the card). */
+test('#4569 fix 4: while a turn runs, the board hears how many messages wait and how many are the person\'s, once a burst settles', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')), { report: (s, note) => sent.push([s, note || '']), noteEveryMs: 20 });
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 14; n++) h.f.feed(BG(n) + '\r');
+  h.f.feed(OP('are you there') + '\r');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepEqual(sent, [['working', ''], ['working', '15 messages waiting, 1 of them yours']], 'a burst was not one report: ' + JSON.stringify(sent));
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  assert.deepEqual(sent[sent.length - 1], ['idle', ''], 'the note outlived the queue');
+  // Each turn starts with the count as it is then: the person's message ran first with the 14 posts waiting,
+  // then the digest took all 14 at once, leaving nothing.
+  assert.deepEqual(sent.slice(2), [['working', '14 messages waiting'], ['working', ''], ['idle', '']], JSON.stringify(sent));
+});
+
+test('#4569 fix 4: the note says "all yours" or "it is yours", and nothing is reported while idle', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')), { report: (s, note) => sent.push([s, note || '']), noteEveryMs: 10 });
+  h.f.feed('long job\r'); h.f.feed(OP('one') + '\r');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sent[sent.length - 1][1], '1 message waiting, it is yours');
+  h.f.feed(OP('two') + '\r');
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sent[sent.length - 1][1], '2 messages waiting, all yours');
+  h.pending[0](OK('done')); await h.f.drained();
+  const n = sent.length;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sent.length, n, 'a note was sent after the front went idle');
+});
+
+test('#4569 fix 4: the reporter hands the note to the bridge in its payload; the bridge puts it on a working report and throttles by text', () => {
+  const spawned = [];
+  const spawn = () => { const c = new EventEmitter(); c.stdin = Object.assign(new EventEmitter(), { end: (d) => spawned.push(d) }); c.unref = () => {}; return c; };
+  const report = front.makeReporter({ spawn, node: '/n', env: { KOSMOS_MUSE_BRIDGE: '/b.js' } });
+  report('working', '3 messages waiting'); report('working'); report('idle');
+  assert.deepEqual(spawned, ['{"kosmosNote":"3 messages waiting"}', '{}', '{}']);
+  const bridge = require('../bin/agy-report-bridge');
+  assert.deepEqual(bridge.reportFor('PreInvocation', { kosmosNote: '3 messages waiting\u0007' }), { state: 'working', text: '3 messages waiting' });
+  assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' }, 'CONTROL: agy\'s own payload still says nothing');
+  assert.equal(bridge.reportFor('Stop', { kosmosNote: 'x' }).text, '', 'an idle report carried the note');
+  const fs = require('node:fs');
+  const env = { KOSMOS_PORT: '9', TMUX_PANE: '%note-' + process.pid };   // this test's own marker (bridge.markerFile)
+  fs.rmSync(bridge.markerFile(env), { force: true });
+  try {
+    const t = 1700000000000;
+    assert.equal(bridge.shouldSend('working', t, env, '3 messages waiting'), true);
+    assert.equal(bridge.shouldSend('working', t + 1000, env, '3 messages waiting'), false, 'CONTROL: the same working line within a minute is held back');
+    assert.equal(bridge.shouldSend('working', t + 2000, env, '4 messages waiting'), true, 'a new count was held back as a repeat');
+    assert.equal(bridge.shouldSend('working', t + 3000, env, ''), true, 'clearing the line was held back');
+  } finally { fs.rmSync(bridge.markerFile(env), { force: true }); }
+});
