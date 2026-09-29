@@ -9511,6 +9511,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
 .pj-member-st { display: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { border: 0; background: none; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+/* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
+   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working { animation: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--nl-face); }

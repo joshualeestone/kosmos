@@ -103,14 +103,18 @@ const BUBBLES = `(() => {
   a.remove(); b.remove();
   return out;
 })()`;
+/* Each member row's ground: colour and image, and whether it is a working row. */
+const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage }))`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
   let server, browser;
   try {
-    fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' })]);
+    fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' }),
+      fleet.agent('bo', { state: 'working', displayName: 'Bo', role: 'a builder' })]);
     const proj = projects.create({ name: 'Billing' });
     projects.addAgent(proj.id, 'ada', null);
+    projects.addAgent(proj.id, 'bo', null);
     server = await srv.start(0);
     const URL = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -153,6 +157,10 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOn = await page.evaluate(MEMBER_WORD);
       chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
+      await page.mouse.move(0, 0);
+      const rows = await page.evaluate(ROW_GROUNDS);
+      chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none'),
+        `${tag} On: every member row is plain, a working one too (no wash, no pulse)`, JSON.stringify(rows));
       if (width >= 1088) {   // a phone width shows the tabs as a menu, with its own current-row style
         const tabs = await page.evaluate(TABS);
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor, `${tag} On: the current tab is marked by ink, not an underline`, JSON.stringify(tabs));
