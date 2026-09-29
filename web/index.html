@@ -29105,6 +29105,7 @@ document.getElementById('klink').addEventListener('click', () => {
 const ORG_R0 = 120;          // the first ring
 const ORG_STEP = 74;         // how much further out each generation sits
 const ORG_MIN_ARC = 62;      // the arc a 44px node needs to not touch its neighbour
+const ORG_FACE_R = 22;       // #4502: a face's radius (a 44px node), the clearance a line to another agent keeps from it
 
 /* ---- the organic layer (#285) ----------------------------------------------
    Josh: "grab a hold of one of the nodes and move it and it moves the whole
@@ -29138,6 +29139,8 @@ const ORG_SIM = {
   maxForce: 6,
   minGap: 52,      // two 44px discs plus breathing room
   home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
+  clear: 0.12,     // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
+  clearReach: 26,  // #4502: how near a line may run to a face before that push starts: ORG_FACE_R + 4 (pinned by a test)
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29193,6 +29196,31 @@ function orgStep(nodes, hub, alpha, box) {
     if (n.home) {
       n.vx += cap((hub.x + n.home.dx - n.x) * ORG_SIM.home) * alpha;
       n.vy += cap((hub.y + n.home.dy - n.y) * ORG_SIM.home) * alpha;
+    }
+  }
+  /* #4502: in a FLAT fleet every line runs from the hub, so a face nearer the hub that sits on an agent's
+     line reads as that agent's manager. orgPlace places the lanes to avoid it, but the springs and the push
+     between faces pack the lanes at rest; this force keeps the lines clear as they settle: an agent whose
+     line runs within a face (plus a little) of a nearer face is pushed sideways, away from that face, which
+     swings its line off it. Flat only: a tree's own placement and repair keep its lines (#4434). */
+  if (!nodes.some((n) => n.parent)) {
+    const reach = ORG_SIM.clearReach;
+    for (const n of nodes) {
+      if (n.fixed) continue;
+      const nx = n.x - hub.x; const ny = n.y - hub.y;
+      const nd = Math.sqrt(nx * nx + ny * ny) || 1;
+      const ux = nx / nd; const uy = ny / nd;          // along n's line, outward
+      for (const m of nodes) {
+        if (m === n) continue;
+        const mx = m.x - hub.x; const my = m.y - hub.y;
+        const along = mx * ux + my * uy;
+        if (along <= 0 || along >= nd) continue;     // beside the line's length only (nearer the hub than n)
+        const across = my * ux - mx * uy;              // m's signed distance from n's line
+        const short = reach - Math.abs(across);
+        if (short <= 0) continue;
+        const f = cap(short * ORG_SIM.clear) * alpha * (across >= 0 ? -1 : 1);
+        n.vx += -uy * f; n.vy += ux * f;               // sideways, away from m
+      }
     }
   }
   if (!hub.fixed) {
@@ -29383,16 +29411,62 @@ function orgPlace(nodes) {
     /* The spill: how many fit at this radius before they touch. A ring that
        needs more than that is split across two distances. */
     const fit = Math.max(4, Math.floor((2 * Math.PI * base) / ORG_MIN_ARC));
-    ring.forEach((n, i) => {
-      const lane = Math.floor(i / fit);
+    /* #4502: every line runs from the hub, so an outer agent at the angle of an inner one has its line drawn
+       straight through that face and reads as reporting to it. Each lane is spread evenly and then turned to
+       the offset that keeps its lines furthest from every inner face: the second lane lands in the first
+       lane's gaps, so up to two full lanes no line passes within a face of another (ORG_FACE_R). Beyond that
+       it cannot be avoided with lines from one hub (each of the first lane's gaps has room for one line), and
+       the turn keeps the near passes to the fewest it can. */
+    const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
+    const lanes = Math.ceil(ring.length / fit);
+    for (let lane = 0; lane < lanes; lane += 1) {
+      const members = ring.slice(lane * fit, (lane + 1) * fit);
       const r = base + lane * 58;
-      const inLane = ring.filter((x, j) => Math.floor(j / fit) === lane).length;
-      /* Evenly round the circle. The half-lane offset stops two lanes lining
-         up spoke-for-spoke, which reads as one ring with gaps. */
-      const ang = -Math.PI / 2 + (Math.PI * 2 * (i % fit)) / inLane + (lane * Math.PI) / Math.max(1, inLane);
-      placed.set(n.agent.sessionName, { ang, r, node: n });
-      maxR = Math.max(maxR, r);
-    });
+      const step = (Math.PI * 2) / members.length;
+      let turn = 0;
+      if (lane > 0) {
+        /* A line at angle a clears a face at radius q and angle b when their angles differ by more than the
+           half-cone asin(face / q). The turn with the most clearance, searched in small steps across one step. */
+        const inner = [];
+        for (let k = 0; k < lane; k += 1) {
+          const half = Math.asin(Math.min(1, ORG_FACE_R / (base + k * 58)));
+          for (const b of laneAngles[k]) inner.push({ b, half });
+        }
+        const clearance = (t) => {
+          let worst = Infinity;
+          for (let m = 0; m < members.length; m += 1) {
+            const a = -Math.PI / 2 + t + step * m;
+            for (const f of inner) {
+              const d = Math.abs(Math.atan2(Math.sin(a - f.b), Math.cos(a - f.b)));
+              worst = Math.min(worst, d - f.half);
+            }
+          }
+          return worst;
+        };
+        let best = -Infinity;
+        const tries = 180;
+        for (let s = 0; s < tries; s += 1) {
+          const t = (step * s) / tries;
+          const c = clearance(t);
+          if (c > best + 1e-9) { best = c; turn = t; }
+        }
+      }
+      /* The second lane takes the first lane's gap centres themselves, as many as it has, spread round the
+         circle: an evenly spaced lane of another count cannot line up with them (8 at 45 degrees against 12
+         gaps 30 degrees apart leaves most of the 8 on a spoke). */
+      const gapOf = (m) => {
+        const g = laneAngles[0];
+        const k = Math.round((m * g.length) / members.length) % g.length;
+        return g[k] + Math.PI / g.length;
+      };
+      laneAngles.push([]);
+      members.forEach((n, m) => {
+        const ang = lane === 1 ? gapOf(m) : -Math.PI / 2 + turn + step * m;
+        laneAngles[lane].push(ang);
+        placed.set(n.agent.sessionName, { ang, r, node: n });
+        maxR = Math.max(maxR, r);
+      });
+    }
     return { placed, maxR };
   }
   /* 🔑 A TREE IS LAID OUT BY SECTORS, so no two connector lines can cross (#4434). The old layout fanned

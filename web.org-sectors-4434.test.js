@@ -44,7 +44,7 @@ function lift(names, tail) {
     }
     return SCRIPT.slice(at, end);
   }).join('\n');
-  const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC'].map((k) => {
+  const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC', 'ORG_FACE_R'].map((k) => {
     const m = SCRIPT.match(new RegExp('const\\s+' + k + '\\s*=\\s*([-\\d.]+)\\s*;'));
     assert.ok(m, k + ' is no longer declared in the page');
     return 'const ' + k + ' = ' + m[1] + ';';
