@@ -160,3 +160,7 @@ Four low findings, taken anyway (cheap): the three comments describing when the 
 and release requests (first writer wins); a POST test covers the release window, with a control that without the
 recorded start the post falls before it; recordPeriodStart refuses an address the sweep will not send to, like
 willSend; the release route says a failed release records the start too (it only moves the window earlier while ON).
+
+## Review iteration 9 (blind, confirming): still converged
+Nothing at BLOCKER or WARNING. The one NIT taken: a test that recordPeriodStart records nothing for an address the sweep
+will not send to (control: loopback records); it reds when the guard is removed.

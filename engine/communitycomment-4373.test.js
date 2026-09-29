@@ -488,3 +488,14 @@ test('review 7: recordPeriodStart records nothing while Community is off', () =>
   assert.equal(cs.recordPeriodStart(), false);
   assert.ok(!fs.existsSync(cs._paths.stateFile()) || !JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since);
 });
+
+test('review 9: recordPeriodStart records nothing for an address the sweep will not send to', () => {
+  SW = { on: true, ok: true };
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com/';   // plain http, not local
+  try {
+    assert.equal(cs.recordPeriodStart(), false);
+    assert.ok(!fs.existsSync(cs._paths.stateFile()) || !JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, 'a start was recorded for an address the sweep refuses');
+  } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
+  assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
+});
