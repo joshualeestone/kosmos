@@ -21,6 +21,19 @@ Change under review: one CSS rule in web/index.html, `#d-swarm-keep { border: 1.
 as Stop's. Measured: render-fields' under-3:1 count drops by exactly 1 per engine and theme
 (237->236, 182->181, 217->216, 166->165) with identical button totals; render-swarm-ui-3564 passes 115/115.
 
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
+No issues found. Converged.
+
+### Final Ledger
+
+| # | Iter | Category | File:Line | Description | Status | Resolution |
+|---|------|----------|-----------|-------------|--------|------------|
+| - | 1 | - | - | no findings | - | - |
+
 ### Validation note
 The first validation run after the account-move restart failed one test,
 engine/chat.dmnotice-4354 swarm.pauseOf, a 1ms clock-read race already filed as #4483 (fix PR #4488,
