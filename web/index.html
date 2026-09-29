@@ -29048,9 +29048,10 @@ function orgStep(nodes, hub, alpha, box) {
     n.vx += cap(off * ORG_SIM.ring) * alpha * (hx / hd);
     n.vy += cap(off * ORG_SIM.ring) * alpha * (hy / hd);
     /* #4434: in a TREE layout every node is also pulled back to where orgPlace put it, relative to the hub
-       (so dragging the hub still carries the chart). orgPlace's positions are proven free of crossings
-       and overlaps, so this is what makes a settle, a released drag and a re-parent END crossing-free: the
-       resting state is the placement. A flat fleet has no `home` and moves exactly as before. */
+       (so dragging the hub still carries the chart). This keeps the physics close to the placement, so a
+       settle, a released drag and a re-parent end near it; what guarantees they END free of crossings and
+       overlaps is orgPlanarRepair at every rest (review it6: with this pull off, the crossing tests stay
+       green and only the drift test reds). A flat fleet has no `home` and moves exactly as before. */
     if (n.home) {
       n.vx += cap((hub.x + n.home.dx - n.x) * ORG_SIM.home) * alpha;
       n.vy += cap((hub.y + n.home.dy - n.y) * ORG_SIM.home) * alpha;

@@ -511,6 +511,23 @@ test('the repair glides a tree home: the whole chart the same fraction, never mo
   assert.deepEqual([hub.x, hub.y, a.x, a.y, c.x, c.y], [300, 300, 400, 300, 450, 360], 'the glide did not end exactly at the placement');
 });
 
+test('a click on the hub of a tree at rest does not move it; a drag of the same hub does (#4434, review it5, it6)', () => {
+  /* Through the page's own pointerdown and pointerup. review it6: the source pin below stayed green with every
+     press counted as moved, which re-opened the bug. */
+  const { placed } = firstPaint(cards(randomTree(7, 260)));
+  const { size, cx, cy } = canvasFor(placed, 0);
+  const { page, map, run, press } = livePage();
+  page.orgLiveStart(map, placed, cx, cy, size);
+  assert.equal(run().frames, 0, 'CONTROL: the first load already moved');
+  press(0, 0);
+  const click = run();
+  assert.equal(click.frames, 0, 'a click on the hub ran ' + click.frames + ' frames of physics');
+  assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'a click moved the chart');
+  press(80, 60);
+  const drag = run();
+  assert.ok(drag.frames > 0, 'CONTROL: a real drag of the hub did not run the physics, so the click arm tests nothing');
+});
+
 test('a click on a tree (a press that never moved) does not restart the physics (#4434, review it5)', () => {
   /* A plain click re-ran the physics at alpha 0.5, which drifts a tree off its placement (review it5: 17 of 30
      trees of 150-220 agents then snapped 111-192px). The release handler lives in the page's pointer wiring,
@@ -546,9 +563,20 @@ function livePage() {
   const simAt = SCRIPT.indexOf('const ORG_SIM = {');
   const simSrc = SCRIPT.slice(simAt, SCRIPT.indexOf('let ORG_LIVE = null;'));
   const frames = [];
-  const el = () => ({ style: {}, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} });
+  const el = () => ({ style: {}, classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, dataset: {}, isConnected: true,
+    setAttribute() {}, removeAttribute() {}, setPointerCapture() {}, releasePointerCapture() {} });
   const els = new Map();
-  const map = { querySelector: (q) => { if (!els.has(q)) els.set(q, el()); return els.get(q); } };
+  const on = {};
+  const map = {
+    querySelector: (q) => { if (!els.has(q)) els.set(q, el()); return els.get(q); },
+    addEventListener: (type, f) => { on[type] = f; },
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    classList: { contains: () => false },
+  };
+  /* The page's own pointer wiring (the IIFE after orgLiveRun), bound to this map. */
+  const ptrAt = SCRIPT.indexOf('/* Grab any node, the hub included.');
+  const ptrSrc = SCRIPT.slice(ptrAt, SCRIPT.indexOf("document.getElementById('orgmap').addEventListener('click'", ptrAt));
+  assert.ok(ptrAt > -1 && ptrSrc.includes("addEventListener('pointerup', release)"), 'the org chart pointer wiring left the page');
   const env = {
     window: { matchMedia: () => ({ matches: false }) },
     CSS: { escape: (x) => x },
@@ -556,13 +584,14 @@ function livePage() {
     cancelAnimationFrame: () => {},
   };
   // eslint-disable-next-line no-new-func
-  const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame',
+  const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
     'const ORG_STEP = ' + pageConst('ORG_STEP') + '; const ORG_PAD_MIN = ' + ORG_PAD_MIN + ';\n' + simSrc
     + "let ORG_LIVE = null; let ORG_POS = new Map();\n"
     + 'function orgWireEnds(x0, y0, a0, x1, y1) { return { x1: x0, y1: y0, x2: x1, y2: y1, shown: true }; }\n'
     + ['orgLiveStart', 'orgLiveSettle', 'orgLiveSync', 'orgLiveRun'].map(grab).join('\n')
+    + '\nlet ORG_DRAG_MOVED = false; function orgResizeRepaint() {}\n' + ptrSrc
     + '\nreturn { orgLiveStart, pos: () => ORG_POS };')(
-    env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame);
+    env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame, { getElementById: () => map });
   /* Run queued frames until the animation stops; return how far any node got from where it started. */
   const run = () => {
     const from = new Map([...page.pos()].map(([k, q]) => [k, { x: q.x, y: q.y }]));
@@ -581,7 +610,15 @@ function livePage() {
     assert.ok(n < 5000, 'the animation never stopped');
     return { far, frames: n, jump };
   };
-  return { page, map, run };
+  /* Press the hub, optionally move the pointer by (dx, dy), and let go, through the page's own listeners. */
+  const hubEl = { ...el(), classList: { ...el().classList, contains: (c) => c === 'hub' } };
+  const press = (dx, dy) => {
+    const at = { button: 0, pointerType: 'mouse', pointerId: 1, target: { closest: () => hubEl }, clientX: 100, clientY: 100 };
+    on.pointerdown(at);
+    if (dx || dy) for (let i = 1; i <= 10; i += 1) { on.pointermove({ ...at, clientX: 100 + dx * i / 10, clientY: 100 + dy * i / 10 }); if (frames.length) frames.shift()(); }
+    on.pointerup(at);
+  };
+  return { page, map, run, press };
 }
 
 /* How far any node of a live chart sits from its placement (relative to the hub's home, as orgPlace put it). */

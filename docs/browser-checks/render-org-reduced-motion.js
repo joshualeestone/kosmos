@@ -119,7 +119,7 @@ const DENSE_MAX = 64;
     'the board is dense (its tightest pair sits near the minimum arc), so a sparse fixture cannot pass', m.minC + 'px');
 
   try { fs.mkdirSync('/tmp/orgshots', { recursive: true }); } catch { /* best effort */ }
-  await pg.screenshot({ path: '/tmp/orgshots/org-reduced-motion.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });
+  await pg.screenshot({ path: '/tmp/orgshots/org-reduced-motion.png', clip: { x: 0, y: 110, width: 375, height: 780 } });   // #4434: the 375px viewport
   await ctx.close();
   await b.close();
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : 'all good');
