@@ -70,10 +70,10 @@ async function settledRead(pg) {
   for (let i = 0; i < 25; i += 1) {
     await pg.waitForTimeout(600);
     const now = await measure(pg);
-    if (now.pos === last.pos) return now;
+    if (now.pos === last.pos) return { ...now, settled: true };
     last = now;
   }
-  return last;
+  return { ...last, settled: false };
 }
 
 (async () => {
@@ -95,6 +95,7 @@ async function settledRead(pg) {
     await pg.click('[data-scope="agents"] .vt[data-layout="org"]');
     await pg.waitForTimeout(800);
     const m = await settledRead(pg);
+    say(m.settled, label + ': the chart came to rest within 15s (a chart still moving is not measured at rest)');
     say(m.nodes.length === AGENTS, label + ': every agent is on the chart', m.nodes.length + ' of ' + AGENTS);
     say(m.segs.length === AGENTS, label + ': every agent has a wire', m.segs.length + ' wires');
     /* A wire starts at its manager's face edge (or the hub's centre), so its manager is the node centre

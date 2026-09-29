@@ -190,7 +190,6 @@ function settled(placed, seed, avail) {
     nodes.set(key, {
       key, x: was ? was.x + shiftX : cx + Math.cos(spot.ang) * spot.r, y: was ? was.y + shiftY : cy + Math.sin(spot.ang) * spot.r,
       vx: 0, vy: 0, ring: spot.r, parentKey: spot.node.parent || null, parent: null, fixed: false,
-      lo: spot.lo, hi: spot.hi,
       home: Number.isFinite(spot.lo) ? { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r } : null,
       rest: 0,
     });
@@ -426,6 +425,9 @@ test('the repair never moves a held node or hub, so a drag held still keeps what
   assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), false, 'the repair ran while a node was held');
   assert.deepEqual([c.x, c.y, d.x, d.y], [350, 450, 500, 400], 'a held drag was moved');
   c.fixed = false;
+  hub.fixed = true;   // the hub held (a hub drag) is the person's too
+  assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), false, 'the repair ran while the hub was held');
+  hub.fixed = false;
   assert.equal(sim.orgPlanarRepair([a, b, c, d], hub), true, 'CONTROL: released, the same crossing is repaired');
   const src = SCRIPT.slice(SCRIPT.indexOf('function orgLiveRun('), SCRIPT.indexOf('\n}', SCRIPT.indexOf('function orgLiveRun(')));
   assert.match(src, /!L\.dragging && orgPlanarRepair/, 'the animation\'s stop no longer skips the repair mid-drag');
@@ -511,6 +513,39 @@ test('the repair glides a tree home: the whole chart the same fraction, never mo
   assert.deepEqual([hub.x, hub.y, a.x, a.y, c.x, c.y], [300, 300, 400, 300, 450, 360], 'the glide did not end exactly at the placement');
 });
 
+test('a grab during the glide home ends the glide: the held hub does not move (#4434, review it7)', () => {
+  /* orgHomeStep moves every body, held or not; only orgLiveRun's !L.dragging keeps the glide off a held one.
+     review it7: without it the glide moved the held node in 27 of 27 grabs. */
+  const { placed } = firstPaint(cards(randomTree(7, 60)));
+  const { size, cx, cy } = canvasFor(placed, 0);
+  const { page, map, run, down, up, one } = livePage();
+  page.orgLiveStart(map, placed, cx, cy, size);
+  run();
+  const L = page.live();
+  for (const b of [L.hub, ...L.nodes.values()]) b.x += 300;   // the whole chart 300px off: a glide home
+  L.homing = true; page.wake();
+  one(); one();
+  assert.ok(L.homing, 'CONTROL: the glide did not start, so this tests nothing');
+  down();
+  const held = { x: L.hub.x, y: L.hub.y };
+  for (let i = 0; i < 30; i += 1) one();
+  assert.deepEqual({ x: L.hub.x, y: L.hub.y }, held, 'the glide moved the hub while it was held');
+  up();
+  run();
+  assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL: let go, the chart did not come back to its placement');
+});
+
+test('a tree whose canvas changes size at the same width carries its positions across in proportion (#4434, review it7)', () => {
+  /* A remove or re-parent can shrink a big tree's canvas a lot; positions left in the old frame put faces past
+     the new edge and the first physics frame clamped them in one jump (review it7: over 1000px). */
+  const at = SCRIPT.indexOf('function orgCarryFactor(');
+  // eslint-disable-next-line no-new-func
+  const carry = new Function(SCRIPT.slice(at, SCRIPT.indexOf('\n}', at) + 2) + '\nreturn orgCarryFactor;')();
+  assert.equal(carry(false, 3000, 1600, true), 1600 / 3000, 'a tree kept its positions in the old frame');
+  assert.equal(carry(false, 1600, 1600, true), 1, 'the same canvas moved the positions');
+  assert.equal(carry(false, 3000, 1600, false), 1, 'CONTROL: a flat fleet at the same width keeps them, as before');
+});
+
 test('a click on the hub of a tree at rest does not move it; a drag of the same hub does (#4434, review it5, it6)', () => {
   /* Through the page's own pointerdown and pointerup. review it6: the source pin below stayed green with every
      press counted as moved, which re-opened the bug. */
@@ -590,7 +625,7 @@ function livePage() {
     + 'function orgWireEnds(x0, y0, a0, x1, y1) { return { x1: x0, y1: y0, x2: x1, y2: y1, shown: true }; }\n'
     + ['orgLiveStart', 'orgLiveSettle', 'orgLiveSync', 'orgLiveRun'].map(grab).join('\n')
     + '\nlet ORG_DRAG_MOVED = false; function orgResizeRepaint() {}\n' + ptrSrc
-    + '\nreturn { orgLiveStart, pos: () => ORG_POS };')(
+    + '\nreturn { orgLiveStart, pos: () => ORG_POS, live: () => ORG_LIVE, wake: () => orgLiveRun() };')(
     env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame, { getElementById: () => map });
   /* Run queued frames until the animation stops; return how far any node got from where it started. */
   const run = () => {
@@ -612,13 +647,16 @@ function livePage() {
   };
   /* Press the hub, optionally move the pointer by (dx, dy), and let go, through the page's own listeners. */
   const hubEl = { ...el(), classList: { ...el().classList, contains: (c) => c === 'hub' } };
+  const at = { button: 0, pointerType: 'mouse', pointerId: 1, target: { closest: () => hubEl }, clientX: 100, clientY: 100 };
+  const one = () => { if (frames.length) frames.shift()(); };
+  const down = () => on.pointerdown(at);
+  const up = () => on.pointerup(at);
   const press = (dx, dy) => {
-    const at = { button: 0, pointerType: 'mouse', pointerId: 1, target: { closest: () => hubEl }, clientX: 100, clientY: 100 };
-    on.pointerdown(at);
-    if (dx || dy) for (let i = 1; i <= 10; i += 1) { on.pointermove({ ...at, clientX: 100 + dx * i / 10, clientY: 100 + dy * i / 10 }); if (frames.length) frames.shift()(); }
-    on.pointerup(at);
+    down();
+    if (dx || dy) for (let i = 1; i <= 10; i += 1) { on.pointermove({ ...at, clientX: 100 + dx * i / 10, clientY: 100 + dy * i / 10 }); one(); }
+    up();
   };
-  return { page, map, run, press };
+  return { page, map, run, press, down, up, one };
 }
 
 /* How far any node of a live chart sits from its placement (relative to the hub's home, as orgPlace put it). */
