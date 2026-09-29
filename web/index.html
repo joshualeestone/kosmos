@@ -65622,7 +65622,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
 /* Switching OFF: recorded as the person's choice; nothing is made or removed. The same latch as asbTurnOn, so a Set it up
    now clicked meanwhile cannot race it. One path for the Settings switch and the bubble's X (#4405). */
 async function asbSwitchOff() {
-  if (ASB.turning) return false;
+  if (ASB.turning) return null;   // a save is already running: not a failure (the X says nothing)
   ASB.turning = true;
   const ctls = ['asb-toggle', 'asb-row-setup', 'asb-close'].map((id) => document.getElementById(id)).filter(Boolean);
   ctls.forEach((c) => { c.disabled = true; });
@@ -65660,6 +65660,7 @@ function asbCloseWire() {
   x.addEventListener('click', async (e) => {
     e.stopPropagation();
     const ok = await asbSwitchOff();
+    if (ok === null) return;
     const msg = document.getElementById('asb-close-msg');
     if (ok) {
       asbCloseShow(false);

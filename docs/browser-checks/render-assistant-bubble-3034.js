@@ -1,4 +1,4 @@
-// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle asb-row-who asb-row-pic asb-row-msg asb-row-models asb-row-state asb-row-setup setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no
+// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle asb-row-who asb-row-pic asb-row-msg asb-row-models asb-row-state asb-row-setup setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no asb-close asb-close-msg
 // Browser-check-functions: asbAvatar
 'use strict';
 
@@ -240,6 +240,12 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.unroute('**/api/settings', refuseX);
     chk(refusedX === 1 && failed && fs2.on && fs2.focus === 'asb-close' && fs2.bub, 'B2x a failed save keeps the X shown and focused, the bubble stays, and says so', JSON.stringify({ refusedX, failed, ...fs2 }));
     chk((await saOn()) === true, 'B2x and nothing was recorded off');
+    // A click while a save is already running (the Settings switch mid-save) is a no-op, not a failure: no message.
+    await page.evaluate(() => { document.getElementById('asb-close-msg').hidden = true; ASB.turning = true; });
+    const busy = await page.evaluate(async () => { document.getElementById('asb-close').click(); await new Promise((r) => setTimeout(r, 300)); return document.getElementById('asb-close-msg').hidden; });
+    await page.evaluate(() => { ASB.turning = false; });
+    chk(busy === true, 'B2x a click while a save is running says nothing (it is not a failure)');
+    chk((await saOn()) === true, 'B2x and that click recorded nothing');
     x0 = await xs();
     await page.mouse.click(x0.cx, x0.cy);
     chk(await waitFor(page, () => document.getElementById('asb').hidden && !document.getElementById('asb-close').classList.contains('on'), 4000),
