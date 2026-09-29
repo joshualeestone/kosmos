@@ -2973,13 +2973,18 @@ test('#4580: a folded retry of an UNCONFIRMED send says so in words, instead of 
 test('#4580: a retry waiting on a first send that FAILED gets the failure, never marked a duplicate', async () => {
   let release;
   const gate = new Promise((r) => { release = r; });
-  const failing = () => gate.then(() => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' }));
+  let tries = 0;
+  const failing = () => { tries++; return gate.then(() => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' })); };
   armSender('leo-discord');
   await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
     const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
     const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
     release();
     const [, b] = await Promise.all([p1, p2]);
+    // Only the injected deliver says 'the pane closed', so a sender that never resolved (a refusal is
+    // also COULD_NOT, with no duplicate flag) cannot pass this test for the wrong reason.
+    assert.ok(tries >= 1, 'the deliver was never reached: the send was refused before delivery');
+    assert.equal(b.because, 'the pane closed', JSON.stringify(b));
     assert.equal(b.state, chat.DELIVERY.COULD_NOT, JSON.stringify(b));
     assert.equal(b.duplicate, undefined, 'nothing went out, so nothing is a duplicate');
   });
