@@ -3299,6 +3299,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    once opened. Chevron rotates open, native details behaviour otherwise. */
 .con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
              color: var(--label-2); margin: 18px 0 6px; }
+/* #4451: an "ask your agent" callout, a flat light-gold panel with words, not a button. The same values as #4450's
+   Global skills callout (.gs-ask), so the two read as one kind of thing; whichever lands second can share one class. */
+.ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 .con-cat { border-bottom: 0.5px solid var(--separator); }
 .con-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer;
                    list-style: none; font: var(--text-body) var(--font-ui); color: var(--label); }
@@ -15398,6 +15403,10 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
   <section class="dbox">
     <h3 class="dlab">Connections</h3>
+    <!-- #4451 (Josh, 2026-09-28 19:57): "promote your agent to ask them what connections you need and have them
+         make them for you". Words, not a button: the person asks in a conversation, and an agent that connects a
+         service does it through Kosmos (kosmos connect), so its row below shows it. Same look as #4450's callout. -->
+    <p class="ask-agent" id="conn-ask">Ask your agent: <b>&ldquo;What connections do we need?&rdquo;</b> It can set them up for you.</p>
     <!-- 🔑 THE SHAPE IS TWO GROUPS AND QUIET ROWS (#282, #325). Sixteen
          categories is roughly sixty services; flat, the page is a wall and
          nearly all of it is irrelevant to any one person. So: a category with

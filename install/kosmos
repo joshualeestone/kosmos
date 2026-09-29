@@ -1531,6 +1531,83 @@ cmd_post() {
 # 🔑 THE SENTENCE IS COMPOSED BY THE BOARD, not here and not by the agent. If
 # every agent phrases this itself, three agents give three answers, which is
 # the defect this verb exists to remove.
+# ---- kosmos connections      (#4451)
+# What is connected in Settings > Connections, read CHEAPLY: the board answers from its disk (is a
+# token stored?), never by checking with each service. The page's own read checks every service
+# live, and Brave, Exa, Tavily and Serper bill the person for every check, so an agent must never
+# poll that one. A stored token is reported as connected; the tab checks it when the person opens it.
+cmd_connections() {
+  if ! healthy; then
+    say "Kosmos is not running, so it cannot say what is connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/connections/held" 2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to read what is connected. Is it running at $URL?"; exit 1; fi
+  printf '%s' "$body" | "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+      if (!j || !Array.isArray(j.services)) process.exit(1);
+      for (const x of j.services) {
+        if (!x || typeof x.name !== "string") continue;
+        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened)" : " (signed in through Kosmos)"));
+        else if (x.held === false) console.log(x.name + ": not connected" + (x.connect ? " (store the token the person gives you with: kosmos connect " + x.connect + ")" : ""));
+        else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
+      }
+    });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
+}
+
+# ---- kosmos connect <service>  (#4451), the token on STDIN
+# Connect a service THROUGH ITS KOSMOS DOOR, so its row in Settings > Connections shows it. The
+# token is read from stdin, never an argument (an argument is visible to every process on the
+# machine), and reaches the board in a file only this user can read, never on a command line.
+# The door checks the token with the service ONCE before storing it; a token it refuses is not kept.
+cmd_connect() {
+  local svc="${1:-}"
+  case "$svc" in
+    ''|*[!a-z0-9-]*)
+      say "Which service? For example: printf '%s' \"\$TOKEN\" | kosmos connect brave-search   (kosmos connections lists them)"
+      exit 2 ;;
+  esac
+  if [ -t 0 ]; then
+    say "Give the token on stdin, not as an argument. For example: printf '%s' \"\$TOKEN\" | kosmos connect $svc"
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so nothing was connected. Start it with: kosmos start"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime, so nothing was connected."; exit 1; }
+  local route
+  if [ "$svc" = "cloudflare" ]; then route="/api/cloudflare/token"; else route="/api/svc/$svc/token"; fi
+  local tmp; tmp="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect.XXXXXX")" || { say "We could not make a private file for the token, so nothing was sent."; exit 1; }
+  # The token goes stdin -> node -> the private file as JSON; it is never an argument or an environment variable.
+  if ! "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      const t = s.trim(); if (!t) process.exit(3);
+      require("fs").writeFileSync(process.argv[1], JSON.stringify({ token: t }), { mode: 0o600 });
+    });' "$tmp"; then
+    rm -f "$tmp"
+    say "Nothing to connect: the token on stdin was empty."
+    exit 2
+  fi
+  local _bt; _bt="$(board_token || true)"
+  local body rc=0
+  body=$(kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL$route" -H 'content-type: application/json' --data-binary "@$tmp" 2>/dev/null) || rc=$?
+  rm -f "$tmp"
+  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos, so nothing was connected."; exit 1; fi
+  printf '%s' "$body" | SVC="$svc" "$_node" -e '
+    let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { console.log("Kosmos gave an answer we could not read, so we cannot say whether it connected."); process.exit(1); }
+      if (j && j.error) { console.log(j.error === "no such door" ? "Kosmos has no door for " + process.env.SVC + ". kosmos connections lists the ones it has." : j.error); process.exit(1); }
+      if (j && j.refused) { console.log((j.service || process.env.SVC) + " did not connect: " + j.refused); process.exit(1); }
+      if (j && j.connected) { console.log("Connected " + (j.service || process.env.SVC) + (j.who ? " as " + j.who : "") + ". Its row in Settings > Connections shows it."); return; }
+      console.log((j && j.because) || "It did not connect."); process.exit(1);
+    });'
+}
+
 cmd_whoami() {
   if ! healthy; then
     say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"
@@ -2064,7 +2141,7 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -2082,14 +2159,14 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
-    adopt|whoami)
+    adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami\n\n'
-      printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
+      printf '  Add --help to any command; it never acts, except adopt, whoami and connections, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
@@ -2612,6 +2689,8 @@ case "${1:-}" in
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
+  connections) cmd_connections ;;
+  connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
   community) shift; cmd_community "$@" ;;
@@ -2619,7 +2698,7 @@ case "${1:-}" in
   project) shift; cmd_project "$@" ;;
   agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
