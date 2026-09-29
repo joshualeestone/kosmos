@@ -74,3 +74,21 @@ Controls: each fix reds its test when removed. The engine regression set: 728/72
 - (N, taken) the stagger stamp is a Symbol key; the plan's stale lines are fixed. (N, left) "Resets in 1 hour 5 minutes"
   reads as 1 hour (the real text is compact; early only means a failed nudge and a new pause).
 Controls: each fix reds its test when removed. The engine regression set: 730/730.
+
+## Review iteration 3 (blind, opus)
+0 BLOCKER, 4 WARNING, all taken:
+- (W) the status rule never checked the runner: any automatic idle whose until Date.parse accepted (any hook passes an
+  until through; the Mac CLI's --auto --until too; Date.parse reads "5" as May 2001) read as the Antigravity quota.
+  It now requires the bridge's own first sentence (status.js QUOTA_REPORT_PREFIX, pinned against the bridge's text) and
+  a strict ISO until. Controls: another agent's automatic idle with a time, "5", and a non-ISO date are not a pause.
+- (W, SELF) the give-up log said "left paused for a person" (it reads idle past the reset, and nobody is told), and a
+  refusal let all three tries run on consecutive ticks. Refusals back off STAGGER_MS per try so far; the log says it is
+  left idle with its turn unfinished until someone messages it.
+- (W) the sweep ignored the card: it now types only over an idle, unknown or rate_limited card, never a question (a
+  typed line could answer it), work, or a lost connection.
+- (W) two copies of one fact: the sweep reads status.quotaResetOf and status.QUOTA_RESUME_WINDOW_MS (pinned equal).
+- (N, taken) the reconcile branch now calls quotaPauseUntil (the function its comments cite); the DM line says "any
+  other Antigravity agent signed in to the same Google account" (not "every agent on this computer", unmeasured); the
+  card's time carries its zone; the weakest premise names the unmeasured Windows path.
+- (N, left) the wiring pin is a source match (no test may run the server).
+Controls: each fix reds its test when removed. The engine regression set: 733/733.
