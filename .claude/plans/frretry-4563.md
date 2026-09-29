@@ -62,3 +62,7 @@ validation runs through the queue as the closing gate, before the proof.
 - (N) section 9's missing waitOverlay read as an oversight: a one-line comment says why.
 - (N) a 10 s wait per fresh() makes a never-shown overlay slow to fail (section 8 loops): kept at 10 s, since the only
   case it exists for is a loaded runner, and it costs time only on a run that is already red.
+
+## Review iteration 4 (blind, sonnet): CONVERGED (nothing at BLOCKER, WARNING or CONVENTION)
+NITs only: the waitOverlay comment's line lengths; the "every caller expects the overlay" claim is the only thing that
+keeps a future no-overlay fresh() caller from paying 10 s (left as the comment); the plan's follow-up and honesty notes.
