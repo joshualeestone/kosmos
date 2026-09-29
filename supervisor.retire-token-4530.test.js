@@ -100,7 +100,8 @@ function fixture() {
   };
   const live = () => store(`s.live(${JSON.stringify(NAME)})`);
   const resolves = (token) => store(`s.resolveName(${JSON.stringify(token)}).ok`);
-  const start = () => spawn('/bin/bash', args, { env, stdio: 'ignore' });
+  const kids = [];
+  const start = () => { const c = spawn('/bin/bash', args, { env, stdio: 'ignore' }); kids.push(c); return c; };
   const ends = (child) => new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
   const until = async (fn, what) => {
     for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); }
@@ -114,7 +115,14 @@ function fixture() {
   };
   const endSession = () => fs.rmSync(path.join(root, 'state', 'alive'), { force: true });
   const flag = (name) => fs.writeFileSync(path.join(root, 'state', name), '');
-  const cleanup = () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ } };
+  /* A failing arm stops before it ends its session, and a supervisor watching a live session never
+     exits: end the session AND stop every supervisor this arm started, or the file never finishes
+     (seen on main, where the arms fail early). */
+  const cleanup = () => {
+    fs.rmSync(path.join(root, 'state', 'alive'), { force: true });
+    for (const c of kids) if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL');
+    try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  };
   return { root, tokens, live, resolves, start, ends, until, settles, endSession, flag, cleanup, store };
 }
 
