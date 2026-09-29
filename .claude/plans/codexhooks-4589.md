@@ -84,3 +84,10 @@ No blocker, no false refusal of a healthy agent found; confirmed every sender go
 callers retry. Changed: the Codex check now runs after the free paused-swarm check; it is skipped under dry-run; the
 command fallback applies only to an UNTAGGED pane (a pane tagged claude or gemini keeps its tag); stale comments fixed;
 this plan's residuals rewritten to match the code.
+
+## Blind review round 4 (Sonnet, a separate reviewer, 2026-09-29 13:42)
+Nothing above WARNING; no path types into the dialog and no false refusal of a healthy agent. The WARNING (the dry-run
+skip had no test) is fixed and the skip itself narrowed to tmux()'s own rule, "dry-run with no injected runner"; both
+directions pinned. Dead constant removed, comments placed and corrected. Noted for a follow-up, out of scope here: only
+the hook dialog's two footers are guarded; other Codex startup prompts (directory trust, which Kosmos pre-answers by
+writing trust_level, and model migration) are not.

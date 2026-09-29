@@ -252,3 +252,22 @@ test('#4589 round 2: a native codex pane before its runner tag lands is Codex, s
     assert.deepEqual(tmux.typedInto(), []);
   } finally { board.restore(); }
 });
+
+test('#4589 round 4: a demo board (dry-run, no runner) gets the dry-run answer, not "we could not see its screen"', () => {
+  withCodex(TABLE, (board) => {
+    chat.setRunner(null);   // no runner: dry-run, as a demo or fixture board runs (setRunner(null) forces it)
+    const v = chat.deliver('sam', 'hello', board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+    assert.notEqual(v.because, status.CODEX_UNSEEN_SENTENCE, 'a demo board was told it could not see the screen');
+    assert.match(v.because, /without permission to touch agents/, 'not the dry-run answer: ' + v.because);
+  });
+});
+
+test('#4589 round 4: with an injected runner the rule still applies even under dry-run (the runner types)', () => {
+  withCodex(TABLE, (board) => {
+    const tmux = arm([ok(TABLE)]);
+    chat.setDryRun(true);
+    assert.equal(chat.deliver('sam', 'hello', board.agents).because, status.CODEX_HOOK_DIALOG_SENTENCE);
+    assert.deepEqual(tmux.typedInto(), []);
+  });
+});

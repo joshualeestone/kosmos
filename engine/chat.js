@@ -1206,9 +1206,10 @@ const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\
  * `node` reads as Claude until its runner tag lands (status.js takes the command only for a native `codex`).
  */
 function codexScreenRefusal(card, sessionName, roster) {
-  /* Under dry-run nothing is typed anywhere, and the dry-run answer is the true one (round 3: demo boards read
-     "we could not see its screen" for every Codex agent). */
-  if (DRY_RUN || !card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
+  /* When nothing will really be typed (dry-run with no injected runner, exactly tmux()'s own rule), the dry-run answer
+     is the true one (round 3: demo boards read "we could not see its screen" for every Codex agent). An injected
+     runner outranks dry-run in tmux(), so the rule still applies there (round 4). */
+  if ((DRY_RUN && !runner) || !card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
   const view = viewport(sessionName, roster);
   if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
   if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;

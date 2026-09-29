@@ -1577,16 +1577,15 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
    of the raw capture holds nothing but blanks there). Matched to 0.149.1's layout: a later Codex that draws a row
    below either footer reads as no dialog. Returns { screen: 'menu'|'table', evidence } or null. */
 const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
-const CODEX_HOOK_MENU_FOOTER = /^\s*Press enter to confirm or esc to go back\s*$/;
 const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
 const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\.\s*$/;
 /* The same two footers matched at the END of a joined run of rows, so a wrapped footer still counts (round 1). */
 const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
 const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
-/* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
 /* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
 const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
   + 'there that typed text would answer. Send this again in a moment.';
+/* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
 const CODEX_STARTING_SENTENCE = 'it is still starting (its screen is blank), so nothing was typed: Codex may be about to ask '
   + 'a question on that screen, and typed text would answer it. Send this again in a moment.';
 const CODEX_HOOK_ROWS = 30;
@@ -1621,8 +1620,9 @@ function codexHookReview(paneText) {
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
   + 'so nothing was typed. Choose in its terminal whether to trust them, then send this again.';
-/* True when a card's evidence is this dialog's, as isTrustDialogEvidence is for Claude's: only the Codex hook
-   branch of classify writes these rows as needs_you evidence. */
+/* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
+   needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
+   reads the screen fresh. Its callers are the tests that pin what the card shows. */
 function isCodexHookEvidence(evidence) {
   return typeof evidence === 'string'
     && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence));
