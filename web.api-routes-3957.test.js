@@ -47,7 +47,12 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 /* Deliberate exceptions, each with its reason. An entry is a claim someone can check. */
-const SERVED_ELSEWHERE = {};
+const SERVED_ELSEWHERE = {
+  /* #4556: the Team screen asks for the seeded teams catalogue, which #4555 (claimed by April) adds as a board
+     route. Until it lands the route answers 404 and the page reads that as "coming soon" (render-newagent-paths-4556
+     K5). REMOVE this entry in #4555's change, when the route exists. */
+  '/api/teams/seeded': 'not served yet: #4555 adds it; the page treats its 404 as coming soon (#4556)',
+};
 
 /* Known page calls spread across the script, read on every run (see the main test). */
 const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
