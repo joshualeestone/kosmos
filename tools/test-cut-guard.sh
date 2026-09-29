@@ -553,4 +553,112 @@ kill "$mcp" 2>/dev/null; wait "$mcp" 2>/dev/null
 KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=MINE bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
   && fail "#4410 a claim whose holder is dead still read as held" || pass "#4410 CONTROL: a dead holder's claim is not held"
 
+# --- #4498: waiting instead of refusing, and the suite queue ------------------------------------
+W="$T/w4498"; mkdir -p "$W/markers"
+export KOSMOS_RUN_MARKER_DIR="$W/markers"
+# A check that refuses its first N calls, then passes; each call is logged.
+wcheck() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"; [ "$n" -gt "${WPASS_AFTER:-0}" ] && return 0; echo "busy: stand-in run $n" >&2; return 1; }
+rm -f "$W/calls"
+out="$(WPASS_AFTER=2 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "waiting for it" && has "$out" "clear after waiting 60s"; } \
+  && pass "#4498 a busy box is asked again every 30 s and the run starts when it clears" \
+  || fail "#4498 the wait did not end in a start (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "gave up after waiting 60s" && has "$out" "busy: stand-in run 3"; } \
+  && pass "#4498 at the bound the wait refuses, with the check's latest reason" \
+  || fail "#4498 the bound did not end in a refusal (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=99 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 1 ] && ! has "$out" "waiting for it"; } \
+  && pass "#4498 KOSMOS_NO_WAIT=1 refuses at once, asking once" \
+  || fail "#4498 no-wait still waited (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ -z "$out" ]; } && pass "#4498 CONTROL: a clear box starts at once and says nothing" \
+  || fail "#4498 a clear box did not start quietly (rc=$rc, $out)"
+
+# A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
+sleep 60 & wp=$!
+printf '100 %s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" > "$W/markers/suitewait.$wp"
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4498 a suite that is only waiting for the box does not count as running" \
+  || fail "#4498 a waiting suite was counted as running (rc=$rc, $out)"
+mv "$W/markers/suitewait.$wp" "$W/held"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#4498 CONTROL: the same process with no waiting marker is a running suite" \
+  || fail "#4498 CONTROL: an unmarked suite did not refuse (rc=$rc, $out)"
+printf '100 %s\nnot its command\n' "$wp" > "$W/markers/suitewait.$wp"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker whose pid now runs another command is stale: counted as running and removed" \
+  || fail "#4498 a recycled-pid waiting marker was trusted (rc=$rc, $out)"
+
+# The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
+mv "$W/held" "$W/markers/suitewait.$wp"
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4498 a run that is not yet queued waits behind a queued suite" \
+  || fail "#4498 an unqueued run jumped the queue (rc=$rc, $out)"
+kosmos_mark_suite_waiting 200
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#4498 a later waiter waits for the earlier one" || fail "#4498 a later waiter went first (rc=$rc, $out)"
+kosmos_mark_suite_waiting 50
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4498 CONTROL: the earliest waiter goes" || fail "#4498 the earliest waiter was held (rc=$rc, $out)"
+kosmos_unmark_suite_waiting
+kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a dead waiter holds no place and its marker is removed" \
+  || fail "#4498 a dead waiter still held the queue (rc=$rc, $out)"
+
+# The second ask: clear once, but something started while this run was still marked, so it goes
+# back to waiting in its OLD place, then starts. The check logs the queue time it sees each call.
+qcheck() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
+  sed -n '1p' "$W/markers/suitewait.$$" 2>/dev/null | cut -d' ' -f1 >> "$W/seen"
+  case "$n" in 1|3) echo "busy: call $n" >&2; return 1 ;; esac; return 0; }
+rm -f "$W/calls" "$W/seen"
+out="$(KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue qcheck 2>&1)"; rc=$?
+seen="$(sort -u "$W/seen" | grep -c .)"
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 5 ] && [ "$seen" = 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4498 a harness that appears as the suite unqueues sends it back to waiting in its old place" \
+  || fail "#4498 the second ask misbehaved (rc=$rc, calls=$(cat "$W/calls"), queue times seen=$seen, $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4498 a suite that gives up leaves the queue" \
+  || fail "#4498 a suite that gave up left its marker (rc=$rc, $out)"
+
+# The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
+sleep 60 & wp=$!
+printf '100 %s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" > "$W/markers/suitewait.$wp"
+rm -f "$W/calls"
+out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "has been waiting for the box longer" && has_pid "$out" "$wp"; } \
+  && pass "#4498 a clear box still waits behind an older waiting suite" \
+  || fail "#4498 the wait jumped an older waiting suite (rc=$rc, $out)"
+kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
+rm -f "$W/calls"
+out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4498 CONTROL: once that waiter is gone the same run starts" || fail "#4498 a dead waiter still held the run (rc=$rc, $out)"
+
+# The wiring, end to end: a real run-tests.sh beside a stand-in suite refuses at once under
+# KOSMOS_NO_WAIT=1 and names the suite, before it runs a test. (A green end-to-end would run the whole
+# suite; the go paths are shown above.) test-install.sh refuses an unknown argument.
+out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
+  KOSMOS_TEST_PART=all bash tools/run-tests.sh 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
+  && pass "#4498 run-tests.sh refuses beside another live suite (KOSMOS_NO_WAIT=1), naming its override" \
+  || fail "#4498 run-tests.sh did not refuse beside a live suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
+# A run-tests.sh inside a test (here: every pid has a node --test ancestor) is part of the suite that
+# started it, so it skips the suite check. The live stand-in harness (fixtures kept) is what refuses
+# it instead; the suite check comes first, so a missing skip would print the suite refusal.
+printf '#!/bin/sh\nprintf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
+out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
+  KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all bash tools/run-tests.sh 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#4498 a run-tests.sh inside a test does not wait on the suite that started it" \
+  || fail "#4498 a run-tests.sh fixture checked for other suites (rc=$rc, $(printf '%s' "$out" | tail -3))"
+out="$(cd "$HERE/.." && bash tools/test-install.sh --nowait 2>&1)"; rc=$?
+{ [ "$rc" -eq 2 ] && has "$out" "unknown argument '--nowait'"; } && pass "#4498 test-install.sh refuses a mistyped --no-wait instead of waiting" \
+  || fail "#4498 test-install.sh took an unknown argument (rc=$rc, $out)"
+
 echo "cut guard: $fails failures"; [ "$fails" -eq 0 ]

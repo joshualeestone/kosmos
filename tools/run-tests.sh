@@ -208,9 +208,23 @@ fi
 # test-install.sh asks the mirror question (kosmos_refuse_if_suite_live) before it starts.
 # A cut's own suite (it holds the live claim) stands down: the cut asked at its start, and its own
 # install gate runs only after this suite ends.
-if command -v kosmos_refuse_if_harness_live >/dev/null 2>&1 && [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] \
-   && ! kosmos_holds_machine_claim; then
-  kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || exit 1
+# #4498: nor beside ANOTHER suite (three full suites overlapped on Mortals on 2026-09-28, because
+# plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
+# the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
+# Both checks WAIT rather than refuse: every 30 s for up to 20 minutes, in a queue so the oldest
+# waiting suite goes first (tools/lib/cut-guard.sh, kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
+# refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
+_rt_box_clear() {
+  if [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" != 1 ] && ! _kosmos_pid_is_test_fixture "$$" "$0"; then
+    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" || return 1
+  fi
+  if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+    kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1
+  fi
+  return 0
+}
+if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
+  kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
 fi
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------

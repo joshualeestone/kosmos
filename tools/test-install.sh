@@ -25,6 +25,16 @@
 
 set -euo pipefail
 
+# #4498: beside a live cut or suite this run WAITS (every 30 s, up to 20 minutes) and then refuses;
+# --no-wait (or KOSMOS_NO_WAIT=1) refuses at once. Any other argument is refused, so a mistyped
+# --no-wait never turns into a silent 20-minute wait.
+for _arg in "$@"; do
+  case "$_arg" in
+    --no-wait) export KOSMOS_NO_WAIT=1 ;;
+    *) echo "test-install: unknown argument '$_arg' (the only one is --no-wait)" >&2; exit 2 ;;
+  esac
+done
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP="$HERE/install/setup.sh"
 TMUX_SRC="$HERE/dist/tmux-bundle"
@@ -63,18 +73,23 @@ kosmos_mark_run harness
 # KOSMOS_INSTALL_GATE=1 alone, which `yarn test:install-gate` sets with no cut running. (The cut's
 # own gate would pass this check anyway: it inherits the cut's marker cookie, and pgrep does not
 # list its release.sh ancestor.)
-if ! kosmos_holds_machine_claim && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
-  kosmos_refuse_if_cut_live "a full install-harness run" || exit 1
-fi
-# #4410: and not beside a live test suite (tools/run-tests.sh), which can make this run's board-port
-# checks red (Kano and Raiden, 2026-09-28; the two use different port ranges, so the cause is load
-# or the product's default port, neither proven; see .claude/plans/heavygate-testinstall-4410.md). run-tests.sh asks the mirror question.
-# Not in a cut's own gate run, which holds the live machine claim: the cut's suite has finished by
-# step 4b and its claim already refuses any new suite, so a refusal there would only abort a cut.
-# KOSMOS_INSTALL_GATE=1 alone is not enough (`yarn test:install-gate` sets it outside any cut).
-if [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ] && ! kosmos_holds_machine_claim; then
-  kosmos_refuse_if_suite_live "a full install-harness run" || exit 1
-fi
+_ti_box_clear() {
+  if ! kosmos_holds_machine_claim && [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
+    kosmos_refuse_if_cut_live "a full install-harness run" || return 1
+  fi
+  # #4410: and not beside a live test suite (tools/run-tests.sh), which can make this run's board-port
+  # checks red (Kano and Raiden, 2026-09-28; the two use different port ranges, so the cause is load
+  # or the product's default port, neither proven; see .claude/plans/heavygate-testinstall-4410.md). run-tests.sh asks the mirror question.
+  # Not in a cut's own gate run, which holds the live machine claim: the cut's suite has finished by
+  # step 4b and its claim already refuses any new suite, so a refusal there would only abort a cut.
+  # KOSMOS_INSTALL_GATE=1 alone is not enough (`yarn test:install-gate` sets it outside any cut).
+  if [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ] && ! kosmos_holds_machine_claim; then
+    kosmos_refuse_if_suite_live "a full install-harness run" || return 1
+  fi
+  return 0
+}
+# #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
+kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
 SB="$(mktemp -d)"
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
