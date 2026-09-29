@@ -41,6 +41,22 @@ sha mismatch, sidecar mismatch, missing sidecar, missing pointer, pointer name o
 published shape, unsigned exe, exe signed by someone else, staging channel, no session leak under
 iex, exit 1 as a file, ASCII only, `exit` only in the run-as-file branch.
 
+## Review round 1 (Pete, 2026-09-29)
+
+- Blocker fixed: once the launcher has started, the extracted folder is kept unless a hand-over
+  check positively finds it free (pointer read and naming elsewhere, process list read and nothing
+  running from it). An unreadable pointer, an unreadable process list or any error keeps it.
+- A test-only stand-in launcher (KOSMOS_SETUP_TEST_LAUNCHER) covers the launch step: handed over,
+  process still running, pointer naming the folder, pointer naming it while the launcher stays,
+  pointer held open, launcher failing.
+- Signer: CN plus a chain through "Microsoft ID Verified Code Signing PCA <year>" to Microsoft
+  Identity Verification Root CA 2020 (root matched by thumbprint). No leaf pin: Artifact Signing
+  certs live about three days. Weakest part: that chain is shared by every Artifact Signing
+  customer (node.exe uses it), so the CN is what names Kosmos; the chain only says Microsoft
+  verified that name.
+- TLS: SystemDefault is left alone (OR-ing Tls12 into 0 meant TLS 1.2 only); an explicit list
+  gains Tls12. Regexes end in \z. The zip download times out after 15 minutes.
+
 ## Not done here
 
 - Serving /setup.ps1 is the site team's job.
