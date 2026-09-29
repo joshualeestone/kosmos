@@ -11,6 +11,7 @@
   Files in one grey box; the conversation unboxed on the page; a round back button and "Projects / name"
   as the header; member rows with the state word; compact task rows; your messages grey, an agent's with
   no bubble; the composer a grey pill; the top bar's tabs marked by ink, not an underline.
+- With it on, in the tab layout, the rule under the top bar is gone on every page, not only the project.
 - The consolidated layout keeps today's ARRANGEMENT in both states; with the look on, its colours follow the new
   tokens and the top bar's tab styling, like every other page.
 

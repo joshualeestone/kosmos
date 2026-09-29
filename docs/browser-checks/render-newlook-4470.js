@@ -301,6 +301,9 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForTimeout(600);
       const ag = await page.evaluate(TOKEN_CONTRAST);
       chk(ag.pairs.every((x) => x.ratio >= 4.5) && !ag.wide, `${tag} On, Agents page: the new ink clears 4.5:1 on the new grounds, no sideways scroll`, JSON.stringify(ag));
+      /* The rule under the header goes on every page of the tab layout, not only the project. */
+      const agRule = await page.evaluate(() => getComputedStyle(document.querySelector('body > .apphead')).borderBottomColor);
+      chk(agRule === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: no rule under the header`, agRule);
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
