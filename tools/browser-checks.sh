@@ -923,7 +923,7 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # is gone, and --strict makes horizontal overflow on these screens red. The
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
-# rather than error. allow-card fails unless its Allow button is the element at its own centre
+# rather than error. allow-card fails unless its Allow button is what sits at its own centre
 # (kosmos#4524), and every shot fails if the one-time Community notice covers it. The full
 # sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
