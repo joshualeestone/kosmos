@@ -25,7 +25,7 @@ case "$1" in
   status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; exit 1 ;;   # 4: #4466 busy
   # #4466: like the real CLI: a start on a BUSY board is a no-op "already running", unless the watchdog
   # passes KOSMOS_RECLAIM_BUSY=1, when the #3079 reclaim frees the port and the board comes back.
-  start)  echo "start reclaim=${KOSMOS_RECLAIM_BUSY:-}" >> "$H/.stub-start-calls"
+  start)  echo "start reclaim=${KOSMOS_RECLAIM_BUSY:-}" >> "$H/.stub-start-calls"; echo "$*" >> "$H/.stub-start-args"
           if [ ! -f "$H/.stub-busy" ] || [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ]; then : > "$H/.stub-healthy"; fi; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -92,6 +92,7 @@ H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(rec
 run_wd "$H"
 [ "$(starts "$H")" = 1 ] && ok "past grace, unthrottled: started" || bad "past grace, unthrottled: did not start ($(starts "$H"))"
 grep -qx 'start reclaim=' "$H/.stub-start-calls" && ok "CONTROL: a plain down board's start does NOT ask to reclaim" || bad "a plain down start asked to reclaim: $(cat "$H/.stub-start-calls")"
+grep -qx 'start --force' "$H/.stub-start-args" && ok "#4466: the watchdog's start passes --force (it is not an agent)" || bad "watchdog start without --force: $(cat "$H/.stub-start-args" 2>/dev/null)"
 grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
 rm -rf "$H"
 
@@ -106,6 +107,7 @@ rm -rf "$H"
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 400 s: the start is told it may reclaim a silent holder (KOSMOS_RECLAIM_BUSY=1)" || bad "busy start did not ask to reclaim: $(cat "$H/.stub-start-calls" 2>/dev/null)"
+grep -qx 'start --force' "$H/.stub-start-args" && ok "#4466: the busy reclaim start passes --force too" || bad "busy start without --force: $(cat "$H/.stub-start-args" 2>/dev/null)"
 [ "$(starts "$H")" = 1 ] && [ "$(kicks "$H")" = 0 ] && [ -f "$H/.stub-healthy" ] && ok "busy 400 s: recovered on the first attempt, no kickstart" || bad "busy 400 s: $(starts "$H") starts, $(kicks "$H") kicks, healthy=$([ -f "$H/.stub-healthy" ] && echo yes || echo no)"
 rm -rf "$H"
 # 6d. A reclaim that did not take (fail_count 1) escalates, as for any board: kickstart -k of the board job.

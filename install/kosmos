@@ -729,6 +729,11 @@ _invoked_by_agent() {
   fi
   return 1
 }
+# #4466: the next step for a person, or for an agent, whose stop/restart the guard would refuse anyway.
+_stop_advice() {
+  if _invoked_by_agent; then printf '%s' "Tell the person who runs this computer; do not restart Kosmos yourself."
+  else printf '%s' "Stop it with 'kosmos stop' (or reboot), then start again."; fi
+}
 agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, exits to refuse
   local _verb="$1" _a _last _now _ago _cool
   shift
@@ -828,7 +833,7 @@ cmd_start() {
       # current build regardless, and the token bind is race-safe (a bind-loser rejects).
       rm -f "$STOP_MARKER" 2>/dev/null || true
       if port_has_listener; then
-        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. Run 'kosmos stop', or reboot, then start again."
+        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. $(_stop_advice)"
       fi
       # The reclaimed process's pidfile (if it was this install's) now points at a dead
       # pid; clear it so the running_pid guard below does not die on a stale entry.
@@ -850,7 +855,7 @@ cmd_start() {
   # reboot), and the new one dies on the taken port anyway.
   local _oldpid
   if _oldpid="$(running_pid)"; then
-    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. Stop it first with 'kosmos stop', then start again."
+    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
