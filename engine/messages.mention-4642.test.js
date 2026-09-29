@@ -204,6 +204,12 @@ test('#4653: ambiguousNote words three candidates, strips quotes and backslashes
   assert.equal(note, '@X-1 could mean Al the Bot (@a1), @b1 or @c1, so it did not ask Al the Bot (@a1) or @c1. To ask one of them, use the exact name, like @a1.');
   assert.doesNotMatch(note, /["\\\u0000-\u001f]/, 'the note carries a character the CLI would cut on');
   assert.equal(messages.ambiguousNote(amb, new Set(['a1', 'b1', 'c1']), shown), '');
+  // a handle that cleans to nothing is never offered as the name to type
+  const blank = messages.ambiguousNote(new Map([['q', { word: 'Q', members: ['\u200b\u200b', 'q2'] }]]), new Set(), new Map([['\u200b\u200b', 'Quinn']]));
+  assert.equal(blank, '@Q could mean Quinn or @q2, so it reached neither as a request. To ask one of them, use the exact name, like @q2.');
+  assert.doesNotMatch(blank, /@[.)\s]|\(@\)/);
+  const none = messages.ambiguousNote(new Map([['q', { word: 'Q', members: ['\u200b', '\u200c'] }]]), new Set(), new Map());
+  assert.match(none, /use the exact name\.$/, none);
   // printed to a terminal: C1 controls (U+009B is a CSI), bidi overrides, zero-widths and lone surrogates go too
   const hostile = messages.ambiguousNote(amb, new Set(), new Map([['a1', 'Al\u009b31m\u202eX\u200bY\ud800Z\u2028W\u2060V\ufeffU']]));
   assert.ok(hostile.startsWith('@X-1 could mean Al31mXYZWVU (@a1), '), hostile);

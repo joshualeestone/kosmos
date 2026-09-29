@@ -1527,7 +1527,14 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   const clean = (s) => String(s == null ? '' : s)
     .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
   const handle = (m) => clean(m);
-  const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== handle(m) ? n + ' (@' + handle(m) + ')' : '@' + handle(m); };
+  /* A handle that cleans to nothing (an adopted session name made only of stripped characters) is shown
+     by its display name alone and never offered as the one to type. */
+  const who = (m) => {
+    const n = clean(shown && shown.get(m)); const h = handle(m);
+    if (!h) return n || 'an agent with no printable name';
+    return n && n !== h ? n + ' (@' + h + ')' : '@' + h;
+  };
+  const tryName = (xs) => { const h = xs.map(handle).find(Boolean); return h ? ', like @' + h + '.' : '.'; };
   const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);
   const out = [];
   for (const { word, members } of ambiguous.values()) {
@@ -1535,8 +1542,8 @@ function ambiguousNote(ambiguous, mentioned, shown) {
     if (!left.length) continue;   // every candidate was named on its own too: nothing was lost
     const could = '@' + word + ' could mean ' + list(members.map(who)) + ', so ';
     out.push(left.length === members.length
-      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name, like @' + handle(left[0]) + '.'
-      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name, like @' + handle(left[0]) + '.');
+      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name' + tryName(left)
+      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name' + tryName(left));
   }
   return out.join(' ');
 }

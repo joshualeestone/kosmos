@@ -62357,8 +62357,7 @@ async function pjPostSend(attachment) {
     /* #4653: an @-word that named two agents reached neither as a request; the engine's sentence
        stays under the composer (and is announced), so the person can re-send with the exact name. */
     const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote : '';
-    if (PJ_CURRENT === sentProject) msg.textContent = ambig;
-    PJ_AMBIG_NOTE = ambig;
+    if (PJ_CURRENT === sentProject) { msg.textContent = ambig; PJ_AMBIG_NOTE = ambig; }
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
