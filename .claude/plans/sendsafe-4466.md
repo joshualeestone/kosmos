@@ -152,8 +152,17 @@ PR #4622's macOS node suite (run 36613470088, head 087bf0149) failed two repo me
 included:
 - engine.reachable.test.js: `_sendWithDelivery` / `_sendPostWithDelivery` were exported test seams that nothing excused.
   Both are now EXCUSED by name with the reason (the send and post cores with an injected deliver, so two concurrent
-  identical sends can be held in flight; production reaches them through send/sendAsync and post/postAsync).
+  identical sends can be held in flight; production reaches them through send/sendAsync and sendPost/sendPostAsync).
 - fixture-discipline.test.js: four #4580 tests hand-built the sender's card (`{ card: { sessionName } }`). They now use
   the file's own sender seam (`armSender('<name>-discord')` + `fromPane`), so the sender is resolved from the real
   fleet card. Red-checked: with inFlightTwin returning null, both "STILL delivering" tests fail (2/2).
 Lesson (mine, again): focused tests are not the suite; the meta-guards run only in the full suite.
+
+## Review round 9 (opus, on the meta-guard fix): 2 WARNINGs fixed, 1 NIT noted
+- W: the FAILED-in-flight test could pass with the sender never resolved (a refusal is also COULD_NOT with no duplicate
+  flag), a gap the fromPane rewrite opened. It now asserts the injected deliver was reached and its reason came back
+  ('the pane closed'). Red-checked with an unresolvable sender: fails "the deliver was never reached".
+- W: the _sendPostWithDelivery excuse named post/postAsync; the wrappers are sendPost/sendPostAsync. Fixed here and in
+  the excuse.
+- NIT (pre-existing, noted): withFleet restores the fleet when an async callback returns its promise; safe today because
+  sender resolution is synchronous before the first await.
