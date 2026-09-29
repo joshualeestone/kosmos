@@ -10,7 +10,8 @@
  *
  * Every provider fact below is from its own current docs (2026-09-29; sources on #4560's plan and in the PR),
  * not from memory: the endpoint, the model id, the inline file shape, the JSON-schema field, where the answer is,
- * `store` and `max_output_tokens`. All three providers keep a request's saved state by default, and an org chart
+ * `store` and `max_output_tokens`. All three keep a request's saved state by default (xAI: "This behavior is on by
+ * default", its generate-text guide), and an org chart
  * names real employees, so every request says `store: false`. Each still keeps what is sent for a while for abuse
  * checks whatever `store` says (KEEPS below, which the consent box shows).
  *
@@ -163,7 +164,7 @@ let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
 const OFF_WHY = {
-  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. A CSV or Excel export works with any provider, and so does typing the list.',
+  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude, or an OpenAI or Grok key, can read a picture or PDF; a CSV or Excel export works with any provider, and so does typing the list.',
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the
@@ -252,7 +253,19 @@ function refusal(p, status, body) {
  * Read one file with a key reader. Returns { ok: true, structured } or { ok: false, because }, like the Claude
  * runner. `signal` aborts the request (the person stopped the read or left the page).
  */
+/* A failed read leaves one line in the board's log (CLAUDE.md, logging at boundaries), as the Claude path does. The
+   line is the sentence the person sees, which is built from the status and the provider's error code only, so it
+   carries no key and no file (the key-leak test captures the console to keep that true). */
 async function read(reader, prompt, name, media, buf, signal) {
+  const got = await readOnce(reader, prompt, name, media, buf, signal);
+  if (!got.ok) {
+    const who = (reader && PROVIDERS[reader.provider] && PROVIDERS[reader.provider].name) || 'a key provider';
+    console.warn('[orgchart] ' + who + ' read failed: ' + String(got.because).slice(0, 300));
+  }
+  return got;
+}
+
+async function readOnce(reader, prompt, name, media, buf, signal) {
   const p = reader && PROVIDERS[reader.provider];
   if (!p) return { ok: false, because: 'no provider can read this file' };
   if (!enabled[reader.provider]) return { ok: false, because: OFF_WHY[reader.provider] || p.name + ' does not read org charts in Kosmos.' };

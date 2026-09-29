@@ -599,7 +599,7 @@ function currentReader() {
   try { r = require('./orgchartkeys').chooseReader(); } catch { r = null; }
   return r ? { kind: 'key', ...r } : null;
 }
-const readerHere = () => Boolean(currentReader());
+const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
 /* The reader as an opaque id the page hands back with its consent (Claude, or a provider and a hash of the account
    folder, so no path reaches the page). A send whose reader no longer matches is refused: the person agreed to one
    provider, and the file must not go to another because an account changed while the consent box was open. */
@@ -614,12 +614,13 @@ function consentFor(r) {
   return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to that key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
 }
 let availability = readerHere;
-function modelAvailable() { return availability(); }
+/* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
+function modelAvailable(reader) { return availability(reader); }
 function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : readerHere; }
 /* What the reader here cannot read (Grok and a PDF, say), as what to do instead, or null. Asked before the consent,
    so the person is not asked to send a file that could only be refused. */
-function readerProblem(name) {
-  const r = currentReader();
+function readerProblem(name, reader) {
+  const r = reader === undefined ? currentReader() : reader;
   if (!r || r.kind !== 'key' || !forModel(name)) return null;
   return require('./orgchartkeys').cannotRead(r.provider, MODEL_TYPES[extOf(name)].media);
 }

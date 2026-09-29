@@ -301,8 +301,7 @@ test('#4560: a redirect is refused, never followed: the key and the file reach n
   try {
     for (const provider of ['openai', 'google', 'xai']) {
       only(provider);
-      reply = () => ({ status: 307, body: {} });
-      // The stub answers 307 with a Location on another host.
+      // The stub's listener is swapped for one that answers 307 with a Location on another host.
       const orig = server.listeners('request')[0];
       server.removeAllListeners('request');
       server.on('request', (req, res) => { req.resume(); res.writeHead(307, { location: 'http://127.0.0.1:' + second.address().port + '/steal' }); res.end(); });
@@ -324,4 +323,30 @@ test('#4560: a URL override is honoured only for https or this computer, so a ke
   process.env[name] = 'http://127.0.0.1:9/v1'; assert.equal(keys.urlFrom(name, def), 'http://127.0.0.1:9/v1');
   process.env[name] = 'not a url'; assert.equal(keys.urlFrom(name, def), def);
   delete process.env[name]; assert.equal(keys.urlFrom(name, def), def);
+});
+
+test('#4560: a declared answer length over the cap is refused before the body is read', async () => {
+  only('openai');
+  // Its own server: this answer is cut off unfinished, and a shared server's pooled connection would carry that
+  // into the next test (measured: the next read then failed as "could not reach").
+  const big = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json', 'content-length': String(keys.MAX_ANSWER_BYTES + 1) }); res.write('{'); }); });
+  await new Promise((ok) => big.listen(0, '127.0.0.1', ok));
+  const saved = process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL;
+  process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = 'http://127.0.0.1:' + big.address().port + '/v1/responses';
+  try {
+    const r = await o.readWithModel('chart.png', PNG);
+    assert.match(r.problems[0], /answer was too large to read/);
+  } finally { process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = saved; big.closeAllConnections(); big.close(); }
+});
+
+test('#4560: a failed read leaves one key-free line in the board log, as the Claude path does', async () => {
+  only('xai');
+  reply = () => ({ status: 401, body: { error: { code: 'invalid_api_key', message: KEY } } });
+  const lines = [];
+  const warn = console.warn;
+  console.warn = (m) => lines.push(String(m));
+  try { await o.readWithModel('chart.png', PNG); } finally { console.warn = warn; }
+  assert.equal(lines.length, 1, JSON.stringify(lines));
+  assert.match(lines[0], /^\[orgchart\] xAI Grok read failed: xAI Grok did not accept this key/);
+  assert.ok(!lines[0].includes(KEY));
 });

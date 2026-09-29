@@ -6523,16 +6523,17 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
           return;
         }
-        if (!orgchartfile.modelAvailable()) {
+        // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
+        const reader = orgchartfile.currentReader();
+        if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
           sendJson(res, 200, { unavailable: true, problems: [require('./engine/orgchartkeys').offReason() || orgchartfile.NO_MODEL] });
           return;
         }
         // #4560: a kind of file the reader here cannot take (a PDF with Grok, say) is said before the consent.
-        const cannot = orgchartfile.readerProblem(name);
+        const cannot = orgchartfile.readerProblem(name, reader);
         if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
-        const reader = orgchartfile.currentReader();
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) }); return; }
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
         /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
