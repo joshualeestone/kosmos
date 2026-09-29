@@ -70,7 +70,11 @@ function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) +
           return { missing: false, shown: !sec.hidden && R.height > 0 && R.width > 0, top: R.top, bottom: R.bottom, left: R.left, right: R.right, vw: innerWidth,
             aboveRows: !firstRow || R.bottom <= firstRow.getBoundingClientRect().top + 0.5,
             tag: el.tagName, interactive: !!el.closest('button, a') || el.querySelector('button, a') !== null,
-            bg: cs.backgroundColor, ink: cs.color, under, text: el.textContent.replace(/\s+/g, ' ').trim() };
+            bg: cs.backgroundColor, ink: cs.color, under, text: el.textContent.replace(/\s+/g, ' ').trim(),
+            /* What --k-ink computes to in this theme, read off a probe, so the note's own colour can be compared with it. */
+            inkWant: (() => { const p = document.createElement('span'); p.style.color = 'var(--k-ink)'; document.body.appendChild(p);
+              const c = getComputedStyle(p).color; p.remove(); return c; })(),
+            fontSize: cs.fontSize };
         });
         chk(!m.missing && m.shown, `${t} the callout is on the Connections section`, JSON.stringify(m));
         if (m.missing) { await ctx.close(); continue; }
@@ -84,6 +88,10 @@ function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) +
           const c = contrast(over(ink, under), over(bg, under));
           chk(c >= 4.5, `${t} the ink keeps 4.5:1 on the tint (${c.toFixed(2)}:1)`);
         } else chk(false, `${t} colours readable`, JSON.stringify({ bg: m.bg, ink: m.ink, under: m.under }));
+        /* Review round 7: `.panel p` (0,1,1) outranked `.ask-agent` (0,1,0) and set the note's font and colour, so it
+           rendered in --label-2 at 13px while the rule said --k-ink at .9375rem. The contrast check above passed either
+           way; this pins that the note's OWN rule is the one that wins. */
+        chk(m.fontSize === '15px' && m.ink === m.inkWant, `${t} the note's own rule wins: --k-ink at 15px`, JSON.stringify({ fontSize: m.fontSize, ink: m.ink, inkWant: m.inkWant }));
         // CONTROL: the AI Models section (it exists, and it is on screen) carries no such callout.
         const ctl = await page.evaluate(() => { settingsGo('accounts'); const s = document.getElementById('s-sec-accounts');
           return s && !s.hidden ? !!s.querySelector('.ask-agent') : 'no section'; }).catch(() => null);
@@ -93,7 +101,7 @@ function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) +
       }
     }
   } finally { await browser.close(); }
-  const EXPECTED = 4 * 9;
+  const EXPECTED = 4 * 10;
   if (ran !== EXPECTED) { console.log(`FAIL  ran ${ran} checks, expected ${EXPECTED}`); fail.push('count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nall ${ran} passed`);
   process.exit(fail.length ? 1 : 0);

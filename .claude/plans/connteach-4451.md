@@ -107,3 +107,10 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
 - tools/test-kosmos-help-exit0-3036.sh pins the --help cases in install/kosmos by their exact verb lists, so adding `connect` to the exit-0 case and `connections` to the read-only case broke both greps.
 - Fixed by matching the lists as prefixes. It is also stronger than before: the guard now asserts directly that no read-only verb (adopt, whoami, connections) is on the exit-0 line, which the old exact match only implied.
 - Controls, six line shapes: main's lines and the branch's lines pass; whoami folded into the exit-0 case, connections folded in, and a missing read-only case each fail; connect is not mistaken for connections.
+
+## After merging main: the two "Ask your agent" notes share one class, and review round 7
+- #4450 landed first as `.gs-ask`, with the same values as this card's `.ask-agent`. As the two cards agreed, the second to land folds them: one `.ask-agent` rule, and #g-skills-ask now carries it (9a6709e8). Both notes' browser checks and render-fields passed on the frozen commit.
+- **Review round 7 (opus, blind): 0 BLOCKERs, 1 WARNING, 1 NIT.**
+  - **WARNING** Both notes are <p> inside `<section class="panel">`, and `.panel p` (0,1,1) outranks `.ask-agent` (0,1,0). So both rendered in --label-2 at 13px, not --k-ink at .9375rem as the rule and its comment say. This was already true of #4450 on main, and every contrast check passed either way, because label-2 still clears 4.5:1. Fixed: the selector is `.panel .ask-agent` (0,2,0). render-conn-ask-4451 gains an arm that pins the note's computed colour to --k-ink (read off a probe) and its size to 15px, for 40 checks.
+  - **NIT** The comment carried the class's history and the only remaining "gs-ask" string. Cut to what the rule does; the history is in the commit.
+- Decided: raise the selector rather than delete the dead declarations. Both cards specified full-ink text, and the fix makes the page match the design both of them wrote down. It also changes #4450's note on main from label-2 to ink. That is reversible, so I made the call.

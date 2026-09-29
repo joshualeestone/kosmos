@@ -3300,11 +3300,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
              color: var(--label-2); margin: 18px 0 6px; }
 /* The "Ask your agent" note: a flat light-gold panel with words, not a button. One class for every such note, so
-   they read as one kind of thing: Global Skills (#4450, #g-skills-ask) and Connections (#4451, #conn-ask). #4450 built
-   it as .gs-ask and #4451 as .ask-agent with identical values; #4451 landed second and folded them into this one rule.
+   they read as one kind of thing: Global Skills (#g-skills-ask) and Connections (#conn-ask).
    A tint, not a fill: the text stays --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold
-   that holds 3:1 on light grounds. No hover, no cursor: it is not a control. */
-.ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+   that holds 3:1 on light grounds. No hover, no cursor: it is not a control.
+   `.panel` in the selector is load-bearing: both notes are <p> inside the Settings panel, and `.panel p` (0,1,1) would
+   otherwise outrank a bare class and set their font and colour (render-conn-ask-4451 pins that this rule wins). */
+.panel .ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
   border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
   font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 .con-cat { border-bottom: 0.5px solid var(--separator); }
