@@ -60,6 +60,10 @@ by asking the agent.
   writer rewrites a running agent's job without restarting it (reviewer checked setters and create/adopt/boot).
 - readableModelId looks ids up in a plain object, so an id named like an inherited property ("constructor") would read
   wrong. No model id has that shape; accepted.
+- Full validation g4 (after convergence) was red on ONE test: the #1777 guard requires every test that branches on a
+  win32 host to run on Windows or be excluded with a reason, and the iteration-5 test skips on win32. It is excluded
+  in tools/windows-tests.js, with the reason: the guard it tests compares a rollout with the launch plist's mtime,
+  which a Windows Scheduled Task does not have. I had not run that guard before committing the test.
 ## Weakest premise
 That each CLI's record names the model it runs NOW: Codex's last turn_context and Grok's current_model_id do; Gemini
 names it per message, so a /model switch shows after the next reply, not at the switch.
