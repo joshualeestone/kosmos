@@ -107,7 +107,8 @@ function contrast(a, b) {
         say(!!(bg && bg.a > 0 && bg.a < 1), at + 'the note has a tint, not a solid fill', r.bg);
         say(!!(hintBg && hintBg.a === 0), at + 'control: the hint beside it has no tint', r.hintBg);
         if (bg && box && fg) {
-          const ground = box.a > 0 ? box.rgb : (scheme === 'dark' ? [28, 28, 30] : [255, 255, 255]);
+          say(box.a === 1, at + 'the card behind it is opaque, so the ground is known', r.boxBg);
+          const ground = box.rgb;
           const eff = bg.rgb.map((v, i) => v * bg.a + ground[i] * (1 - bg.a));
           const cr = contrast(fg.rgb, eff);
           say(cr >= 4.5, at + 'its text reads at AA contrast on the tint', cr.toFixed(2) + ':1');
