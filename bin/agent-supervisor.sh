@@ -832,7 +832,7 @@ if [ -z "$adopt" ]; then
       # Measured with Codex 0.149.1: CODEX_HOME= is treated as unset and the
       # runner falls back to ~/.codex, restoring every plugin and hook this
       # isolation exists to keep out. Refuse before tmux instead of failing open.
-      say "$SESSION: could not resolve its private Codex home; the agent was not started"
+      say "$SESSION: Kosmos could not load its installed Codex helper. Reopen Kosmos to repair it; the agent was not started"
       exit 1
     fi
     _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"

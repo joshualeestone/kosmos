@@ -181,7 +181,7 @@ CODEX_HOME="$PERSON_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
   bash "$SB/bin/agent-supervisor.sh" noengineprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/noengine.log" 2>&1
 NOENGINE_RC=$?
 if [ "$NOENGINE_RC" -ne 0 ] && [ ! -e "$ARGS" ] \
-  && grep -Fq 'could not resolve its private Codex home; the agent was not started' "$SB/noengine.log"; then
+  && grep -Fq 'could not load its installed Codex helper. Reopen Kosmos to repair it; the agent was not started' "$SB/noengine.log"; then
   ok "a missing engine or node refuses the Codex launch instead of passing an empty home"
 else
   bad "a missing engine or node reached tmux or was not explained (rc $NOENGINE_RC)"
