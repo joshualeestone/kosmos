@@ -32,6 +32,6 @@ That "light gold" means a tint of the brand gold rather than a solid pale-gold f
 the look and may prefer another strength; the tint percentage is one number to change.
 
 ## Verified
-- Browser check: 38 PASS, 0 FAIL across light/dark x desktop/phone, plus the contrast-helper
+- Browser check: all PASS, 0 FAIL across light/dark x desktop/phone, plus the contrast-helper
   control. Negative control: with the note's line removed, all four runs report FAIL.
 - Screenshots (headless) in all four combinations looked right by eye.
