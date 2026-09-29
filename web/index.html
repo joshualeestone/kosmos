@@ -18192,6 +18192,12 @@ function stateReason(a, opts) {
     return lost;
   }
   if (!a || a.state !== 'rate_limited') return '';
+  /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset; Kosmos types a
+     carry-on line into it after that time (engine/agyquota.js), so the card says when, not only that. */
+  const resumeAt = typeof a.quotaUntil === 'string' ? Date.parse(a.quotaUntil) : NaN;
+  if (Number.isFinite(resumeAt)) {
+    return 'Usage limit reached. Kosmos resumes it at ' + new Date(resumeAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+  }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
      about"). "Its screen mentions" named our instrument, a regex over a pane.

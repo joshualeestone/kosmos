@@ -7602,6 +7602,8 @@ function snapshot() {
       quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
+      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null. */
+      quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
