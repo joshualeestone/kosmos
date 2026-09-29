@@ -809,6 +809,12 @@ chk "an over-65535 KOSMOS_PORT falls back to the derived default" "[ \"\$(_posti
 chk "an unset KOSMOS_PORT for uid 501 still pins the literal 16180" "[ \"\$(_postinstall_page_port 501)\" = 16180 ]"
 
 echo "== update (stale file must not survive; board must restart) =="
+# #4449: the installed app is read-only, so an agent's edit is refused (a tester's board went stale when an agent
+# edited it). Both halves: a file cannot be changed, and no file can be added.
+chk "#4449: the installed app refuses an edit to a file" "[ -f \"$SB/home/app/server.js\" ] && [ ! -w \"$SB/home/app/server.js\" ]"
+chk "#4449: the installed app refuses a new file" "! ( : > \"$SB/home/app/engine/agent-edit.js\" ) 2>/dev/null && [ ! -e \"$SB/home/app/engine/agent-edit.js\" ]"
+# The stale leftover the swap must remove, planted the way an agent that chmods its way past would.
+chmod u+w "$SB/home/app/engine"
 touch "$SB/home/app/engine/stale-marker.js"
 # #935: a bare `cat` here aborted the WHOLE SUITE under set -e when the pid
 # file was not there yet (three times in a row under load 13-16, and once
@@ -822,6 +828,7 @@ chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
 chk "board restarted (new pid)" "[ \"$PID1\" != \"$(cat "$SB/home/board.pid")\" ]"
 chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "#4449: the updated app is read-only again" "[ ! -w \"$SB/home/app/server.js\" ] && [ ! -w \"$SB/home/app/engine\" ]"
 # The idempotency check lives HERE, after a SECOND install against the
 # same profile: after one install a count of 1 is guaranteed even with
 # the marker guard deleted, so a first-pass count check cannot fail.

@@ -997,6 +997,9 @@ install_kosmos() {
   fi
   local part
   for part in bin app runtime; do
+    # #4449: the previous install left `app` read-only (below), and rm -rf cannot remove files from a folder
+    # nobody may write to, so it is made writable again first. Harmless on a part that never was read-only.
+    [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
   done
@@ -1007,6 +1010,12 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
+  # #4449: the installed app is read-only, so an agent's edit is refused rather than changing the board every
+  # agent on this computer runs on (a tester's board went stale that way). Measured before this line was added
+  # (the card): nothing writes under app/ at runtime, across a board start and an agent create on a live install;
+  # this updater is its one writer, and it lifts this for its own swap (above). Best effort: a filesystem that
+  # refuses the chmod leaves an ordinary writable app, exactly as before. `runtime` and `bin` are left as they were.
+  chmod -R a-w "$dest/app" 2>/dev/null || true
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some
@@ -1751,6 +1760,7 @@ KOSMOS_SWEEP_LIST
         info "removing this computer's Plus key (its agents and their files are left alone)"
         rm -rf "$_remote_state" 2>/dev/null || true
       fi
+      chmod -R u+w "$KOSMOS_HOME/app" 2>/dev/null || true   # #4449: the app is installed read-only
       rm -rf "$KOSMOS_HOME"
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
