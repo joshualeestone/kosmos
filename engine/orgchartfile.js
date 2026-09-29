@@ -315,6 +315,8 @@ function readLocal(name, bytes) {
     if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return tableToPeople(parseDelimited(buf.toString('utf8')));
     if (ext === 'xlsx') return tableToPeople(readXlsx(buf));
   } catch (e) {
+    // A truncated or crafted file fails a bounds read deep in the zip or sheet walk; say what that means.
+    if (e instanceof RangeError) return { rows: [], problems: ['This spreadsheet is damaged or not a real .xlsx file. Try exporting it again, or save it as CSV.'] };
     return { rows: [], problems: [String((e && e.message) || 'we could not read that file')] };
   }
   if (ext === 'pptx' || ext === 'key' || ext === 'ppt') {
@@ -323,7 +325,7 @@ function readLocal(name, bytes) {
   if (ext === 'xls' || ext === 'numbers') {
     return { rows: [], problems: ['Save it as .xlsx or .csv and upload that (File, Export or Save As).'] };
   }
-  return { rows: [], problems: ['unsupported'] };
+  return { rows: [], problems: [], unsupported: true };
 }
 
 /* ── pictures and PDFs: the person's own Claude, no tools (#4559 routing, Liu Kang's conditions) ── */
@@ -390,7 +392,12 @@ function requestLine(name, bytes) {
    returns data), and `--strict-mcp-config` loads none of the account's MCP servers. The file is in
    the request, so there is nothing for a tool to fetch. */
 function claudeArgs() {
-  return ['-p', '--tools', '', '--strict-mcp-config', '--input-format', 'stream-json',
+  /* --no-session-persistence: a headless run saves its transcript by default, which here would be the chart
+     (real people's names) kept under the account's projects folder; the consent says nothing is kept.
+     --setting-sources "": none of the person's own settings (their hooks, their CLAUDE.md) load into a run that
+     must do nothing but read. */
+  return ['-p', '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', '',
+    '--input-format', 'stream-json',
     '--output-format', 'stream-json', '--verbose', '--json-schema', JSON.stringify(SCHEMA)];
 }
 
@@ -404,13 +411,15 @@ function defaultModelRunner(line) {
   let bin = null;
   try { bin = require('./runners').resolveBin('claude').bin; } catch { bin = null; }
   if (!bin) return Promise.resolve({ ok: false, unavailable: true, because: 'no Claude connection on this computer' });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-'));
+  /* One fixed, empty working folder: the file goes inline, so claude never needs to read anything here, and
+     a fixed name means Claude Code keeps at most one (empty) project folder for it rather than one per read. */
+  const dir = path.join(os.tmpdir(), 'kosmos-orgchart-read');
+  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* execFile reports a missing cwd */ }
   return new Promise((resolve) => {
     const env = { ...process.env };
     delete env.CLAUDE_CONFIG_DIR;   // the person's default Claude account, as the create probe uses
     const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL' },
       (err, stdout) => {
-        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* empty temp folder */ }
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
           try { const o = JSON.parse(l); if (o && o.type === 'result') result = o; } catch { /* not a JSON line */ }

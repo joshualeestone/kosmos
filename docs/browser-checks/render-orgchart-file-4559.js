@@ -138,7 +138,7 @@ async function run() {
       const a = await readPreview(p3);
       if (scheme === 'light') {
         check('PICTURE: before anything is read, the box names the provider and says why it asks', /read by your own AI provider, Anthropic \(Claude\)/.test(a.consent) && /names the people on your chart/.test(a.consent), a.consent);
-        check('PICTURE: the first request carried no consent', reads.length === 1 && reads[0].consent === false, JSON.stringify(reads));
+        check('PICTURE: the first request carried no consent and no file (it only asks who would read it)', reads.length === 1 && reads[0].consent === false && reads[0].bytes === 0, JSON.stringify(reads));
         check('PICTURE: Read it has focus', await p3.evaluate(() => document.activeElement && document.activeElement.id) === 'orgchart-consent-go');
         await p3.click('#orgchart-consent-no');
         await p3.waitForTimeout(200);

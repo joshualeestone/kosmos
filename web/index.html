@@ -46716,10 +46716,15 @@ function orgchartPaint() {
    PDF is read by the person's own AI provider, so the board first answers who that is and nothing is sent
    until the person presses Read it (#orgchart-consent). */
 let ORGCHART_FILE_PENDING = null;
-async function orgchartSendFile(file, consent) {
+/* Each chosen or dropped file takes a number; an answer for an older one is dropped, so two quick uploads cannot
+   paint the first one's rows over the second. */
+let ORGCHART_FILE_SEQ = 0;
+const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
+async function orgchartSendFile(file, consent, seq) {
   const msg = document.getElementById('orgchart-msg');
   const note = document.getElementById('orgchart-file-note');
   const gen = ORGCHART_GEN;
+  const current = () => gen === ORGCHART_GEN && seq === ORGCHART_FILE_SEQ;
   msg.hidden = false;
   msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
   let out = null;
@@ -46727,15 +46732,16 @@ async function orgchartSendFile(file, consent) {
     const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
-      body: await file.arrayBuffer(),
+      /* A picture or PDF is only ASKED about first (who would read it): nothing to send until the person says yes. */
+      body: (consent || !ORGCHART_MODEL_FILE.test(file.name)) ? await file.arrayBuffer() : new ArrayBuffer(0),
     });
     out = await res.json().catch(() => null);
-    if (!res.ok) { if (gen === ORGCHART_GEN) msg.textContent = (out && out.error) || 'We could not read that file.'; return; }
+    if (!res.ok) { if (current()) msg.textContent = (out && out.error) || 'We could not read that file.'; return; }
   } catch {
-    if (gen === ORGCHART_GEN) msg.textContent = 'We could not reach Kosmos to read that file. Try again.';
+    if (current()) msg.textContent = 'We could not reach Kosmos to read that file. Try again.';
     return;
   }
-  if (gen !== ORGCHART_GEN || !out) return;
+  if (!current() || !out) return;
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
@@ -46764,7 +46770,7 @@ function orgchartTakeFile(file) {
   if (!file || ORGCHART_CREATING) return;
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
-  orgchartSendFile(file, false);
+  orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
 }
 document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
 document.getElementById('orgchart-file').addEventListener('change', (e) => {
@@ -46776,7 +46782,7 @@ document.getElementById('orgchart-consent-go').addEventListener('click', () => {
   const f = ORGCHART_FILE_PENDING;
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
-  if (f) orgchartSendFile(f, true);
+  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ);
 });
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {
   document.getElementById('orgchart-consent').hidden = true;
