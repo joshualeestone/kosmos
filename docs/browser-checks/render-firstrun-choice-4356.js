@@ -139,6 +139,9 @@ const look = (page) => page.evaluate(() => {
     // #4494: the wizard is a full-window layer too, so while it is up the page still reserves no gutter and does not
     // scroll. That this screen's own hold lets go is asserted in C6, where the screen goes and nothing replaces it.
     chk(s.gutter.gutter === 'auto' && s.gutter.overflow === 'hidden', 'C2 and the wizard, a full-window layer too, keeps the page from showing a gutter beside it (#4494)', JSON.stringify(s.gutter));
+    await page.evaluate(() => frClose());
+    s = await look(page);
+    chk(!s.wizard && s.gutter.gutter === 'stable' && s.gutter.overflow !== 'hidden', 'C2 and once that wizard closes, the page scrolls and keeps its gutter again', JSON.stringify(s.gutter));
     chk(!/[?&]mode=/.test(s.search), 'C2 the address no longer asks, so a Reload does not show the screen again', s.search);
     await page.context().close();
 
