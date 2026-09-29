@@ -419,10 +419,10 @@ async function sweepIndustry(keys, on) {
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
-      if (clearing && k.industrySent && !k.industryClearUnreachable) {
+      if (clearing && (k.industrySent || k.industryUnsure) && !k.industryClearUnreachable) {
         k.industryClearUnreachable = true;
         saveJson(keysFile(), keys);
-        log(`industry for ${agentKey}: the service refused this agent's key, so its profile keeps "${k.industrySent}"`);
+        log(`industry for ${agentKey}: the service refused this agent's key, so its profile keeps ${k.industrySent ? `"${k.industrySent}"` : 'whatever an unanswered change left there'}`);
       }
       continue;
     }
@@ -445,6 +445,7 @@ async function sweepIndustry(keys, on) {
       delete k.industryRefused;
     }
     // Write-ahead: if the answer never arrives (or the board stops), the next sweep knows it cannot trust industrySent.
+    const wasUnsure = k.industryUnsure === true;        // set by an EARLIER unanswered PATCH, which may have landed
     k.industryUnsure = true;
     saveJson(keysFile(), keys);
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
@@ -466,7 +467,9 @@ async function sweepIndustry(keys, on) {
         log(`industry for ${agentKey}: got ${r.status}; trying again every sweep until it lands`);
       }
     } else if (r.status === 400 || r.status === 422) {
-      delete k.industryUnsure;                          // a refusal is an answer: the profile did not change
+      // A refusal says THIS PATCH changed nothing; it says nothing about an earlier unanswered one (review 8), so the
+      // mark is put back as it was before this send, not deleted.
+      if (!wasUnsure) delete k.industryUnsure;
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
@@ -632,7 +635,8 @@ function industryUnreachable() {
   // nothing reaches any profile, and the page must not promise that a clear does.
   const keys = loadJson(keysFile());
   if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
-  return Object.values(keys).filter((k) => k && k.refused && typeof k.industrySent === 'string' && k.industrySent).length;
+  // An unsure mark counts too: an unanswered PATCH may have put an industry on the profile (review 8).
+  return Object.values(keys).filter((k) => k && k.refused && ((typeof k.industrySent === 'string' && k.industrySent) || k.industryUnsure)).length;
 }
 
 /* Test hooks. Production never calls these. */

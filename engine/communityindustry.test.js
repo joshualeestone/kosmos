@@ -371,3 +371,18 @@ test('review 7: a change applied but unanswered, then back to the old value: the
   await cs.sweep();
   assert.equal([...be.st.agents.values()][0].industry, 'accounting');
 });
+
+test('review 8: a refusal between a lost answer and a clear does not erase the doubt: the clear still goes', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { appliedThen504: true };
+  ind.set('legal');
+  await cs.sweep();                                     // applied, answer lost
+  be.st.mode = { refuse: true };
+  ind.set('accounting');
+  await cs.sweep();                                     // refused: this PATCH changed nothing
+  be.st.mode = {};
+  ind.set(null);
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, null, 'the profile kept the industry from the lost answer');
+});

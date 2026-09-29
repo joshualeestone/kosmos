@@ -126,3 +126,10 @@ refusal); while it is set the shortcut is not taken, and the PATCH (idempotent) 
 service that applies then answers 504; both red when the shortcut ignores the mark.
 (N) a 400/422 on a CLEAR is retried, not final (the service always accepts null, so it came from something in between);
 a throw while counting shut-out agents reads as "cannot tell" (null), never as 0.
+
+## Review iteration 8 (blind)
+0 BLOCKER, 1 WARNING, taken: my review-7 fix deleted the unsure mark on a 400/422, but a refusal says only that THIS
+PATCH changed nothing, not what an EARLIER unanswered one did; lost answer, then a refused pick, then None took the
+shortcut and the profile kept the lost value. The mark is now restored to what it was before this send. Test (lost
+legal, refused accounting, None: the profile ends null); reds when the refusal deletes the mark.
+(N) an agent whose only record is an unsure mark counts in `unreachable` and in the shut-out log.
