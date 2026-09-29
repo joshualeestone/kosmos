@@ -116,6 +116,9 @@ let ran = 0;
         /* Aimed at the LIST's right edge, not the label's: a label that shrinks to its words ends
            short of it, and a click there must miss (it does on the staggered layout at 1400px). */
         const far = await page.evaluate(() => {
+          /* On screen first: a click is at viewport coordinates, and on a phone-height window the
+             guards can sit below the fold (they did on CI's fonts, where the click then missed). */
+          document.querySelector('label[for="rec-guard-delete"]').scrollIntoView({ block: 'center' });
           const fs = document.getElementById('rec-guards-row');
           const edge = (fs.querySelector('.rec-guard-list') || fs).getBoundingClientRect().right;
           const b = document.querySelector('label[for="rec-guard-delete"]').getBoundingClientRect();
