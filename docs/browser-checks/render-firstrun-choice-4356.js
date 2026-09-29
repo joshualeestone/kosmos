@@ -137,7 +137,7 @@ const look = (page) => page.evaluate(() => {
     chk(JSON.stringify(s.posted) === '["run"]', 'C2 Run agents tells the app "run"', JSON.stringify(s.posted));
     chk(!s.shown && s.wizard, 'C2 the screen goes and first run opens');
     // #4494: the wizard is a full-window layer too, so while it is up the page still reserves no gutter and does not
-    // scroll; render-layer-gutter-4494 asserts the gutter comes back when the wizard closes.
+    // scroll. That this screen's own hold lets go is asserted in C6, where the screen goes and nothing replaces it.
     chk(s.gutter.gutter === 'auto' && s.gutter.overflow === 'hidden', 'C2 and the wizard, a full-window layer too, keeps the page from showing a gutter beside it (#4494)', JSON.stringify(s.gutter));
     chk(!/[?&]mode=/.test(s.search), 'C2 the address no longer asks, so a Reload does not show the screen again', s.search);
     await page.context().close();
@@ -190,6 +190,7 @@ const look = (page) => page.evaluate(() => {
     await page.waitForTimeout(400);
     s = await look(page);
     chk(!s.shown && !s.wizard && JSON.stringify(s.posted) === '["run"]', 'C6 and Run agents lands on the board, not first run');
+    chk(s.gutter.gutter === 'stable' && s.gutter.overflow !== 'hidden', 'C6 and the page scrolls and keeps its gutter again once the screen goes', JSON.stringify(s.gutter));
     await page.context().close();
 
     // C9: the approved dark version: the screen's own dark tokens, not the page's or the wizard's.
