@@ -320,7 +320,8 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   assert.match(stop, /so it was stopped again/, stop);
   assert.match(stop, /board=gone rc=1/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
   const launchd = await awaitWith(true, false);
-  assert.match(launchd, /It was started under launchd/, launchd);
+  // Not this install's recorded board (stubbed): the words do not claim it started, only that launchd was asked.
+  assert.match(launchd, /launchd was asked to start Kosmos, and this shell cannot confirm it did/, launchd);
   assert.match(launchd, /board=alive rc=0/, 'under launchd nothing is killed: ' + launchd);
 });
 
@@ -365,7 +366,7 @@ test('the one re-probe: a board that answers on the second try is up; one that n
   assert.match(gone.out, /first=down flag=\[\]/, gone.out);
 });
 
-test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', { skip: !HAVE_PYTHON && 'no working /usr/bin/python3 for the listener' }, async () => {
+test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', { skip: !HAVE_PYTHON && 'no working /usr/bin/python3 for the listener' }, async (t) => {
   // Measured on macOS: a full accept queue drops new connects silently (curl 28), never refuses them (curl 7).
   const py = spawn('/usr/bin/python3', ['-c', 'import socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(1)\nprint(s.getsockname()[1],flush=True)\ntime.sleep(60)'], { stdio: ['ignore', 'pipe', 'ignore'] });
   const held = [];
@@ -384,7 +385,8 @@ test('a board whose connection queue is FULL (wedged) is not "unreachable": the 
       c.once('connect', () => { clearTimeout(t); c.destroy(); resolve('connected'); });
       c.once('error', (err) => { clearTimeout(t); resolve(err.code); });
     });
-    assert.equal(extra, 'pending', 'the queue was not full (a further connect was ' + extra + '), so this arm measures nothing');
+    // A kernel that does not fill the queue this way says nothing about the product: skip, and say why.
+    if (extra !== 'pending') { t.skip('the accept queue did not fill here (a further connect was ' + extra + '), so there is nothing to measure'); return; }
     const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; _health_probe 2; echo "state=$HEALTH_STATE"'],
       { env: env(port) }, (err, so) => resolve(String(so).trim())));
     assert.doesNotMatch(r, /state=unreachable/, r);

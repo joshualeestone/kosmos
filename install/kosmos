@@ -491,9 +491,7 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
     *) say "We could not reach Kosmos to $1. Is it running at $URL?" ;;
   esac
 }
-# #4636: the words for a board this shell cannot connect to (HEALTH_STATE unreachable). "Kosmos is running"
-# only when the listener is the process this install recorded in board.pid (board-run writes it; read here
-# without ps, which such a sandbox denies); otherwise what we know: something (its name) is listening.
+# #4636: the words for a board this shell cannot connect to (HEALTH_STATE unreachable).
 _unreachable_why() {
   printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
 }
@@ -502,13 +500,20 @@ _unreachable_why() {
 # An ordinary shell runs it, even one whose network is broken (a firewall, the TIME_WAIT leak). So combined with
 # HEALTH_STATE unreachable it means "blocked by a sandbox", not "blocked by a network fault". (Under any seatbelt
 # profile running_pid, which uses ps, is blind too.)
-_shell_is_sandboxed() { ! /bin/ps -p "$$" >/dev/null 2>&1; }
+# Two failures 0.2 s apart, so a passing fork failure (a process limit on a loaded machine) is not read as one.
+_shell_is_sandboxed() {
+  /bin/ps -p "$$" >/dev/null 2>&1 && return 1
+  sleep 0.2
+  ! /bin/ps -p "$$" >/dev/null 2>&1
+}
 _unreachable_is_ours() {
   local _rec
   _rec="$(cat "$PIDFILE" 2>/dev/null)" || return 1
   [ -n "$_rec" ] && [ -n "$_UNREACH_PID" ] && [ "$_rec" = "$_UNREACH_PID" ] || return 1
   case "$_UNREACH_CMD" in node*) return 0 ;; *) return 1 ;; esac   # a reused pid that is not node is not ours
 }
+# "Kosmos is running" only when the listener is the process this install recorded in board.pid (board-run writes
+# it; read here without ps, which such a sandbox denies); otherwise what we know: something (its name) is listening.
 _unreachable_lead() {   # the start of the sentence, up to "but"
   if _unreachable_is_ours; then printf '%s' "Kosmos is running at $URL, but"
   else printf '%s' "Something (${_UNREACH_CMD:-a program}) is listening on port $PORT, so it may be Kosmos, but"; fi
@@ -1012,8 +1017,12 @@ _await_board_up() {
     if [ "$HEALTH_STATE" = unreachable ]; then
       _unreach_seen=$((_unreach_seen + 1))
       # Under launchd: ours at once; any listener after two readings (board-run may not have written board.pid yet).
-      if [ -z "$_pid" ] && { _unreachable_is_ours || [ "$_unreach_seen" -ge 2 ]; }; then
+      if [ -z "$_pid" ] && _unreachable_is_ours; then
         say "$(_unreachable_lead) $(_unreachable_why), so this shell cannot use it. It was started under launchd; run kosmos commands from a shell that can reach it."
+        return 0
+      fi
+      if [ -z "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
+        say "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did; check from a shell that can reach it."
         return 0
       fi
       # Two readings in a row (a board mid-boot gets its moment), and then only on POSITIVE evidence that this
