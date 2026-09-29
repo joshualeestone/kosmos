@@ -24,6 +24,7 @@
  *   - a dialog up, on Agents and on Tasks (whose #4216 canvas rule must give way): the board does not move (same
  *     width), and the gutter matches the dimmed page within 3 per channel;
  *   - the dialog closed: the gutter shows the page's own colour again;
+ *   - the canvas is left alone for a dialog shown inside a hidden section, and on a machine without the mark;
  *   - a dialog on a short page (no spacer, a 1200px window): a pixel below the page content matches one inside it,
  *     so the canvas under a short body is not dimmed twice;
  *   - the boot cover up: no gutter, no scroll, and the cover is under the right edge; hidden, the gutter comes back.
@@ -152,6 +153,26 @@ const width = (page) => page.evaluate(() => {
       ok(t + ' the dialog closed: the gutter shows the page colour again', near(p2.gutter, p0.gutter), JSON.stringify({ before: p0, after: p2 }));
       await page.context().close();
     }
+    // ── Two cases where the canvas must NOT change. ──
+    {
+      const t = '[' + scheme + ']';
+      const page = await open(scheme, 'agents');
+      const bg = () => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+      const before = await bg();
+      // A shown .rm-back inside a hidden section (the Plus dialog while Settings is not on screen) puts nothing up.
+      const inHidden = await page.evaluate(() => { const m = document.getElementById('plus-lost-modal'); const s = m && m.closest('[hidden]'); if (!m || !s) return null; m.hidden = false; return true; });
+      ok(t + ' control: the Plus dialog sits inside a hidden section here', inHidden === true);
+      ok(t + ' a dialog shown inside a hidden section leaves the canvas as it was', (await bg()) === before, JSON.stringify({ before, after: await bg() }));
+      await page.evaluate(() => { document.getElementById('plus-lost-modal').hidden = true; });
+      // A machine without the classic-scrollbar mark has no gutter to fix, so a dialog leaves its canvas alone.
+      await page.evaluate(() => { document.documentElement.removeAttribute('data-scrollbar-classic'); document.getElementById('updconfirm').hidden = false; });
+      const plain = await bg();
+      await page.evaluate(() => document.documentElement.setAttribute('data-scrollbar-classic', ''));
+      const marked = await bg();
+      ok(t + ' control: with the mark the same dialog does change the canvas', marked !== before, JSON.stringify({ before, marked }));
+      ok(t + ' without the classic-scrollbar mark a dialog leaves the canvas as it was', plain === before, JSON.stringify({ before, plain }));
+      await page.context().close();
+    }
     // ── A dialog on a short page: the body ends above the window's foot, so canvas shows below it. The canvas is
     // the dimmed ground while a dialog is up, so unless the body fills the window that band is dimmed twice. ──
     {
@@ -206,6 +227,6 @@ const width = (page) => page.evaluate(() => {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; on a short page the band below the content is dimmed once, not twice; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
+  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; on a short page the band below the content is dimmed once, not twice; a dialog inside a hidden section, or on a machine without the classic-scrollbar mark, leaves the canvas alone; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-dialog-gutter-4506: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });

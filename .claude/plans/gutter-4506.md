@@ -34,7 +34,7 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
 - `docs/browser-checks/render-dialog-gutter-4506.js`, gated, README row; reason-grep counts 205->208, 124->126.
 
 ## Verified
-- Check: 30 pass on the branch; on unmodified main red on the dialog (light, dark) and boot-cover arms.
+- Check (first cut): 30 pass on the branch; on unmodified main red on the dialog (light, dark) and boot-cover arms.
 - Perturbation per site on a scratch copy: removing the dialog rule reds the Agents dialog arms; removing the Tasks
   rule reds dark Tasks; removing the boot rule reds the four boot arms. A fourth edit (a mask on the #4216 rule) was
   green when removed, so it was dead and is not shipped.
@@ -56,3 +56,13 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
   the section is hidden cannot dim the canvas with nothing on screen.
 - NIT, fixed: the check's comment said dark's strip is "about 6 per channel"; it is 3 to 6.
 - The CSS comment about the navy residual moved to #4542 (filed 07:36, the navy Plus white gutter) and this plan.
+
+### Iteration 2 (sonnet)
+- WARNING, duplicate of iteration 1's deferred tour/stacked residual: skipped.
+- WARNING, checked: WebKit acceptance of `:has(.rm-back:not([hidden]):not([hidden] *))`. Playwright WebKit 26.5 accepts
+  the selector and color-mix and applies all three rules (probe in scratch). The Mac floor (13.5, Safari 16.5) is
+  reasoned from support dates only (:has 15.4, color-mix 16.2), not measured.
+- CONVENTION, fixed: the "30 pass" count is now marked as the first cut's.
+- NIT, fixed: the README row lists the short-page arm.
+- NIT, fixed: new arms for a dialog shown inside a hidden section and for a machine without the classic-scrollbar mark,
+  each with a control that the same dialog does change the canvas when it should.
