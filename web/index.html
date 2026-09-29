@@ -30567,7 +30567,8 @@ function orgPlace(nodes) {
        face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
        room for one line), and the turn keeps the near passes to the fewest it can. */
     const LANE_STEP = ORG_FIRST_LANE;  // each spill lane's step, shared with a tree's crowded first ring (#4499); the placement and the search read this one.
-    // Changing ORG_FIRST_LANE for trees moves #4502's flat lanes too (web.org-flat-rings-4502.test.js would see it).
+    // Changing ORG_FIRST_LANE for trees moves #4502's flat lanes too, and NO test would notice: web.org-flat-rings-4502
+    // stays green with it at 70 (measured). Re-check #4502's lane clearance by hand if it changes.
     const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
     for (let lane = 0; lane < lanes; lane += 1) {
@@ -30650,9 +30651,10 @@ function orgPlace(nodes) {
        window (#4499) has no such cap: there an exact test against every line already drawn, and no report line
        within ORG_HUB_CLEAR of the hub, are what rule crossings out. web.org-sectors-4434.test.js counts crossings.
      - ORG_LINE_CLEAR (12px from a line to the CENTRE of a face that is not its own) is MEASURED, not guaranteed: a team whose
-       clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. Rare (none in the 7,319-tree sweep
-       nor 450 trees of up to 400; review it5 built a 400-deep chain-like tree at 9.68px, a face beside a lone
-       report's straight-out ray). Face spacing is kept by construction: ORG_MIN_ARC (62px) between faces, except faces on
+       clearance cannot fit within ORG_CLEAR_REACH keeps the face spacing alone. None in the 7,319-tree sweep, 450
+       trees of up to 400, or chain-like trees (each agent reporting to one of the 4 most recent) up to 200 deep, 200
+       seeds each. At 400 deep it happens: 25 of 200 such chains, the least 5.56px (main with #4472: 17 of 200, the
+       same 5.56px), a face beside a lone report's straight-out ray. Face spacing is kept by construction: ORG_MIN_ARC (62px) between faces, except faces on
        neighbouring first-ring lanes, which the 12px hub-line rule keeps about 59.2px apart at the least (measured 59.63px
        in randomTree(1, 250, 0.25)); a face is 44px across, so none touch. No crossings is guaranteed except by the
        400-try last resort (below), which keeps its placement whatever it finds and has never been reached.
@@ -30815,8 +30817,8 @@ function orgPlace(nodes) {
     return { spots, fellBack };
   };
   /* #4499: a first ring too crowded to clear ORG_LINE_CLEAR (about 40 agents over several lanes: each full inner lane
-     rules out ~139 degrees for a hub line passing it) starts further out, at a base within half a lane of the nearest
-     where none falls back (bisected; below). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
+     rules out ~139 degrees for a hub line passing it) starts further out, at a base where none falls back, found by
+     bisection to within half a lane (below; not necessarily the smallest such base, since clearing is not monotone). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
      apart at `base`, every agent fits the first lane, and no hub line passes a face at all. */
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
@@ -30825,7 +30827,7 @@ function orgPlace(nodes) {
      already the complete first ring (review: it was laid a second time here). */
   let first = firstRing(ORG_R0, true);
   if (first.fellBack) {
-    /* Bisect for a base that clears, within half a lane of the nearest (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
+    /* Bisect for a base that clears, to within half a lane (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
        at a time was 30 placements and 350ms). `hi` only ever holds a base that cleared or settledBase, which always
        clears, so the ring is laid once more there. Clearing need not hold at every larger base, which is why this
        bisects on what was measured rather than assuming the order. */

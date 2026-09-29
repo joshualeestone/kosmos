@@ -186,7 +186,7 @@ test('the exact crossing test: a tree that crosses without it does not cross (#4
   assert.equal(crossings, 0, crossings + ' crossing(s) in randomTree(3, 250, 0.005)');
 });
 
-test('the layout stays within its speed budget, per shape, tight enough to see a 10x slowdown (#4499)', () => {
+test('per-shape timing ceilings, each about 5x its measured time, so a 10x slowdown fails (#4499)', () => {
   /* orgPlace runs on every repaint (each 5s poll and each drag's rest). The budget is about 20ms per 1000 agents for
      a real fleet's shapes. Measured on the Mac mini (median of 5; orglanes #4472 in brackets):
        a 1000-agent tree 18ms (19), 1000 agents with no manager plus one small team 5.5ms (15), a lead with 1000
