@@ -5473,7 +5473,10 @@ test('#4439: the picker offers Claude Sonnet 5.5 by its verified id, and the def
   assert.equal(row.provider, 'anthropic');
   assert.equal(row.label, 'Claude Sonnet 5.5');
   assert.ok(!row.default, 'Sonnet 5.5 must not be the default: the card asked to add it, not to change the default');
-  assert.ok(row.why && row.why.length > 10, 'Sonnet 5.5 needs a why line a person can choose by');
+  // The why line states a dated fact, the knowledge cutoff, from Claude Code 2.1.284's catalog
+  // (claude-sonnet-5-5 "June 2026", claude-sonnet-5 "January 2026"). Pinned so a change to it is
+  // deliberate and re-checked against the catalog, not drift (#4439 review 2).
+  assert.equal(row.why, 'The newest Sonnet, with more recent knowledge (to June 2026). Quick, and good at most work.');
   assert.equal(status.modelDisplayName('claude-sonnet-5-5'), 'Claude Sonnet 5.5', 'the board names it as the picker does');
   const def = create.MODELS.filter((m) => m.default);
   assert.deepEqual(def.map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
