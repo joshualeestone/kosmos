@@ -238,6 +238,8 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForFunction(() => !document.getElementById('team-seeded-pick').hidden, null, { timeout: 3000 }).catch(() => {});
       ok(t + ' K5b the next visit asks again and shows the teams that now exist', await page.evaluate(() => !document.getElementById('team-seeded-pick').hidden
         && [...document.getElementById('team-seeded').options].some((o) => o.value === 'solo')));
+      await page.selectOption('#team-seeded', 'solo');
+      ok(t + ' K5b a one-member team reads "1 agent." (round 6)', (await page.evaluate(() => document.getElementById('team-seeded-desc').textContent)) === 'One lead. 1 agent.');
 
       // K6: Team with a catalogue; Create hands the key to openTeamCreate.
       // #4555's shape: members, not a count (the count is derived from them).

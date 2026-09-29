@@ -46321,7 +46321,7 @@ function paintSeededTeam() {
   /* Review round 5: #4555's blurbs end without a full stop; the role screen adds one the same way. */
   const blurb = t && t.blurb ? (/[.!?]$/.test(t.blurb.trim()) ? t.blurb.trim() : t.blurb.trim() + '.') : '';
   document.getElementById('team-seeded-desc').textContent =
-    t ? blurb + (n ? (blurb ? ' ' : '') + n + ' agents.' : '') : '';
+    t ? blurb + (n ? (blurb ? ' ' : '') + n + (n === 1 ? ' agent.' : ' agents.') : '') : '';
   document.getElementById('team-seeded-go').disabled = !t;
 }
 async function loadSeededTeams() {
