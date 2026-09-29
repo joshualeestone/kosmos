@@ -2035,15 +2035,23 @@ cmd_post() {
   # Three states, the same contract as msg -- but a post's placed means
   # EVERY member got it; unconfirmed means the room is partly reached
   # (the outcomes live in the record for the screens to draw).
+  # #4653: an @-word that named two members reached neither as a request; the board says so in
+  # ambiguousNote, a sentence of [A-Za-z0-9._-] words (no quote to cut it short), printed after the verdict.
+  # `if`, never `[ ] && say`: as a branch's last command a false test would become the post's exit status.
+  local _ambig
+  _ambig=$(printf '%s' "$body" | sed -n 's/.*"ambiguousNote":"\([^"]*\)".*/\1/p')
   case "$body" in
     '{"delivery":{"state":"placed"'*)
       case "$body" in
         *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
         *) say "Posted to $project. Everyone on it has it waiting." ;;
-      esac ;;
+      esac
+      if [ -n "$_ambig" ]; then say "$_ambig"; fi
+      ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
+      if [ -n "$_ambig" ]; then say "$_ambig"; fi
       exit 3
       ;;
     *)

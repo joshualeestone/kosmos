@@ -71,6 +71,7 @@ function post(text, agents = FLEET(), members = MEMBERS) {
       addressed: envelopes.filter((s) => s.text.startsWith('[message from your colleague')).map(who).sort(),
       background: envelopes.filter((s) => s.text.startsWith('[background from your colleague')).map(who).sort(),
       row: messages.readLog().filter((m) => m && m.kind === 'post').pop(),
+      note: sent.ambiguousNote,
     };
   } finally { board.restore(); }
 }
@@ -158,4 +159,27 @@ test('#4642: the sender is never addressed, so its own display name can only rea
   ];
   // leo is the sender: @Leo names nobody else, so it addresses nobody (and never leo itself)
   assert.deepEqual(post('note to self, @Leo', agents).addressed, []);
+});
+
+/* #4653: the sender is told when an @-word named two members and so reached neither. */
+test('#4653: the post answer tells the sender which members an ambiguous @-word could mean', () => {
+  const agents = [
+    fleet.agent('leo', { state: 'idle' }),
+    fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
+    fleet.agent('frost', { state: 'idle', displayName: 'Sub Zero' }),
+    fleet.agent('mara', { state: 'idle' }),
+  ];
+  const room = ['leo', 'subzero', 'frost', 'mara'];
+  assert.equal(post('@Sub-Zero please', agents, room).note,
+    '@Sub-Zero could mean frost or subzero, so it reached neither as a request. To ask one of them, use its exact name, like @frost.');
+  assert.equal(post('@subzero please', agents, room).note, undefined, 'a unique mention carried a note');
+  assert.equal(post('no mention at all', agents, room).note, undefined);
+});
+
+test('#4653: ambiguousNote words three candidates and two words', () => {
+  assert.equal(messages.ambiguousNote(new Map([['X-1', ['a1', 'b1', 'c1']]])),
+    '@X-1 could mean a1, b1 or c1, so it reached none of them as a request. To ask one of them, use its exact name, like @a1.');
+  const two = messages.ambiguousNote(new Map([['Aa', ['a1', 'a2']], ['Bb', ['b1', 'b2']]]));
+  assert.match(two, /^@Aa could mean a1 or a2, .* @Bb could mean b1 or b2, /);
+  assert.doesNotMatch(two, /["\\]/, 'the note carries a quote or backslash the CLI would cut on');
 });

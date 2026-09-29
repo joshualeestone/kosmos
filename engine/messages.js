@@ -1474,11 +1474,22 @@ function _roomMembers(members) {
 }
 
 /* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
-   and the @-words that named more than one member and so addressed none (`ambiguous`, logged on the post
-   so a dropped request can be found). Display names come from the roster card's `name`, the same
+   and the @-words that named more than one member and so addressed none (`ambiguous`: word -> the members
+   it could mean; logged on the post, and told to the sender by ambiguousNote, #4653). Display names come from the roster card's `name`, the same
    safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
    agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
    pjMentionResolve to it. */
+/* #4653: the sentence that tells a sender their @-word named more than one member and so reached none of
+   them as a request. One sentence per word, built here so the CLI and the page say the same thing. The
+   words and names are [A-Za-z0-9._-] only (the tokenizer's and NAME_RE's charsets), so the sentence
+   carries no quote or backslash for a reader to trip on. */
+function ambiguousNote(ambiguous) {
+  const list = (names) => (names.length === 2 ? names.join(' or ') : names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1]);
+  return [...ambiguous].map(([word, members]) => '@' + word + ' could mean ' + list(members)
+    + ', so it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use its exact name, like @'
+    + members[0] + '.').join(' ');
+}
+
 function mentionedMembers(cleaned, recipients, roster) {
   const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map();   // normalised name -> the members it could mean
@@ -1493,7 +1504,7 @@ function mentionedMembers(cleaned, recipients, roster) {
     if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
   }
   const mentioned = new Set();
-  const ambiguous = new Set();
+  const ambiguous = new Map();
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
     if (recipients.includes(token)) { mentioned.add(token); continue; }
@@ -1501,7 +1512,7 @@ function mentionedMembers(cleaned, recipients, roster) {
     if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
     const hit = byKey.get(mentionKey(token));
     if (hit && hit.size === 1) mentioned.add([...hit][0]);
-    else if (hit) ambiguous.add(token);
+    else if (hit && !ambiguous.has(token)) ambiguous.set(token, [...hit].sort());
   }
   return { mentioned, ambiguous };
 }
@@ -2156,7 +2167,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          one. */
       ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
+      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous.keys()] } : {}),
       ...(operator === true ? { operator: true } : {}),
       /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
          "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
@@ -2188,7 +2199,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. */
+      ...(ambiguous.size ? { ambiguousNote: ambiguousNote(ambiguous) } : {}) };
   };
 
   if (asynchronousDelivery) {
@@ -2875,5 +2888,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers,
+  setRunner, resetForTests, mentionedMembers, ambiguousNote,
 };

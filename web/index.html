@@ -62354,11 +62354,14 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
     if (replying && PJ_REPLY[sentProject] && PJ_REPLY[sentProject].id === replying.id) { delete PJ_REPLY[sentProject]; if (PJ_CURRENT === sentProject) pjReplyPaint(sentProject); }
-    if (PJ_CURRENT === sentProject) msg.textContent = '';
+    /* #4653: an @-word that named two agents reached neither as a request; the engine's sentence
+       stays under the composer (and is announced), so the person can re-send with the exact name. */
+    const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote : '';
+    if (PJ_CURRENT === sentProject) msg.textContent = ambig;
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
-    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
+    pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p) + (ambig ? ' ' + ambig : ''));
     if (PJ_CURRENT === sentProject) await loadRoom();
   } catch {
     verdict('We could not reach Kosmos to post that.');
