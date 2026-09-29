@@ -94,6 +94,49 @@ else
   bad "the refresh-shaped write forked the account credential"
 fi
 
+# Re-launch the same existing agent on another selected account. The supervisor
+# is the migration seam for old launch jobs, so no generated plist rewrite is
+# involved and the runtime link must be replaced in place.
+SECOND_HOME="$SB/second-codex"
+mkdir -p "$SECOND_HOME"
+printf '%s\n' '{"auth_mode":"apikey","OPENAI_API_KEY":"second-fixture"}' > "$SECOND_HOME/auth.json"
+CODEX_HOME="$SECOND_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
+  STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" pluginprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/switch.log" 2>&1 || true
+if [ -L "$RUNTIME_HOME/auth.json" ] && [ "$(readlink "$RUNTIME_HOME/auth.json")" = "$SECOND_HOME/auth.json" ]; then
+  ok "an existing agent's runtime link follows an account switch"
+else
+  bad "an existing agent kept the old account after a switch"
+fi
+
+# A default account has no CODEX_HOME in its old launch job. The current
+# AGENT_WORKFORCE_CODEX_HOME seam stands in for its normal HOME/.codex source.
+DEFAULT_HOME="$SB/default-codex"
+mkdir -p "$DEFAULT_HOME"
+printf '%s\n' '{"auth_mode":"apikey","OPENAI_API_KEY":"default-fixture"}' > "$DEFAULT_HOME/auth.json"
+env -u CODEX_HOME AGENT_WORKFORCE_CODEX_HOME="$DEFAULT_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
+  STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" defaultprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/default.log" 2>&1 || true
+DEFAULT_RUNTIME="$DATA_PARENT/Kosmos/codex-homes/defaultprobe"
+if [ -L "$DEFAULT_RUNTIME/auth.json" ] && [ "$(readlink "$DEFAULT_RUNTIME/auth.json")" = "$DEFAULT_HOME/auth.json" ]; then
+  ok "an existing default-account launch keeps its sign-in through isolation"
+else
+  bad "the default-account migration lost or changed its selected sign-in"
+fi
+
+# Missing source auth stays missing. It must not reuse a prior account, copy a
+# credential, or fall back to the person's plugin-bearing home.
+NOAUTH_HOME="$SB/no-auth-codex"
+mkdir -p "$NOAUTH_HOME"
+CODEX_HOME="$NOAUTH_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
+  STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" noauthprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/noauth.log" 2>&1 || true
+if [ ! -e "$DATA_PARENT/Kosmos/codex-homes/noauthprobe/auth.json" ] && [ ! -L "$DATA_PARENT/Kosmos/codex-homes/noauthprobe/auth.json" ]; then
+  ok "an unsigned-in account stays unsigned in, with no credential fallback"
+else
+  bad "a missing account credential was invented or carried over"
+fi
+
 # A second agent on the same account gets a different runtime home. This is the
 # distinction between per-agent isolation and one shared Kosmos home.
 CODEX_HOME="$PERSON_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
