@@ -338,6 +338,51 @@ wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }))
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('#4466 part 6: 8 simultaneous agent restarts over a STALE claim (every outage after the first): exactly one goes ahead', async () => {
+  // The claim file outlives each start, so a later outage finds an old claim, not none: the replace
+  // path is the common one and must be as atomic as the first create.
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const old = String(Math.floor(Date.now() / 1000) - 3600) + '\n';
+    for (let round = 0; round < 3; round++) {   // three waves: a lucky interleaving once is not a pass
+      fs.writeFileSync(path.join(home, 'board.agent-claim'), old);
+      fs.writeFileSync(path.join(home, 'board.started-at'), old);
+      const out = await bash(`source "${CLI}"
+for i in 1 2 3 4 5 6 7 8; do ( ( agent_board_guard restart ) >/dev/null 2>&1 && echo went ) & done
+wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+      const went = (out.stdout.match(/^went$/gm) || []).length;
+      assert.equal(went, 1, `wave ${round}: exactly one of 8 agent restarts over a stale claim may go ahead (got ${went}): ` + out.stdout + out.stderr);
+      assert.equal(fs.existsSync(path.join(home, 'board.agent-claim.lock')), false, 'the lock is released');
+      assert.deepEqual(fs.readdirSync(home).filter((f) => f.includes('.new.')), [], 'no temp stamp left behind');
+    }
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('#4466 part 6: a claim lock left by a killed agent is cleared once it is old, and does not wedge restarts', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const old = String(Math.floor(Date.now() / 1000) - 3600) + '\n';
+    fs.writeFileSync(path.join(home, 'board.agent-claim'), old);
+    fs.writeFileSync(path.join(home, 'board.started-at'), old);
+    const lock = path.join(home, 'board.agent-claim.lock');
+    fs.mkdirSync(lock);
+    const env = baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' });
+    // CONTROL: a FRESH lock (another agent mid-swap) refuses and is left alone.
+    const fresh = await bash(`source "${CLI}"; ( agent_board_guard restart ) && echo went`, env);
+    assert.doesNotMatch(fresh.stdout, /went/);
+    assert.ok(fs.existsSync(lock), 'a fresh lock is not taken from its owner');
+    const past = new Date(Date.now() - 5 * 60 * 1000);
+    fs.utimesSync(lock, past, past);
+    const first = await bash(`source "${CLI}"; ( agent_board_guard restart ) && echo went`, env);
+    assert.doesNotMatch(first.stdout, /went/, 'the attempt that clears an old lock still refuses');
+    assert.equal(fs.existsSync(lock), false, 'an old lock is cleared');
+    const second = await bash(`source "${CLI}"; ( agent_board_guard restart ) && echo went`, env);
+    assert.match(second.stdout, /went/, 'the next attempt takes the stale claim');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('#4466 part 6: 10 rapid agent restarts of a DOWN board go ahead at most ONCE; a person is unaffected', async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
@@ -500,6 +545,10 @@ test('#4466 an OLDER board of ours answering its page with a 5xx under load is b
 test('#4466 the installer starts the board with KOSMOS_RECLAIM_BUSY=1 (right after its own stop, a silent Kosmos on the port is stale)', () => {
   const setup = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
   const starts = setup.split('\n').filter((l) => /"\$KOSMOS_HOME\/bin\/kosmos" start\b/.test(l) && !/^\s*#/.test(l));
-  assert.equal(starts.length, 1, 'expected exactly one board start in setup.sh: ' + JSON.stringify(starts));
-  assert.match(starts[0], /KOSMOS_RECLAIM_BUSY=1 "\$KOSMOS_HOME\/bin\/kosmos" start --force/);
+  assert.ok(starts.length >= 1, 'setup.sh must start the board somewhere');   // a vacuous "every" over zero lines
+  for (const l of starts) assert.match(l, /KOSMOS_RECLAIM_BUSY=1 "\$KOSMOS_HOME\/bin\/kosmos" start --force/, 'every installer start: ' + l);
+  // Its stop and restart calls act on its own board too, so an agent-run install is never refused by the guard.
+  const others = setup.split('\n').filter((l) => /"\$KOSMOS_HOME\/bin\/kosmos" (stop|restart)\b/.test(l) && !/^\s*#/.test(l));
+  assert.ok(others.length >= 1);
+  for (const l of others) assert.match(l, /kosmos" (stop|restart) --force/, 'every installer stop/restart: ' + l);
 });

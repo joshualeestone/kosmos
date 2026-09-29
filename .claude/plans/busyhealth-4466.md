@@ -231,6 +231,22 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Weakest premise: the three were found by grepping for the sentence; a new verb that words its own
   "not running" differently would not be. The Mac app's `kosmos stop`/`start` run as the person (no agent
   markers), so the guard does not touch them.
+- Final validation on the merge (7e8cadadb): GREEN.
+
+## Review round 20 (fable, on the merge): 1 NEW WARNING, fixed; loop continues
+- W: replacing a STALE claim was `rm` then create, not atomic, and the claim file outlives every start,
+  so every outage after the first took that path (the 8-agent arm only covered no file). Now serialised
+  under `board.agent-claim.lock` (mkdir), the stamp re-read inside it, the swap by rename (the file never
+  goes missing, so the noclobber create cannot race it); a lock over a minute old is cleared and that
+  attempt refuses. Arms: 8 agents over a stale claim, three waves, exactly one (old code: 4 and 5 of 8);
+  a killed agent's lock, fresh-lock control. Red-checked.
+- NIT fixed: `_mark_board_started` says why it is written before the launch (a failing start still holds
+  agents off; that is the deterrent).
+- NIT fixed: the installer arm asserts EVERY start carries the flags (not "exactly one start"), and every
+  installer stop/restart carries `--force` (red with #4356's end-of-run stop un-forced).
+- NIT deferred, MEASURED: `display-message -t <pane> '#{@kosmos_agent}'` does read a session option on the
+  real tmux 3.6a (throwaway server: "mara"; a session without it: empty).
+- NIT deferred: the plan file name has no timestamp; the gate finds it by branch, as for most siblings.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.

@@ -769,6 +769,8 @@ EOF
 # (so an agent launched before this update, with neither variable, is usually still caught: the claim
 # is read through the tmux this CLI resolved, and a tmux of another version cannot read that server).
 BOARD_STARTED_AT="$KOSMOS_HOME/board.started-at"
+# Written BEFORE the launch on purpose: a start that then fails (no runtime, a held port) still holds
+# agents off for the cooldown. It is a deterrent against restart loops, and a failing start is one.
 _mark_board_started() { date +%s > "$BOARD_STARTED_AT" 2>/dev/null || true; }
 _invoked_by_agent() {
   if [ -n "${KOSMOS_AGENT_SESSION:-}" ] || [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then return 0; fi
@@ -817,13 +819,30 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # The check above is not enough when several agents act at once: each reads the same old start time
   # before any of them writes a new one, all go ahead, and each restart kills the board the last one
   # started. So an agent also CLAIMS the start, atomically (noclobber: exactly one create succeeds). A
-  # claim older than the cooldown is stale and is replaced, again atomically. People never claim.
+  # claim older than the cooldown is stale. The claim file outlives every start, so after the first one
+  # every later outage takes the stale path, and replacing it is serialised too: one agent holds
+  # `$_claim.lock` (mkdir is atomic), reads the stamp AGAIN inside it (another agent may have replaced
+  # it since this one read it), and swaps in a new stamp by rename, so the file never goes missing and
+  # the noclobber create cannot race the swap. A lock left by a killed agent is cleared once it is over
+  # a minute old, and that attempt refuses (the next one can take it). People never claim.
   local _claim="$KOSMOS_HOME/board.agent-claim" _c
   if ! ( set -C; printf '%s\n' "$_now" > "$_claim" ) 2>/dev/null; then
     _c="$(cat "$_claim" 2>/dev/null || true)"
     case "$_c" in ''|*[!0-9]*) _c=0 ;; esac
-    if [ $(( _now - _c )) -ge "$_cool" ] && rm -f "$_claim" 2>/dev/null && ( set -C; printf '%s\n' "$_now" > "$_claim" ) 2>/dev/null; then
-      return 0
+    if [ $(( _now - _c )) -ge "$_cool" ]; then
+      if mkdir "$_claim.lock" 2>/dev/null; then
+        _c="$(cat "$_claim" 2>/dev/null || true)"
+        case "$_c" in ''|*[!0-9]*) _c=0 ;; esac
+        if [ $(( _now - _c )) -ge "$_cool" ] && printf '%s\n' "$_now" > "$_claim.new.$$" 2>/dev/null \
+           && mv -f "$_claim.new.$$" "$_claim" 2>/dev/null; then
+          rmdir "$_claim.lock" 2>/dev/null || true
+          return 0
+        fi
+        rm -f "$_claim.new.$$" 2>/dev/null || true
+        rmdir "$_claim.lock" 2>/dev/null || true
+      elif [ -n "$(find "$_claim.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        rmdir "$_claim.lock" 2>/dev/null || true
+      fi
     fi
     say "Another agent is starting Kosmos right now, so this one may not. If it still is not answering in a few minutes, tell the person who runs this computer."
     exit 1
