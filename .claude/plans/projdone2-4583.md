@@ -37,3 +37,6 @@ Five WARNINGs, fixed, each with a test that fails on revert:
 - A Done heading titled another way ("### done looks like (draft)") got a second section. Any level, any case, trailing words count as present.
 - BRIEF.md is read and written only as a regular file under 256 KB (lstat); a symlink or huge brief says nothing and is never written through.
 NITs taken: CRLF briefs keep CRLF; "PM" counts only as a whole role word (not AM/PM, Post-PM). Accepted: read-modify-write is not atomic against a simultaneous edit of BRIEF.md (a create-time, one-off write); a person's own brief with no Done section reads as set (only Kosmos's placeholder means unset).
+
+## Blind review round 3 (Opus, separate reviewer)
+One WARNING, fixed: the brief note (#2707) had been reworded to ask for done too, so a project given a done but no goal told its agents to ask for the done again. BRIEF_PENDING_NOTE is main's goal-only text again; BRIEF_AND_DONE_PENDING_NOTE is posted only when done is not set either. Two route tests (done-no-goal asks only for the goal; neither asks for both), each failing its mutant. Also run by hand: render-projects on a sandboxed board with the harness's fleet (passes); it runs only in the cut's page layer.

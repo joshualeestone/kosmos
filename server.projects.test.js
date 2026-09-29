@@ -3819,3 +3819,22 @@ test('#4583: two coordinators warn on create and when a second one joins; a non-
     for (const n of ['pm-x', 'pm-y', 'dev-z']) store.writeProfile(n, { role: null });
   }
 });
+
+test('#4583 round 3: a done typed with no goal: the note asks only for the goal, never for the done already given', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Done no goal', folder: folder('done-nogoal'), agents: ['agent-a'], done: 'The lease is signed.' })).project;
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].text, projects.BRIEF_PENDING_NOTE);
+  assert.doesNotMatch(notes[0].text, /done looks like/i, 'the agents were told to ask for a done the person gave');
+});
+
+test('#4583 round 3 CONTROL: neither goal nor done: one note asks for both', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Nothing given', folder: folder('nothing-given'), agents: ['agent-a'] })).project;
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].text, projects.BRIEF_AND_DONE_PENDING_NOTE);
+});

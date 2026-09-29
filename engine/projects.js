@@ -2156,6 +2156,14 @@ const DONE_PENDING_NOTE = 'This project\'s brief has a goal but does not say wha
    audience are matched by BRIEF_PENDING_NOTES_BEFORE_AUDIENCE below, which is frozen. */
 const BRIEF_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
   + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
+  + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
+  + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
+  + 'question to the operator, not seven.';
+/* #4583: the same note when done is not set EITHER, so the one question covers both. Review round 3: the goal-only
+   note above stays as it was for a project whose done was typed on the form, so its agents never ask for a done the
+   person already gave. */
+const BRIEF_AND_DONE_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
+  + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
   + 'ONE of you (the Project Manager, if this project has one) ask here what the goal is and what done '
   + 'looks like; once you hear them, write both into BRIEF.md in the project folder so everyone shares '
   + 'them. Everyone else: hold, and start once the brief is set. One question to the operator, not seven.';
@@ -3143,7 +3151,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,

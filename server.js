@@ -15175,7 +15175,9 @@ const server = http.createServer(async (req, res) => {
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
-            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+            // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
+            const note = projects.doneIsPending(made.folder) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
+            messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
           } else if (made.agents.length > 0 && projects.doneIsPending(made.folder)) {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
