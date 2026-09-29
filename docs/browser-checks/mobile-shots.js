@@ -174,14 +174,18 @@ const SCREENS = [
     await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
     /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
        point at the Allow button's centre must be the button, so anything drawn over it, or the button
-       being off screen, fails the shot. */
-    const hit = await page.evaluate((sel) => {
+       being off screen, fails the shot. Polled for up to 3 s, so a repaint between two reads is not a red. */
+    const whatIsAt = (sel) => {
       const b = document.querySelector(sel);
       if (!b) return 'nothing (the button was redrawn away)';
       const r = b.getBoundingClientRect();
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return top && b.contains(top) ? '' : (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing (off screen)');
-    }, allow);
+    };
+    let hit = await page.evaluate(whatIsAt, allow);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
+      await page.waitForTimeout(200);
+    }
     if (hit) throw new Error('the Allow button is covered by ' + hit);
   } },
   // Sonya: settings.
@@ -775,7 +779,8 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
-                // The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control green.
+                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
+                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
                 if (COVER_CONTROL === 'cmnotice') await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
@@ -798,7 +803,9 @@ async function run() {
                 }
                 /* #4524: a one-time window the screen did not open (the Community notice, What's New) sits over
                    whatever the shot was for. Read after the shot, so it can also catch one opened just after it. */
-                const cover = await page.evaluate(() => ['cmnotice', 'whatsnew'].filter((id) => document.getElementById(id)));
+                // Literal ids, so bc-pr-select.js ties a change to either window's markup to this check.
+                const cover = await page.evaluate(() => [document.getElementById('cmnotice') && 'cmnotice',
+                  document.getElementById('whatsnew') && 'whatsnew'].filter(Boolean));
                 if (cover.length) throw new Error('COVERED: #' + cover.join(', #') + ' is open over this screen (its shot is kept, to show it)');
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
