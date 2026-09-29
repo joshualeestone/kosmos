@@ -15,7 +15,8 @@
  *    again after renaming makes only that one, with the new name;
  *  - a lead that fails holds the others ("Waiting for the lead", nothing posted for them) until Try
  *    again on the lead releases them;
- *  - two seats with one name are refused BEFORE anything is made, project included;
+ *  - two seats with one name, or a name already taken on this computer (an agent's folder exists), are
+ *    refused BEFORE anything is made, project included;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -46,6 +47,7 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const projects = require('../../engine/projects');
 const teamseed = require('../../engine/teamseed');
+const create = require('../../engine/create');
 
 const TEAM = {
   key: 'marketing', kind: 'business', rank: 1, label: 'Marketing Team', blurb: 'One line',
@@ -71,6 +73,8 @@ function chk(ok, label, extra) {
 
 (async () => {
   fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' })]);
+  // Ada is already an agent on this board: her folder is what makes the name taken.
+  fs.mkdirSync(create.workerDir('ada'), { recursive: true });
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   const clearFirstRun = async (page) => { if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); } };
@@ -203,6 +207,22 @@ function chk(ok, label, extra) {
             `${E} two seats with one name are refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(!(await page.isDisabled('#tc-go')) && !(await page.isHidden('#tc-go')), `${E} and the button is back to try again`);
           chk(errs.length === 0, `${E} no page errors (refusal arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- a name already taken on this computer: refused before anything is made ----------------- */
+        {
+          const { page, errs, posted } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Ada');
+          const before = projects.readAll().length;
+          await page.click('#tc-go');
+          await settle(page, () => !document.getElementById('tc-msg').hidden);
+          const msg = await page.textContent('#tc-msg');
+          chk(msg === 'there is already an agent called Ada on this computer; give the Content Writer another name' && posted.length === 0 && projects.readAll().length === before,
+            `${E} a name already taken on this computer is refused before any project or agent is made`, msg + ' | posted ' + posted.length);
+          chk(errs.length === 0, `${E} no page errors (taken arm)`, errs.join(' | '));
           await page.close();
         }
 

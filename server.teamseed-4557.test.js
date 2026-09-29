@@ -109,6 +109,17 @@ test('specs refuses a bad name with a 400 and creates nothing', async () => {
   assert.equal(create.createdCount(), before);
 });
 
+test('check: true refuses a name whose agent folder already exists here; without it the same names build', async () => {
+  teamseed.setCatalogue(CATALOGUE);
+  fs.mkdirSync(create.workerDir('taken-one'), { recursive: true });
+  const names = { lead: 'Taken One', content: 'Free Two', social: 'Free Three' };
+  const refused = await call('POST', '/api/teams/seeded/marketing/specs', { names, check: true });
+  assert.equal(refused.status, 400);
+  assert.equal(refused.json.error, 'there is already an agent called Taken One on this computer; give the Chief Marketing Officer another name');
+  const unchecked = await call('POST', '/api/teams/seeded/marketing/specs', { names });
+  assert.equal(unchecked.status, 200);
+});
+
 test('the specs, made in order through the real POST /api/agents, give a team: reports to the lead, all on the project', async () => {
   teamseed.setCatalogue(CATALOGUE);
   const p = await call('POST', '/api/projects', { name: 'Marketing 4557' });

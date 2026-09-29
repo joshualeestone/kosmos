@@ -68,7 +68,9 @@ creates through the existing route.
 - The step is a fourth create step, `cstep-team`, beside role / name / made. `openTeamCreate(key)` opens the
   create panel and switches to it, so the New Agent mode list (Angel's #4556 region) is not touched.
 - Order on the button:
-  1. the names are checked through the specs route with no project (a refused name makes nothing);
+  1. the names are checked through the specs route with no project and `check: true`, which also refuses a name
+     already taken on this computer (its folder or launch job exists, create's own test), so a taken seed name
+     like an existing Maya is caught before anything is made (April's point on #4557, 10:36);
   2. the project is made;
   3. the members are made one by one.
 - **A new project takes the first free name.** A second Marketing team collided with the first one's project

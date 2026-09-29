@@ -111,6 +111,18 @@ test('specs refuses, naming the seat: a missing or blank name, a bad name, two s
   assert.equal(cat.calls.length, 0, 'nothing is built when a name is refused');
 });
 
+test('specs with checkTaken refuses a name already taken on this computer, naming the seat; without it, it does not', () => {
+  const takenNames = new Set(['leo']);
+  const deps = { taken: (slug) => takenNames.has(slug) };
+  const cat = fixture();
+  const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: 'Ana' }, checkTaken: true }, cat, deps);
+  assert.equal(r.ok, false);
+  assert.equal(r.because, 'there is already an agent called Leo on this computer; give the Content Writer another name');
+  assert.equal(cat.calls.length, 0, 'nothing is built when a name is taken');
+  const retry = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: 'Ana' } }, cat, deps);
+  assert.equal(retry.ok, true, 'a retry re-reads specs without the check, since this team took some of the names itself');
+});
+
 test('specs refuses an unknown team and a team with no single lead', () => {
   assert.match(teamseed.specs({ team: 'nope', names: {} }, fixture()).because, /no prebuilt team called "nope"/);
   assert.match(teamseed.specs({ team: 'nolead', names: { a: 'Ann' } }, fixture()).because, /no single lead/);

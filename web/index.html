@@ -46346,10 +46346,10 @@ function tcNames() {
   return names;
 }
 
-async function tcSpecs(project) {
+async function tcSpecs(project, check) {
   const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ names: tcNames(), project: project || null }),
+    body: JSON.stringify({ names: tcNames(), project: project || null, ...(check ? { check: true } : {}) }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
@@ -46365,8 +46365,9 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   try {
-    // Names first, with nothing made: a refused name must not leave an empty project behind.
-    await tcSpecs(null);
+    // Names first, with nothing made: a refused name, or one already taken on this computer, must not
+    // leave an empty project or half a team behind.
+    await tcSpecs(null, true);
     if (gen !== TC_GEN) return;
     const choice = document.getElementById('tc-project').value;
     let project = null;

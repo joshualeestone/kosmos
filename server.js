@@ -6542,7 +6542,7 @@ const server = http.createServer(async (req, res) => {
       readBody(req).then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const r = teamseed.specs({ team: key, names: body.names, project: body.project });
+        const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
         if (!r.ok) {
           const code = r.because === teamseed.NOT_INSTALLED ? 503 : (/no prebuilt team called/.test(r.because) ? 404 : 400);
           sendJson(res, code, { error: r.because });

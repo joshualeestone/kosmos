@@ -12,12 +12,19 @@
  * The catalogue is read through `catalogue()`, which is injectable (setCatalogue) for tests and
  * loads `./catalogue` lazily otherwise, so this module can land before the seed does.
  */
+const fs = require('node:fs');
 const create = require('./create');
 
 let injected = null;
 
 /** Tests hand in a catalogue in the agreed shape; false means not installed; null restores the real one. */
 function setCatalogue(c) { injected = (c === false) ? false : (c || null); }
+
+/* Whether a machine name is already taken on this computer, by the same two things create refuses on:
+   the agent's folder, or its launch job (create.js, before it makes anything). */
+function takenDefault(slug) {
+  return fs.existsSync(create.workerDir(slug)) || fs.existsSync(create.plistPath(slug));
+}
 
 /** The catalogue, or null when it is not installed on this build. */
 function catalogue() {
@@ -82,12 +89,17 @@ function ordered(team) {
 /**
  * Every member's create spec, in the order to make them, for the names the person chose.
  *
- * @param {{team:string, names:Object<string,string>, project?:(string|null)}} req
+ * @param {{team:string, names:Object<string,string>, project?:(string|null), checkTaken?:boolean}} req
  *   names maps every slot to the name the person chose; project is an existing project id or null.
+ *   checkTaken also refuses a name already taken on this computer. The page asks for it before making
+ *   anything, so a taken suggested name is caught before the first agent; it is off when the page
+ *   re-reads the specs to retry, because by then some of the names are taken by this team itself.
+ * @param {{taken?:function(string):boolean}} [deps] tests replace the taken check.
  * @returns {{ok:true, team:string, specs:Array<{slot,title,spec,avatar}>}|{ok:false, because:string}}
  */
-function specs(req, cat) {
+function specs(req, cat, deps) {
   const c = cat === undefined ? catalogue() : cat;
+  const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
   if (!c) return { ok: false, because: NOT_INSTALLED };
   const key = req && req.team;
   const team = c.team(key);
@@ -106,6 +118,9 @@ function specs(req, cat) {
     const slug = create.slugFor(raw);
     if (seen.has(slug)) return { ok: false, because: 'the ' + seen.get(slug) + ' and the ' + m.title + ' have the same name; give each one its own' };
     seen.set(slug, m.title);
+    if (req.checkTaken === true && taken(slug)) {
+      return { ok: false, because: 'there is already an agent called ' + raw + ' on this computer; give the ' + m.title + ' another name' };
+    }
     names[m.slot] = raw;
   }
 
