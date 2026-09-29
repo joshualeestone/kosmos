@@ -110,8 +110,8 @@ function voiceHarness() {
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
     'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {};\n'
-    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
@@ -190,6 +190,36 @@ test('#4409 review 2: the watch stops the mic after a switch with nothing heard,
   tick();
   assert.equal(h.watching(), 0, 'the watch never stops');
   assert.equal(timers.filter(Boolean).length, 0);
+});
+
+test('#4409 review 5: a read-only or closed box takes no spoken words', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const guide = mkBox('asp-say'); guide.readOnly = true; doc.boxes['asp-say'] = guide;
+  const g = mkBtn(); g.attrs['data-voice-for'] = 'asp-say';
+  h.voiceToggle(g);
+  assert.equal(posted.length, 0, 'the mic started on an ended Guide chat');
+  const dm = mkBox('d-say'); doc.boxes['d-say'] = dm;
+  const b = mkBtn(); b.attrs['data-voice-for'] = 'd-say';
+  h.voiceToggle(b);
+  const id = posted.at(-1).id;
+  h.voiceOnEvent({ kind: 'partial', text: 'one', id });
+  assert.equal(dm.value, 'one', 'control: an open box gets the words');
+  dm.disabled = true;   // the agent went offline mid-dictation
+  h.voiceOnEvent({ kind: 'partial', text: 'one two', id });
+  assert.equal(dm.value, 'one', 'words landed in a box the person can no longer type in');
+  assert.equal(h.VOICE.btn, null, 'still listening into a closed box');
+});
+
+test('#4409 review 5: listening is said in the box\'s message line, and cleared when it ends', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const msg = { textContent: '' };
+  doc.boxes['d-say'] = mkBox('d-say'); doc.boxes['d-say-msg'] = msg;
+  const b = mkBtn(); b.attrs['data-voice-for'] = 'd-say'; b.attrs['data-voice-msg'] = 'd-say-msg';
+  h.voiceToggle(b);
+  h.voiceOnEvent({ kind: 'listening', id: posted.at(-1).id });
+  assert.match(msg.textContent, /Press Escape to stop/, 'a screen reader in the box hears nothing about listening');
+  h.voiceOnEvent({ kind: 'stopped', id: posted.at(-1).id });
+  assert.equal(msg.textContent, '', 'the listening line stays after it stopped');
 });
 
 test('#4409 review 1: read-aloud follows its message through a repaint, and stops when the view moves', () => {

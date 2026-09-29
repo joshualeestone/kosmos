@@ -14498,7 +14498,7 @@ window.kosmosMeasureScrollbarWidth();
 
       </div>
       <div class="attach-chips" id="pj-attach-chips" hidden></div>
-      <p class="fmsg" id="pj-room-msg"></p>
+      <p class="fmsg" id="pj-room-msg" role="status"></p><!-- #4409: a live region, so the room mic's "Listening" line (and its refusals) are heard -->
       <p class="vh" id="pj-room-say" role="status" aria-live="polite"></p>
 
     <!-- ⚠️ THE RULE THIS BLOCK EXISTS UNDER, because the screen it replaced said
@@ -54509,7 +54509,10 @@ function shownNow(el) {
 function voiceWhere(box) {
   if (!box) return '';
   const hidden = typeof document !== 'undefined' && document.hidden === true;
-  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden');
+  /* #4409 (review 5): a box that stops taking words (the Guide ends a chat with readOnly; an agent going offline
+     disables #d-say) is a move too: words must not land where the person cannot type or delete them. */
+  const open = !box.disabled && !box.readOnly;
+  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
 }
 const VOICE_SAYS = {
   'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
@@ -54548,13 +54551,19 @@ function voiceSay(btn, line) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
   if (el) el.textContent = line;
 }
+/* The listening line is ours to clear; an error line said after it is not. */
+const VOICE_LISTENING = 'Listening. Press Escape to stop.';
+function voiceUnsay(btn) {
+  const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
+  if (el && el.textContent === VOICE_LISTENING) el.textContent = '';
+}
 function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
   if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
   if (VOICE.btn) voiceCancel();
   const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
-  if (!box || box.disabled) return;
+  if (!box || box.disabled || box.readOnly) return;   // review 5: a read-only box (an ended Guide chat) takes no words, spoken ones included
   const v = box.value;
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
@@ -54574,6 +54583,7 @@ function voiceCancel() {
   const btn = VOICE.btn;
   VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = '';
   voicePaint(btn, 'off');
+  voiceUnsay(btn);
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'cancel' });
 }
@@ -54584,7 +54594,7 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { voicePaint(btn, 'on'); return; }
+  if (ev.kind === 'listening') { voicePaint(btn, 'on'); voiceSay(btn, VOICE_LISTENING); return; }   // review 5: focus is in the box, so say it there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
@@ -54597,7 +54607,7 @@ function voiceOnEvent(ev) {
     return;
   }
   if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
-  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); }
+  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
 }
 window.kosmosVoiceEvent = voiceOnEvent;
 /* While listening or reading aloud, look twice a second: a switch with nothing heard since must still stop the mic

@@ -50,6 +50,11 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
 - Review iteration 4 (converged): NIT fixed, the box gets focus back when listening starts, so Escape (a promise on
   the card) works after clicking the mic. ACCEPTED: no AVAudioEngineConfigurationChange observer, so an unplugged mic
   leaves the button on until the recognizer errors or the 300 s cap; that is the safe direction (on while off).
+- Review iteration 5: (WARNING) the Guide ends a chat with readOnly, not disabled, and the mic still wrote into it:
+  words the person could not delete, sent when the chat came back. The mic now refuses a read-only box, and a box
+  that closes mid-dictation (read-only, or #d-say disabled when an agent goes offline) counts as a move and stops it.
+  NIT: with focus in the box, a screen reader heard nothing about listening; the box's message line now says
+  "Listening. Press Escape to stop." (cleared when it ends), and #pj-room-msg became a live region (role=status).
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
