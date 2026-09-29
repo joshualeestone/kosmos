@@ -30,6 +30,11 @@ highlight, the posted-message highlight and Reply's "already named" check. `pjMe
 key -> display name. Tier 3 on the page only applies to a word inside the engine's token charset, so the page
 never paints blue a mention the engine would not deliver.
 
+A posted message is painted from what happened, not from today's rule: the room API now serves each post's
+recorded `mentioned` (always an array on a post row), and pjRoomBody limits blue to those agents. So a post
+sent before this change (`@Kano`, delivered as background) is not repainted as a request, and an external post
+(recorded, never delivered) paints no blue. A hand-built row without the field keeps the rule alone.
+
 ## Tests
 - engine/messages.mention-4642.test.js (all roots sandboxed), through the real sendPost:
   - new behaviour, red on main: @Kano/@KANO -> kano; @Sub-Zero -> subzero by display name; @sub_zero, @SUBZERO.
@@ -42,6 +47,10 @@ never paints blue a mention the engine would not deliver.
 - web.mention-parity-4642.test.js: one fixture set through the engine's mentionedMembers and the page's
   highlighter, asserting they name the same agents, in a plain room and a room with a normalised-name clash.
 - docs/browser-checks/render-mention-blue-2922.js: the live == posted differential gains a Map arm.
+- server.projects.test.js: a served post row carries `mentioned`, `[]` when nobody was addressed (red without
+  the server change).
+- render-mention-blue-2922 also checks a served row: `mentioned: []` leaves `@Mona` plain, `['mona']` paints
+  it, and an external row paints nothing.
 - docs/browser-checks/render-room-reply-3745.js: `thanks @ROOMER` counts as named, so Reply adds nothing.
 - Mutations, run by hand (each restored after): ambiguity -> first match, dropping the roster room filter,
   dropping the two-character floor, prefix matching and an optional @ each turn a control red on the engine;
@@ -61,6 +70,13 @@ never paints blue a mention the engine would not deliver.
   this fleet normalise alike today.
 - Known, unchanged tokenizer gap (#2922 review): `@mona's` addresses mona in the engine but is not painted on
   the page. Safe direction; the parity test's fixtures stay inside whitespace-separated tokens for that reason.
+
+- The live composer judges ambiguity against every agent on the project, the engine against the room's live
+  recipients (gone agents dropped, the sender dropped). A gone agent sharing a normalised name with a live one
+  leaves the composer plain while the engine addresses the live one: the safe direction, and the posted
+  message then paints from the record. Not pinned by a test.
+- If the roster ever held two cards for one session, each card's display name becomes an alias for that same
+  member. It can only demote (an ambiguity), never address the wrong agent.
 
 ## What would change my mind
 A ruling that first names should address (then it needs an explicit, unique-in-room first-word alias, not a

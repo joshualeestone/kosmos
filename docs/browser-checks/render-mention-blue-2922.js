@@ -109,6 +109,10 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           selfMention: pjRoomBody({ text: 'thanks @mona and @renet-tilley', from: 'mona', operator: false }, { agents: ['mona', 'renet-tilley'] }),
           otherMention: pjRoomBody({ text: 'thanks @mona and @renet-tilley', from: 'renet-tilley', operator: false }, { agents: ['mona', 'renet-tilley'] }),
           opMention: pjRoomBody({ text: 'hey @mona', from: null, operator: true }, { agents: ['mona'] }),
+          // #4642: a served row carries `mentioned`; blue follows what the engine recorded, not today's rule.
+          servedNone: pjRoomBody({ text: 'hey @Mona', from: null, operator: true, mentioned: [] }, { agents: [{ sessionName: 'mona', name: 'Mona' }] }),
+          servedHit: pjRoomBody({ text: 'hey @Mona', from: null, operator: true, mentioned: ['mona'] }, { agents: [{ sessionName: 'mona', name: 'Mona' }] }),
+          external: pjRoomBody({ text: 'hey @mona', from: 'visitor', external: true }, { agents: ['mona'] }),
           scoped: pjRichSpans('@mona', null),   // no agentNames -> dialogue path
           color,
           kbg: tok('--k-bg'), sunk: tok('--k-sunk'), usermsg: tok('--usermsg-tint'),
@@ -150,6 +154,12 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         /pjmention">@mona</.test(state.otherMention), state.otherMention);
       check(`${tag} an operator post blues the mention (operator flags anyone)`,
         /pjmention">@mona</.test(state.opMention), state.opMention);
+      check(`${tag} #4642: a served post that addressed nobody does not paint @Mona blue (sent before the rule widened)`,
+        !/pjmention/.test(state.servedNone) && /@Mona/.test(state.servedNone), state.servedNone);
+      check(`${tag} #4642: a served post that addressed mona paints @Mona blue`,
+        /pjmention">@Mona</.test(state.servedHit), state.servedHit);
+      check(`${tag} #4642: an external post (recorded, never delivered) paints no blue`,
+        !/pjmention/.test(state.external), state.external);
 
       // CONTRAST against the real bubble grounds, blended from the live tokens.
       const fg = parseRgb(state.color);
@@ -300,10 +310,8 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
          name or any case of a key names the agent. The same comparison over a Map, with fixtures that
          only the new tiers resolve (and the controls that must stay plain on both sides). */
       const map = new Map([['mona', 'Mona'], ['subzero', 'Sub-Zero'], ['renet-tilley', 'Renet Tilley']]);
-      const mapFixtures = [
-        '@Sub-Zero please', '@sub_zero', '@SUBZERO.', '(@SubZero)', '**@Mona**', '@RenetTilley!',
-        '@subzerox', 'Sub-Zero no at', 'a@Sub-Zero', '@Renet', '@Mona&x',
-      ];
+      const mapPositives = ['@Sub-Zero please', '@sub_zero', '@SUBZERO.', '(@SubZero)', '**@Mona**', '@RenetTilley!'];
+      const mapFixtures = mapPositives.concat(['@subzerox', 'Sub-Zero no at', 'a@Sub-Zero', '@Renet', '@Mona&x']);
       const run = (s, keys) => {
         const live = keysFrom(pjMentionHighlightHTML(s, keys), 'pj-live-mention');
         // pjRichSpans on the room path (agentNames supplied) is the posted-message highlighter.
@@ -311,9 +319,9 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         return { s, live, posted, ok: JSON.stringify(live) === JSON.stringify(posted) };
       };
       const out = fixtures.map((s) => run(s, set)).concat(mapFixtures.map((s) => run(s, map)));
-      // non-vacuous: the Map arm really paints display names on both sides, not just agrees on nothing
-      const painted = out.filter((r) => mapFixtures.includes(r.s) && r.posted.length > 0).length;
-      out.push({ s: '(Map arm paints at least 6 display-name fixtures)', live: [painted], posted: [painted], ok: painted >= 6 });
+      // non-vacuous: every positive in the Map arm really paints on the posted side, not just agrees on nothing
+      const unpainted = out.filter((r) => mapPositives.includes(r.s) && r.posted.length === 0).map((r) => r.s);
+      out.push({ s: '(every Map-arm positive paints)', live: unpainted, posted: [], ok: unpainted.length === 0 });
       return out;
     });
     for (const r of rows) {

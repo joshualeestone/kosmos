@@ -54,7 +54,7 @@ test('a partial or unrecognized @name stays plain (only recognized names blue)',
 });
 
 /* #4642: the engine now addresses a member by session name OR display name, any case, punctuation
-   ignored, whole @-token only (engine/messages.js resolveMention). The blue has to say the same. */
+   ignored, whole @-token only (engine/messages.js mentionedMembers). The blue has to say the same. */
 const ROOM = new Map([['mona', 'Mona'], ['subzero', 'Sub-Zero'], ['kano', 'Kano'], ['renet-tilley', 'renet-tilley']]);
 const r = (s) => H(s, ROOM);
 test('#4642: any case of a session name is blue, and the typed spelling is kept', () => {

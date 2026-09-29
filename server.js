@@ -15538,6 +15538,10 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
+                   paints blue from what happened and not from today's rule and roster. Always an array on
+                   a post row, [] for none, so the page can tell "nobody" from a row that predates this. */
+                mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
