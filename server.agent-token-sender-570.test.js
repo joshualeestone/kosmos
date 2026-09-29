@@ -150,7 +150,7 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   for (const set of ['REMOTE_AGENT_ROUTES', 'LOOPBACK_AGENT_ROUTES']) {
     const line = lineOf(set);
     assert.ok(line, set + ' moved; this pin reads nothing');
-    for (const route of ['/api/msg', '/api/post', '/api/react']) {
+    for (const route of ['/api/msg', '/api/post', '/api/react', '/api/whoami']) {
       assert.ok(!line.includes(route), route + ' is now exempt from the board token via ' + set);
     }
   }

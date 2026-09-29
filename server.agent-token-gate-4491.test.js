@@ -124,10 +124,19 @@ test('a token-only msg is SENT as the token\'s agent, even when the body names a
   assert.doesNotMatch(pasted, /colleague mara/, 'the body\'s pane or token changed the sender');
 });
 
-test('a malformed agent token is refused at the gate without a store scan', async () => {
+test('a malformed agent token is refused at the gate without a store scan', async (t) => {
+  /* Spy on the store scan the gate calls, so this test can see the shape check itself: a malformed
+     token must be refused WITHOUT resolveName running, and a well-formed unknown one must run it. */
+  const real = sendertoken.resolveName;
+  let scans = 0;
+  sendertoken.resolveName = (tok) => { scans += 1; return real(tok); };
+  t.after(() => { sendertoken.resolveName = real; });
   for (const bad of ['short', 'Z'.repeat(64), agentToken + '0']) {
     assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': bad }, body: {} })), 'a malformed token passed: ' + bad.slice(0, 10));
   }
+  assert.equal(scans, 0, 'a malformed token still scanned the token store');
+  assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': 'a'.repeat(64) }, body: {} })));
+  assert.ok(scans > 0, 'control: a well-formed unknown token did not reach the store scan, so the spy sees nothing');
 });
 
 test('a revoked agent token no longer opens the gate', async () => {

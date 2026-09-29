@@ -3685,12 +3685,15 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    kosmos-relay crates/tunnel/src/proxy.rs, not this repo). POST /api/react joins later (#4491).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
-   still passes here, exactly as it already does on the exempt report and reply routes. */
+   still passes here, exactly as it already does on the exempt report and reply routes.
+   ⚠️ And a token is only as private as its launch: the Mac supervisor passes it on tmux's command
+   line, which another macOS account can read with `ps`. That leak predates this, but it now
+   reaches these routes too; #4497 moves it off argv. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami']);
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
   /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
-     caller with a malformed token costs no file reads. */
+     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan. */
   return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
@@ -12186,9 +12189,9 @@ const server = http.createServer((req, res) => {
            the failure this card exists to remove, reappearing at the timeout
            rather than at the reader.
 
-           ⚠️ `/api/whoami` is reachable by any local process holding the board token or
-           an agent token (#4491) on a single-threaded server, so that is up to 15s of
-           blocking from such a caller.
+           ⚠️ `/api/whoami` is reachable by any local process on a non-enforcing board,
+           and on an enforcing one by any holding the board token or an agent token
+           (#4491), on a single-threaded server, so that is up to 15s of blocking.
 
            📌 NOT FIXED HERE, DELIBERATELY. The timeouts live in `runningas`'s
            default readers and belong to every caller of that module, so

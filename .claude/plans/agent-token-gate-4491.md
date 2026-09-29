@@ -31,7 +31,9 @@ caller without any token can do. Agent tokens are per-agent, mode 600, and revok
 Residual, stated: the gate checks the token store, not the roster, so if a removal's best-effort
 revoke failed and the agent's process is still alive, its token still passes here, as it already
 does on the exempt report and reply routes. A malformed token is refused by shape before any
-file read.
+file read (a spy test shows no store scan), though a well-formed token always pays the scan.
+Residual, stated: the Mac supervisor passes the token on tmux's command line, readable by another
+macOS account via ps; it now reaches msg/post too. #4497 moves it off argv, before the set widens.
 
 ## Weakest premise
 That every handler behind these routes identifies the caller from the header token rather than
@@ -39,6 +41,6 @@ from `from_pane` when no board token is present. Checked for msg/post (senderFro
 whoami; each new route added later must be checked the same way.
 
 ## Verified
-- server.agent-token-gate-4491.test.js: 6/6 on an enforcing board, with controls (bare request,
+- server.agent-token-gate-4491.test.js (10 tests) on an enforcing board, with controls (bare request,
   wrong token, body token, person-only routes, board token still works); the exemption removed
   reds the pass test.
