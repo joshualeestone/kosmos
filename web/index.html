@@ -31648,10 +31648,10 @@ function paintBuildLine(version) {
 /* #3330 -> federation Kosmos+ gate (Josh launch spec, 2026-09-21). The #3312
    federation UI was hidden on prod by a plain sourceChannel gate. It now gates on
    TWO engine signals so the LAUNCH shows federation only to paying members:
-     - federationLive: the ONE coordinated flip. False until the coordinator is
-       deployed + the m2m pipe (slice 3) is e2e-proven, so prod stays hidden
-       (the old #3330 "not shipped yet" state) until Splinter flips it. Staging is
-       always treated live (a review surface).
+     - federationLive: the ONE coordinated flip, the coordinator's /v1/meta
+       `federation_live` (kosmos#4649; the board also honours its operator env
+       override). False until the coordinator publishes true, so prod stays hidden
+       until then. Staging is always treated live (a review surface).
      - plusEntitled: is THIS viewer an authenticated Kosmos+ member? Members get
        the fed UI; everyone else gets a "sign up for Kosmos+" prompt instead.
    Returns the gate mode: 'show' (fed UI), 'signup' (gated; the Plus-gate modal offers sign-up), or 'hidden'.
@@ -31661,7 +31661,7 @@ function paintBuildLine(version) {
    this reads data.kosmos_plus off the /api/status poll, which assumes the LOCAL server
    surfaces the relay's /v1/account/me bool there; if instead the frontend must call
    /v1/account/me directly, only fedGateStamp's read changes. The FLIP signal
-   (data.federationLive) -- who sets it, where -- is likewise pending. FAIL-SAFE by
+   (data.federationLive) is the coordinator's /v1/meta federation_live (kosmos#4649). FAIL-SAFE by
    construction: an unknown/absent signal never resolves to 'show' on prod -- a
    non-member or unknown viewer there gets 'signup', and before the flip everything is
    'hidden'. */

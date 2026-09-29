@@ -111,6 +111,8 @@ async function withMeta(answer, fn) {
     if (req.url !== '/v1/meta') { res.writeHead(404); res.end(); return; }
     if (answer === 'hang') return;                          // never answers: the timeout arm
     if (typeof answer === 'number') { res.writeHead(answer); res.end('{}'); return; }
+    if (answer && answer.redirectTo) { res.writeHead(302, { location: answer.redirectTo }); res.end(); return; }
+    if (answer && answer.html) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('{"federation_live":true}'); return; }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(typeof answer === 'string' ? answer : JSON.stringify(answer));
   });
@@ -151,4 +153,25 @@ test('#4649 end to end: the default refresh flips the flag from the coordinator,
   writeSettings({ on: true, fedLive: true, fedLive_at: 1000 });
   await withMeta({ build: 'b77a85c' }, () => remote.refreshFederationLiveIfStale({ now: 1000 + TTL + 1, ttlMs: TTL }));
   assert.equal(remote.federationLive(), true, 'a coordinator without the field must keep the last-known value');
+});
+
+test('#4649 decided: a board whose person has NOT turned remote access on never asks the coordinator', async () => {
+  for (const settings of [{ on: false, fedLive: false, fedLive_at: 1000 }, { fedLive: false, fedLive_at: 1000 }]) {
+    writeSettings(settings);
+    let called = false;
+    await remote.refreshFederationLiveIfStale({ now: 1000 + TTL + 1, ttlMs: TTL, fetcher: async () => { called = true; return true; } });
+    assert.equal(called, false, 'a board that never opted in called our servers: ' + JSON.stringify(settings));
+    assert.equal(remote.federationLive(), false);
+  }
+});
+
+test('#4649 a redirect is refused and a non-JSON answer is ignored (null), even when it reads true', async () => {
+  // The redirect's target stays up and answers true, so a followed redirect would read true, not null.
+  const target = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"federation_live":true}'); });
+  await new Promise((r) => target.listen(0, '127.0.0.1', r));
+  try {
+    const to = 'http://127.0.0.1:' + target.address().port + '/v1/meta';
+    assert.equal(await withMeta({ redirectTo: to }, () => remote.fetchFederationLive()), null, 'a redirect was followed');
+  } finally { target.closeAllConnections(); await new Promise((r) => target.close(r)); }
+  assert.equal(await withMeta({ html: true }, () => remote.fetchFederationLive()), null, 'a non-JSON answer was parsed');
 });

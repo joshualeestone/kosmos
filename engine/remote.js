@@ -391,15 +391,22 @@ function kosmosPlus() {
    kosmos#4649: the source is the PUBLIC `GET /v1/meta`, field `federation_live` (a launch flag
    for everyone, so neither signed nor per-account). A coordinator without the field answers
    null here, which is exactly the old stub's behaviour, so this is safe to ship before it.
-   `opts.fetch` and `opts.timeoutMs` are the test seam. */
+   ⚠️ Switching OFF is an explicit `federation_live: false`, never a missing field or a revert: null
+   keeps the last-known value on purpose (no flicker), so a board that saw true keeps it until told false.
+   The coordinator therefore always publishes the field (false unless turned on).
+   ⚠️ A plain HTTPS read, NOT through the tunnel binary and its pinned key: this flag only decides what
+   the screens OFFER, and the shared-room routes still refuse non-members on the server, so a spoofed
+   answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
+   is parsed. `opts.fetch` and `opts.timeoutMs` are the test seam. */
 const FED_LIVE_TIMEOUT_MS = 5000;
 async function fetchFederationLive(opts) {
   opts = opts || {};
   const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
   try {
     const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
-    const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS) });
+    const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
     if (!res || !res.ok) return null;
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return null;
     const body = await res.json();
     return (body && typeof body.federation_live === 'boolean') ? body.federation_live : null;
   } catch {
@@ -420,6 +427,12 @@ async function refreshFederationLiveIfStale(opts) {
   if (fedLiveRefreshInFlight) return;
   const s = read();
   if (s.ok !== true) return;                       // state file unreadable -> keep default (false), do not stamp
+  /* kosmos#4649, decided: only a board whose person turned Kosmos+ remote access ON asks the coordinator.
+     A board that never opted in makes no call to our servers (the old stub made none; a live fetch would
+     have been 1,440 calls a day from every open board, and every test suite hitting /api/status). The
+     cost: a board that never turned it on cannot learn the flag, so it cannot show a signup prompt from
+     it. Whether never-opted-in boards should ask is a product call left open on #4649. */
+  if (s.on !== true) return;
   if (now - (s.fedLive_at || 0) < ttl) return;     // still fresh
   fedLiveRefreshInFlight = true;
   try {
