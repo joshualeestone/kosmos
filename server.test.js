@@ -1654,6 +1654,20 @@ test('both modules resolve worker files under the SAME sandboxed root', async (t
     'status.js did not read the sandboxed file, so it is resolving a different root');
 });
 
+test('#4446: the instructions read carries personal, a tool name or null, never a path', async (t) => {
+  const name = await anyAgent(t);
+  if (!name) return;
+  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'The agent\'s own instructions.');
+  const got = JSON.parse((await req(`/api/agent/${name}/instructions`)).body);
+  assert.ok(Object.prototype.hasOwnProperty.call(got, 'personal'), 'the read must say whether a personal file loads');
+  const p = got.personal;
+  assert.ok(p === null || (Object.keys(p).length === 1 && ['Claude Code', 'Codex', 'Gemini CLI', 'Grok'].includes(p.tool)),
+    'personal is null or exactly { tool } naming a known CLI: ' + JSON.stringify(p));
+  assert.match(got.text, /The agent's own instructions/, 'control: the rest of the read is unchanged');
+});
+
 test('the route refuses a save that would overwrite an edit made since the read', async (t) => {
   const name = await anyAgent(t);
   if (!name) return;

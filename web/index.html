@@ -35063,7 +35063,8 @@ function setWritesOffered(a, tied) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
-    paintPersonalInstr(null);   // #4446: hidden AND emptied, so no other agent's sentence waits in it
+    const personal = document.getElementById('d-instr-personal');   // #4446: emptied too, not only hidden
+    if (personal) personal.textContent = '';
     const msg = document.getElementById('d-instr-msg');
     if (msg) msg.textContent = '';
   }

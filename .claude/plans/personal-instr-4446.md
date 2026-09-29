@@ -33,7 +33,8 @@ text; no sentence when there is none; the sentence never carries over to another
 - server.js: the instructions GET adds `personal`.
 - web/index.html: `#d-instr-personal` under the lede; `paintPersonalInstr`; hidden at load start and
   in the agent-switch reset loop.
-- Tests: engine/personalinstr.test.js; browser check render-personal-instr-4446 (real server read,
+- Tests: engine/personalinstr.test.js (also run on Windows CI, tools/windows-tests.js); server.test.js pins the
+  route's `personal` field (present, null or exactly `{ tool }`); browser check render-personal-instr-4446 (real server read,
   CONTROL arm, a failing-read arm measured red by removing the reset). Indices: gated.txt, README,
   reason-grep count 199 -> 200 (measured).
 
@@ -51,3 +52,5 @@ text; no sentence when there is none; the sentence never carries over to another
 - The copy ("They also follow your personal <tool> instructions, which are kept outside Kosmos and
   apply to your other <tool> sessions as well.") is mine; Mona owns the panel's wording and may
   reword it.
+- On Windows, readJob can call schtasks on a cache miss. status.js already calls readJob for every
+  agent on each status poll, so this read hits a warm cache; not treated as new cost.

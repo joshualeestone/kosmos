@@ -40,10 +40,10 @@ function sourcesFor(runner, configDir, create) {
   return { files: [], rules: [] };
 }
 
-/* Runs synchronously on every Instructions read. */
 const RULES_MAX_DEPTH = 4;
 const RULES_MAX_ENTRIES = 500;
 
+/* Runs synchronously on every Instructions read. */
 function rulesHaveContent(dir, deep, scoped, has) {
   let seen = 0;
   let stopped = false;
