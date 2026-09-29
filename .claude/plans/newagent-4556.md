@@ -57,3 +57,12 @@ and at phone width.
   render-swarm-ui-3564 (Swarm path: no selector, the Swarm card alone as the preview), render-consolidated-
   newagent-3053 (step one's cards centred in one row; the form measured on the role screen), click-first-run.
 - New: a check for the first screen and the three paths (and Back), light and dark, desktop and phone.
+
+## After the loop (2026-09-29 16:50, CI and a fresh review)
+- CI's render-full-width was red: it predated this card and held the whole New Agent panel to 34rem. It now measures
+  the first step at 60rem (the deliberate `#panel-create:has(#cstep-kind:not([hidden]))` rule) and, after Single, the
+  form at 34rem, both centred; measured red with the 60rem rule removed.
+- Review: with /api/roles failing, Team said only "Ready-made teams are coming soon." and never retried, and a failed
+  load overlapping a good one could hide an org chart that had loaded. The Team path now starts the roles load when
+  there is none, a failure never empties a list another load filled and hides the org chart, and `#team-orgchart-msg`
+  says why. K10 in render-newagent-paths-4556 measures the note and the retry (each red with its fix removed).
