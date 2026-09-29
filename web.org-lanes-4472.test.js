@@ -164,8 +164,8 @@ const ceo = (count, n) => [['ceo']].concat(...Array.from({ length: count }, (_, 
 
 test('several leads, and a CEO over several managers: even and odd teams both take two rings and shrink (#4472)', () => {
   /* Measured (main / #4473 / #4472 / #4499): 4 leads x 30: 1240 / 2558 / 1777 / 1777; x 31: 1240 / 2630 / 1691 / 1691.
-     CEO over 4 x 20: 924 / 3506 / 2804 / 2061; 4 x 21: 1040 / 3710 / 2645 / 1895. The last figure is the least number
-     of teams on two rings (as measured on #4499). */
+     CEO over 4 x 20: 924 / 3506 / 2804 / 2061; 4 x 21: 1040 / 3710 / 2645 / 1895. In each case below, the third
+     element is the size ceiling and the fourth the least number of teams on two rings (as measured on #4499). */
   const cases = [['4 leads x 30', leads(4, 30), 1850, 4], ['4 leads x 31', leads(4, 31), 1800, 4],
     ['a CEO over 4 x 20', ceo(4, 20), 2950, 3], ['a CEO over 4 x 21', ceo(4, 21), 2800, 4]];
   for (const [label, spec, ceiling, twoRing] of cases) {

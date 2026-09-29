@@ -41,7 +41,7 @@ function lift(names, tail) {
     }
     return SCRIPT.slice(at, end);
   }).join('\n');
-  const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC', 'ORG_PAD'].map((k) => {
+  const consts = ['ORG_R0', 'ORG_STEP', 'ORG_MIN_ARC', 'ORG_PAD', 'ORG_FACE_R'].map((k) => {
     const m = SCRIPT.match(new RegExp('const\\s+' + k + '\\s*=\\s*([-\\d.]+)\\s*;'));
     assert.ok(m, k + ' is no longer declared in the page');
     return 'const ' + k + ' = ' + m[1] + ';';
@@ -163,7 +163,7 @@ test('no line within 12px of the centre of a face that is not one of its ends, f
   assert.equal(crossings, 0, crossings + ' crossing(s)');
   /* Faces are ORG_MIN_ARC (62px) apart, except on neighbouring first-ring lanes, where the 12px hub-line rule leaves
      about 59.2px at the least (measured 59.63px, in randomTree(1, 250, 0.25)). With the check that keeps faces of
-     different teams apart removed, the closest pair here falls to 24.71px, overlapping (review, post-rebase round 1). */
+     different teams apart removed, the closest pair here falls to 22.34px, overlapping (post-rebase review 1; re-measured in review 3). */
   assert.ok(faces >= 59, 'two faces are only ' + faces.toFixed(2) + 'px apart (' + facesAt + ')');
 });
 
@@ -209,6 +209,18 @@ test('per-shape timing ceilings, each about 5x its measured time, so a 10x slowd
       ms.push(Number(process.hrtime.bigint() - t) / 1e6);
     }
     ms.sort((a, b) => a - b);
-    assert.ok(ms[2] < ceiling, 'orgPlace on ' + label + ' took ' + ms[2].toFixed(1) + 'ms (median of 5), over ' + ceiling + 'ms');
+    /* The FASTEST of 5, not the median (review 3): the full suite runs many files at once, and a busy neighbour can
+       push a median past its ceiling, but it cannot make the fastest run faster, while a 10x slower layout still fails. */
+    assert.ok(ms[0] < ceiling, 'orgPlace on ' + label + ' took ' + ms[0].toFixed(1) + 'ms (fastest of 5), over ' + ceiling + 'ms');
   }
+});
+
+test('a flat fleet\'s spill lanes sit ORG_FIRST_LANE (58px) apart, the step it shares with a tree\'s first ring (#4499, #4502)', () => {
+  /* orgPlace's flat branch (#4502) and a tree's crowded first ring read one constant. Nothing else pins the flat
+     lanes' step: web.org-flat-rings-4502 stays green with it at 70 (measured, post-rebase review 3), so a change made
+     for trees would move the first screen most people see without a test noticing. 60 agents with no manager spill
+     over two lanes at least. */
+  const radii = [...new Set([...paint(Array.from({ length: 60 }, (_, i) => ['f' + i])).placed.values()].map((sp) => Math.round(sp.r * 1000) / 1000))].sort((a, b) => a - b);
+  assert.ok(radii.length >= 2, 'CONTROL: 60 agents with no manager sit on ' + radii.length + ' lane(s), so no step is measured');
+  for (let k = 1; k < radii.length; k += 1) assert.equal(radii[k] - radii[k - 1], 58, 'flat lanes ' + (k - 1) + ' and ' + k + ' are ' + (radii[k] - radii[k - 1]) + 'px apart');
 });
