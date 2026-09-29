@@ -34,11 +34,16 @@ This PR is the write-up's fixes 1-3, in the Muse front only. Fix 4 (show the que
   second stop keeps the first stop's note and, when it drops messages from the person, names them in a short
   "asked you to stop again" note (identical notes are queued once); "hold" is not a stop word (it can answer
   "hold or ship?"); Escape clears waiting stop notes (housekeeping no test can observe).
+- Review round 5: a stop kills the running Muse process and its note starts at once, while Muse may still hold
+  the session; a stop note answered "still working on this agent's last turn" (muserun.BUSY, now exported) is
+  tried again up to 4 times, 500 ms apart. A second stop also counts a colleague's addressed message it drops.
 - Known and accepted (round 3 NIT): a project name containing "]" makes a room-wide stop read as an ordinary
   message; it still goes first.
 
 ## Weakest premise
-That the stop request reaches the front as its own typed message while a turn runs. It does today (chat.js
+That Muse frees a killed turn's session within about two seconds (the busy retries); measured only against a fake
+runTurn, as Muse is on no Mac this was built on. Also that the stop request reaches the front as its own typed
+message while a turn runs. It does today (chat.js
 types each message and presses Enter). Framing Kosmos adds that this code does not know about would make a stop
 read as an ordinary message (it still goes first, so the agent sees it after its current turn).
 

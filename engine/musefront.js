@@ -20,8 +20,8 @@
  * refuses inside any agent's text, so an agent cannot forge one) goes ahead of everyone else's,
  * behind only the person's own earlier ones and a stop note that is waiting. A person's short
  * stop request ends the running turn and drops what waits, like Escape, then runs as the next
- * turn with a note naming what was dropped, so the agent can say it stopped. Background room posts ("not addressed to you") that pile up
- * while a turn runs are folded into one turn.
+ * turn with a note naming what was dropped, so the agent can say it stopped. Background room
+ * posts ("not addressed to you") that pile up while a turn runs are folded into one turn.
  *
  * The board hears working and idle through bin/agy-report-bridge.js (its PreInvocation and Stop
  * events map to those two states, and it carries the board token, the world header, the per-pane
@@ -119,6 +119,12 @@ function shortOf(text) {
 const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
 /* #4569 review round 1: the most background posts one digest turn carries. */
 const DIGEST_MAX = 40;
+/* #4569 review round 5: a stop kills the running turn and its note starts at once, while Muse may still hold the
+   session ("already in use", muserun.BUSY). The note is tried again this many times, this far apart, before it
+   is given up on, so what the stop dropped still reaches the agent. */
+const BUSY_RETRIES = 4;
+const BUSY_RETRY_MS = 500;
+const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY, spelled here to keep this file's require lazy
 /* ...and posts stop being added past this many characters (review round 2: forty long posts are still one argv
    string). A single post longer than this still goes whole; room posts are bounded where they are made. */
 const DIGEST_MAX_CHARS = 32 * 1024;
@@ -130,7 +136,7 @@ const DIGEST_MAX_CHARS = 32 * 1024;
  * Returns { feed(bytes), stop(), drained() }. feed takes raw input; stop ends the running turn and drops
  * the waiting ones; drained resolves once no turn is queued or running (tests only).
  */
-function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS }) {
+function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS }) {
   let line = '';
   const queue = [];
   let running = false;
@@ -172,7 +178,14 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         const beat = setInterval(() => report('working'), workingEveryMs);
         if (beat.unref) beat.unref();
         let r;
-        try { r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } }); }
+        const isNote = stopNoteRunning;
+        try {
+          for (let tries = 0; ; tries++) {
+            r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
+            if (!(isNote && stopNoteRunning && r && !r.ok && r.because === MUSE_BUSY && tries < BUSY_RETRIES)) break;
+            await new Promise((ok) => setTimeout(ok, busyRetryMs));
+          }
+        }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
         finally { clearInterval(beat); stopTurn = null; stopNoteRunning = false; }
         const text = r && typeof r.text === 'string' ? printable(r.text).trim() : '';
@@ -211,7 +224,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   function stop() {
     const dropped = queue.length;
     queue.length = 0;
-    STOP_NOTES.clear();   // a stop note Escape drops is no longer waiting (review round 2)
+    STOP_NOTES.clear();
+    stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)   // a stop note Escape drops is no longer waiting (review round 2)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
     if (stopTurn) { const f = stopTurn; stopTurn = null; try { f(); } catch { /* the turn is ending anyway */ } }
@@ -232,11 +246,15 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       /* Review round 3: the person's own messages this drops are named to the agent too, in a short note
          after the first one, never only in the pane (the person reads the DM, not the pane). */
       const mine = extra.filter((t) => kindOf(t) === 'operator');
-      if (mine.length) {
+      // Review round 5: a colleague's addressed message dropped here is counted to the agent too.
+      const asked = extra.filter((t) => kindOf(t) === 'other').length;
+      if (mine.length || asked) {
         /* Review round 4: notes are tracked by their text, so an identical note already waiting says it already;
            a second copy would leave one copy untracked. */
-        const more = '[Kosmos: your operator asked you to stop again, and these messages from them, sent in between, were dropped unread: '
-          + mine.map((t) => '"' + shortOf(t) + '"').join(', ') + '.]\n' + text;
+        const said = [];
+        if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
+        if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
+        const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
         if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); }
       }
       return;

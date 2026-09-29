@@ -432,3 +432,32 @@ test('#4569 review round 4: the same dropped message named twice waits as ONE no
   assert.equal(prompts.filter((q) => /stop again/.test(q)).length, 1, 'the identical note ran twice: ' + prompts.length);
   assert.ok(/stop again/.test(prompts[2]) && prompts[3] === OP('y'), 'order: ' + prompts.map((q) => q.slice(0, 30)).join(' | '));
 });
+
+test('#4569 review round 5: a stop note Muse refuses as busy (the stopped turn still holding the session) is tried again and runs', async () => {
+  const run = require('./muserun');
+  let busyLeft = 2;
+  const h = harness((input, i) => {
+    if (i === 0) return 'hold';
+    if (/^\[Kosmos: your operator asked you to stop/.test(input.prompt) && busyLeft > 0) { busyLeft--; return { ok: false, text: '', because: run.BUSY }; }
+    return OK('Stopped.');
+  }, { busyRetryMs: 5 });
+  h.f.feed('long job\r'); h.f.feed(OP('are you there') + '\r'); h.f.feed(OP('stop') + '\r');
+  await within(h.f.drained(), 'the retried note never finished');
+  const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
+  assert.equal(notes.length, 3, 'the note was not tried again after a busy answer');
+  assert.ok(!h.out().includes(run.BUSY), 'a busy answer the retry recovered from was printed as a failure');
+  assert.match(h.out(), /Stopped\./);
+  // CONTROL: an ordinary message refused as busy is not retried (only a stop note is).
+  const c = harness([{ ok: false, text: '', because: run.BUSY }], { busyRetryMs: 5 });
+  c.f.feed('hello\r'); await c.f.drained();
+  assert.equal(c.calls.length, 1);
+});
+
+test('#4569 review round 5: a second stop counts a colleague\'s dropped message to the agent', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(COL('can you check X') + '\r'); h.f.feed(OP('stop') + '\r');
+  h.pending[1](OK('Stopped.')); await h.f.drained();
+  assert.match(h.calls[2] && h.calls[2].prompt, /^\[Kosmos: your operator asked you to stop again, and 1 message addressed to you was dropped too\.\]\n/);
+});
