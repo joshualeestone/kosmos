@@ -1,0 +1,116 @@
+# connteach-4451: agents know the Connections tab, can mark what they connect, and read it cheaply
+
+Card: #4451 (Josh 19:57, claimed pigeonpete by Splinter).
+
+## Built
+1. **Agents know the tab.** The #1034 connections block (engine/connections.js) gains a Connections tab section. It covers:
+   - what the tab is;
+   - `kosmos connections` as the ONLY read;
+   - the explicit ban on reading `GET /api/connections` or polling it (it bills);
+   - `kosmos connect <service>` with the token on stdin;
+   - GitHub and Vercel being the person's to sign in to, in the tab;
+   - what to say for a service with no door;
+   - how to answer "what connections do we need".
+   It is the same block, so it syncs where #1034's already does (boot and PUT /api/you). No new markers.
+2. **A cheap read.** `GET /api/connections/held` (server.js `connectionsHeld`) reads the disk only.
+   - A token door answers held true/false from its token file (`tokendoor.held()`), Cloudflare from its token file, and GitHub true when its device token is stored.
+   - Otherwise GitHub and Vercel (sign-in services whose sign-in lives in their own tool) answer null: not known without a live check.
+   - It sits behind the same cross-site refusal as the sweep.
+3. **Marking a connection.** `kosmos connect <service>` reads the token from stdin (refused on a terminal), writes it into a mode-600 temp file as JSON, POSTs it to the service's existing door (`/api/svc/<slug>/token`, or `/api/cloudflare/token`), and removes the file. The door checks it with the service and keeps it only if it works, so the row shows it.
+   - `tokendoor.connect` now answers from the check it just made instead of calling `state()` again. That was a second metered call on every connect. The server.js comment that described the old ending is corrected.
+   - `kosmos connections` prints each service in words.
+4. **The callout** at the top of Connections: a `P.ask-agent` with the card's words, the same values as #4450's `.gs-ask` (not merged yet). Whichever lands second can share one class.
+
+## Decided
+- **A service with no Kosmos door** is not shown in the tab. The block tells the agent to say so plainly ("connected for you, and it will not appear in the Connections tab") rather than invent a row. A new stored "marked" state would be a claim nobody checks.
+- **GitHub and Vercel** cannot be marked by an agent. They are browser sign-ins the person does in the tab. The block points the person there and never asks for a password.
+- **The same block, not a sibling one:** it is the "connecting" knowledge. A sibling block would add marker plumbing for no gain.
+
+## Rejected
+- A cache of the last verify result (#1618 killed a TTL, because a window turns "could not check" into a confident "not connected"). The disk read answers a different, honest question: is a token stored?
+
+## Weakest premise
+That "a token is stored" is a good enough answer for an agent. It can be stale (a revoked token still reads held). The tab checks it live when the person opens it, and the CLI line says exactly that.
+
+## Tests
+- server.connheld-4451.test.js:
+  - Connecting through the door makes exactly ONE metered call.
+  - The held read makes ZERO; CONTROL: the full sweep does move the same counters.
+  - The Connections row then shows connected.
+  - The held read is refused cross-site, with a same-origin control.
+  - A refused token is not kept.
+- cli.connections-4451.test.js:
+  - `kosmos connections` asks the cheap route, never `/api/connections`, and prints each state.
+  - `kosmos connect` sends exactly the stdin token, never on argv, and leaves no temp file.
+  - A refusal is said in the service's words; an empty token or a bad name sends nothing.
+- engine/connections.test.js: the block names the tab, the cheap read, the ban, stdin, and the no-door rule.
+- docs/browser-checks/render-conn-ask-4451.js (gated): the callout in light and dark, desktop and phone (36 arms). Contrast measured at 7.54:1 light and 5.61:1 dark.
+- Mutants, each red: the cheap read verifies, connect verifies twice, the CLI reads the sweep.
+
+## Review round 1 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 6 NITs
+- **WARNING** No signal trap: a Ctrl-C or SIGTERM while the door checks the token (up to 30s) left the real token in the temp file. Fixed: a trap removes it (the pattern this file already uses), cleared after the normal rm.
+  - New test: SIGTERM mid-request, the file gone after (with controls that the request reached the door and the file existed then).
+  - Mutant without the trap: red.
+- **WARNING** "Not on argv" checked the test's OWN spawn arguments, so it could not fail. Fixed: a `curl` shim on PATH records curl's real arguments and each `@file`'s mode. The test asserts the token is absent from them and the data file is mode 600.
+  - Mutant passing the token on curl's command line: red.
+- **NIT** My verbs sat under whoami's header comment. Moved above it.
+- **NIT** The block says `kosmos connections` shows each service's word, but held rows lacked it. Now every token row carries it ("replace it with: kosmos connect <word>", so a revoked-but-stored token can be replaced).
+- **NIT** Cloudflare printed lowercase. It is shown as Cloudflare now.
+- **NIT** A refusal repeated the service name. It now reads "Not connected: <the door's reason>".
+- **NIT** Any failure writing the token file said "empty". It now says so only for an empty token, and a write failure says what happened.
+- **NIT** The browser control looked for #conn-ask, which can only exist in one place. It now looks for any `.ask-agent` in AI Models.
+- KEPT: a refused connect over an already-stored token still costs two checks (the new one, then `state()` on the old). That is pre-existing, and "one" is claimed for a successful connect only.
+
+## Review round 2 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- **WARNING** The trap removed the token file, but bash runs a trap only after the FOREGROUND command returns, so a SIGTERM still waited for curl (up to 30s). My interrupt test asserted only the file, not the time, so it could not tell prompt from late.
+  - Fixed: the request runs in the background and is `wait`ed on (a trap interrupts `wait` at once), with its answer in a second private file. The trap kills the request and removes both files.
+  - The test now asserts the CLI stops within 2s of SIGTERM (the door holds for 4s) and exits 143.
+  - Mutant: the request back in the foreground makes it red ("waited 3997ms for the door").
+- **NIT** `exit 130` for every signal. Fixed: 128 + the signal (INT 130, TERM 143, HUP 129).
+- Confirmed clean: the trap is cleared on every exit path and clobbers no other trap; the shim's CONTROL runs first; connectionsHeld and the page's SVC_BUILT list match exactly (21 services); nothing on the page calls the held route.
+
+## Review round 3 (opus, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- **WARNING** Round 2 backgrounded kosmos_curl, a shell FUNCTION. Killing its subshell skipped the function's own cleanup, so the board token's header file (`kosmos-auth.*`) stayed on disk, and the orphaned curl finished the POST anyway.
+  - Fixed: the trap stops the curl INSIDE the job (`pkill -TERM -P`) and then waits for the subshell, which removes its own header file.
+  - A second bug surfaced while fixing it: under the script's `set -e`, pkill (nothing to stop) or wait (143) returning non-zero ended the trap before its cleanup. Both are guarded with `|| true`, and this is written in the comment.
+  - The test now also counts `kosmos-auth.*` files. Mutant restoring round 2's `kill "$_cpid"` goes red with the header file left.
+  - Stated honestly in the comment: a request the board already received may still be completed there; the interrupt stops this command waiting.
+- **NIT** The 2s bound against a 4s hold. The hold is now 8s.
+
+## Review round 4 (sonnet, blind): 0 BLOCKERs, 1 WARNING
+- **WARNING** The token WRITER (node reading stdin) still ran in the foreground, so a producer that never closed stdin left the command deaf to every interrupt, the same defect round 2 fixed for curl.
+  - Fixed: the writer runs in the background with stdin handed over (`<&0`; a background job's stdin is /dev/null otherwise) and is `wait`ed on. The trap kills it by its own pid.
+  - New test: SIGTERM while stdin is still open, with a control that the writer was reached. It stops in under 2s, exits 143, leaves no files, and sends nothing.
+  - Mutant: the writer back in the foreground. At first the test HUNG rather than failed (it waited for close with no limit), which left install/kosmos mutated until I killed the run and the script restored it (its hash matched). Both interrupt tests now kill the CLI after 6s and fail ("waited 6001ms"), so a deaf CLI fails the suite instead of hanging it.
+
+## Found by validation after round 5 (2026-09-28 21:50): the Windows command lacked both verbs
+- The final validation run (killed by a restart before it finished) had already logged a real red: `tools.windows-kosmos-cli-verbs-parity.test.js` said Kosmos now teaches `kosmos connect` and `kosmos connections`, which the Windows command does not have. No review round ran that test, so all five converged without it.
+- Fixed: `tools/windows/kosmos-cli.js` gains `connections` (GET /api/connections/held, board token only) and `connect <service>` (token from stdin, straight into the request body, since this command makes the request itself and needs no file). Same words and exit codes as install/kosmos; a timeout is a maybe (3), as the Windows command does for other sends.
+- The parity reader took install/kosmos's `[ "$svc" = "cloudflare" ]` for a subcommand. The service is not one, so that compare is now a `case`.
+- New: tools.windows-kosmos-cli-connections-4451.test.js (6 tests). Mutants, each red: reads the live sweep; takes an argv token; sends a cut-off token; sends the agent token.
+- Weakest premise: in PowerShell, text piped into kosmos does not reach it (kosmos.ps1 never reads pipeline input), so a Windows agent in PowerShell cannot use the taught form. The usage and the empty-stdin refusal both say to run it from Git Bash. Reading a token from pipeline input in kosmos.ps1 would be the fix if that turns out to matter.
+
+## Review round 6 (sonnet, blind, on the Windows commit): 0 BLOCKERs, 0 WARNINGs, 5 NITs
+- **NIT** Windows refuses extra arguments to connect where the Mac ignores them. KEPT: stricter and safer.
+- **NIT** Windows reads `error` only when it is a string. KEPT: no server path sends another shape.
+- **NIT** No "kosmos start" hint on Windows. KEPT: Windows has no kosmos start.
+- **NIT** The stdin mock ignores maxBytes, so nothing checks the 64 KB cap is passed. KEPT for a follow-up (test hardening, not a defect).
+- **NIT** The "token was printed" check covers only some paths. KEPT for the same follow-up.
+
+## The second validation run (after the Windows fix): 2 reds and a leak, all mine, none contention
+- browser-checks-reason-grep: 200 emit sites, expected 199. The new site is render-conn-ask-4451's run-count guard (SHAPE-4). EXPECTED_SITES is now 200, with its row.
+- cli.exit-code-mapping-3628: cli.connections-4451.test.js had 3 spawn sites that did not check the exit code was a number. The harness now rejects a close with no code. The two interrupt tests carry the marker with the reason: a close with no code resolves the signal's name, which can never equal the 143 they assert.
+- LEAK: 8 kosmos-cli4451 temp dirs left in the suite root. The file now requires test-support/tmpscope first.
+- The failing arm for each of these is the validation log itself. All three files pass now (16 tests).
+
+## The third validation run: 0 node failures, 1 shell failure, mine
+- tools/test-kosmos-help-exit0-3036.sh pins the --help cases in install/kosmos by their exact verb lists, so adding `connect` to the exit-0 case and `connections` to the read-only case broke both greps.
+- Fixed by matching the lists as prefixes. It is also stronger than before: the guard now asserts directly that no read-only verb (adopt, whoami, connections) is on the exit-0 line, which the old exact match only implied.
+- Controls, six line shapes: main's lines and the branch's lines pass; whoami folded into the exit-0 case, connections folded in, and a missing read-only case each fail; connect is not mistaken for connections.
+
+## After merging main: the two "Ask your agent" notes share one class, and review round 7
+- #4450 landed first as `.gs-ask`, with the same values as this card's `.ask-agent`. As the two cards agreed, the second to land folds them: one `.ask-agent` rule, and #g-skills-ask now carries it (9a6709e8). Both notes' browser checks and render-fields passed on the frozen commit.
+- **Review round 7 (opus, blind): 0 BLOCKERs, 1 WARNING, 1 NIT.**
+  - **WARNING** Both notes are <p> inside `<section class="panel">`, and `.panel p` (0,1,1) outranks `.ask-agent` (0,1,0). So both rendered in --label-2 at 13px, not --k-ink at .9375rem as the rule and its comment say. This was already true of #4450 on main, and every contrast check passed either way, because label-2 still clears 4.5:1. Fixed: the selector is `.panel .ask-agent` (0,2,0). render-conn-ask-4451 gains an arm that pins the note's computed colour to --k-ink (read off a probe) and its size to 15px, for 40 checks.
+  - **NIT** The comment carried the class's history and the only remaining "gs-ask" string. Cut to what the rule does; the history is in the commit.
+- Decided: raise the selector rather than delete the dead declarations. Both cards specified full-ink text, and the fix makes the page match the design both of them wrote down. It also changes #4450's note on main from label-2 to ink. That is reversible, so I made the call.

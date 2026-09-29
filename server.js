@@ -928,11 +928,12 @@ const inflight = require('./engine/inflight');
  * all of it twice.
  *
  * 🛑 COLLAPSED ON THE READ PATH ONLY, AND THAT BOUNDARY IS LOAD-BEARING RATHER
- * THAN TIDINESS. `connect()` and `forget()` on both door shapes END by calling
- * their own `state()` to answer with what they just did:
+ * THAN TIDINESS. `connect()` and `forget()` on both door shapes answer with what
+ * they just did, never with a read that started before it:
  *
- *     tokendoor.js:  return state();          // after storing the token
- *     cloudflare.js: same shape
+ *     tokendoor.js:  connect answers from the check it just made (#4451: one metered
+ *                    call, not two); forget ends with `return state();`
+ *     cloudflare.js: ends with its own `state()`
  *
  * If those shared an in-flight read that started BEFORE the write, a person who
  * had just connected would be answered with the state from before they
@@ -976,6 +977,27 @@ const readConnectionsShelf = inflight.collapse(() => {
     return doors;
   });
 });
+
+/**
+ * #4451: what is CONNECTED, read from the disk only, for agents. Never a `verify()`: `readConnectionsShelf`
+ * above makes a live authenticated call to every door and Brave, Exa, Tavily and Serper bill each one to
+ * the person's own quota, so an agent asking "what is connected?" (or asking it in a loop) must not reach it.
+ * `held` is true when a token is stored (it says nothing about whether the service still accepts it), false
+ * when none is, and null for a sign-in service whose sign-in lives in its own tool, where only a live check
+ * could say. `connect` names the door an agent uses (`kosmos connect`), absent where the person signs in.
+ */
+function connectionsHeld() {
+  const fileHeld = (file) => { try { return fs.readFileSync(file, 'utf8').trim().length > 0; } catch { return false; } };
+  const out = [
+    { name: 'GitHub', route: '/api/github', how: 'sign-in', held: fileHeld(githubdevice.FILE) ? true : null },
+    { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: null },
+    { name: 'Cloudflare', route: '/api/cloudflare', how: 'token', held: fileHeld(cloudflare.FILE), connect: 'cloudflare' },
+  ];
+  for (const [name, route] of Object.entries(tokendoors.routes())) {
+    out.push({ name, route, how: 'token', held: tokendoors.byName(name).held(), connect: route.replace(/^\/api\/svc\//, '') });
+  }
+  return out;
+}
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
@@ -11391,6 +11413,14 @@ const server = http.createServer((req, res) => {
      is what the page holds (SVC_BUILT). A door whose check threw answers
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
+  /* #4451: the agents' read of what is connected: the disk only, never a verify() (see connectionsHeld).
+     Behind the same cross-site refusal as the sweep below, for the same reason and in the same place. */
+  if (pathname === '/api/connections/held' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    sendJson(res, 200, { services: connectionsHeld() });
+    return;
+  }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
        person merely visits can `fetch()` this in a loop. It learns nothing - CORS

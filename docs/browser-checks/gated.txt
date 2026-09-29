@@ -42,6 +42,7 @@ render-cluster-reorder-2929
 render-codex-account-picker-2811
 render-composer-reset
 render-composer-stroke
+render-conn-ask-4451
 render-conn-top-3708
 render-connect-win32-install-570
 render-connlost-reconnect-3410

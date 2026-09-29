@@ -1109,12 +1109,6 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    step must not borrow. Ink keeps the mark visible and calm. Like .dwarn-m the
    glyph is aria-hidden decoration; the words carry the meaning. */
 .dwarn-ok { color: var(--k-ink); font-weight: 700; margin-right: 6px; }
-/* #4450: the light-gold note at the top of Global Skills. A tint, not a fill: the text stays
-   --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold that holds
-   3:1 on light grounds. No hover, no cursor: it is not a control. */
-.gs-ask { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
-  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
-  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -3342,6 +3336,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    once opened. Chevron rotates open, native details behaviour otherwise. */
 .con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
              color: var(--label-2); margin: 18px 0 6px; }
+/* The "Ask your agent" note: a flat light-gold panel with words, not a button. One class for every such note, so
+   they read as one kind of thing: Global Skills (#g-skills-ask) and Connections (#conn-ask).
+   A tint, not a fill: the text stays --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold
+   that holds 3:1 on light grounds. No hover, no cursor: it is not a control.
+   `.panel` in the selector is load-bearing: both notes are <p> inside the Settings panel, and `.panel p` (0,1,1) would
+   otherwise outrank a bare class and set their font and colour (render-conn-ask-4451 pins that this rule wins). */
+.panel .ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 .con-cat { border-bottom: 0.5px solid var(--separator); }
 .con-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer;
                    list-style: none; font: var(--text-body) var(--font-ui); color: var(--label); }
@@ -15467,6 +15470,10 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
   <section class="dbox">
     <h3 class="dlab">Connections</h3>
+    <!-- #4451 (Josh, 2026-09-28 19:57): "promote your agent to ask them what connections you need and have them
+         make them for you". Words, not a button: the person asks in a conversation, and an agent that connects a
+         service does it through Kosmos (kosmos connect), so its row below shows it. Same look as #4450's callout. -->
+    <p class="ask-agent" id="conn-ask">Ask your agent: <b>&ldquo;What connections do we need?&rdquo;</b> It can set them up for you.</p>
     <!-- 🔑 THE SHAPE IS TWO GROUPS AND QUIET ROWS (#282, #325). Sixteen
          categories is roughly sixty services; flat, the page is a wall and
          nearly all of it is irrelevant to any one person. So: a category with
@@ -15641,7 +15648,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4450 (Josh, 2026-09-28 19:56): a light-gold note, NOT a button. Josh took
            the gold buttons out that afternoon (#4407), so this is a flat tinted panel
            with text and nothing to press. -->
-      <p class="gs-ask" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
+      <p class="ask-agent" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
       <p class="dhint" style="margin:0 0 12px;">
         Skills every agent on this computer gets, alongside whatever each one has
         of its own. Agents read them when they start, so anything you add
