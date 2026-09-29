@@ -31937,7 +31937,10 @@ function dmReplyPaint(agent) {
   /* #4423: the name as it is NOW (a rename while a reply is pending), and part of the key so a new name redraws. */
   /* DM_ROWS_NAME is the name of the agent whose thread was last drawn, which is not yet this one's just after a
      switch (paintTalk paints this strip before the thread): only pass it when it belongs to this agent. */
-  const who = r ? (r.from ? dmWho(r.from, DM_ROWS_OF === agent ? DM_ROWS_NAME : '') : r.who) : '';
+  const fresh = r && r.from ? dmWho(r.from, DM_ROWS_OF === agent ? DM_ROWS_NAME : '') : '';
+  /* A sender whose card is gone (removed while the reply was pending) comes back as the bare id: keep the name taken
+     at the click rather than show the id (Johnny's review of #4510). */
+  const who = r ? (r.from && fresh && fresh !== r.from ? fresh : r.who) : '';
   const key = r ? agent + '\u0000' + r.at + '\u0000' + who : '';
   if (el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
   el.dataset.key = key;
@@ -54516,7 +54519,8 @@ function pjReplyPaint(projectId) {
      dmReplyPaint, so the room poll that now calls this rewrites the strip only when what it says changed (a rewrite
      every poll would pull focus off its close button). */
   const rp = r && r.from ? pjById(projectId) : null;
-  const who = r ? (rp ? pjNameOf(rp, r.from) : r.who) : '';
+  const freshName = rp ? pjNameOf(rp, r.from) : '';
+  const who = r ? (freshName && freshName !== r.from ? freshName : r.who) : '';   // a removed sender keeps the click-time name
   const key = r ? String(projectId) + '\u0000' + r.id + '\u0000' + who : '';
   if (el.dataset && el.dataset.key === key && (r ? !el.hidden : el.hidden)) return;
   if (el.dataset) el.dataset.key = key;

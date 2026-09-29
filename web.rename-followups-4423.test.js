@@ -94,6 +94,15 @@ test('#4423: a pending DM reply names the sender as they are called NOW, and red
   w.reply('bravo', { at: 't2', from: 'bravo', who: 'bravo', words: 'hello' });
   w.dmReplyPaint('bravo');
   assert.match(el.innerHTML, /Replying to <b>Bravo Team<\/b>/, 'a reply on the open agent\'s message took the previous agent\'s name');
+
+  /* The sender removed while the reply is pending: no card, so a lookup would give the bare id; the name taken at the
+     click is kept instead (Johnny's review of #4510; main behaved this way). */
+  w.set({ ...LEAD });
+  w.rows('lead-a', 'Leslie Knope');
+  w.reply('lead-a', { at: 't3', from: 'gone-agent', who: 'Gone Agent', words: 'bye' });
+  w.setLast([]);
+  w.dmReplyPaint('lead-a');
+  assert.match(el.innerHTML, /Replying to <b>Gone Agent<\/b>/, 'a removed sender showed as its id instead of its click-time name');
 });
 
 test('#4423: a pending room reply names the sender as they are called NOW', () => {
@@ -108,6 +117,9 @@ test('#4423: a pending room reply names the sender as they are called NOW', () =
   project = { id: 'p1', agents: [APRIL] };   // the projects poll brought the new name
   w.pjReplyPaint('p1');
   assert.match(el.innerHTML, /Replying to <b>April Ludgate<\/b>/, 'the room strip kept the name taken at the Reply click');
+  w.reply('p1', { id: 'm2', from: 'gone-agent', who: 'Gone Agent', words: 'bye', mention: null });
+  w.pjReplyPaint('p1');
+  assert.match(el.innerHTML, /Replying to <b>Gone Agent<\/b>/, 'a removed sender showed as its id in the room strip');
 });
 
 test('#4423: the reactions tooltip names reactors by their card, not their session id, and keeps "you"', () => {
