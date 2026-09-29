@@ -475,6 +475,16 @@ test('an over-long title or detail is refused in words a sender can act on, not 
   assert.equal((await call(made.json.url, { title: 'x'.repeat(200), detail: 'y'.repeat(2000) })).status, 201);
 });
 
+test('the largest title and detail the route accepts fit the body cap even when the sender escapes every character', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Escaped' } });
+  // Many senders write JSON as ASCII (Python's json.dumps): every non-ASCII UTF-16 unit becomes
+  // \uXXXX, six bytes. An emoji is two units, and it counts as two against the limits.
+  const ascii = (o) => JSON.stringify(o).replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  const body = ascii({ title: '\u4e00'.repeat(200), text: '\u4e00'.repeat(200), detail: '\u{1F600}'.repeat(1000) });
+  assert.ok(body.length > 14000, 'CONTROL: this really is the escaped worst case (' + body.length + ' bytes)');
+  assert.equal((await call(made.json.url, body)).status, 201);
+});
+
 test('"text" is taken as the title when there is no usable "title"; a real title wins', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Texty' } });
   const only = await call(made.json.url, { text: 'from text' });
@@ -583,7 +593,7 @@ test('one project\'s settings cannot rename or delete another project\'s webhook
 test('renaming to an empty, too long or two-line name is refused', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Renamable' } });
   const r = P() + '/' + made.json.webhook.id + '/name';
-  for (const name of ['', '   ', 'x'.repeat(webhooks.NAME_MAX + 1), 'two\nlines', undefined]) {
+  for (const name of ['', '   ', 'x'.repeat(webhooks.NAME_MAX + 1), 'two\nlines', 'two\u2028lines', 'two\u2029lines', undefined]) {
     assert.equal((await api(r, { method: 'POST', body: { name } })).status, 400, JSON.stringify(name));
   }
 });

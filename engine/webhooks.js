@@ -124,7 +124,7 @@ function nameProblem(name) {
   if (name.trim().length > NAME_MAX) return 'a webhook name can be up to ' + NAME_MAX + ' characters';
   // One line of plain text: the name is written into agents' instructions and task lines.
   // No invisible formatting characters either (Unicode Cf): the name is shown to the person.
-  if (/[\u0000-\u001f\u007f-\u009f]|\p{Cf}/u.test(name)) return 'a webhook name is one line, with no special characters';
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]|\p{Cf}/u.test(name)) return 'a webhook name is one line, with no special characters';
   return null;
 }
 
