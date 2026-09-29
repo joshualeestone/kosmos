@@ -896,7 +896,9 @@ RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
 chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
 chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
-chk "the launchd bootstrap's restart reads the choice again first" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -B1 'restart >/dev/null 2>&1 || true' | grep -q '_kosmos_board_decide'"
+# #4466 added --force to this restart (an install run from an agent's pane is not the agent restarting
+# the board), so the pattern takes it as optional; the check is still that the decide comes first.
+chk "the launchd bootstrap's restart reads the choice again first" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -E -B1 'restart( --force)? >/dev/null 2>&1 [|][|] true' | grep -q '_kosmos_board_decide'"
 chk "and the restart itself is held by the board-off decision (the sandbox never reaches it)" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
 chk "a marker this run wrote goes if the choice became run or both during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^elif \\[ \"\$_kosmos_board_off\" = no \\] && \\[ \"\$_kosmos_wrote_marker\" = yes \\]; then' | grep -q 'rm -f \"\$KOSMOS_HOME/board.stopped\"'"
 chk "and the run ends by stopping a board that became connect during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' | grep -q 'kosmos\" stop'"
