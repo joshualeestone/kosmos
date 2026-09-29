@@ -48,7 +48,9 @@ fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mod
 
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
-const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec');
+// Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
+const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true']).status === 0;
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
 const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
 
@@ -300,7 +302,7 @@ sleep 30 & SP=$!
 healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
 _shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
 _unreachable_is_ours() { return 1; }
-sleep() { :; }   # the loop's pauses, not the board
+sleep() { command sleep 0.05; }   # short pauses, but real ones: the kill path waits on the process between checks
 rc=0; ( _await_board_up ${passPid ? '"$SP"' : '""'} ) || rc=$?
 if kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc"; kill "$SP"; else echo "board=gone rc=$rc"; fi
 `;

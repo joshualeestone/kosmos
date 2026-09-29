@@ -1034,7 +1034,8 @@ _await_board_up() {
         if kill -0 "$_pid" 2>/dev/null; then kill -9 "$_pid" 2>/dev/null || true; fi
         for _k in 1 2 3 4 5; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.2; done
         # ASKED IS NOT STOPPED (cmd_stop's rule): the pidfile is the only handle on it, so it goes only once
-        # the process is gone.
+        # the process is gone. (board.started-at, written before the launch, stays: it only times the agent
+        # restart cooldown, and a failed start counts as a start there, as #4466 intends.)
         if kill -0 "$_pid" 2>/dev/null; then
           die "Kosmos cannot be started from this shell: $(_unreachable_why). The board it launched (process $_pid) would be blocked the same way and could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
         fi
