@@ -3,6 +3,8 @@
 # merge cleanly. Each name is docs/browser-checks/<name>.js. Blank lines and # comments are
 # skipped. tools.browser-checks-wired.test.js checks every name has its file, the list is
 # sorted with no duplicates, and the runner really iterates this file.
+# A check that takes a board URL does not belong here: it would also run with no address and
+# fail. The same test fails if a name here is also launched anywhere else in the runner (#4464).
 emoji-picker-2254
 live-connect
 render-account-badge-1921
