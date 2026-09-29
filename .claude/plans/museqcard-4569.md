@@ -5,7 +5,7 @@ where the person's own message sits). Built on museq-4569 (PR #4604), which gave
 
 ## Finished looks like
 While a Muse turn runs with messages waiting, the agent's card, list row and agent page read Working with the line
-"15 messages waiting, yours is next" (or "..., yours are next", "..., all yours", "..., yours", or just
+"15 messages waiting, yours is next" (or "..., yours are next", "..., all yours", "..., it's yours", or just
 "N messages waiting" when none are the person's). It updates within about 1.5 s of the queue changing and clears
 when the queue empties or the agent goes idle.
 

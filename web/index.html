@@ -18227,14 +18227,15 @@ function taskLine(a, opts) {
  * #209: there is no title on screen to strip.
  */
 /* #4569 fix 4 (the write-up on Josh's Muse agent: "Working, 14 messages waiting"): a busy Muse agent's queue, in
-   Kosmos's own words, never quoted (it is Kosmos's count, not the agent's words). The person's messages always run
-   first, so "yours is next" says where theirs sits. '' without a count. */
+   Kosmos's own words, not quoted: the line is built from two checked numbers (engine/selfreport.js waitingOf) and
+   fixed words, never from agent text. The person's messages always run first, so "yours is next" says where
+   theirs sits. '' without a count. */
 function waitingLine(w) {
   if (!w || !Number.isSafeInteger(w.n) || w.n < 1) return '';
   const n = w.n; const yours = Number.isSafeInteger(w.yours) && w.yours > 0 ? Math.min(w.yours, n) : 0;
   const base = n + (n === 1 ? ' message waiting' : ' messages waiting');
   if (!yours) return base;
-  if (yours === n) return base + (n === 1 ? ', yours' : ', all yours');
+  if (yours === n) return base + (n === 1 ? ', it\'s yours' : ', all yours');
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
 }
 function stateReason(a, opts) {

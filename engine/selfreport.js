@@ -271,7 +271,9 @@ function record(sessionName, entry) {
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
     /* #4569 fix 4: a busy Muse agent's queue, { n, yours } (whole numbers, yours <= n), on a working report only.
-       Kosmos's own count, never the agent's words, so the page says it as a fact rather than quoting it. */
+       The Muse front sends it; any agent's own report could too, but it is checked here, the page builds its line
+       from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
+       card alone, so a false one is no worse than a false "working". */
     waiting: waitingOf(state, entry.waiting),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of

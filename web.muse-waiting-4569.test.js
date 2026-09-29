@@ -33,7 +33,7 @@ test('#4569 fix 4: the card, list and agent page line says what waits, in Kosmos
     assert.equal(api.taskLine(MUSE({ n: 15, yours: 1 }), opts), '15 messages waiting, yours is next');
     assert.equal(api.taskLine(MUSE({ n: 3, yours: 2 }), opts), '3 messages waiting, yours are next');
     assert.equal(api.taskLine(MUSE({ n: 2, yours: 2 }), opts), '2 messages waiting, all yours');
-    assert.equal(api.taskLine(MUSE({ n: 1, yours: 1 }), opts), '1 message waiting, yours');
+    assert.equal(api.taskLine(MUSE({ n: 1, yours: 1 }), opts), '1 message waiting, it\'s yours');
     assert.equal(api.taskLine(MUSE({ n: 14, yours: 0 }), opts), '14 messages waiting');
   }
 });
