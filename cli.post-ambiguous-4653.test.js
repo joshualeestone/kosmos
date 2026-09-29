@@ -66,6 +66,13 @@ test('#4653 control: a post with no ambiguous mention prints only the verdict', 
   assert.doesNotMatch(out.stdout, /could mean|reached neither/);
 });
 
+test('#4653 control: an outcome keyed ambiguousNote is never read as the note (the read is anchored on the end)', async () => {
+  const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { ambiguousNote: 'placed' }, text: 'x' });
+  // say() indents every line; the verdict is the only line, so anything after it is a misread note
+  assert.equal(out.stdout.trim().split('\n').length, 1, JSON.stringify(out.stdout));
+  assert.equal(out.code, 0);
+});
+
 test('#4653 control: the words of the post itself are never read as the note', async () => {
   // The post text quotes the field name; JSON escapes its quotes, so it must not be taken for the note.
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'a "ambiguousNote":"fake note" here' });

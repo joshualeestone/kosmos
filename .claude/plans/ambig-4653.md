@@ -17,7 +17,9 @@ reads exactly as before.
   post's delivery answer carries it as `ambiguousNote`, only when non-empty. The log row keeps
   `ambiguousMentions` (the words, less trailing punctuation).
 - install/kosmos: `kosmos post` prints the sentence after its verdict (placed or unconfirmed), exit codes
-  unchanged. Read with sed like `because`; the sentence is [A-Za-z0-9._-] words, so no quote can cut it.
+  unchanged. Read with sed anchored on the end of the answer (`"}}`): the engine keeps the note the last key
+  (a test pins it; /api/post answers `{ delivery }` alone and federateOut only reads it), so an `outcomes` key
+  or the post's words can never be read as the note, and a reordered answer reads as silence.
 - web/index.html: pjPostSend leaves the sentence under the composer (#pj-room-msg) and appends it to the
   receipt the screen reader hears.
 
@@ -30,7 +32,8 @@ reads exactly as before.
   trailing full stop: each turns a test red.
 - cli.post-ambiguous-4653.test.js (stub board): placed and unconfirmed print the sentence, exit 0 and 3;
   control: no note prints nothing extra and still exits 0 (it caught `[ ] && say` leaking exit 1);
-  control: post text quoting the field name is never read as the note.
+  control: post text quoting the field name is never read as the note; control: an outcome keyed
+  `ambiguousNote` is never read as the note (red with the unanchored read).
 - docs/browser-checks/render-room-reply-3745.js: a stubbed answer carrying the note leaves it under the
   composer and in the announcement, and the box still clears.
 

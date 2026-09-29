@@ -1529,7 +1529,7 @@ function ambiguousNote(ambiguous, mentioned, shown) {
     const could = '@' + word + ' could mean ' + list(members.map(who)) + ', so ';
     out.push(left.length === members.length
       ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name, like @' + left[0] + '.'
-      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'them' : 'one of them') + ', use the exact name, like @' + left[0] + '.');
+      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name, like @' + left[0] + '.');
   }
   return out.join(' ');
 }
@@ -2218,7 +2218,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
-      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. */
+      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
+         the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
 

@@ -72,6 +72,7 @@ function post(text, agents = FLEET(), members = MEMBERS) {
       background: envelopes.filter((s) => s.text.startsWith('[background from your colleague')).map(who).sort(),
       row: messages.readLog().filter((m) => m && m.kind === 'post').pop(),
       note: sent.ambiguousNote,
+      sent,
     };
   } finally { board.restore(); }
 }
@@ -174,13 +175,16 @@ test('#4653: the post answer tells the sender who an ambiguous @-word could mean
   assert.equal(post('@Sub-Zero. please', CLASH(), CLASH_ROOM).note,
     '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.');
   assert.equal(post('@subzero please', CLASH(), CLASH_ROOM).note, undefined, 'a unique mention carried a note');
+  // kosmos post reads the note anchored on the end of the answer, so it must stay the last key
+  const r = post('@Sub-Zero please', CLASH(), CLASH_ROOM);
+  assert.equal(Object.keys(r.sent).pop(), 'ambiguousNote', 'the note is no longer the last key of the delivery answer');
   assert.equal(post('no mention at all', CLASH(), CLASH_ROOM).note, undefined);
 });
 
 test('#4653: when the post also names one of them exactly, the note says only who was not asked', () => {
   const r = post('@Sub-Zero and @frost please', CLASH(), CLASH_ROOM);
   assert.deepEqual(r.addressed, ['frost']);
-  assert.equal(r.note, '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it did not ask Sub-Zero (@subzero). To ask them, use the exact name, like @subzero.');
+  assert.equal(r.note, '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it did not ask Sub-Zero (@subzero). To ask that one, use the exact name, like @subzero.');
   assert.equal(post('@Sub-Zero, @frost and @subzero', CLASH(), CLASH_ROOM).note, undefined, 'everyone was named exactly, yet a note said someone was not asked');
 });
 
