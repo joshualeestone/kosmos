@@ -45,10 +45,12 @@ const HEADERS = {
   title: ['title', 'jobtitle', 'position', 'role', 'jobrole', 'designation', 'jobname'],
   id: ['employeeid', 'id', 'employeenumber', 'workerid', 'email', 'workemail', 'emailaddress'],
   manager: ['manager', 'reportsto', 'supervisor', 'managername', 'reportingto', 'linemanager', 'directmanager',
-    'managerid', 'manageremail', 'supervisorid', 'supervisoremail', 'reportstoid', 'reportstoemail'],
+    'managerid', 'manageremail', 'supervisorid', 'supervisoremail', 'reportstoid', 'reportstoemail',
+    'managerfullname', 'manageremployeeid', 'supervisorname', 'reportstoname'],
 };
 /* Plain text only, one line, capped: a cell can hold anything (a formula's text, a line break). */
-const plain = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+/* Also drops zero-width and direction-override characters, which could make a name read as another. */
+const plain = (s, max) => String(s == null ? '' : s).replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 /* The extension, or '' when the name has none (a file called `png` is not a PNG). */
 const extOf = (name) => { const n = String(name || '').toLowerCase(); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1) : ''; };
 const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -491,7 +493,7 @@ function defaultModelRunner(line, signal) {
     if (acct) env.CLAUDE_CONFIG_DIR = acct.dir; else delete env.CLAUDE_CONFIG_DIR;
     // `signal`: the person stopped the read or left the page, so the child is killed and stops using their plan.
     const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL', signal },
-      (err, stdout) => {
+      (err, stdout, stderr) => {
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
           try { const o = JSON.parse(l); if (o && o.type === 'result') result = o; } catch { /* not a JSON line */ }
@@ -499,6 +501,12 @@ function defaultModelRunner(line, signal) {
         if (!result) {
           if (signal && signal.aborted) { resolve({ ok: false, because: 'the read was stopped' }); return; }
           if (err && err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { resolve({ ok: false, because: 'Claude\'s answer was too large to read' }); return; }
+          /* Logged at the boundary (its first line, capped: claude's own message, never the file, which went on
+             stdin). An install older than the flags this needs says "unknown option", which is worth telling the
+             person, since trying again cannot help. */
+          const said = String(stderr || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+          if (said) console.warn('[orgchart] claude exited without an answer: ' + plain(said, 200));
+          if (/unknown option|unrecognized option/i.test(said)) { resolve({ ok: false, because: 'the Claude Code on this computer is too old to read files. Update it, then try again' }); return; }
           resolve({ ok: false, because: err && err.killed ? 'reading the file took too long' : 'Claude did not answer' });
           return;
         }

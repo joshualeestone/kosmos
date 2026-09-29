@@ -25,6 +25,10 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
    the answer is then the provider alone, and this file never reads the real machine's accounts. */
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 delete process.env.CLAUDE_CONFIG_DIR;
+/* The VERTICAL test creates agents: Claude Code's own config is sandboxed (fixture discipline), and the binary is
+   /bin/echo, so nothing it runs is a provider. Every model test here fakes the runner and availability. */
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { start, server, boardAuthState } = require('./server');
@@ -201,4 +205,38 @@ test('#4559: a read the page stops (the request closes) aborts the model call, s
   await pending;
   for (let i = 0; i < 40 && aborted !== true; i++) await new Promise((r) => setTimeout(r, 50));
   assert.equal(aborted, true, 'the model call ran on after the page stopped the read');
+});
+
+test('#4559 VERTICAL: the create the page sends (managers first, reportsTo by agent name) reaches create with each manager, through the real team route', { timeout: 30000 }, async () => {
+  /* Dry run writes no profile, so this records what the real route hands create. That create writes reportsTo into
+     the profile is engine/create.test.js's ("reportsTo: 'thelead'"), and that the page's orphan fix-up (a PUT of an
+     empty reportsTo) clears it is server.test.js's; this is the link between them nothing else drove. */
+  const create = require('./engine/create');
+  const real = create.createAgent;
+  const handed = [];
+  create.createAgent = (opts) => { handed.push([opts.name, opts.reportsTo || null]); return real(opts); };
+  /* A signed-in (synthetic) default Claude account for this test only: create refuses without one. Removed after,
+     so the consent answers above keep naming the provider alone. */
+  const acct = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json');
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude'), { recursive: true });
+  fs.writeFileSync(acct, JSON.stringify({ oauthAccount: { emailAddress: 'avery@example.com' } }));
+  try {
+    const members = [
+      { name: 'chief-executive', role: 'own', label: 'Chief Executive' },
+      { name: 'head-of-sales', role: 'own', label: 'Head of Sales', reportsTo: 'chief-executive' },
+      { name: 'account-executive', role: 'own', label: 'Account Executive', reportsTo: 'head-of-sales' },
+    ];
+    const res = await fetch(base + '/api/team', {
+      method: 'POST', headers: { 'content-type': 'application/json', ...SCREEN },
+      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
+    });
+    const team = await res.json();
+    assert.equal(team.outcome, 'created', JSON.stringify(team));
+    assert.deepEqual(team.created.map((c) => c.name), ['chief-executive', 'head-of-sales', 'account-executive'], 'created keeps the order sent');
+    assert.deepEqual(handed, [['chief-executive', null], ['head-of-sales', 'chief-executive'], ['account-executive', 'head-of-sales']],
+      'the route dropped or reordered a reporting line on its way to create');
+  } finally {
+    create.createAgent = real;
+    fs.rmSync(acct, { force: true });
+  }
 });

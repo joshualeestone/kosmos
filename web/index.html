@@ -46434,7 +46434,13 @@ async function orgchartSendFile(file, consent, seq) {
    Checked here because a body over it is cut off by the board mid-upload, which reads to the page as unreachable. */
 const ORGCHART_MAX_BYTES = 10 * 1024 * 1024;
 function orgchartTakeFile(file) {
-  if (!file || ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;
+  if (!file) return;
+  if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) {
+    const busy = document.getElementById('orgchart-msg');
+    busy.hidden = false;
+    busy.textContent = 'Wait for the team to finish ' + (ORGCHART_CREATING ? 'being created' : 'being undone') + ', then choose the file again.';
+    return;
+  }
   if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();   // a new file ends the read in progress (and its model call)
   if (file.size > ORGCHART_MAX_BYTES) {
     const msg = document.getElementById('orgchart-msg');
