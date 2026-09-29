@@ -5,7 +5,7 @@ branch: queuebound-4574
 diff_hash: f212bc237d298701923d0a8afb22915eccc120375efc29e39106e3b8f30d39fa
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T19:28:34Z
+timestamp: 2026-09-29T21:08:16Z
 iterations: 24
 converged: true
 ---
@@ -19,7 +19,10 @@ converged: true
 an arm for a too-low first count) | **Asked (awaiting user):** 0
 (Counted from the plan's "## Review iteration N" sections: WARNINGs from each round's header, plus round 24's two.)
 
-**Final gate:** full validation PASSED on 305716fcc (the full tools/run-tests.sh validation v3, 14:12 to 14:28 CDT, VAL_RC=0 AUDIT_RC=0, validation-log hash f212bc237d29), run with KOSMOS_TESTS_IGNORE_SUITE=1 through the
+**Final gate (after the rebase):** a DIRECT full suite run (`yarn --cwd <worktree> test`, i.e. tools/run-tests.sh) PASSED on
+0a4e74959, the branch rebased onto origin/main 5d26fa568 at 15:19 CDT: it ran through the normal fleet queue with no
+override, finished 16:07:56 CDT, exit 0, FAILS: 0. It was run directly because the rebase left the diff hash unchanged,
+so the validation helper would have reused the earlier record. Earlier gate: full validation PASSED on 305716fcc (the full tools/run-tests.sh validation v3, 14:12 to 14:28 CDT, VAL_RC=0 AUDIT_RC=0, validation-log hash f212bc237d29), run with KOSMOS_TESTS_IGNORE_SUITE=1 through the
 jammed fleet queue (safe: run-tests.sh drops KOSMOS_WAIT_CONTROL_VARS before its tests). tools/test-cut-guard.sh:
 0 failures, plain and with KOSMOS_NO_WAIT=1 inherited; every mechanism has a mutation control recorded in the plan.
 
