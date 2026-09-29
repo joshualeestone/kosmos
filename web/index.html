@@ -34298,14 +34298,20 @@ function openDetail(sessionName, section, fromProject) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
-  /* #4550: never the last agent's rows. The clear, AND a new ticket, so a load still in flight for the
-     agent just left paints nothing even when this open lands on Talk (no load of its own to supersede it). */
+  /* #4550: never the last agent's rows. The clear here, and a new ticket that retires a load still in
+     flight. That load is ALSO refused by skillsListIsFor when it answers (it names an agent no longer on
+     screen): two independent guards, each enough alone (measured: the Talk-landing arm in
+     render-agent-nav fails only with both removed). */
   { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = '';
     const sm = document.getElementById('d-skills-msg'); if (sm) sm.textContent = '';
     /* The Add form belongs to the agent too: its message ("Adding…" whose answer is now another
        agent's) and a half-typed skill must not follow the person to the next agent. */
-    const am = document.getElementById('d-skill-add-msg'); if (am) am.textContent = '';
-    for (const id of ['d-skill-name', 'd-skill-body']) { const f = document.getElementById(id); if (f) f.value = ''; }
+    /* Only on a SWITCH: a reopen of the same agent keeps what the person typed (an Add still in
+       flight for it may yet fail, and its error should find the draft there to retry). */
+    if (cameFrom !== a.sessionName) {
+      const am = document.getElementById('d-skill-add-msg'); if (am) am.textContent = '';
+      for (const id of ['d-skill-name', 'd-skill-body']) { const f = document.getElementById(id); if (f) f.value = ''; }
+    }
     SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
@@ -34839,7 +34845,11 @@ function detailPaintWindow(a) {
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'];   // #4433: swarm, only while the Swarm Settings box shows   // #3757: files has no pill (View All reaches it)
-/* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
+/* #4550: see DETAIL_SECTION_GROUPS below for today's two groups (Profile: profile, instr, skills;
+   AI Settings: model, memory, term, remove). instr, skills, memory, term and remove are all folded
+   members now. The focus note below still holds: a caller passing a folded member lands at the top
+   of its group (openDetail(name, 'instr') focuses Profile's top). No production caller passes one.
+   History, #2916 (Josh 6.59): two pills each covered two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
    reveals the instructions AND skills sections. The member sections keep their own data-sec and
@@ -34848,7 +34858,7 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile'
    detailSectionPill maps it to the pill that should light. Anything not folded maps to itself.
    ⚠️ FOCUS lands on the group's FIRST section (the pill's own), NOT a requested folded member: a
    future openDetail(name, 'memory') reveals model+memory but focuses the top of Model, so a
-   keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
+   keyboard user tabs past Model to reach Memory. No production caller passes a folded member; if one
    is added and must focus ON the member, teach detailGo to focus the requested section rather
    than group[0]. */
 /* History (superseded by #4550 below): #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
@@ -64901,7 +64911,7 @@ const TIPS = [
       { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)', '#panel-projects .pj3 > .pjsplit > aside.pjcol'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
     ],
     show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated') },
-  /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then five small tips, one on
+  /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then small tips, one on
      each button. The ring step is left out when her page draws no ring (memory not known), since there is nothing
      to point at. Josh's words, verbatim; in his paste "Instructions" slipped under Profile, it heads step 3.
      #4550: the Instructions and Advanced buttons are gone, so their two tips went with them (nothing left to point
