@@ -8,11 +8,13 @@
  * passed it and broke a check outside it, found only at the cut: #3985 broke render-talk, #4095
  * broke render-fields. This names the checks a `web/index.html` diff reaches, so the PR job runs
  * them too. It diffs `<base>...<head>` (the merge base, as the #2518 gate does), web/index.html
- * only, and reads the changed (+/-) lines. The checks and gated.txt are read from the working tree,
- * as are tools/browser-checks.sh and tools/bc-surface-map.sh, so a replay asks what TODAY's checks select; the page itself (its ids, function names and function
- * bodies) is read at `head`, so the diff's line numbers refer to the page they were written against.
+ * only, and reads the changed (+/-) lines. The checks, gated.txt, tools/browser-checks.sh (for the
+ * runnable labels) and tools/bc-surface-map.sh are used as they are in the working tree, so a replay
+ * asks what TODAY's checks select. The page itself (its ids, function names and function bodies) is
+ * read at `head`, so the diff's line numbers refer to the page they were written against; a head with
+ * no page (the PR deleted or moved it) reads as an empty page.
  *
- * NOT READ: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
+ * NOT DIFFED: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
  * fires on them, but a change there runs the fixed allowlist only, as it did before #4119.
  *
  * SIX WAYS A CHECK IS SELECTED, each printed as its reason:
@@ -34,7 +36,8 @@
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
- *              from the page, or its end cannot be found; in those two cases it selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
+ *              from the page, or its end cannot be found; in those two cases it selects on every
+ *              page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -103,10 +106,12 @@ function functionRange(page, name) {
     if (!m) continue;
     // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
     // A regex literal is not recognised as one: a quote inside it can pair with a later one, and such a function
-    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red).
+    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red); so does a
+    // template literal that spans lines. A line is one function only if its braces balance AND it ends with
+    // `}` (or `};`): `function f(a = {})` with its body on the next line balances but is not one.
     const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
     const opens = (code.match(/\{/g) || []).length;
-    if (opens > 0 && opens === (code.match(/\}/g) || []).length) return [i + 1, i + 1];
+    if (opens > 0 && opens === (code.match(/\}/g) || []).length && /\}\s*;?\s*$/.test(code)) return [i + 1, i + 1];
     const close = new RegExp(`^${m[1]}\\}\\s*;?\\s*(//.*)?$`);
     // Another declaration at this indentation first means this one's closer was missed: stop there, rather
     // than run on to that function's own `}` and claim its body too.
@@ -121,7 +126,7 @@ function functionRange(page, name) {
 }
 
 /* The head-side line numbers a diff changes in web/index.html: each added line, and for a removed line the
-   head line it was removed before. Only hunks count, as in changedLines, and only the page's: a hunk under
+   head line it was removed before. Only hunks count, and (unlike changedLines) only the page's: a hunk under
    another file's `+++` header is skipped. A hunk whose new side is empty (`+N,0`, as -U0 writes a pure
    deletion) sits AFTER head line N. */
 function touchedLines(diff) {
@@ -131,7 +136,7 @@ function touchedLines(diff) {
   let afterMinus = false;
   for (const l of diff.split('\n')) {
     if (l.startsWith('diff --git ')) { next = null; inPage = true; afterMinus = false; continue; }
-    if (afterMinus && l.startsWith('+++ ')) { inPage = /(^|\/)web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
+    if (afterMinus && l.startsWith('+++ ')) { inPage = /^(b\/)?web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
     afterMinus = next === null && l.startsWith('--- ');
     if (afterMinus) continue;
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
@@ -349,7 +354,9 @@ function main(argv) {
       .map((f) => (/^[\w-]+\.js$/.test(f) ? f.slice(0, -3) : f));
     // The diff keeps its header, so bc-surface-map.sh file-scopes it as the gate does.
     // The head's own page: a `function` range is read against the lines this diff numbers.
-    why = select(diff, changedChecks, git(['show', `${head}:web/index.html`]));
+    let page = '';   // a head without the page (deleted or moved) is an empty page: every declaring check selects
+    try { page = git(['show', `${head}:web/index.html`]); } catch { page = ''; }
+    why = select(diff, changedChecks, page);
   } catch (e) {
     process.stderr.write(`bc-pr-select: could not select for ${base}...${head}: ${e.message}\n`);
     return 2;

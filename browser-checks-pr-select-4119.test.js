@@ -329,6 +329,9 @@ test('functionRange: a closing line may carry ; or a comment, a one-line functio
   assert.deepEqual(sel.functionRange(more, 'f'), [1, 3]);
   assert.deepEqual(sel.functionRange(more, 'h'), [4, 4]);
   assert.deepEqual(sel.functionRange(more, 'k'), [5, 7]);
+  // Balanced braces on a declaration line whose body starts on the next line are NOT a one-line function.
+  const nextLine = ['function f(a = {})', '{', '  g();', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(nextLine, 'f'), [1, 4]);
 });
 
 test('through select(): an unclosed declared function selects its check with its own reason, not "not on the page"', () => {
