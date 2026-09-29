@@ -35,3 +35,10 @@ That skipping a vanished file can never hide a real teaching. It can only be ski
 - **NIT** Nothing checked that the walk (not only the read) still fails on errors other than ENOENT. Added: walking a file as a folder throws ENOTDIR. Mutant (the walk alone swallows every error): red.
 - Confirmed by the reviewer: fixture-discipline and engine.runnable-not-directory skip dot-folders; one-derivation walks only engine/; communitysend and setprovider-writes walk sandboxes.
 - Weakest premise: the two sibling guards are the same pattern as the parity helpers, but only the parity helpers have a deterministic race test. The siblings are inline walks inside larger tests; they are checked by reasoning and by their tests passing (167 across the three files), not by a race test of their own.
+
+## Review round 3 (sonnet, blind): 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- **WARNING** The dangling-symlink note was tested for files only. The comment now says exactly which case is which (a symlink to a missing file reads as gone; one to a missing folder is not a directory to the walk, so it is read and skipped the same way).
+- **WARNING** The race test does not prove the whole-tree test calls taughtIn. KEPT: that test is one line, `taughtIn(sourceFiles(REPO, []), REPO)`, and a revert to a bare read would reopen the real race and show in the suite. The reviewer judged it acceptable.
+- **NIT** isDirectory() is a race-free dirent read. Noted, no change.
+- **NIT** Three copies of the ENOENT guard. KEPT: each test file stays self-contained, and there is no shared test-support helper for it yet.
+- Confirmed: every list and read in the three walkers is covered; each keeps a control that it read real content; no other repo-root walker reads files without skipping dot-folders (the git ls-files tests never see untracked probes).

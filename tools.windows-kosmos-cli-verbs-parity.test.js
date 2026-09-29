@@ -201,8 +201,9 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.claude', 'test-support']);
 /* #4478: other test files run BESIDE this one and make throwaway files in the tree (server.test.js's
    `.probe-freshness-<pid>/x.js` and server.engine-restart-4408.test.js's `.probe-restart-<pid>/x.js`, #4408),
    so a folder or file listed here can be gone by the time it is
-   read. Gone is skipped: a file that no longer exists teaches nobody a verb (a symlink whose target is
-   missing reads as gone too, for the same reason). Only ENOENT; anything else (a permission error, an
+   read. Gone is skipped: a file that no longer exists teaches nobody a verb (a symlink to a missing FILE reads
+   as gone too, for the same reason; one to a missing folder is not a directory to the walk, so it is read and
+   skipped the same way). Only ENOENT; anything else (a permission error, an
    EISDIR from reading a folder as a file) still fails the test. */
 const gone = (e) => Boolean(e && e.code === 'ENOENT');
 function listIfThere(dir) {
