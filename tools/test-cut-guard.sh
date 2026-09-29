@@ -763,7 +763,7 @@ qflap() { echo $(( $(qnow) + 30 )) > "$W/clock"
   if [ -e "$W/markers/suitewait.$qa" ]; then rm -f "$W/markers/suitewait.$qa"
   else printf '%s %s\n%s\n%s\n%s\n' 11 "$qa" "$(ps -ww -o command= -p "$qa")" "$(_kosmos_pid_started_local "$qa")" "$(_kosmos_pid_started "$qa")" > "$W/markers/suitewait.$qa"; fi; }
 out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; WPASS_AFTER=999 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qflap kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has "$out" "KOSMOS_WAIT_QUEUE_CEIL_S=300"; } \
+{ [ "$rc" -eq 1 ] && has "$out" "ceiling (300s, four bounds plus one per waiter ahead"; } \
   && pass "#4574 a restart signal that never settles is ended by the default ceiling, four bounds plus one per waiter ahead" \
   || fail "#4574 the default ceiling did not end a flapping wait at (4+1) bounds (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
 q_clear
@@ -804,6 +804,20 @@ out="$(WPASS_AFTER=0 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run"
 { [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4574 a dead run's marker under this run's pid is cleared on entry" \
   || fail "#4574 a recycled-pid marker survived entry (rc=$rc, $out)"
 rm -f "$W/calls" "$W/markers/suitewait.$$"
+# A pass on which this run's own marker is gone (another reader's failed ps removed it during the check) takes no
+# count: the check deletes it on every even call, with one waiter ahead and one behind that never move. Counted, those
+# passes would include the waiter behind and every odd pass would read as a fall. After the one first-pass restart
+# (the first count is taken before this run is marked), the bound runs out at call 5.
+q_clear; q_ahead 2
+qbehind=$(sed -n '2p' "$W/ahead")
+printf '%s %s\n%s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qbehind" "$(ps -ww -o command= -p "$qbehind")" "$(_kosmos_pid_started_local "$qbehind")" "$(_kosmos_pid_started "$qbehind")" > "$W/markers/suitewait.$qbehind"
+wsnatch() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
+  [ $((n % 2)) -eq 0 ] && rm -f "$W/markers/suitewait.$$"; echo "busy: stand-in run" >&2; return 1; }
+out="$(KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsnatch 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "since a waiter ahead last left"; } \
+  && pass "#4574 a pass whose own marker was just removed takes no count, so waiters behind never restart the bound" \
+  || fail "#4574 a missing own marker let waiters behind restart the bound (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
+q_clear
 # A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
 out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \

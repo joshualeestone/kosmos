@@ -674,11 +674,16 @@ kosmos_wait_until_clear() {
     if [ "$queue" = 1 ]; then
       # Before this run holds a marker (the first pass) every live waiter counts as ahead, so a waiter that marked in the
       # same second behind this one can read as a fall on the second pass: one early restart, harmless.
-      ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true
-      ahead="${ahead:-0}"
-      [ -z "$prev" ] && [ "$ceil_auto" = 1 ] && ceil=$((max * (4 + ahead)))
-      if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
-      prev="$ahead"
+      # Once queued, a pass on which this run's own marker is missing (another reader's failed ps removed it during the
+      # check) takes no count: without its queue time every waiter, those behind included, would count as ahead, and
+      # the next pass would read the drop back as a fall.
+      if [ -z "$ts" ] || [ -e "$(_kosmos_suite_waiter_file "$$")" ]; then
+        ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true
+        ahead="${ahead:-0}"
+        [ -z "$prev" ] && [ "$ceil_auto" = 1 ] && ceil=$((max * (4 + ahead)))
+        if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
+        prev="$ahead"
+      fi
     else
       wblk="$waited"
     fi
@@ -690,7 +695,11 @@ kosmos_wait_until_clear() {
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
       if [ "$waited" -gt 0 ] && [ "$over" = 1 ]; then
-        echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
+        if [ "$ceil_auto" = 1 ]; then
+          echo "gave up after waiting ${waited}s: the queue's ceiling (${ceil}s, four bounds plus one per waiter ahead when it joined; KOSMOS_WAIT_QUEUE_CEIL_S sets it) ends any queued wait; run it again later." >&2
+        else
+          echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
+        fi
       elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
         local since=$(( $(_kosmos_wait_now) - bstart )); [ "$wblk" -gt "$since" ] && since="$wblk"
         echo "gave up after waiting ${waited}s in all, ${since}s since a waiter ahead last left the queue (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
