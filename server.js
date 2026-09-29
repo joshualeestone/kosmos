@@ -1082,6 +1082,29 @@ const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10
    lever any local program (another account on this computer included) can pull to silence every
    real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
    store (one stat while the file is unchanged) and hashes once, about what any not-found costs. */
+/* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
+   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
+   host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
+const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+function hookPublicLink(id, secret) {
+  let st = null;
+  try { st = remote.status(); } catch { st = null; }
+  if (!st || st.state === 'off') {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer. With Kosmos Plus on, you also get a link that works from the internet.' };
+  }
+  if (st.state !== 'up') {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer. Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.' };
+  }
+  if (st.admitsHooks !== true) {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer for now. A link that works from the internet comes with the next Kosmos Plus update.' };
+  }
+  if (!HOOK_HOST_RE.test(String(st.address || ''))) {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer. Kosmos could not read this computer\'s internet address, so there is no internet link this time.' };
+  }
+  return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
+}
+
 /* Two limits, in memory. Per webhook, 30 a minute, so one looping caller is slowed at once. Per
    PROJECT, 120 an hour across all its webhooks, so neither a leaked link nor a project's twenty
    webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
@@ -1091,22 +1114,6 @@ const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10
    🔑 The project bucket is keyed by the project AS MADE (id plus createdAt), like the webhooks
    themselves: ids are reused, so a deleted project's spent hour must not fall on a new project
    that happens to share its name. */
-/* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
-   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
-   otherwise publicWhy says, in words for the page, why there is none. */
-const HOOK_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
-function hookPublicLink(id, secret) {
-  let st = null;
-  try { st = remote.status(); } catch { st = null; }
-  if (!st || st.state !== 'up') {
-    return { publicUrl: null, publicWhy: 'This link works for programs on this computer. With Kosmos Plus on, you also get a link that works from the internet.' };
-  }
-  if (st.admitsHooks !== true || !HOOK_HOST_RE.test(String(st.address || ''))) {
-    return { publicUrl: null, publicWhy: 'This link works for programs on this computer for now. A link that works from the internet comes with the next Kosmos Plus update.' };
-  }
-  return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
-}
-
 function hookRateProblem(id, projectId, now = Date.now()) {
   const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
   const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);

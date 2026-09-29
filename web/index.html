@@ -51153,12 +51153,13 @@ function pjsHooksPaint() {
     const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
       ? '<div class="pjs-hook-reveal">'
         + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
-        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
-        + '<button class="btn" type="button" data-hook-copy="pjs-hook-url">Copy</button></div>'
+        + (PJS_HOOKS.reveal.publicUrl ? '<p class="fhint" style="margin:0 0 4px;">On this computer:</p>' : '')
+        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + ' on this computer">'
+        + '<button class="btn" type="button" data-hook-copy="pjs-hook-url" aria-label="Copy the link for this computer">Copy</button></div>'
         + (PJS_HOOKS.reveal.publicUrl
           ? '<p class="fhint" style="margin:10px 0 4px;">From the internet (Zapier, GitHub and the like):</p>'
             + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-public" value="' + esc(PJS_HOOKS.reveal.publicUrl) + '" aria-label="The internet link for ' + esc(h.name) + '">'
-            + '<button class="btn" type="button" data-hook-copy="pjs-hook-public">Copy</button></div>'
+            + '<button class="btn" type="button" data-hook-copy="pjs-hook-public" aria-label="Copy the internet link">Copy</button></div>'
           : (PJS_HOOKS.reveal.publicWhy ? '<p class="fhint" style="margin:8px 0 0;">' + esc(PJS_HOOKS.reveal.publicWhy) + '</p>' : ''))
         + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
@@ -51271,7 +51272,8 @@ async function pjsHookCopy(which) {
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
   if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
-  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and copy it yourself.';
+  const internet = which === 'pjs-hook-public';
+  if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : 'Kosmos could not copy it. Select the link and copy it yourself.';
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {

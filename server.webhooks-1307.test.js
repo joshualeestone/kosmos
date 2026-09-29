@@ -194,8 +194,18 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
     assert.match(off.publicWhy, /With Kosmos Plus on/);
     const odd = await make({ state: 'up', address: 'hers.kosmosplus.com/evil?', because: null, admitsHooks: true });
     assert.equal(odd.publicUrl, null, 'an address that is not a plain host name is never put in a link');
+    assert.match(odd.publicWhy, /could not read this computer's internet address/, 'a bad address is not promised an update');
+    const ip = await make({ state: 'up', address: '1.2.3.4', because: null, admitsHooks: true });
+    assert.equal(ip.publicUrl, null, 'an IP literal is not a Kosmos Plus name');
+    const absent = await make({ state: 'up', address: 'hers.kosmosplus.com', because: null });
+    assert.equal(absent.publicUrl, null, 'no admitsHooks at all reads as no');
+    for (const state of ['connecting', 'restarting']) {
+      const r = await make({ state, address: null, because: 'x' });
+      assert.equal(r.publicUrl, null);
+      assert.match(r.publicWhy, /still connecting/, state + ' is not told to turn Kosmos Plus on');
+    }
     // CONTROL: the local link is there in every case.
-    for (const r of [on, old, off, odd]) assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/);
+    for (const r of [on, old, off, odd, ip, absent]) assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/);
   } finally { remote.status = real; }
 });
 

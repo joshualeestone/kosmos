@@ -115,6 +115,21 @@ test('#4419: the revealed row shows the internet link with its own Copy when the
   assert.ok(box.innerHTML.includes('id="pjs-hook-url"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'));
 });
 
+test('#4419: each Copy copies its own link and says which one it copied', async () => {
+  const fields = { 'pjs-hook-url': { value: 'http://127.0.0.1:1/hooks/x/LOCAL', select() {} }, 'pjs-hook-public': { value: 'https://hers.kosmosplus.com/hooks/x/NET', select() {} }, 'pjs-hook-copied': { textContent: '' } };
+  const document = { getElementById: (id) => fields[id] || null };
+  const wrote = [];
+  const navigator = { clipboard: { writeText: async (v) => { wrote.push(v); } } };
+  // eslint-disable-next-line no-new-func
+  const pjsHookCopy = new Function('document', 'navigator', fnSource('pjsHookCopy') + 'return pjsHookCopy;')(document, navigator);
+  await pjsHookCopy('pjs-hook-public');
+  assert.equal(wrote.pop(), 'https://hers.kosmosplus.com/hooks/x/NET');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied the internet link.');
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL', 'CONTROL: the local Copy still copies the local link');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied the link for this computer.');
+});
+
 test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row shows the stored name', () => {
   const box = stubBox();
   const { pjsHooksPaint, PJS_HOOKS } = load(box);

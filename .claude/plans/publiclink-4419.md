@@ -18,9 +18,13 @@
 
 ## Server
 - `hookPublicLink(id, secret)` in server.js beside the webhook rate code: public link only when
-  `status().state === 'up'`, `admitsHooks === true`, and the address is a plain host name
-  (HOOK_HOST_RE); lowercased. Otherwise `publicWhy`, the sentence the page shows. The make route
-  returns `{ webhook, url, publicUrl, publicWhy }`.
+  `status().state === 'up'`, `admitsHooks === true`, and the address is a dotted host name whose
+  last label is letters (HOOK_HOST_RE: no IP literal, no path); lowercased. Otherwise `publicWhy`,
+  one sentence per cause: Kosmos Plus off; still connecting or restarting (make a new one once
+  connected); an older connector (the next update); an address we could not read (no promise).
+  The make route returns `{ webhook, url, publicUrl, publicWhy }`.
+- Page: when both links show, each has a label ("On this computer", "From the internet"), its own
+  Copy with its own accessible name, and the copied line says which link was copied.
 
 ## Rejected
 - A connector version table: drifts, and a version names a range, not a build.
