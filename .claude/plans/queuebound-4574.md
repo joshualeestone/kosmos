@@ -16,7 +16,9 @@ ahead cannot change until it ends, does not give up behind one normal suite. Out
 waits) nothing changes: 1200 s from the start.
 
 ## Rejected
-- Raising the default bound for everyone: a hung suite would then hold every waiter far longer.
+- Raising the default bound for everyone: a hung suite would then hold every waiter far longer. (In the queue, though,
+  the 45 minutes does cover every blocker run-tests.sh waits on: a release claim and an install harness as well as a
+  suite, where it was 20. Stated in the #4574 note; all three are long runs, and review 3 asked for it said, not split.)
 - Two suites at once: undoes #4498's measured reason (a suite beside a suite turns greens red); its own card if wanted.
 - Counting node --test children: fixes a mechanism the measurement shows is not there.
 
@@ -54,3 +56,15 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   a rise only arms the next fall, so each restart still needs a waiter ahead to leave.
 - (N) the wall-clock test's name: now "three waiters leaving 100 s apart".
 - (N, left) a same-second arrival with a lower pid counts as ahead; a killed run leaves sleep 300 stand-ins for 5 min.
+
+## Review iteration 3 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) the queue's 45 minutes also covers a release claim and an install harness, never stated: the #4574 note, the plan
+  and run-tests.sh's comment now say so. Kept rather than split by blocker (all three are long runs).
+- (W, SELF) "gives up only when the run in front of it has held the box for the whole bound" was false (the bound runs
+  from the last waiter ahead leaving): now "gives up when no waiter ahead has left for the whole bound".
+- (N, taken) the give-up line says "no waiter ahead left for Ns" (the claim/harness message above it names the blocker);
+  "|| true" on the two pipelines (set -e safety for a future bare caller); a clock seam printing no number falls back
+  to date (a test pins it); the default-bound arms unset KOSMOS_WAIT_EVERY_S too; the refusal's comment is back above
+  it; a comment on the first-pass early restart.
+- (N, left) KOSMOS_WAIT_NOW runs a command from the environment, as KOSMOS_WAIT_SLEEP already does.

@@ -212,8 +212,8 @@ BEFORE="$(seen_before)"
 # plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
 # the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
 # Both checks WAIT rather than refuse: every 30 s, in a queue so the oldest waiting suite goes
-# first, giving up only when the queue has not moved for 45 minutes (#4574; tools/lib/cut-guard.sh,
-# kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
+# first, giving up only when no waiter ahead has left for 45 minutes, whatever the blocker (#4574;
+# tools/lib/cut-guard.sh, kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
 # refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
