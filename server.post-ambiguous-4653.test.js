@@ -17,9 +17,11 @@ const { execFileSync } = require('node:child_process');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-'));
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-home-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
-process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-work-'));
-process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-proj-'));
-process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-launch-'));
+const TMPS = [];
+const tmp = (tag) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-post-ambig-4653-' + tag + '-')); TMPS.push(d); return d; };
+process.env.AGENT_WORKFORCE_WORKERS = tmp('work');
+process.env.AGENT_WORKFORCE_PROJECTS = tmp('proj');
+process.env.AGENT_WORKFORCE_LAUNCH = tmp('launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
@@ -54,7 +56,7 @@ test.after(() => {
   messagesEngine.resetForTests(); chatEngine.setRunner(null); chatEngine.setDryRun(true);
   if (board) board.restore();
   server.closeAllConnections(); server.close();
-  for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of [SANDBOX, process.env.HOME, ...TMPS]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 async function post(text) {

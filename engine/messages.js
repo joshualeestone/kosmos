@@ -1521,10 +1521,11 @@ function mentionedMembers(cleaned, recipients, roster) {
    NAME_RE (engine/create.js) for agents Kosmos made, and cleaned the same way in case an adopted one is
    not. '' when there is nothing to say. */
 function ambiguousNote(ambiguous, mentioned, shown) {
-  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths, bidi controls and
-     lone surrogates: the name is printed straight to an agent's terminal. */
+  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
+     paragraph separators, bidi controls, the BOM and lone surrogates: the name is printed straight to an
+     agent's terminal. */
   const clean = (s) => String(s == null ? '' : s)
-    .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
+    .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
   const handle = (m) => clean(m);
   const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== handle(m) ? n + ' (@' + handle(m) + ')' : '@' + handle(m); };
   const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);

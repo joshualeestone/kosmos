@@ -2043,7 +2043,8 @@ cmd_post() {
   # an `outcomes` key or words inside the post can never be read as the note. A reordered answer reads as
   # no note (silence), never as a wrong one; engine/messages.mention-4642.test.js pins the order.
   local _ambig
-  _ambig=$(printf '%s' "$body" | sed -n 's/.*"ambiguousNote":"\([^"]*\)"}}$/\1/p')
+  # `|| true`: under set -e a failing sed would abort here, after the post has landed, and invite a re-post.
+  _ambig=$(printf '%s' "$body" | sed -n 's/.*"ambiguousNote":"\([^"]*\)"}}$/\1/p') || true
   case "$body" in
     '{"delivery":{"state":"placed"'*)
       case "$body" in
