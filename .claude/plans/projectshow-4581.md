@@ -57,3 +57,9 @@ fake "flag" still carried a hidden instruction. Now only a real subdivision flag
 U+FFF9-FFFB, the Hangul fillers. A future-dated file no longer hides a real current summary; no usable folder reads
 nofolder; the Mac's no-node path exits 1 on a body that is not JSON; counts print as numbers only.
 Kept, stated: a missing projectview.js (a broken install) reads as "an answer we could not read".
+Round 5 (Opus, separate reviewer, 13:48): runs of ZWJ/ZWNJ/variation selectors were still a zero-width channel (150
+invisible characters survived in a name). Runs of three or more are now removed; single joiners and a flag's
+VS16+ZWJ pair stay (tested with 🏳️‍🌈). The folder filter now marks the full carrier set with "?". The two 500 paths
+(an unreadable store; a view that fails to build) now have tests; removing the server's try fails one (measured). A
+summary file name goes through the scrubber; hitting the scan bound with no file found reads unreadable, not none.
+Also merged main: project list/show use #4466's say_not_up / say_unreached.

@@ -65,7 +65,10 @@ function summaryFreshness(folder, nowMs) {
      summaries), with a hard bound on how many entries are checked at all. */
   const candidates = names.filter((n) => SUMMARY_NAME.test(n)).sort().reverse();
   let files = 0;
-  for (let i = 0; i < candidates.length && i < SUMMARY_SCAN_MAX * 10 && files < SUMMARY_SCAN_MAX; i += 1) {
+  const bound = SUMMARY_SCAN_MAX * 10;
+  let checked = 0;
+  for (let i = 0; i < candidates.length && i < bound && files < SUMMARY_SCAN_MAX; i += 1) {
+    checked = i + 1;
     const name = candidates[i];
     let st;
     try { st = fs.lstatSync(path.join(dir, name)); } catch { continue; }
@@ -77,6 +80,8 @@ function summaryFreshness(folder, nowMs) {
   /* A write time well ahead of now (clock skew, a restored copy, a touch) is not evidence of a current summary. It is
      reported as its own state only when there is no believable file (round 4: one future-dated file used to hide a real
      current summary). */
+  /* Round 5: stopped at the bound with no file found and more names left: we did not look at all of them. */
+  if (!best && !future && checked >= bound && candidates.length > bound) return { ...none, state: 'unreadable' };
   if (!best && future) return { state: 'future', file: 'summaries/' + future.name, at: new Date(future.ms).toISOString(), ageMinutes: null };
   if (!best) return none;
   const raw = Math.round((now - best.ms) / 60000);
@@ -183,6 +188,10 @@ function one(v) {
        usca); an unbounded run was itself a hidden channel. Also gone: the variation-selector supplement, the
        deprecated format controls, interlinear annotation marks, and the Hangul fillers (they print as blank). */
     .replace(/(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{4,6}\u{E007F})|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]/gu, (m, flag) => flag || '')
+    /* Round 5: joiners and variation selectors are legitimate one or two at a time (a family emoji, a Persian word,
+       a flag's VS16 then ZWJ), and a covert channel in runs (zero-width steganography), so a run of three or more
+       goes. */
+    .replace(/[\u200c\u200d\ufe00-\ufe0f]{3,}/g, '')
     .replace(/\s+/g, ' ').trim();
 }
 /* A folder path is printed exactly, not tidied (round 3: collapsing spaces or dropping joiners printed a different,
@@ -190,7 +199,9 @@ function one(v) {
    text is replaced, by a visible "?", so the reader can see the path is not shown as it is. */
 function pathText(v) {
   return String(v == null ? '' : v)
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\u061c\ufeff]|[\u{E0000}-\u{E007F}]/gu, '?');
+    /* Round 5: the same carriers the name filter drops (soft hyphen, deprecated format controls, interlinear marks,
+       Hangul fillers, the variation-selector supplement, runs of joiners), each shown as "?" rather than removed. */
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200c\u200d\ufe00-\ufe0f]{3,}/gu, '?');
 }
 function ago(minutes) {
   if (minutes == null) return '';
@@ -228,11 +239,11 @@ function renderList(payload) {
 }
 
 const SUMMARY_WORDS = {
-  current: (s) => 'current (' + s.file + ', ' + ago(s.ageMinutes) + ')',
-  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + s.file + ', ' + ago(s.ageMinutes) + ')',
+  current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
-  future: (s) => 'dated in the future (' + s.file + '), so we cannot tell how current it is',
+  future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',
   unreadable: () => 'we could not look',
 };
 

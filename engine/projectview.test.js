@@ -242,3 +242,12 @@ test('round 4: one future-dated file does not hide a real current summary; an un
   assert.equal(v.summaryFreshness(null, NOW).state, 'nofolder');
   assert.equal(v.summaryFreshness('relative/path', NOW).state, 'nofolder');
 });
+
+test('round 5: runs of joiners or variation selectors (a zero-width channel) go; single ones and a flag\'s pair stay', () => {
+  const rainbow = '\u{1F3F3}\uFE0F\u200D\u{1F308}';
+  const steg = 'ok' + '\u200D\u200C'.repeat(60) + 'x' + '\uFE01'.repeat(30);
+  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: rainbow + ' ' + steg, folder: '/x/\u00ad\u206a\u{E0100}y' });
+  const lines = v.renderShow({ project: view });
+  assert.equal(lines[0], rainbow + ' okx  (id: ff)', JSON.stringify(lines[0]));
+  assert.equal(lines[1], 'Folder: /x/???y', 'a carrier in the path was not shown as ?');
+});

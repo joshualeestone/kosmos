@@ -161,3 +161,35 @@ test('round 1: the reads are GET only, so a HEAD cannot answer differently from 
   const res = await fetch(base + '/api/projects/overview', { method: 'HEAD', headers: asBoard() });
   assert.notEqual(res.status, 200, 'HEAD is no longer served by the overview handler');
 });
+
+test('#4581 round 5: an unreadable projects store is a 500, never an empty list', async (t) => {
+  withProject(t);
+  const file = projectsEngine.file();
+  fs.chmodSync(file, 0o000);
+  try {
+    for (const p of ['/api/projects/overview', '/api/project/ff/overview']) {
+      const r = await call(p, asAgent());
+      assert.equal(r.code, 500, p + ': ' + r.code + ' ' + r.text);
+      assert.equal(r.json && r.json.projectsUnreadable, true, p);
+    }
+  } finally {
+    /* Readable again, and read once: the store latches a failed read and (rightly) refuses to write until a read
+       succeeds, which withProject's restore would otherwise hit. */
+    fs.chmodSync(file, 0o600);
+    projectsEngine.readAll();
+  }
+});
+
+test('#4581 round 5: a view that fails to build is answered with a 500, not left hanging', async (t) => {
+  withProject(t);
+  const pv = require('./engine/projectview');
+  const realList = pv.listOf, realOver = pv.overviewOf;
+  pv.listOf = () => { throw new Error('boom'); };
+  pv.overviewOf = () => { throw new Error('boom'); };
+  t.after(() => { pv.listOf = realList; pv.overviewOf = realOver; });
+  for (const p of ['/api/projects/overview', '/api/project/ff/overview']) {
+    const r = await call(p, asAgent());
+    assert.equal(r.code, 500, p + ': ' + r.code);
+    assert.match(r.text, /could not put/);
+  }
+});
