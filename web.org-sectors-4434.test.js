@@ -551,12 +551,13 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
      and a flat fleet has no repair at rest: review it8 measured 37 overlapping pairs at rest, one at 0px. */
   const at = SCRIPT.indexOf('function paintOrg(');
   const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  assert.match(paint, /if \(!orgKeepPositions\(ORG_POS_TREE, tree\)\) ORG_POS\.clear\(\);\s*ORG_POS_TREE = tree;\s*const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, tree\);/,
+  assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,700}?if \(!orgKeepPositions\(ORG_POS_TREE, tree\)\) ORG_POS\.clear\(\);\s*ORG_POS_TREE = tree;\s*const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, tree\);/,
     'paintOrg no longer drops positions across a change between tree and flat');
   const k = SCRIPT.indexOf('function orgKeepPositions(');
   // eslint-disable-next-line no-new-func
   const keep = new Function(SCRIPT.slice(k, SCRIPT.indexOf('\n', k)) + '\nreturn orgKeepPositions;')();
-  assert.deepEqual([keep(null, true), keep(true, true), keep(false, false), keep(true, false), keep(false, true)], [true, true, true, false, false]);
+  // Dropped only when a tree turns flat; a flat fleet turning into a tree keeps them and glides (review it9).
+  assert.deepEqual([keep(null, true), keep(true, true), keep(false, false), keep(true, false), keep(false, true)], [true, true, true, false, true]);
   /* The live chart through the change, both ways of seeding it. */
   const spec = [['m']].concat(Array.from({ length: 59 }, (_, i) => ['a' + i, 'm']));
   const tp = firstPaint(cards(spec)).placed;
@@ -578,6 +579,28 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
   assert.equal(fixed.overlapping, 0, 'the flat fleet rests with faces overlapping');
   const carried = settleFlat(false);
   assert.ok(carried.grew > 2 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
+});
+
+test('a flat fleet given its first manager glides from where it was to the tree\'s placement (#4434, review it9)', () => {
+  /* Dropping the ring's positions snapped the chart up to ~380px with no animation, where main animated it. */
+  const flatSpec = Array.from({ length: 12 }, (_, i) => ['a' + i]);
+  const fp = firstPaint(cards(flatSpec)).placed;
+  const pre = [...fp.keys()][0].split('_')[0] + '_';
+  const tp0 = firstPaint(cards(flatSpec.map(([nm], i) => (i === 3 ? [nm, 'a0'] : [nm])))).placed;
+  const preT = [...tp0.keys()][0].split('_')[0] + '_';
+  const ren = (k) => k && k.replace(preT, pre);
+  const tp = new Map([...tp0].map(([k, v]) => [ren(k), { ...v, node: { ...v.node, parent: ren(v.node.parent) } }]));
+  const f0 = canvasFor(fp, 1000);
+  const { page, map, run } = livePage();
+  page.orgLiveStart(map, fp, f0.cx, f0.cy, f0.size); run();
+  const t0 = canvasFor(tp, 1000);
+  const scale = t0.size / f0.size;   // paintOrg carries the ring's positions onto the tree's canvas (orgCarryFactor)
+  for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x * scale, y: q.y * scale });
+  page.orgLiveStart(map, tp, t0.cx, t0.cy, t0.size);
+  const g = run();
+  assert.ok(g.frames > 1 && g.far > 40, 'CONTROL: the tree\'s placement is where the ring already was (' + g.far.toFixed(0) + 'px), so this tests nothing');
+  assert.ok(g.jump <= 41, 'a frame moved a face ' + g.jump.toFixed(0) + 'px: the change snapped instead of gliding');
+  assert.ok(offPlacement(page, tp, t0.cx, t0.cy) < 0.01, 'the glide did not end at the tree\'s placement');
 });
 
 test('a click on the hub of a tree at rest does not move it; a drag of the same hub does (#4434, review it5, it6)', () => {
@@ -715,16 +738,16 @@ test('a tree already at its placement is painted there and not animated: first l
     page.orgLiveStart(map, placed, cx, cy, size);
     assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): the first load of a tree ran the physics');
     assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'randomTree(' + seed + ', ' + n + '): the first load is not at the placement');
-    /* CONTROL: started off its placement (one node 5px out, as a drag leaves it), the same tree does animate,
-       drifts, and the repair ends it back at the placement, so the next repaint is the at-rest case again. */
+    /* CONTROL: started off its placement (one node 5px out, as a drag leaves it), the tree does animate, and
+       it GLIDES straight back (review it9): only that node moves, and only its 5px. Under the physics every
+       node would drift (these trees drifted into a crossing and a ~150px repair, review it4 and it5). */
     const k0 = [...placed.keys()][0];
     const q = page.pos().get(k0); page.pos().set(k0, { x: q.x + 5, y: q.y });
     page.orgLiveStart(map, placed, cx, cy, size);
     const moved = run();
-    assert.ok(moved.frames > 0 && moved.far > 20, 'CONTROL randomTree(' + seed + ', ' + n + '): off its placement the physics did not run (' + moved.frames + ' frames, ' + moved.far.toFixed(0) + 'px), so this tree tests nothing');
-    assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL randomTree(' + seed + ', ' + n + '): the drift was not repaired back to the placement');
-    /* ...and it got there without a jump: the repair glides (review it5: it teleported up to ~150px here). */
-    assert.ok(moved.jump <= 41, 'randomTree(' + seed + ', ' + n + '): a frame moved a face ' + moved.jump.toFixed(0) + 'px (the repair jumped instead of gliding)');
+    assert.ok(moved.frames > 0, 'CONTROL randomTree(' + seed + ', ' + n + '): off its placement nothing moved, so this tree tests nothing');
+    assert.ok(moved.far < 5.5, 'randomTree(' + seed + ', ' + n + '): off its placement the chart moved ' + moved.far.toFixed(0) + 'px (the physics ran instead of the glide)');
+    assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'randomTree(' + seed + ', ' + n + '): the glide did not end at the placement');
     page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
     assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): a repaint after the repair ran the physics again (the snap repeats)');
     /* The hub counts too: the whole chart 30px off its home (every node still at its placement relative to

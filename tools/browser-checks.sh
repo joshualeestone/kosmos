@@ -608,9 +608,11 @@ boot_board_rich() {
 # reduced-motion settle is load-bearing. render-org-reduced-motion asserts no two
 # discs overlap after the synchronous settle; on the flat write_fleet_rich board
 # static orgPlace is already 0 overlaps, so that arm would be vacuous there. This
-# is a manager (boss) with EIGHT direct reports -- which orgPlace packs into a
-# ~69deg arc so the discs sit ~33px apart, inside their 44px diameter -- plus two
-# second-level reports for depth. Every agent RUNNING (a pane) so it enters the
+# was a manager (boss) with EIGHT direct reports -- which orgPlace packed into a
+# ~69deg arc so the discs sat ~33px apart, inside their 44px diameter -- plus two
+# second-level reports for depth. #4434: a tree is now laid out with no faces
+# touching, so render-org-reduced-motion boots this board with ORG_FLAT_DENSE
+# (below) and this default tree is unused. Every agent RUNNING (a pane) so it enters the
 # roster; the tree is expressed by reportsTo in each profile. Seeded in node,
 # not bash: macOS bash is 3.2 and has no associative arrays.
 # 🛑 NOT write_fleet_rich with more agents: render-org-chart's fill-band

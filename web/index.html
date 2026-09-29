@@ -29216,7 +29216,7 @@ function orgStep(nodes, hub, alpha, box) {
    375px, 9 of 150 trees). So when a TREE layout comes to rest with any two lines crossing, or two faces
    overlapping (review it5: a hub dragged into a corner and let go), every node goes back to its placed
    position (relative to the hub), which is free of both by construction. Crossings and overlaps can then
-   only exist mid-motion, never at rest. Pure, for the tests; returns whether it moved anything, or with
+   only exist mid-motion, never at rest. No DOM, for the tests; returns whether it moved anything, or with
    `dry`, whether it would (the animation then glides home with orgHomeStep rather than jumping). */
 function orgPlanarRepair(nodes, hub, dry) {
   const tree = nodes.filter((n) => n.home);
@@ -29526,14 +29526,14 @@ const ORG_SQUEEZE_MIN = 0.7;
 /* The square a fleet of outer radius maxR draws at when nothing has to fit: one
    derivation, read by orgFit and by paintOrg's .orgtight test. */
 function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
+/* #4434: whether positions kept from the last paint may seed this one: not when a tree turns flat (see
+   paintOrg). A flat fleet turning into a tree keeps them: the tree glides from them to its placement. */
+function orgKeepPositions(wasTree, tree) { return wasTree !== true || tree; }
 /* #718: the factor that carries positions kept from the last paint (ORG_POS) onto this paint's canvas: the
    ratio of the sizes when the box's width changed, else 1. #4434: a TREE's canvas can also change size at the
    same width (an agent removed or re-parented shrinks or grows its rings a lot), and positions left in the old
    frame put faces past the new edge, which the first physics frame then clamps in one jump (review it7: over
    1000px). A tree carries them across in proportion too. A flat fleet keeps its positions, as before. */
-/* #4434: whether positions kept from the last paint may seed this one: not across a change between a tree
-   layout and a flat one (see paintOrg). wasTree null means nothing was painted yet. */
-function orgKeepPositions(wasTree, tree) { return wasTree === null || wasTree === tree; }
 function orgCarryFactor(widthChanged, sizeWas, size, tree) {
   if (!(sizeWas > 0) || size === sizeWas) return 1;
   return widthChanged || tree ? size / sizeWas : 1;
@@ -29619,9 +29619,10 @@ function paintOrg() {
   // does not move ORG_SIZE either: the next real paint compares against the last one.
   const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
   const tree = [...placed.values()].some((sp) => Number.isFinite(sp.lo));
-  /* #4434: positions from a TREE layout mean nothing to a flat one, and the other way round: a tree's canvas can
-     be many times a flat one's for the same people, and a flat fleet has no repair at rest (review it8: the last
-     manager removed left faces resting on top of each other). A change of kind starts from the new placement. */
+  /* #4434: positions from a TREE layout mean nothing to a flat one: a tree's canvas can be many times a flat
+     one's for the same people, and a flat fleet has no repair at rest (review it8: the last manager removed
+     left faces resting on top of each other). A tree turning flat starts from the flat placement; a flat fleet
+     turning into a tree keeps its positions and glides from them (orgLiveStart). */
   if (!orgKeepPositions(ORG_POS_TREE, tree)) ORG_POS.clear();
   ORG_POS_TREE = tree;
   const f = orgCarryFactor(widthChanged, ORG_SIZE, size, tree);
@@ -29904,6 +29905,19 @@ function orgLiveStart(map, placed, cx, cy, size) {
   if (nodes.size && Math.abs(hub.x - cx) < 0.5 && Math.abs(hub.y - cy) < 0.5 && [...nodes.values()].every(placedAt)) {
     ORG_LIVE.alpha = 0.02;
     orgLiveSync();
+    return;
+  }
+  /* #4434: a TREE that is not at its placement (a re-parent, an agent added or removed, the first manager
+     assigned) goes straight to it: the placement is its resting state, so it glides there (orgHomeStep, at
+     most ORG_GLIDE_MAX a frame) rather than running the physics, which drifts a large tree and then needs
+     the repair (review it9: the first manager assigned snapped the chart with no animation). Under reduced
+     motion it is placed there at once. The physics is for drags. */
+  if ([...nodes.values()].some((n) => n.home)) {
+    ORG_LIVE.alpha = 0.02;
+    if (still) { orgHomeStep([...nodes.values()], hub, 1); orgLiveSync(); return; }
+    ORG_LIVE.homing = true;
+    orgLiveSync();
+    orgLiveRun();
     return;
   }
   if (still) {
