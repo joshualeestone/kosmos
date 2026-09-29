@@ -39,6 +39,8 @@ const SHOTS = process.env.SHOT_DIR || '';
 const MOD = '**/api/community/moderation*';
 const RELEASE = '**/api/community/release';
 const DISCARD = '**/api/community/discard';
+const SWITCH = '**/api/community-setting';
+const SWITCH_ON = { on: true, ok: true, share: null, noticeSeen: true };
 
 const fails = [];
 function check(name, pass, detail) {
@@ -86,6 +88,8 @@ function readList(pg) {
         why: (li.querySelector('.community-held-why') || {}).textContent || '',
         link: link ? link.href : '',
         more: Boolean(li.querySelector('.community-held-more')),
+        reveal: Boolean(li.querySelector('.community-held-reveal')),
+        bodyShown: (() => { const b = li.querySelector('.community-held-body'); return Boolean(b && !b.hidden && b.getBoundingClientRect().height > 0); })(),
         ask: Boolean(li.querySelector('.community-held-ask')),
       };
     }) : [];
@@ -97,6 +101,7 @@ function readList(pg) {
       listHidden: list ? list.hidden : null,
       emptyHidden: empty ? empty.hidden : null,
       empty: empty ? empty.textContent : '',
+      offNote: (() => { const o = document.getElementById('community-held-off'); return Boolean(o && !o.hidden); })(),
       rows,
       focus: a ? [a.id, a.className, a.tagName, a.textContent.trim().slice(0, 40)].join('|') : '',
     };
@@ -110,6 +115,7 @@ const QUEUE = [
   { id: 'p1', status: 'held', agent: 'Nova', author: { type: 'agent', name: 'Nova' }, topic: 'Moving the weekly report', body: LONG, receivedAt: '2026-09-29T08:00:00Z' },
   { id: 'p2', status: 'quarantined', agent: 'Nova', author: { type: 'agent', name: 'Nova' }, topic: 'Who to ask', body: 'Write to the team lead.', findings: [{ cls: 'email', field: 'body', why: 'email address (PII)' }], receivedAt: '2026-09-29T08:01:00Z' },
   { id: 'c1', status: 'held', postId: 'p9', author: { type: 'agent', name: 'Ava' }, body: 'Same here, templates help.', receivedAt: '2026-09-29T08:02:00Z' },
+  // remotePostId is #4373 part B's field (its branch, not main): this row is that branch's shape.
   { id: 'c2', status: 'held', remotePostId: REMOTE, author: { type: 'agent', name: 'Ava' }, body: 'This worked for me too.', receivedAt: '2026-09-29T08:03:00Z' },
 ];
 
@@ -145,6 +151,7 @@ async function run() {
         await openAutomation(p0);
         const r0 = await readList(p0);
         const ids = r0.rows.map((x) => x.id);
+        check('REAL: with the switch off, the list says a release now stays on this computer', r0.offNote === true, JSON.stringify(r0.offNote));
         const listed = ids.includes(a.id) && ids.includes(b.id) && r0.rows.every((x) => x.release);
         check('REAL: both held posts are listed, with Release', listed, JSON.stringify(r0.rows));
         if (listed) {
@@ -173,23 +180,35 @@ async function run() {
     // ROWS, in light and dark
     for (const scheme of ['light', 'dark']) {
       const p1 = await page({ colorScheme: scheme });
-      await p1.route(MOD, answer({ queue: QUEUE }));
+      const asked = [];
+      await p1.route(MOD, (route) => { asked.push(route.request().url()); return answer({ queue: QUEUE })(route); });
+      await p1.route(SWITCH, answer(SWITCH_ON));   // the normal state: the REAL arm left this board's switch off
       await openAutomation(p1);
       const r = await readList(p1);
       if (scheme === 'light') {
         check('ROWS: the list exists and its heading shows below the Community switch', r.found && r.headShown && r.belowSwitch, JSON.stringify(r));
         check('ROWS: four rows are listed', r.rows.length === 4, JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: the list asks for the route\'s full page (limit=200)', asked.length > 0 && asked.every((u) => /[?&]limit=200\b/.test(u)), JSON.stringify(asked));
+        check('ROWS: with the switch on there is no switch-off note', r.offNote === false);
+        check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', r.rows[1].bodyShown === false && r.rows[1].reveal === true && r.rows[0].bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
+        check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(r.rows[2].text) && !/Comments are not sent/.test(r.rows[0].text), JSON.stringify([r.rows[0].text, r.rows[2].text]));
+        const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
+        check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));
         check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => x.release)) === '[true,false,true,true]', JSON.stringify(r.rows));
         check('ROWS: every row can be discarded', r.rows.every((x) => x.discard), JSON.stringify(r.rows));
         check('ROWS: the stopped row says why in words, and that it cannot be released',
           /contains an email address, so it cannot be released\./.test(r.rows[1].why) && !/email address \(PII\)/.test(r.rows[1].text), r.rows[1].why);
         check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(r.rows[0].text) && /Nova/.test(r.rows[0].text) && /Same here, templates help\./.test(r.rows[2].text) && /Ava/.test(r.rows[2].text), JSON.stringify(r.rows.map((x) => x.text)));
-        check('ROWS: a comment on a post in the public community links to that post', r.rows[3].link === 'https://community.installkosmos.com/post/' + REMOTE && r.rows[2].link === '', JSON.stringify([r.rows[2].link, r.rows[3].link]));
+        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', r.rows[3].link === 'https://community.installkosmos.com/post/' + REMOTE && r.rows[2].link === '', JSON.stringify([r.rows[2].link, r.rows[3].link]));
         check('ROWS: a long post offers Show all; a short one does not', r.rows[0].more === true && r.rows[2].more === false, JSON.stringify(r.rows.map((x) => x.more)));
         await p1.click('li[data-id="p1"] .community-held-more');
         const open = await p1.evaluate(() => document.querySelector('li[data-id="p1"] .community-held-body').classList.contains('open'));
         check('ROWS: Show all opens the whole post', open === true);
         await p1.click('li[data-id="p1"] .community-held-more');
+        await p1.click('li[data-id="p2"] .community-held-reveal');
+        const shown = (await readList(p1)).rows[1].bodyShown;
+        check('ROWS: Show what it said reveals a stopped row\'s words', shown === true);
+        await p1.click('li[data-id="p2"] .community-held-reveal');
       }
       await shot(p1, 'community-held-4525-' + scheme + '.png');
       await p1.close();
@@ -232,6 +251,14 @@ async function run() {
     });
     check('FAIL: the board\'s message shows in the row and the buttons are usable again', f.msg === 'only a held post can be released' && JSON.stringify(f.disabled) === '[false,false]', JSON.stringify(f));
     await p3.close();
+
+    // FULL: a full page (the route's ceiling) says more are waiting, rather than implying this is all.
+    const pf = await page();
+    await pf.route(MOD, answer({ queue: Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i })) }));
+    await openAutomation(pf);
+    const fl = await readList(pf);
+    check('FULL: 200 rows say they are the oldest and more are waiting', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200\. More are waiting/.test(fl.empty), fl.empty);
+    await pf.close();
 
     // EMPTY
     const p4 = await page();

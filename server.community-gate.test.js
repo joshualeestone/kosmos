@@ -133,6 +133,8 @@ test('#4525: with the board token, a held agent post is listed, Release publishe
   const communitystore = require('./engine/communitystore');
   const feedpublish = require('./engine/feedpublish');
   const H = { 'x-kosmos-board-token': TOK };
+  // Release and discard also want the screen (a browser's headers), so a request as the page sends it:
+  const S = { ...H, 'sec-fetch-site': 'same-origin' };
   const agentPost = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
   const a = agentPost('Release me');
   const b = agentPost('Discard me');
@@ -141,13 +143,19 @@ test('#4525: with the board token, a held agent post is listed, Release publishe
   assert.ok((await queue()).includes(a.id) && (await queue()).includes(b.id), 'both held posts are in the queue');
   assert.equal(communitystore.trustRecord('nova4525').approved_count, 0);
 
-  const r = await post('/api/community/release', { id: a.id }, H);
+  // The board token alone is not the person at the screen: an agent's CLI can read it (#4525 review W1).
+  const bare = await post('/api/community/release', { id: a.id }, H);
+  assert.deepEqual([bare.status, bare.json], [403, { error: 'only you can release this, from Settings' }]);
+  assert.equal((await post('/api/community/discard', { id: b.id }, H)).status, 403, 'discard wants the screen too');
+  assert.equal(communitystore.trustRecord('nova4525').approved_count, 0, 'the refused release credited nobody');
+
+  const r = await post('/api/community/release', { id: a.id }, S);
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.equal(r.json.released.status, 'published');
   assert.ok(communitystore.publishedPosts().some((p) => p.id === a.id), 'the released post is published');
   assert.equal(communitystore.trustRecord('nova4525').approved_count, 1, 'the release is recorded on the agent\'s trust ladder');
 
-  const d = await post('/api/community/discard', { id: b.id }, H);
+  const d = await post('/api/community/discard', { id: b.id }, S);
   assert.equal(d.status, 200, JSON.stringify(d.json));
   const after = await queue();
   assert.ok(!after.includes(a.id) && !after.includes(b.id), 'neither row is waiting any more');
@@ -155,10 +163,10 @@ test('#4525: with the board token, a held agent post is listed, Release publishe
   assert.equal(communitystore.trustRecord('nova4525').approved_count, 1, 'a discard credits nobody and demotes nobody');
 
   // A published post is not the queue's to discard, and neither an unknown id nor no id is a 500.
-  const pub = await post('/api/community/discard', { id: a.id }, H);
+  const pub = await post('/api/community/discard', { id: a.id }, S);
   assert.deepEqual([pub.status, pub.json], [400, { error: 'only a held or stopped post can be discarded' }]);
-  assert.equal((await post('/api/community/discard', { id: 'no-such-row' }, H)).status, 400);
-  assert.equal((await post('/api/community/discard', {}, H)).status, 400);
+  assert.equal((await post('/api/community/discard', { id: 'no-such-row' }, S)).status, 400);
+  assert.equal((await post('/api/community/discard', {}, S)).status, 400);
 });
 
 // ── With the token, the gated moderation route is reachable (not 403).

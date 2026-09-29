@@ -8074,6 +8074,7 @@ svg { display: block; }
 .community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .community-held-row .community-held-body.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .community-held-acts { display: flex; gap: 8px; }
+.community-held-reveal { display: block; margin-top: 4px; }
 /* The link out to a comment's post takes the page's ink, not the browser's blue (unreadable on dark). */
 .community-held-post { color: var(--k-ink-2); text-decoration: underline; font-weight: 600; }
 /* #514: the delete's own button. It must not look like the Remove beside
@@ -16164,6 +16165,7 @@ window.kosmosMeasureScrollbarWidth();
            an agent climbs the trust ladder, so without this list held-by-default was held-forever.
            Rows the safety check stopped (quarantined) say why and can only be discarded. -->
       <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer. It is not sent to the community, even if you turn the switch on later.</p>
       <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
@@ -28477,6 +28479,9 @@ function communityPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('community-toggle', unread ? null : r.on === true);
   document.getElementById('community-off-note').hidden = unread || r.on !== false;
+  /* #4525: the send sweep only sends a post released while the switch is on (communitysend
+     sinceForOnPeriod), so Release under Off publishes on this board alone, for good. Say so. */
+  document.getElementById('community-held-off').hidden = unread || r.on !== false;
   document.getElementById('community-share').textContent = unread
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
@@ -28774,25 +28779,29 @@ function communityHeldReason(findings) {
     secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
     email: 'an email address', phone: 'a phone number', ssn: 'an ID number', card: 'a card number',
     home_path: 'a folder path that names someone on this computer', financial: 'an amount of money',
+    human_name: 'a person\u2019s name', bad_link: 'a link Kosmos does not allow',
   };
   const seen = [];
   for (const f of Array.isArray(findings) ? findings : []) {
     const w = f && said[f.cls];
     if (w && !seen.includes(w)) seen.push(w);
   }
-  if (!seen.length) return 'Kosmos stopped this because it did not pass the safety check, so it cannot be released.';
+  const next = ' Discard it, and the agent can write it again without that.';
+  if (!seen.length) return 'Kosmos stopped this because it did not pass the safety check, so it cannot be released.' + next;
   const list = seen.length === 1 ? seen[0] : seen.slice(0, -1).join(', ') + ' and ' + seen[seen.length - 1];
-  return 'Kosmos stopped this because it contains ' + list + ', so it cannot be released.';
+  return 'Kosmos stopped this because it contains ' + list + ', so it cannot be released.' + next;
 }
 function communityHeldAgent(r) {
   return (r.author && r.author.name) || r.agent || '';
 }
+function communityHeldIsComment(r) { return Boolean(r.postId || r.remotePostId); }
+/* A comment has no title, so it is named by its agent: every row's buttons must say which row they act on. */
 function communityHeldTitle(r) {
-  const isComment = Boolean(r.postId || r.remotePostId);
-  if (isComment) return 'A comment';
+  if (communityHeldIsComment(r)) return communityHeldAgent(r) ? 'A comment by ' + communityHeldAgent(r) : 'A comment';
   return r.topic || 'Untitled post';
 }
 let COMMUNITY_HELD_EPOCH = 0;
+const COMMUNITY_HELD_MAX = 200;
 function communityHeldPaint(rows) {
   const list = document.getElementById('community-held-list');
   const empty = document.getElementById('community-held-empty');
@@ -28806,9 +28815,18 @@ function communityHeldPaint(rows) {
   list.hidden = rows.length === 0;
   empty.hidden = rows.length > 0;
   empty.textContent = 'Nothing is waiting for you.';
+  if (rows.length >= COMMUNITY_HELD_MAX) {
+    empty.hidden = false;
+    empty.textContent = 'These are the oldest ' + COMMUNITY_HELD_MAX + '. More are waiting; they show here as you release or discard these.';
+  }
   for (const r of rows) {
     const stopped = r.status === 'quarantined';
+    const isComment = communityHeldIsComment(r);
     const name = communityHeldTitle(r);
+    /* The buttons' names: a post's title, or for a comment its agent plus how it starts, since
+       one agent can have several comments waiting. */
+    const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
+    const label = isComment && said ? name + ': ' + (said.length > 40 ? said.slice(0, 40) + '…' : said) : name;
     const li = document.createElement('li');
     li.className = 'community-mine-row community-held-row';
     li.dataset.id = r.id;
@@ -28818,13 +28836,21 @@ function communityHeldPaint(rows) {
     const body = document.createElement('p');
     body.className = 'dhint community-held-body';
     body.textContent = typeof r.body === 'string' ? r.body : '';
+    /* A stopped row is stored exactly as the agent wrote it, and what stopped it may be a key or a
+       card number, so its words stay hidden until asked for (a shared screen must not show them). */
+    if (stopped) body.hidden = true;
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
-    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : 'Waiting for you to release it'].filter(Boolean).join(' · ');
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
+      /* The send sweep sends posts only, so a released comment is published on this board and
+         goes no further yet. The row must not promise the community. */
+      + (isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
-       service's id for it, so the row links out to that post. Only a plain id is linked. */
+       service's id for it, so the row links out to that post. Only a plain id is linked.
+       ⚠️ `remotePostId` is #4373 part B's field and is not on main yet (its branch stores it on the
+       comment row); if part B lands with another name, this link is silently never drawn. */
     if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
       const a = document.createElement('a');
       a.className = 'community-held-post';
@@ -28854,7 +28880,7 @@ function communityHeldPaint(rows) {
       rel.className = 'btn community-held-release';
       rel.type = 'button';
       rel.textContent = 'Release';
-      rel.setAttribute('aria-label', 'Release “' + name + '” to the community');
+      rel.setAttribute('aria-label', 'Release “' + label + '”');
       rel.addEventListener('click', () => communityHeldRelease(r, li, rel));
       acts.append(rel);
     }
@@ -28862,8 +28888,8 @@ function communityHeldPaint(rows) {
     dis.className = 'btn danger-btn community-held-start';
     dis.type = 'button';
     dis.textContent = 'Discard';
-    dis.setAttribute('aria-label', 'Discard “' + name + '”');
-    dis.addEventListener('click', () => openCommunityDiscard(r, li, name));
+    dis.setAttribute('aria-label', 'Discard “' + label + '”');
+    dis.addEventListener('click', () => openCommunityDiscard(r, li, label));
     acts.append(dis);
     li.append(acts);
     const note = document.createElement('p');
@@ -28876,7 +28902,20 @@ function communityHeldPaint(rows) {
     /* "Show all" when the text may run past four lines. Decided from the text, not measured:
        this list is painted at page load, while Settings is hidden and every height reads 0. */
     const txt = body.textContent;
-    if (txt.length > 240 || txt.split('\n').length > 4) {
+    if (stopped) {
+      const show = document.createElement('button');
+      show.className = 'linkish community-held-reveal';
+      show.type = 'button';
+      show.textContent = 'Show what it said';
+      show.setAttribute('aria-expanded', 'false');
+      show.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        if (!body.hidden) body.classList.add('open');
+        show.textContent = body.hidden ? 'Show what it said' : 'Hide what it said';
+        show.setAttribute('aria-expanded', String(!body.hidden));
+      });
+      body.after(show);
+    } else if (txt.length > 240 || txt.split('\n').length > 4) {
       const more = document.createElement('button');
       more.className = 'linkish community-held-more';
       more.type = 'button';
@@ -28894,7 +28933,8 @@ function communityHeldPaint(rows) {
 async function refreshCommunityHeld() {
   const mine = ++COMMUNITY_HELD_EPOCH;
   try {
-    const res = await fetch('/api/community/moderation');
+    /* The route's ceiling (MOD_LIMIT_MAX), oldest first; a full page says there is more. */
+    const res = await fetch('/api/community/moderation?limit=' + COMMUNITY_HELD_MAX);
     const body = res.ok ? await res.json() : null;
     if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(body && Array.isArray(body.queue) ? body.queue : null);
   } catch {
@@ -28925,6 +28965,7 @@ async function communityHeldRelease(r, li, btn) {
   } catch {
     note.textContent = 'We could not release it.';
     buttons.forEach((b) => { b.disabled = false; });
+    btn.focus();
   }
 }
 /* Discard asks inside the row, the same way Delete does above: both buttons name the act, and
@@ -28939,7 +28980,8 @@ function openCommunityDiscard(r, li, name) {
   const say = document.createElement('p');
   say.className = 'dhint';
   say.style.margin = '0 0 6px';
-  say.textContent = 'It never goes to the community, and it cannot be brought back.';
+  say.textContent = 'It never goes to the community, and it cannot be brought back.'
+    + (communityHeldIsComment(r) ? '' : ' Any comments on it go with it.');
   const keep = document.createElement('button');
   keep.className = 'btn community-held-keep';
   keep.type = 'button';
@@ -28967,12 +29009,13 @@ function openCommunityDiscard(r, li, name) {
         body: JSON.stringify({ id: r.id }),
       });
       const out = await res.json().catch(() => null);
-      if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; return; }
+      if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; del.focus(); return; }
       await communityHeldDone();
     } catch {
       note.textContent = 'We could not discard it.';
       del.disabled = false;
       keep.disabled = false;
+      del.focus();
     }
   });
   const row = document.createElement('div');
