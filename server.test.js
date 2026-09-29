@@ -11579,10 +11579,14 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
   const os = require('node:os');
   const sb = fs.realpathSync(mkTemp('plusflow-'));
   const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const argvLog = nodePath.join(sb, 'argv.jsonl');   // kosmos#4454: what reached the connector
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    "require('fs').appendFileSync(" + JSON.stringify(argvLog) + ", JSON.stringify(process.argv.slice(2)) + '\\n');",
     "if (process.argv[2] === 'setup') process.exit(0);",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
+  const sent = () => { try { return fs.readFileSync(argvLog, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; } };
+  const completes = () => sent().filter((a) => a[0] === 'setup' && a[1] === 'complete');
   const prev = {
     bin: process.env.AGENT_WORKFORCE_TUNNEL_BIN,
     relay: process.env.AGENT_WORKFORCE_TUNNEL_RELAY,
@@ -11597,12 +11601,29 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
       body: JSON.stringify({ email: 'person@example.com' }),
     });
     assert.equal(started.status, 200, started.body);
+    /* kosmos#4454: without the "I agree" tick the route refuses, and nothing reaches the connector. A string
+       "true" is not an agreement. */
+    for (const acceptedTerms of [undefined, false, 'true']) {
+      const refused = await req('/api/remote/setup-complete', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: '123456', name: 'my-mac', acceptedTerms }),
+      });
+      assert.equal(refused.status, 400, refused.body);
+      assert.match(JSON.parse(refused.body).error, /Terms of Service and Privacy Policy/);
+    }
+    assert.equal(completes().length, 0, 'a setup without the terms agreed reached the connector');
     const done = await req('/api/remote/setup-complete', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: '123456', name: 'my-mac' }),
+      body: JSON.stringify({ code: '123456', name: 'my-mac', acceptedTerms: true }),
     });
     assert.equal(done.status, 200, done.body);
     assert.equal(JSON.parse(done.body).ok, true);
+    /* ...and with it, the connector is asked to send the coordinator's current terms version. */
+    const argv = completes()[0] || [];
+    const at = argv.indexOf('--accept-terms');
+    assert.ok(at > 0, 'the agreed terms never reached the connector: ' + JSON.stringify(argv));
+    assert.equal(argv[at + 1], '2026-09-28', 'the terms version must match the coordinator\u2019s TERMS_VERSION');
+    assert.equal(require('./engine/remote').TERMS_VERSION, '2026-09-28');
   } finally {
     for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_RELAY', prev.relay], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;

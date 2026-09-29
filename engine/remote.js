@@ -128,6 +128,11 @@ const COORDINATOR = () =>
    code. NAME_RULE: the address label (the "hers" in hers.<domain>). */
 const CODE_RULE = /^[0-9]{6}$/;
 const NAME_RULE = /^[a-z0-9-]{3,32}$/;
+/* kosmos#4454: the Terms of Service and Privacy Policy version a person agrees to when this Mac's own setup
+   creates their Kosmos+ account. It must equal the coordinator's TERMS_VERSION (kosmos-relay
+   coordinator/src/signin.rs, the date installkosmos.com/terms and /privacy last changed): the coordinator refuses
+   a NEW account without it, and refuses an older version as stale. When the terms change, change both. */
+const TERMS_VERSION = '2026-09-28';
 
 let child = null;
 let restartTimer = null;
@@ -1067,8 +1072,11 @@ async function setupStart(email) {
 }
 
 /** The code step: finish enrolment, then bring the tunnel up if the switch
-    is on. `name` is the address label the person asked for. */
-async function setupComplete(code, name) {
+    is on. `name` is the address label the person asked for. `acceptedTerms`
+    (kosmos#4454) is true when the person ticked "I agree to the Terms of
+    Service and Privacy Policy"; only then is TERMS_VERSION sent, and the
+    coordinator needs it only when this setup CREATES the account. */
+async function setupComplete(code, name, acceptedTerms = false) {
   // #3827: the older Settings setup writes the same state directory as the in-app
   // register, so it takes the same guards.
   { const b = busy(); if (b) return b; }
@@ -1126,6 +1134,7 @@ async function setupComplete(code, name) {
       '--code', String(code),
       '--name', name,
       '--state-dir', STATE_DIR(),
+      ...(acceptedTerms === true ? ['--accept-terms', TERMS_VERSION] : []),
     ], null, registerTimeoutMs()), half, name);
   })();
   registerInFlight = running;
@@ -1930,6 +1939,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
   status,
   setupStart,
   setupComplete,
+  TERMS_VERSION,
   signinStart,
   signinVerify,
   signinSecond,

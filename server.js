@@ -7737,10 +7737,18 @@ const server = http.createServer(async (req, res) => {
         const code = String(body.code || '').trim();
         const name = String(body.name || '').trim();
         if (!code) { sendJson(res, 400, { error: 'type the code from the email' }); return; }
+        /* kosmos#4454: this setup can CREATE a Kosmos+ account, so the person ticks "I agree to the Terms of
+           Service and Privacy Policy" first. Checked here as well as on the page, so no caller of this route
+           creates an account without it; the coordinator refuses a new account without it too. `=== true`,
+           so a string or a 1 is not an agreement. */
+        if (body.acceptedTerms !== true) {
+          sendJson(res, 400, { error: 'tick the box to agree to the Terms of Service and Privacy Policy first' });
+          return;
+        }
         /* The engine's order and its second argument, read from source this
            time: setupComplete(code, name), the email already held by the
            settings the start step wrote. */
-        const got = await remote.setupComplete(code, name);
+        const got = await remote.setupComplete(code, name, true);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, { ok: true, status: remote.status() });

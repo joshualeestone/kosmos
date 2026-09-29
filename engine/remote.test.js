@@ -511,6 +511,9 @@ test('the code step validates in words, enrolls through the binary, and brings t
   assert.match(refused.because, /not right/);
   const done = await remote.setupComplete('123456', 'Hers');   // #3796 addendum 6: typed with a capital
   assert.equal(done.ok, true, done.because);
+  // kosmos#4454: no "I agree" tick, no terms version on the wire (the coordinator then refuses a NEW account).
+  const unagreed = recorded().filter((c) => c[0] === 'setup' && c[1] === 'complete').pop();
+  assert.ok(unagreed && !unagreed.includes('--accept-terms'), 'terms were sent that nobody ticked: ' + JSON.stringify(unagreed));
   // #3889: the Settings setup caches the account's standing right away (the fake tunnel's mac-request answers
   // good). Without it, the new identity's standing was '' with a fresh stamp, so no poll re-asked for a TTL.
   await until(() => remote.read().standing === 'good', 'the standing to be cached right after a Settings setup');
