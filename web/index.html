@@ -16872,7 +16872,9 @@ window.kosmosMeasureScrollbarWidth();
              name (the coordinator refuses any other), so the step just says so. The address comes from
              the service (the sign-in answer's account_address, or the coordinator's "already owns the
              name" refusal on an older coordinator), never composed here. -->
-        <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
+        <!-- #4608 (Josh, 2026-09-29 12:49): while this computer connects, the app's ring loader (the Sweep
+             spinner, .spin-sweep) shows beside the words, and the heading says "Signing in...". -->
+        <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span class="spin spin-sweep" id="plus-si-spin" style="--sz:18px" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> <span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -43243,6 +43245,12 @@ async function plusSiDoRegister(name, owned) {
   const foot = document.getElementById('plus-si-cancel');
   plusSiMsg('');
   btn.disabled = true;
+  /* #4608: while the register runs, the heading says what is happening and the ring loader turns; both go
+     back however it ends (the connected flow takes the pane on success, the heading is restored on a failure). */
+  const siTitle = document.getElementById('plus-si-title');
+  const siSpin = document.getElementById('plus-si-spin');
+  if (siTitle) siTitle.textContent = 'Signing in...';
+  if (siSpin) siSpin.hidden = !owned;
   if (owned) {
     /* Review: an automatic register cannot be taken back once the connector has written this computer's
        identity, so no "Sign out" is offered while it runs (it would not sign out). The words say what is
@@ -43258,6 +43266,8 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   const r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS);
   PLUS_SI_REGISTERING = false;
+  if (siSpin) siSpin.hidden = true;
+  if (siTitle && siTitle.textContent === 'Signing in...') siTitle.textContent = 'Sign in to activate Kosmos+';
   if (r.stale) return;
   btn.disabled = false;
   if (owned && foot && foot.parentElement) foot.parentElement.hidden = false;
