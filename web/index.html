@@ -20641,6 +20641,13 @@ function paintOfflineNote(down, deviceIsOffline) {
  * The page cannot restart the board itself, so there is no button: it says how.
  */
 const RESTART_SCREEN_AFTER_MS = 15000;
+/* #4562 (#4543, Homer's find): the status poll's time limit. A FROZEN board (running but stuck) still
+   accepts the connection, so a fetch with no limit neither answers nor fails, the failure clock above
+   never starts, and the restart screen never shows (what Josh hit on Friday 2026-09-26). A poll with no
+   answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit; any
+   HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a slow one that answers inside 10 s never does. */
+const STATUS_POLL_TIMEOUT_MS = 10000;
 /* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
    in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 function restartHowMac() {
@@ -20900,11 +20907,19 @@ function paintAgentList() {
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
+  let statusCut = null;   // #4562: the poll's time limit (STATUS_POLL_TIMEOUT_MS), cleared once it is read
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
     const pollEpoch = INSTR_EPOCH;
-    const res = await fetch('/api/status', { cache: 'no-store' });
+    /* #4562: aborted after STATUS_POLL_TIMEOUT_MS, which lands in the catch below as no answer. The
+       signal covers the body read too, so a board that sends headers and then freezes counts as well.
+       AbortController, not AbortSignal.timeout: Safari before 16 lacks the latter (as at the first-run
+       fetch); where neither exists the poll goes out with no limit, as before. */
+    const statusAbort = typeof AbortController === 'function' ? new AbortController() : null;
+    // typeof-guarded: tests lift tick() alone, without the const beside RESTART_SCREEN_AFTER_MS.
+    if (statusAbort) statusCut = setTimeout(() => statusAbort.abort(), typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000);
+    const res = await fetch('/api/status', statusAbort ? { cache: 'no-store', signal: statusAbort.signal } : { cache: 'no-store' });
     /* 🛑 THE SERVER'S SENTENCE WAS NEVER READ. This threw `status 500` and the
        box showed exactly that, while the response body carried a sentence and,
        since #281, tmux's own words for what went wrong. Josh spent a morning on
@@ -20932,6 +20947,7 @@ async function tick() {
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
+    clearTimeout(statusCut);   // #4562: answered and read in time
     /* #4343: a parsed 200 is the board answering, whatever a painter below then does. Without this
        a painter that throws lands in the catch as "nothing answered", and the full-restart screen
        would lock a person out of a board that is up. */
@@ -21548,6 +21564,7 @@ async function tick() {
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
   } catch (err) {
+    clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only

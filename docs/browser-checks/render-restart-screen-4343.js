@@ -51,9 +51,20 @@ let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
 
 let MODE = 'down';
+const HELD = [];   // #4562: 'frozen' requests, held open and never answered (ended at the close)
 const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/')) {
     if (MODE === 'down') { req.socket.destroy(); return; }   // nothing answers
+    // #4562 'frozen': the board is RUNNING but stuck. The connection is accepted and nothing is ever sent,
+    // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 3 s late.
+    if (MODE === 'frozen') { HELD.push(res); return; }
+    if (MODE === 'slow' && req.url.startsWith('/api/status')) {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() }));
+      }, 3000);
+      return;
+    }
     if (req.url.startsWith('/api/status')) {
       // 'up' is the least a board can say and still paint cleanly; 'broken' makes the painters throw.
       const body = MODE === 'up' ? { agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() } : { agents: null };
@@ -291,6 +302,51 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     ok('[file] a file:// page never shows the restart screen', !(await shown(page)));
     await page.close();
   }
+
+  // ── #4562: a FROZEN board (running, accepts the connection, never answers). With no time limit on the
+  //    poll this never counted as down, so the screen never came (Josh, Friday). Measured end to end with
+  //    the real clocks, no aging: it must show within about STATUS_POLL_TIMEOUT_MS + RESTART_SCREEN_AFTER_MS
+  //    plus a poll. And a board that is merely SLOW (answers in 3 s) never counts as down. ──
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[frozen] pageerror: ' + e.message));
+    MODE = 'up';
+    await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
+    await page.waitForTimeout(1500);
+    MODE = 'frozen';
+    const t0 = Date.now();
+    const drawn = await page.waitForSelector('.restart-back', { timeout: 40000 }).then(() => true, () => false);
+    const took = Date.now() - t0;
+    // (Defaulted, so this runs against a page without the limit too, and fails there on the screen, not here.)
+    const limits = await page.evaluate(() => ({ poll: typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000, wait: RESTART_SCREEN_AFTER_MS }));
+    // The worst case: up to one 5 s poll before the first frozen request, its limit, then the wait,
+    // which the next failing poll (every 5 s) crosses. So limit + wait + two polls, plus page slack.
+    const bound = limits.poll + limits.wait + 10000 + 1500;
+    ok('[frozen] a board that accepts the connection and never answers gets the restart screen', drawn, 'waited ' + took + ' ms');
+    ok('[frozen] and within the poll limit + the wait + two polls (' + bound + ' ms)', drawn && took <= bound, took + ' ms');
+    // The board unfreezes: it answers what was queued (released here) and every poll after.
+    MODE = 'up';
+    for (const r of HELD.splice(0)) { try { r.destroy(); } catch { /* already gone */ } }
+    const cleared = await page.waitForFunction(() => !document.querySelector('.restart-back'), null, { timeout: 20000 }).then(() => true, () => false);
+    ok('[frozen] it clears by itself once the board answers again', cleared);
+    await page.close();
+  }
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[slow] pageerror: ' + e.message));
+    MODE = 'slow';
+    await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
+    // The CONTROL that the slow board really is being polled: its answers arrive (the stamp fills in).
+    const answeredOnce = await page.waitForFunction(() => /Agent status/.test(document.getElementById('checked').textContent || '')
+      && !/could not refresh/.test(document.getElementById('checked').textContent || ''), null, { timeout: 15000 }).then(() => true, () => false);
+    await page.waitForTimeout(20000);
+    const st = await page.evaluate(() => ({ screen: !!document.querySelector('.restart-back'),
+      note: /not answering/.test(document.getElementById('uoffline-slot').textContent || ''), since: BOARD_NO_ANSWER_SINCE }));
+    ok('[slow] a board answering 3 s late is polled and answers (control)', answeredOnce);
+    ok('[slow] and it never counts as down: no note, no screen, no failure clock', !st.screen && !st.note && st.since === null, JSON.stringify(st));
+    await page.close();
+  }
+  for (const r of HELD.splice(0)) { try { r.destroy(); } catch { /* already gone */ } }
 
   await browser.close();
   server.close();
