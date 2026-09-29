@@ -523,7 +523,8 @@ kosmos_refuse_if_suite_live() {
 # poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
 # the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus one per waiter
-# ahead at entry) ends any queued wait whatever the heuristic says, without ending a healthy deep queue.
+# ahead at entry) ends any queued wait whatever the heuristic says; a healthy deep queue normally stays inside it (an
+# entry count a failed ps made too low shrinks it: the safe side, it gives up sooner).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
 # pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
@@ -666,7 +667,8 @@ kosmos_wait_until_clear() {
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   # #4574: a hard ceiling on a queued wait, so ending it never rests on the restart heuristic. By default it is four
   # bounds PLUS one per live waiter at entry (the first pass, before this run is marked, counts them all): a waiter k deep waits about k suites, well
-  # inside it, so it ends a hung or flapping wait without ending a healthy deep queue. KOSMOS_WAIT_QUEUE_CEIL_S sets it
+  # inside it, so it ends a hung or flapping wait and normally leaves a healthy deep queue alone (a first count a failed
+  # ps made too low shrinks it, the safe side). KOSMOS_WAIT_QUEUE_CEIL_S sets it
   # outright (0 gives up on the first pass, as KOSMOS_WAIT_MAX_S=0 does).
   local ceil_auto=0
   case "$ceil" in ''|*[!0-9]*) ceil=$((max * 4)); ceil_auto=1 ;; esac
