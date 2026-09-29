@@ -55324,8 +55324,8 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     }
     return;
   }
-  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }
-  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631   // #4256, closing a picker open on another row as the room does
+  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
+  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -55475,8 +55475,6 @@ function pjRxnResetRow(messageRow) {
   messageRow.classList.remove('rxn-show', 'rxn-below');
   const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
-/* Above the message unless the thread's top edge, or the top of the screen (the page itself
-   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 /* #4631: keep a touchscreen's open bar inside its thread sideways. Copy reference made the bar wider, and on a phone
    a short post of the person's own (its bar hangs from the bubble's right edge) sent it past the thread's left edge,
    and an agent's (hanging from the bubble's left) past the right. Shifted, not re-anchored, so it stays over its own
@@ -55489,6 +55487,8 @@ function rxnKeepInsideX(quickBar, host) {
   const dx = Q.left < R.left ? R.left - Q.left : (Q.right > R.right ? R.right - Q.right : 0);
   if (dx) quickBar.style.transform = 'translateX(' + dx + 'px)';
 }
+/* Above the message unless the thread's top edge, or the top of the screen (the page itself
+   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
   const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
@@ -56269,8 +56269,13 @@ function msgToast(text) {
     t = document.createElement('div');
     t.id = 'msg-toast'; t.className = 'msg-toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
     document.body.appendChild(t);
+    /* A live region that arrives already holding its words is often not announced, so the first one is filled
+       a moment after it is in the page. */
+    t.hidden = false;
+    setTimeout(() => { t.textContent = text; }, 60);
+  } else {
+    t.textContent = text;
   }
-  t.textContent = text;
   t.hidden = false;
   clearTimeout(msgToast.timer);
   msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
@@ -56295,9 +56300,21 @@ async function msgRefCopy(row) {
 }
 /* The small menu right-click and ctrl-click open on a message. One item today; a menu (not an instant copy) so
    the click says what it will do before it does it. */
-function msgMenuClose() {
+function msgMenuClose(restoreFocus) {
   const m = document.getElementById('msg-menu');
-  if (m && !m.hidden) { m.hidden = true; m.msgRow = null; }
+  if (!m || m.hidden) return;
+  m.hidden = true; m.msgRef = null;
+  const back = m.msgBack; m.msgBack = null;
+  if (restoreFocus && back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
+}
+/* The row the menu was opened on, found again by its id and thread: a poll can repaint the thread while the
+   menu is open, and the old node, detached, no longer knows which room it was in. */
+function msgMenuRow(ref) {
+  if (!ref) return null;
+  if (ref.row && ref.row.isConnected) return ref.row;
+  const host = document.getElementById(ref.host);
+  const found = host && ref.mid ? [...host.querySelectorAll('.msg')].find((r) => r.getAttribute('data-mid') === ref.mid) : null;
+  return found || ref.row;
 }
 function msgMenuOpen(row, x, y) {
   let m = document.getElementById('msg-menu');
@@ -56308,12 +56325,17 @@ function msgMenuOpen(row, x, y) {
     document.body.appendChild(m);
     m.addEventListener('click', (e) => {
       if (!e.target.closest('#msg-menu-copy')) return;
-      const r = m.msgRow; msgMenuClose(); msgRefCopy(r);
+      const r = msgMenuRow(m.msgRef); msgMenuClose(true); msgRefCopy(r);
     });
-    m.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); msgMenuClose(); } });
+    m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') e.preventDefault(); msgMenuClose(e.key === 'Escape'); } });
+    m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget)) msgMenuClose(false); });
   }
-  m.msgRow = row;
+  const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';
+  m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };
+  m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
   m.hidden = false;
+  /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
+  if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 16; y = r.top + 16; }
   const w = m.offsetWidth, h = m.offsetHeight;
   m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
   m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
@@ -56325,13 +56347,17 @@ function msgMenuRowFor(e) {
   const t = e.target;
   if (!t || !t.closest) return null;
   const row = t.closest('#pj-room .msg, #d-dmthread .msg');
-  if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable]')) return null;
+  /* [data-open-agent]: a name or picture that opens the agent's page; a ctrl-click there already navigated. */
+  if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable], [data-open-agent]')) return null;
   const sel = window.getSelection ? window.getSelection() : null;
   if (sel && !sel.isCollapsed && String(sel).trim()) return null;
   return msgRefText(row) ? row : null;
 }
 const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
 document.addEventListener('contextmenu', (e) => {
+  /* Not on a touchscreen: a long-press there is how text is selected, and the hover bar's button is how a thumb
+     copies a reference. */
+  if (typeof PJ_TOUCH_MQ !== 'undefined' && window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches) return;
   const row = msgMenuRowFor(e);
   if (!row) return;
   e.preventDefault();
@@ -56347,8 +56373,8 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   msgMenuOpen(row, e.clientX, e.clientY);
 });
-window.addEventListener('scroll', msgMenuClose, true);
-window.addEventListener('resize', msgMenuClose);
+window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
+window.addEventListener('resize', () => msgMenuClose(false));
 function rxnsInner(list, withReply, mid) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
