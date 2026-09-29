@@ -47,6 +47,9 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   is on, which is the one thing this card must not do. The native half of the id protocol is pinned by source
   reads; its ordering (cancel emits before a new start sets the id) holds because WebKit delivers the page's
   messages in order on the main thread.
+- Review iteration 4 (converged): NIT fixed, the box gets focus back when listening starts, so Escape (a promise on
+  the card) works after clicking the mic. ACCEPTED: no AVAudioEngineConfigurationChange observer, so an unplugged mic
+  leaves the button on until the recognizer errors or the 300 s cap; that is the safe direction (on while off).
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand

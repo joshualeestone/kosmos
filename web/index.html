@@ -54563,6 +54563,9 @@ function voiceToggle(btn) {
   voiceSay(btn, '');
   voicePaint(btn, 'asking');
   h.postMessage({ op: 'start', id: VOICE.id });
+  /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
+     focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
+  try { box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
   voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */

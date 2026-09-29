@@ -105,7 +105,7 @@ function pageLine(head) {
 function voiceHarness() {
   const posted = [];
   const mkBtn = () => ({ attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, title: '' });
-  const mkBox = (id) => ({ id, value: '', maxLength: 0, isConnected: true, shown: true, getClientRects() { return this.shown ? [1] : []; }, setSelectionRange() {}, dispatchEvent() {} });
+  const mkBox = (id) => ({ id, value: '', maxLength: 0, isConnected: true, shown: true, focused: 0, focus() { this.focused += 1; }, getClientRects() { return this.shown ? [1] : []; }, setSelectionRange() {}, dispatchEvent() {} });
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
@@ -158,6 +158,7 @@ test('#4409 review 2: moving from one mic to another, the old session\'s late "s
   h.voiceToggle(dm);
   const first = posted.at(-1);
   assert.equal(first.op, 'start');
+  assert.equal(doc.boxes['d-say'].focused, 1, 'the box does not get focus back, so Escape from the keyboard cannot stop the mic');
   h.voiceOnEvent({ kind: 'listening', id: first.id });
   h.voiceToggle(guide);   // cancel(first) then start(second), in one turn
   assert.deepEqual(posted.slice(-2).map((m) => m.op), ['cancel', 'start']);
