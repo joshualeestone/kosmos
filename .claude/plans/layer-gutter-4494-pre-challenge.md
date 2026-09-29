@@ -2,22 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: layer-gutter-4494
-diff_hash: c9de67110e7b7200e44c7a4d3bd0430490adf539f845e6a5dd667c15869dc7c0
+diff_hash: 05b74520d00428f93db6b7bfdcfd354c436d4bf546a8a1931feb23d0a5c57239
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T10:05:19Z
-iterations: 6
+timestamp: 2026-09-29T12:20:48Z
+iterations: 9
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6 (4 before the second rebase, 2 after)
-**Converged:** Yes (iteration 6: no BLOCKER, WARNING or CONVENTION that was new; final validation on a90bf3b59 PASSED, 11809 node tests / 0 fail, shell suites and subdir audit clean)
-**Total findings:** 7 actionable (1 BLOCKER, 6 WARNINGs incl. 1 validation red), plus NITs
-**Fixed:** 6 | **Deferred:** 1 | **Asked (awaiting user):** 0
+**Iterations:** 9 (4 before the second rebase, 2 after it, 3 after the third)
+**Converged:** Yes (iteration 9: NITs only; final validation on e16a3677e PASSED, 11890 node tests / 0 fail, shell suites and subdir audit clean)
+**Total findings:** 9 actionable (1 BLOCKER, 8 WARNINGs incl. 1 validation red), plus NITs
+**Fixed:** 8 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
 ⚠️ **Disclosures:**
+- A third rebase (after #4423 moved the counts again, 205/124) made the counts 208/126 and voided the 10:05Z proof; iterations 7-9 ran on the rebased tree, and main's newly added checks were run on this branch first (the lesson from iteration 5). One validation run gave up after waiting 1200s behind other agents' suites (not a test failure); it was re-run with KOSMOS_WAIT_MAX_S=3600.
 - This proof REPLACES the one written at 07:56Z. That proof was valid for its tree, and PR #4512 went green on all six CI jobs with it. Then #4489 landed on main: its count change conflicted, so I rebased (a second time; the first was after #4421), and a fresh blind review found that this branch turns #4489's gated check red (its C2 asserted the page keeps its gutter once the wizard opens). I had re-run only this branch's own check after the rebase. That is a real miss, now fixed, and recorded as a memory ("after a rebase, run the checks main just added").
 - After iteration 2 of the first loop I told the operator the loop had converged when its validation had failed (I read the trailing echo's exit). Every later run captured the helper's exit.
 - Validation runs I stopped (only processes whose cwd was this worktree): the first loop's superseded 6j run, the iteration-3 run superseded by the first rebase, and the post-second-rebase run superseded by the C2 fix.
@@ -70,6 +71,27 @@ converged: true
 - [NIT] the update arm reveals the confirm before the real button; [NIT] Chromium-only (stated); [NIT] three similar gutter rules (different origins, no conflict)
 **Converged** - no new actionable findings; merge-tree against origin/main clean.
 
+#### Iteration 7 (after rebasing onto #4423)
+**Reviewer model:** opus
+**New findings:** 1 WARNING, 2 NITs
+**Self-generated:** 1 (the C2 edit from iteration 5)
+- [WARNING] docs/browser-checks/render-firstrun-choice-4356.js:141 - moving C2 to the wizard's state removed the only assertion that #4489's own screen lets go (the wizard rule masks it) --> FIXED: C6, where the screen goes and nothing replaces it, asserts the release; red with the #fr-choice rule made never to release (measured) (commit 4cc82f109)
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 1 WARNING, 1 NIT (plus the accepted update-wash reflow, a duplicate)
+**Self-generated:** 1
+- [WARNING] render-firstrun-choice-4356.js - closing a wizard reached FROM the choice screen was asserted nowhere --> FIXED: C2 closes it (frClose) and asserts the gutter returns; red with the wizard rule made never to release (measured) (commit e16a3677e)
+- [NIT] render-layer-gutter-4494.js - say why the update arm has no return assertion --> applied (every exit is a reload)
+
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0
+- Confirmed by perturbation in a scratch copy: with the #fr-choice rule made never to release, exactly C2's after-close arm and the new C6 arm go red. Ran render-layer-gutter-4494 (13), render-firstrun-choice-4356 (37), render-firstrun-reentry-3359 (9), render-update-toast, render-restart-screen-4343 (62), render-boot-no-flash (against a dry-run board it started), gates 35/35, merge-tree clean.
+- [NIT] the update arm reveals the confirm by script before the real #uc-go; [NIT] frClose called directly (every exit reaches it); [NIT] sibling checks that Escape the wizard could now also see a 15px width if the completion POST lags; [NIT] the PR's browser-checks job selects ~160 checks (#firstrun is in the changed line), so expect it to be long
+**Converged** - no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -81,9 +103,11 @@ converged: true
 | 5 | 5 | BLOCKER | docs/browser-checks/render-firstrun-choice-4356.js:139 | BRANCH | #4489's C2 red under this rule | FIXED | a90bf3b59 |
 | 6 | 5 | WARNING | .claude/plans/layer-gutter-4494.md | BRANCH | rebase did not run the checks main added | FIXED | a90bf3b59; memory |
 | 7 | 5 | WARNING | docs/browser-checks/render-layer-gutter-4494.js | BRANCH | Chromium-only scope unstated | FIXED | a90bf3b59 |
+| 8 | 7 | WARNING | docs/browser-checks/render-firstrun-choice-4356.js:141 | SELF | #4489's own release no longer asserted | FIXED | 4cc82f109 |
+| 9 | 8 | WARNING | docs/browser-checks/render-firstrun-choice-4356.js | SELF | wizard-from-choice close not asserted | FIXED | e16a3677e |
 
 ### Validation
-- Final on a90bf3b59 (after rebasing onto #4489): PASSED, hash c9de67110e7b, 11809 node tests / 0 fail, shell suites clean, subdir audit clean.
+- Final on e16a3677e (after rebasing onto #4423): PASSED, hash 05b74520d004, 11890 node tests / 0 fail, shell suites clean, subdir audit clean.
 - The new check goes red with the rule removed (4 failures; measured by me and by reviewers 1, 3, 5 and 6).
 - render-firstrun-choice-4356 passes 35 with the updated C2; the reviewer measured the old C2 red with this rule and green without it.
 
