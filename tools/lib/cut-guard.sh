@@ -543,7 +543,7 @@ _kosmos_suite_waiter_live() {
   local want; want="$(_kosmos_pid_started "$pid")"
   # An empty start time (ps could not say) matches nothing: stale, the safe side, before any comparison.
   if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] \
-     || { [ "$utc" != "$want" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
+     || { local loc; loc="$(_kosmos_pid_started_local "$pid")"; [ "$utc" != "$want" ] && { [ -z "$loc" ] || [ "$began" != "$loc" ]; }; }; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
@@ -620,7 +620,8 @@ kosmos_refuse_if_earlier_suite_waiter() {
   return 1
 }
 
-# The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP.
+# The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP. The
+# fallback is per call, so a seam must answer for the whole wait (one that stops mid-wait mixes two clocks: tests only).
 # A seam that prints anything but a number falls back to the real clock.
 _kosmos_wait_now() {
   local t=""; [ -n "${KOSMOS_WAIT_NOW:-}" ] && { t="$("$KOSMOS_WAIT_NOW" 2>/dev/null)" || t=""; }
@@ -702,7 +703,7 @@ kosmos_wait_until_clear() {
         fi
       elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
         local since=$(( $(_kosmos_wait_now) - bstart )); [ "$wblk" -gt "$since" ] && since="$wblk"
-        echo "gave up after waiting ${waited}s in all, ${since}s since a waiter ahead last left the queue (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
+        echo "gave up after waiting ${waited}s in all, ${since}s since this run joined the queue or a waiter ahead last left it (the bound, KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       fi

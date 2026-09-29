@@ -2,6 +2,10 @@
 # The live-cut guard shown red, green and unable to answer (#708).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# #4609: this file tests the waits and the queue, so it starts from none of their controls, however it is run (under
+# run-tests.sh, which also drops them, or directly, as `yarn test:shell` does). An inherited KOSMOS_NO_WAIT alone reds
+# 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs.
+unset KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
@@ -685,7 +689,7 @@ out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=1000
   || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "since a waiter ahead last left the queue" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "since this run joined the queue or a waiter ahead last left it" && [ ! -e "$W/markers/suitewait.$$" ]; } \
   && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says how the bound is counted" \
   || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
@@ -814,7 +818,7 @@ printf '%s %s\n%s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qbehind" "$(ps -ww 
 wsnatch() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
   [ $((n % 2)) -eq 0 ] && rm -f "$W/markers/suitewait.$$"; echo "busy: stand-in run" >&2; return 1; }
 out="$(KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsnatch 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "since a waiter ahead last left"; } \
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "since this run joined the queue or a waiter ahead last left it"; } \
   && pass "#4574 a pass whose own marker was just removed takes no count, so waiters behind never restart the bound" \
   || fail "#4574 a missing own marker let waiters behind restart the bound (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
 q_clear
@@ -857,7 +861,7 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; trap 'rm -rf "$T" "$RT"' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
