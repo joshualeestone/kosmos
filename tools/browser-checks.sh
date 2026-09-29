@@ -1228,6 +1228,9 @@ if boot_board "$sb7" "$P8"; then
   # create-flow checks above; it navigates to /?tab=create and mocks its own
   # /api/team route, so it creates nothing real on this shared board.
   run_one "render-orgchart-import-1280" node docs/browser-checks/render-orgchart-import-1280.js "$B8"
+  # #4559: the org chart FILE (CSV and XLSX read for real; the picture read and the team create answered at the
+  # browser, so nothing reaches a provider and nothing is created).
+  run_one "render-orgchart-file-4559" env SHOT_DIR="$RUN_DIR/shots-orgchart-file" node docs/browser-checks/render-orgchart-file-4559.js "$B8"
   # #1531: the adopt prompt. Same first-run board as render-found-undo; it mocks its
   # own /api/found-agents (adoptable folder), /api/connect-agent and decline routes,
   # so it registers and declines without touching the machine. Proven green + reds on
