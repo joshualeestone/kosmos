@@ -23,6 +23,11 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
+/* #4544: the click test takes its LAST from test-support/fleet (a real card), so the data roots are sandboxed. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'prompter-nudges-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
 /* Brace-matched slice of a top-level page function, returned as SOURCE so one
    function can be spliced in as another's dependency (the web.memory-words pattern). */
 function extractSource(name) {
@@ -159,20 +164,25 @@ function clickOn(session, extra = {}) {
 }
 
 test('#4544: a plain click on a name opens that agent in place; control: the link is left alone otherwise', () => {
-  const opened = [];
-  const open = makeOpen([{ sessionName: 'amara-singh' }], opened);
-  const plain = clickOn('amara-singh');
-  assert.equal(open(plain.e), true);
-  assert.equal(plain.prevented(), true, 'a plain click must not also follow the link');
-  assert.deepEqual(opened, ['amara-singh']);
-  // A new-tab click, and an agent this page does not have, go to the link (nothing prevented).
-  for (const [label, c] of [['cmd-click', clickOn('amara-singh', { metaKey: true })], ['middle click', clickOn('amara-singh', { button: 1 })], ['not on this board', clickOn('gone-agent')]]) {
-    assert.equal(open(c.e), false, label + ' was taken over');
-    assert.equal(c.prevented(), false, label + ' prevented the link');
-  }
-  assert.deepEqual(opened, ['amara-singh'], 'only the plain click opened anything');
-  // A click outside any name does nothing.
-  assert.equal(open({ button: 0, target: { closest: () => null }, preventDefault: () => { throw new Error('prevented'); } }), false);
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('amara-singh')], { strict: false });
+  try {
+    const who = board.agents.find((c) => (c.sessionName || '').startsWith('amara-singh')).sessionName;
+    const opened = [];
+    const open = makeOpen(board.agents, opened);
+    const plain = clickOn(who);
+    assert.equal(open(plain.e), true);
+    assert.equal(plain.prevented(), true, 'a plain click must not also follow the link');
+    assert.deepEqual(opened, [who]);
+    // A new-tab click, and an agent this page does not have, go to the link (nothing prevented).
+    for (const [label, c] of [['cmd-click', clickOn(who, { metaKey: true })], ['middle click', clickOn(who, { button: 1 })], ['not on this board', clickOn('gone-agent')]]) {
+      assert.equal(open(c.e), false, label + ' was taken over');
+      assert.equal(c.prevented(), false, label + ' prevented the link');
+    }
+    assert.deepEqual(opened, [who], 'only the plain click opened anything');
+    // A click outside any name does nothing.
+    assert.equal(open({ button: 0, target: { closest: () => null }, preventDefault: () => { throw new Error('prevented'); } }), false);
+  } finally { board.restore(); }
 });
 
 test('#4544: the click handler is attached to the check-in panel (delegated, so it survives each repaint)', () => {

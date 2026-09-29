@@ -110,3 +110,9 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
 - NIT fixed: the hour window is pinned at exactly one hour.
 - NITs declined: a plain click on an agent not on this board falls through to the deep link (rare; the list comes
   from the board); the link drops dev query params (limit, first-run, mode); the lazy require inside the loop.
+
+### Final validation, 09:16 CDT (from date)
+- The full suite ran once the test ports were free: 11,935 tests, 1 failed, fixture-discipline.test.js "no test
+  builds an agent card or a roster row by hand": web.prompter-nudges-3508.test.js hand-built LAST as
+  [{ sessionName: 'amara-singh' }]. Fixed: the click test takes its LAST from test-support/fleet (a real card) in a
+  sandboxed data root. fixture-discipline 20 pass, the web test 11. Loop resumes with one more blind round (6j rule).
