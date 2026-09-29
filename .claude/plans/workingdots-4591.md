@@ -8,8 +8,10 @@
 Josh's screenshot (Mac app, 11:47) shows both sets of dots, the pill and the "is working" line, level and at
 full opacity. The running animation staggers the three dots (0 / .16 / .32 s in a 1.1 s cycle), so any still of
 it shows them at different heights and opacities; level full dots are the un-animated base style. In Chromium
-and Playwright WebKit the animation runs (render-agent-pill-3958 requires it); the only rule that stops it is
-prefers-reduced-motion: `animation: none`. Emulated there, the page draws exactly his screenshot. His Mac's
+and Playwright WebKit the animation runs (render-agent-pill-3958 requires it); the only rule in the page that
+stops it is prefers-reduced-motion: `animation: none`. Emulated there, the page draws exactly his screenshot.
+The screenshot also fits a dot that never started animating (the native app pausing WebKit); what it rules out
+is a dot rebuilt on every poll, which would show at the keyframes' 0.45 opacity, not at full. His Mac's
 setting is not readable from here and is not asked for.
 
 ## How
@@ -20,6 +22,9 @@ setting is not readable from here and is not asked for.
 - A fade is allowed under Reduce Motion (it asks for no movement; fading is the usual substitute). Weakest:
   that Reduce Motion is the cause on his Mac. If it is not, this changes nothing for him, and the next suspect
   is the native app pausing WebKit animations (occlusion or throttling), which is the app's code, not the page.
+- Accepted residual (WCAG 2.2.2, Pause Stop Hide): under Reduce Motion every working surface now runs an
+  endless, gentle fade with no pause control. That is not new (the bounce already ran endlessly with Reduce
+  Motion off, and .spin already pulses opacity under it); a per-indicator pause control is not added.
 
 ## Verification
 - render-agent-pill-3958 gains two arms per engine (Chromium, WebKit) on a page that prefers reduced motion:
