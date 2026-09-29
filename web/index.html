@@ -29203,7 +29203,7 @@ function orgStep(nodes, hub, alpha, box) {
      between faces pack the lanes at rest; this force keeps the lines clear as they settle: an agent whose
      line runs within a face (plus a little) of a nearer face is pushed sideways, away from that face, which
      swings its line off it. Flat only: a tree's own placement and repair keep its lines (#4434). */
-  if (!nodes.some((n) => n.parent)) {
+  if (!nodes.some((n) => n.home)) {   // flat: no placed home, the same test as inTree and orgPlanarRepair
     const reach = ORG_SIM.faceR + 4;   // a face, plus a little
     for (const n of nodes) {
       if (n.fixed) continue;
@@ -29424,7 +29424,12 @@ function orgPlace(nodes) {
       const r = base + lane * 58;
       const step = (Math.PI * 2) / members.length;
       let turn = 0;
-      if (lane > 1) {
+      /* The turn depends only on the lane and how many sit in it (the ring size is fixed by ORG_R0), and paintOrg
+         places the chart on every poll: it is worked out once per (lane, count) and remembered on the function. */
+      const memo = orgPlace.turns || (orgPlace.turns = new Map());
+      const memoKey = lane + '/' + members.length + '/' + fit;
+      if (lane > 1 && memo.has(memoKey)) turn = memo.get(memoKey);
+      else if (lane > 1) {
         /* A line at angle a clears a face at radius q and angle b when their angles differ by more than the
            half-cone asin(face / q). The turn with the most clearance, searched in small steps across one step. */
         const inner = [];
@@ -29437,7 +29442,9 @@ function orgPlace(nodes) {
           for (let m = 0; m < members.length; m += 1) {
             const a = -Math.PI / 2 + t + step * m;
             for (const f of inner) {
-              const d = Math.abs(Math.atan2(Math.sin(a - f.b), Math.cos(a - f.b)));
+              let d = (a - f.b) % (Math.PI * 2);
+              if (d < 0) d += Math.PI * 2;
+              if (d > Math.PI) d = Math.PI * 2 - d;
               worst = Math.min(worst, d - f.half);
             }
           }
@@ -29450,6 +29457,7 @@ function orgPlace(nodes) {
           const c = clearance(t);
           if (c > best + 1e-9) { best = c; turn = t; }
         }
+        memo.set(memoKey, turn);
       }
       /* The second lane takes the first lane's gap centres themselves, as many as it has, spread round the
          circle: an evenly spaced lane of another count cannot line up with them (8 at 45 degrees against 12

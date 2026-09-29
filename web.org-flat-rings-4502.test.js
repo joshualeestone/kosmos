@@ -140,13 +140,28 @@ test('#4502: an agent joining a settled flat chart (the others keep their spots)
     total += bad;
     if (bad) where.push(n + ':' + bad);
   }
-  // Measured 2 (at 23 agents). Before this change, up to 9 per size; with the gentler 0.12 push, 12 in all.
+  // Measured 2 (at 23 agents): the bound is that measurement, deliberately tight, so a change to the physics that
+  // adds a near pass reads red and gets looked at. Before this change, up to 9 per size; with a 0.12 push, 14.
   assert.ok(total <= 2, 'growth leaves ' + total + ' near passes at rest: ' + where.join(' '));
 });
 
-test('#4502: a chart squeezed to 0.9 for a narrower view is still clean at rest, 5 to 24', () => {
+test('#4502: a chart squeezed to 0.9 for a narrower view is still clean, at first paint and at rest, 5 to 24', () => {
   for (let n = 5; n <= 24; n += 1) {
-    const rest = settle(flatFleet(n), 0.9);
+    const placed = flatFleet(n);
+    const fp = [...placed].map(([key, s]) => ({ key, x: Math.cos(s.ang) * s.r * 0.9, y: Math.sin(s.ang) * s.r * 0.9 }));
+    assert.deepEqual(nearPasses(fp, { x: 0, y: 0 }), [], n + ' agents at 0.9: a line runs through a face at first paint');
+    const rest = settle(placed, 0.9);
     assert.deepEqual(nearPasses(rest.bodies, rest.hub), [], n + ' agents at 0.9: a line runs through a face at rest');
   }
+});
+
+test('#4502: placing a big flat fleet again (every poll does) reuses its lane turns rather than searching again', () => {
+  const cards = flatCards(100);
+  const first = placeOf(cards);
+  const turns = place.orgPlace.turns;
+  assert.ok(turns instanceof Map && turns.size > 0, 'the lane turns of a 100-agent fleet were not remembered');
+  const known = turns.size;
+  const again = placeOf(cards);
+  assert.equal(turns.size, known, 'a repeat placement searched again');
+  for (const [k, s] of first) assert.equal(again.get(k).ang, s.ang, 'a repeat placement moved ' + k);
 });
