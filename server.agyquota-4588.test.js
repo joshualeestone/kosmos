@@ -17,6 +17,7 @@ test('#4588: server.js builds the agy quota resume tick and runs it on its own t
   assert.match(block, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/);
   assert.match(block, /roster: \(\) => safeRoster\(\)/);
   assert.match(block, /chat\.deliver\(session, text, r, undefined, undefined\)/);
-  assert.match(block, /setInterval\(agyQuotaTick,/);
+  // Anchored at the start of a line to the real assignment: a mention (a comment, `null && setInterval(...)`) is not a timer.
+  assert.match(block, /^\s*const agyQuotaSweep = setInterval\(agyQuotaTick,/m);
   assert.match(block, /agyQuotaSweep\.unref\(\)/);
 });
