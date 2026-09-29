@@ -9456,7 +9456,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 }
 /* #4470: the project page in the new look (tab layout only; the consolidated layout keeps
    today's grid). Two columns: one grey box on the left holding Members, Tasks and Files
-   (placeLookTasks moves Tasks in), divided by hairlines, and the conversation on the white
+   (placeLook moves Tasks in), divided by hairlines, and the conversation on the white
    page with no box around it. No rule under the header. */
 :root[data-look="new"] body:not(.consolidated) > .apphead { border-bottom-color: transparent; }
 @media (min-width: 68rem) {
@@ -9478,6 +9478,21 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox { margin-left: 0; margin-right: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470: the header in the new look: the back chevron as a round button, then "Projects /
+   <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
+   visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
+.pj-crumb-rootwrap { display: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pj-crumbrow { margin: 0; gap: 0; flex: 1 1 auto; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 14px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: none; font-size: 1.625rem; line-height: 1.2; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap > .pj-crumb-sep { color: var(--nl-ink-4); margin: 0 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb { font-size: 1.625rem; line-height: 1.2; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb .pj-crumb-sep { color: var(--nl-ink-4); opacity: 1; margin: 0 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb-cur { color: var(--k-ink); font-weight: 600; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjhead { flex: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-name { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
    end behind a dot. The state washes go ONLY because the word and dot now carry the state
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
@@ -14364,6 +14379,9 @@ window.kosmosMeasureScrollbarWidth();
              paintOneProject via pjAncestry, the same chain the cards use. -->
         <div class="pj-crumbrow">
           <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <!-- #4470: the new look's "Projects /" root, as the drawing has it. display:none unless the
+               new look is on; the back chevron already goes to the list in today's look. -->
+          <span class="pj-crumb-rootwrap"><button class="linkish pj-crumb-root" id="pj-crumb-root" type="button">Projects</button><span class="pj-crumb-sep" aria-hidden="true">/</span></span>
           <p class="pj-crumb" id="pj-crumb"></p>
         </div>
         <div class="pjtitle-row">
@@ -21712,7 +21730,7 @@ function showTab(tab) {
   // DOM move and the consolidated CSS stay in lockstep.
   placeAppSettings(cons);
   // #4470: the new look's project page puts Tasks in the left box; same chokepoint and flag.
-  placeLookTasks(cons);
+  placeLook(cons);
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
@@ -28862,24 +28880,35 @@ function lookPaint() {
    keyboard reach it after the conversation while the eye reads it second: the #1017 defect.
    So it is MOVED, like placeAppSettings: into the left box before Files when the new look is
    on in the tab layout, and back to the end of .pj3 (where the markup puts it) otherwise,
-   including in the consolidated layout, whose grid places it by position. */
-function placeLookTasks(cons) {
+   including in the consolidated layout, whose grid places it by position.
+   The same for the back-and-crumb row: today it sits in a row above the columns (#3103, placed
+   by placeProjectHead); the new look's drawing has it as the conversation's own header, so it
+   moves to the front of .pjmidhead, and back above .pj3 otherwise. */
+function placeLook(cons) {
+  const want = document.documentElement.getAttribute('data-look') === 'new' && !cons;
   const split = document.querySelector('#pj-one-view .pj3 > .pjsplit');
   if (!split) return;
   const pj3 = split.parentElement;
   const files = split.querySelector(':scope > .pjcard-files');
   const tasks = pj3.querySelector(':scope > aside.pjcol:not(.pjsplit)') || split.querySelector(':scope > aside.pjcol');
-  if (!tasks || !files) return;
-  const want = document.documentElement.getAttribute('data-look') === 'new' && !cons;
-  if (want && tasks.parentElement !== split) split.insertBefore(tasks, files);
-  else if (!want && tasks.parentElement !== pj3) pj3.appendChild(tasks);
+  if (tasks && files) {
+    if (want && tasks.parentElement !== split) split.insertBefore(tasks, files);
+    else if (!want && tasks.parentElement !== pj3) pj3.appendChild(tasks);
+  }
+  const oneView = document.getElementById('pj-one-view');
+  const crumb = oneView && oneView.querySelector('.pj-crumbrow');
+  const mid = oneView && oneView.querySelector('.pjmidhead');
+  if (crumb && mid) {
+    if (want && crumb.parentElement !== mid) mid.insertBefore(crumb, mid.firstChild);
+    else if (!want && crumb.parentElement === mid) oneView.insertBefore(crumb, pj3);
+  }
 }
 function lookToggleClick() {
   const on = document.documentElement.getAttribute('data-look') !== 'new';
   if (on) document.documentElement.setAttribute('data-look', 'new');
   else document.documentElement.removeAttribute('data-look');
   try { if (on) localStorage.setItem('kosmos-look', 'new'); else localStorage.removeItem('kosmos-look'); } catch { /* the page still changes; it just will not be remembered */ }
-  placeLookTasks(document.body.classList.contains('consolidated'));
+  placeLook(document.body.classList.contains('consolidated'));
   lookPaint();
 }
 document.getElementById('look-toggle').addEventListener('click', lookToggleClick);
@@ -52629,6 +52658,9 @@ function paintSettingsFacts(p) {
    goes back to the projects list. The target is read at click time from the
    then-current project, so a poll repaint between paint and click cannot stale it.
    The list-return mirrors openProject's own missing-id return shape. */
+document.getElementById('pj-crumb-root').addEventListener('click', () => {
+  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
+});
 document.getElementById('pj-back').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }

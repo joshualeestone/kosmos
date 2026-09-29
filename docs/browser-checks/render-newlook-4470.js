@@ -77,6 +77,15 @@ const MEMBER_WORD = `(() => {
   return { shown: getComputedStyle(el).display !== 'none' && r.width > 0, text: el.textContent.trim(), present: true };
 })()`;
 
+/* Where the back-and-crumb row is, and whether the "Projects" root and the h2 name show. */
+const HEAD_PLACE = `(() => {
+  const row = document.querySelector('#pj-one-view .pj-crumbrow');
+  const root = document.getElementById('pj-crumb-root');
+  const name = document.getElementById('pj-one-name');
+  const vis = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 2;
+  return { inMid: !!row && !!row.closest('.pjmidhead'), aboveCols: !!row && row.parentElement.id === 'pj-one-view',
+    rootShown: vis(root), nameInDom: !!name && name.textContent.trim().length > 0, nameShown: vis(name) };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -127,6 +136,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOn = await page.evaluate(MEMBER_WORD);
       chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
+      const hdOn = await page.evaluate(HEAD_PLACE);
+      chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
       const cb = await page.evaluate(COMPOSER_BG);
       chk(cb === GREY[theme], `${tag} On: the composer is the drawing's grey`, cb);
@@ -155,6 +166,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, proj.id);
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOff = await page.evaluate(MEMBER_WORD);
+      const hdOff = await page.evaluate(HEAD_PLACE);
+      chk(hdOff.aboveCols && !hdOff.rootShown && hdOff.nameShown, `${tag} Off: the crumb row is back above the columns, no "Projects" root, the name shows`, JSON.stringify(hdOff));
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
