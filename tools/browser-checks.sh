@@ -950,7 +950,8 @@ done
 #   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
 #   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: at the desktop size the code is capped at 1.6rem and the same code fits.
+#             At se only on purpose: at the desktop size the code is capped at 1.6rem, so the same code fits
+#             (reasoned: about 190px in a card over 500px wide).
 for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \

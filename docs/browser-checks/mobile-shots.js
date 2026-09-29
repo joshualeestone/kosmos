@@ -167,7 +167,8 @@ const SCREENS = [
      at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
-       This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card at every phone size.
+       This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card (every phone size in the
+       #4561 shots; 24px at se, measured by the check below).
        MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
     const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
@@ -203,7 +204,7 @@ const SCREENS = [
     if (hit) throw new Error('the Allow button is not seen: ' + hit);
     /* #4568: every laid-out request card's (.askreq) code boxes must sit inside that card's padding. The page-level
        overflow audit cannot see this: the row runs past the card, not past the page. */
-    const spill = await page.evaluate((sel) => {
+    const fits = (sel) => {
       const laidOut = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
       const cards = [...new Set([...document.querySelectorAll(sel)].filter(laidOut).map((b) => b.closest('.askreq')))];
       if (!cards.length || cards.includes(null)) return 'no .askreq card around a laid-out Allow button';
@@ -218,7 +219,12 @@ const SCREENS = [
         if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
       }
       return '';
-    }, allow);
+    };
+    // Polled like the hit-test, so a repaint mid-read is not a red.
+    let spill = await page.evaluate(fits, allow);
+    for (const until = Date.now() + 3000; spill && Date.now() < until; spill = await page.evaluate(fits, allow)) {
+      await page.waitForTimeout(200);
+    }
     if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },
   // Sonya: settings.
