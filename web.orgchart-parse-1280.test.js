@@ -154,3 +154,9 @@ test('#4559: the page refuses a file over the same size the board reads', () => 
   assert.ok(Number.isInteger(page) && page > 0, 'CONTROL: read as a number: ' + page);
   assert.equal(page, require('./engine/orgchartfile').MAX_BYTES);
 });
+
+test('#4559: the page refuses a chart past the same number of agents one create can make', () => {
+  const m = /const ORGCHART_TEAM_MAX = (\d+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_TEAM_MAX is gone from the page');
+  assert.equal(Number(m[1]), require('./engine/team').MAX_TEAM_CAP);
+});

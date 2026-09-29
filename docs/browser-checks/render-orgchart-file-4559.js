@@ -106,6 +106,7 @@ async function run() {
       const m = teams[0] ? teams[0].members : [];
       const idx = (n) => m.findIndex((x) => x.name === n);
       check('CSV: Create sends every manager before the people under them', m.length === 7 && idx('chief-executive') < idx('head-of-sales') && idx('head-of-sales') < idx('account-executive') && idx('head-of-operations') < idx('office-manager'), JSON.stringify(m.map((x) => x.name)));
+      check('CSV: Create raises the team cap to the chart\'s size (the person\'s own create, #2972)', teams[0] && teams[0].cap === 7, JSON.stringify(teams[0] && teams[0].cap));
       check('CSV: each member carries its manager\'s agent name, the top none', !('reportsTo' in m[idx('chief-executive')]) && m[idx('account-executive')].reportsTo === 'head-of-sales' && m[idx('office-manager')].reportsTo === 'head-of-operations', JSON.stringify(m));
     }
     await p1.close();
@@ -203,6 +204,33 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
+    // PREVIEW: pressing Preview while a picture is being read ends that read too, and its late answer paints nothing.
+    const ppv = await page();
+    let pvAborted = false;
+    await ppv.route('**/api/orgchart/read*', async (r) => {
+      const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
+      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      await new Promise((ok) => setTimeout(ok, 3000));
+      try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { /* aborted */ }
+    });
+    // The page aborting its fetch is what closes the request at the board (and so stops the model call there).
+    ppv.on('requestfailed', (q) => { if (/\/api\/orgchart\/read\?consent=1/.test(q.url())) pvAborted = true; });
+    await openPanel(ppv);
+    if (await ppv.$('#orgchart-file-btn')) {
+      await ppv.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await ppv.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+      await ppv.click('#orgchart-consent-go');
+      await ppv.waitForSelector('#orgchart-read-stop:not([hidden])', { timeout: 5000 }).catch(() => {});
+      await ppv.fill('#orgchart-text', 'Office Manager');
+      await ppv.click('#orgchart-preview');
+      const stopGone = await ppv.waitForFunction(() => document.getElementById('orgchart-read-stop').hidden, null, { timeout: 2000 }).then(() => true, () => false);
+      await ppv.waitForTimeout(3500);   // past the read's own answer
+      const pv = await readPreview(ppv);
+      check('PREVIEW: Preview during a read ends it (Stop reading goes) and the box\'s list stays',
+        stopGone && pvAborted && pv.rows.length === 1 && /Office Manager/.test(pv.rows[0].text), JSON.stringify([stopGone, pvAborted, pv.rows.map((x) => x.text)]));
+    } else check('PREVIEW: the panel offers a file', false);
+    await ppv.close();
+
     // LEAVE: leaving the panel with a picture waiting for Read it disarms it; coming back shows no consent box.
     const pl = await page();
     await pl.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } }));
@@ -276,6 +304,13 @@ async function run() {
       await pa.waitForTimeout(300);
       const big = await readPreview(pa);
       check('TOO BIG: a file over the limit is refused in the page, before any upload', reads === before && /larger than 10 MB/.test(big.msg), JSON.stringify([reads - before, big.msg]));
+      // TOO MANY: past the most one create can make, the preview says so, paints no list and Create stays off.
+      await pa.unroute('**/api/orgchart/read*');
+      const many = 'Name,Title\n' + Array.from({ length: 51 }, (_, i) => 'Person ' + (i + 1) + ',Role ' + (i + 1)).join('\n');
+      await pa.setInputFiles('#orgchart-file', { name: 'many.csv', mimeType: 'text/csv', buffer: Buffer.from(many) });
+      await pa.waitForFunction(() => /This list has 51 people/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
+      const mn = await readPreview(pa);
+      check('TOO MANY: a 51-person file is refused in the preview, with no list and Create off', /This list has 51 people\. Kosmos makes at most 50 agents at a time/.test(mn.count) && mn.rows.length === 0 && mn.createDisabled, JSON.stringify([mn.count, mn.rows.length, mn.createDisabled]));
     } else check('AFTER CREATE: the panel offers a file', false);
     await pa.close();
 
