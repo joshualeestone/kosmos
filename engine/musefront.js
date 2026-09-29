@@ -18,8 +18,8 @@
  * #4569 (Josh, 11:57: Mark ignored "stop" twice, behind 14 room posts): the waiting order is NOT
  * arrival order. A message from the person (the operator envelopes engine/messages.js mints and
  * refuses inside any agent's text, so an agent cannot forge one) goes ahead of everyone else's,
- * behind only the person's own earlier ones and a stop note that is waiting. A person's short stop request ends the running turn
- * and drops what waits, like Escape, then runs as the next turn with a note naming what was dropped,
+ * behind only the person's own earlier ones and a stop note that is waiting. A person's short
+ * stop request ends the running turn and drops what waits, like Escape, then runs as the next turn with a note naming what was dropped,
  * so the agent can say it stopped. Background room posts ("not addressed to you") that pile up
  * while a turn runs are folded into one turn.
  *
@@ -92,13 +92,17 @@ function bodyOf(text) {
    chat.dmReactionNews, #3650) and a room's catch-up note (' [This room has been talking without you: ...'). */
 function wordsOf(text) {
   let b = bodyOf(text).replace(/^\(answering: "[^"]*"\)\s*/, '');
-  for (const cut of [' [kosmos] ', ' [This room has been talking']) { const at = b.indexOf(cut); if (at !== -1) b = b.slice(0, at); }
+  for (const cut of [' [kosmos] ', ' [This room has been talking']) {
+    const at = b.indexOf(cut);
+    if (at !== -1) b = b.slice(0, at);
+  }
   return b.trim();
 }
 /* A short message that only asks the agent to stop. Narrow on purpose: "stop posting duplicates in
    the room and fix X" is an instruction to carry out, not a stop, so anything longer is a normal message. */
 const STOP_WORDS = new Set(['stop', 'stop now', 'stop it', 'please stop', 'stop please', 'stop working', 'stop posting',
-  'pause', 'please pause', 'pause now', 'you can stop', 'you can pause', 'halt', 'stop stop', 'stfu']);   // not "hold": it can answer "hold or ship?" (review round 3)
+  // Not "hold": it can answer "hold or ship?" (review round 3).
+  'pause', 'please pause', 'pause now', 'you can stop', 'you can pause', 'halt', 'stop stop', 'stfu']);
 function isStopRequest(text) {
   if (kindOf(text) !== 'operator') return false;
   const said = wordsOf(text).toLowerCase().replace(/[.!,?\u2026]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -229,10 +233,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
          after the first one, never only in the pane (the person reads the DM, not the pane). */
       const mine = extra.filter((t) => kindOf(t) === 'operator');
       if (mine.length) {
+        /* Review round 4: notes are tracked by their text, so an identical note already waiting says it already;
+           a second copy would leave one copy untracked. */
         const more = '[Kosmos: your operator asked you to stop again, and these messages from them, sent in between, were dropped unread: '
           + mine.map((t) => '"' + shortOf(t) + '"').join(', ') + '.]\n' + text;
-        STOP_NOTES.add(more);
-        queue.push(more);
+        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); }
       }
       return;
     }

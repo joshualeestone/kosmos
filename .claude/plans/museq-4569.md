@@ -30,6 +30,13 @@ This PR is the write-up's fixes 1-3, in the Muse front only. Fix 4 (show the que
   the reactions / catch-up notes after; a second stop leaves the first stop's note alone (its list of what was
   dropped survives); a digest carries at most 40 posts, the newest, and says how many it left out.
 
+- Review rounds 2-4: a digest also stops adding posts past 32 KB (a single longer post still goes whole); a
+  second stop keeps the first stop's note and, when it drops messages from the person, names them in a short
+  "asked you to stop again" note (identical notes are queued once); "hold" is not a stop word (it can answer
+  "hold or ship?"); Escape clears waiting stop notes (housekeeping no test can observe).
+- Known and accepted (round 3 NIT): a project name containing "]" makes a room-wide stop read as an ordinary
+  message; it still goes first.
+
 ## Weakest premise
 That the stop request reaches the front as its own typed message while a turn runs. It does today (chat.js
 types each message and presses Enter). Framing Kosmos adds that this code does not know about would make a stop
@@ -38,4 +45,8 @@ read as an ordinary message (it still goes first, so the agent sees it after its
 ## Tests (engine/musefront.test.js)
 Priority order (control: colleague order kept); stop ends the turn and names what it dropped; a long
 instruction, a colleague's "stop", and an idle stop are not stops (control: "you can pause" mid-turn is);
-background digest (control: a single background post runs as itself).
+background digest (control: a single background post runs as itself). Rounds 1-4: stops with a reply quote or
+reaction / catch-up notes around them (control: a quoted "stop" in a reply is not one); a second stop keeps the
+first note; digest caps at 40 posts and 32 KB; Escape drops a waiting stop note and a later stop gets its own;
+messages between two stops are named (control: none in between adds no note; "hold" is not a stop); an identical
+second note waits once and stays ahead of the person's next message.

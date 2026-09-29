@@ -418,3 +418,17 @@ test('#4569 review round 3: a message sent between two stops is named to the age
   assert.equal(d.stops[0], 0, '"hold" stopped the turn');
   d.pending[0](OK('done')); await d.f.drained();
 });
+
+test('#4569 review round 4: the same dropped message named twice waits as ONE note, and it is still a stop note', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(OP('x') + '\r'); h.f.feed(OP('stop') + '\r');   // note 2 names "x"
+  h.f.feed(OP('x') + '\r'); h.f.feed(OP('stop') + '\r');   // the same note again: not queued twice
+  h.f.feed(OP('y') + '\r');                                // the person's next message queues BEHIND the waiting note
+  h.pending[1](OK('Stopped.'));
+  await within(h.f.drained(), 'the queue did not drain');
+  const prompts = h.calls.map((c) => c.prompt);
+  assert.equal(prompts.filter((q) => /stop again/.test(q)).length, 1, 'the identical note ran twice: ' + prompts.length);
+  assert.ok(/stop again/.test(prompts[2]) && prompts[3] === OP('y'), 'order: ' + prompts.map((q) => q.slice(0, 30)).join(' | '));
+});
