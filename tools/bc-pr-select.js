@@ -99,8 +99,9 @@ function declaredFunctions(src) {
    the declaration's own indentation followed by `}` (then optionally `;` and a `//` comment). A function
    whose braces open and close on its declaration line is that one line. null when the page does not
    declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation;
-   'duplicate' when more than one line declares it, nested declarations included (the last top-level one is
-   live, and a check cannot say which body it depends on). It reads indentation, not syntax: a `}` at the
+   'duplicate' when more than one line declares it, nested declarations included, and so is a line in a string
+   or block comment that starts like a declaration (the last top-level one is live, and a check cannot say
+   which body it depends on; the fix is a unique name). It reads indentation, not syntax: a `}` at the
    declaration's indentation inside a multi-line string or template literal ends the body early (the plan's
    weakest part; browser-checks-pr-select-4119.test.js checks each declared body's braces balance). */
 function functionRange(page, name) {

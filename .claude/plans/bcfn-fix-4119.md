@@ -19,8 +19,17 @@ follow-up PRs). Iteration 1 of that loop (a blind reviewer over 7b8b45371 and 01
 3. touchedLines counted every file's hunks (and, once it filtered, needed git's default a/ b/ prefixes; main() now
    pins them and the filter accepts web/index.html with or without the b/ prefix) and placed a -U0 pure deletion one line early. Fixed: only the
    page's hunks count, and a `+N,0` hunk sits after head line N. main() diffs only web/index.html with
-   default context, so production was unaffected; select() and touchedLines are exported.
+   default context, so production was unaffected (select() and touchedLines were already exported on main;
+   this branch adds the export pageAt). main()'s git diff also pins -c diff.suppressBlankEmpty=false,
+   --no-ext-diff, --no-textconv and --no-color, so user git config cannot change the headers or line numbers
+   touchedLines reads.
 4. README: the declaration must fit on one line (declaredFunctions reads the first matching line).
+5. A declared name the page declares more than once (nested ones included) is 'duplicate': it selects the
+   check on every page diff with the reason "declared more than once on the page", and the declared-function
+   test fails until the name is unique. JavaScript runs the last declaration, so no single body is the check's.
+6. pageAt(head) reads the page at head. A head without web/index.html (the PR deleted or moved it) reads as an
+   empty page, so every declaring check selects; any other git failure (a bad ref) throws, main() exits 2, and
+   the job fails loudly. Tested with HEAD, git's empty tree and a bad ref.
 
 Not changed, with reasons:
 - The slow "through select()" test (about 13 s): its coverage is right; speed is not a defect.
