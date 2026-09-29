@@ -26,6 +26,8 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
+const messagesEngine = require('./engine/messages');
+const chatEngine = require('./engine/chat');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -97,6 +99,35 @@ test('the caller is identified as the token\'s agent, even when the body names a
      the gate), so the assertion above is the header winning, not the body being ignored. */
   const bodyOnly = await call('POST', '/api/whoami', { headers: { 'x-kosmos-board-token': BOARD }, body: { token: maraToken } });
   assert.equal(JSON.parse(bodyOnly.text).agent, 'mara', 'control: a body token alone did not identify its agent: ' + bodyOnly.text.slice(0, 160));
+});
+
+test('a token-only msg is SENT as the token\'s agent, even when the body names another', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  const sends = [];
+  chatEngine.setRunner((args) => {
+    sends.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  t.after(() => { messagesEngine.resetForTests(); chatEngine.setRunner(null); chatEngine.setDryRun(true); board.restore(); });
+  const mara = board.roster.find((c) => c.sessionName === 'mara');
+  const maraToken = sendertoken.mint('mara').token;
+  const r = await call('POST', '/api/msg', {
+    headers: { 'x-kosmos-agent-token': agentToken },
+    body: { to: 'mara', text: 'from the token agent', from_pane: mara.session, token: maraToken },
+  });
+  assert.equal(r.code, 200, r.text.slice(0, 160));
+  assert.equal(JSON.parse(r.text).delivery.state, 'placed', 'the token-only msg was not delivered: ' + r.text.slice(0, 200));
+  const pasted = sends.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]).join('');
+  assert.match(pasted, /colleague poc-agent/, 'the msg was not sent as the header token\'s agent');
+  assert.doesNotMatch(pasted, /colleague mara/, 'the body\'s pane or token changed the sender');
+});
+
+test('a malformed agent token is refused at the gate without a store scan', async () => {
+  for (const bad of ['short', 'Z'.repeat(64), agentToken + '0']) {
+    assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': bad }, body: {} })), 'a malformed token passed: ' + bad.slice(0, 10));
+  }
 });
 
 test('a revoked agent token no longer opens the gate', async () => {

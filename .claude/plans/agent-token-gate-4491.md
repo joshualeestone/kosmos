@@ -27,7 +27,11 @@ person-only route. Nothing that works today with the board token stops working.
 ## Why this is safe to merge alone
 It only ADDS a way in, for a caller holding a valid agent token, on three routes that the same
 agent could already reach with the board token it can read today. It does not weaken what a
-caller without any token can do. Agent tokens are per-agent, mode 600, and retired on removal.
+caller without any token can do. Agent tokens are per-agent, mode 600, and revoked on removal.
+Residual, stated: the gate checks the token store, not the roster, so if a removal's best-effort
+revoke failed and the agent's process is still alive, its token still passes here, as it already
+does on the exempt report and reply routes. A malformed token is refused by shape before any
+file read.
 
 ## Weakest premise
 That every handler behind these routes identifies the caller from the header token rather than
