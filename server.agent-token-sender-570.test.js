@@ -165,4 +165,11 @@ test('msg, post and react: never exempt for a network peer or with NO credential
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every route a pattern admits must identify its caller from the header token');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
+  /* #4491 slice 3: a network peer stays refused on the pattern routes too: remoteWriteGuard reads only the exact
+     REMOTE_AGENT_ROUTES set, never the agent-token set or its patterns, and that set names no task route. */
+  const guard = (src.match(/function remoteWriteGuard\([^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
+  assert.ok(guard, 'remoteWriteGuard moved; this pin reads nothing');
+  assert.match(guard, /REMOTE_AGENT_ROUTES\.has\(/, 'remoteWriteGuard no longer reads REMOTE_AGENT_ROUTES');
+  assert.doesNotMatch(guard, /agentTokenRoute|AGENT_TOKEN_ROUTE/, 'remoteWriteGuard now admits agent-token routes to network peers');
+  assert.doesNotMatch(lineOf('REMOTE_AGENT_ROUTES'), /\/task\//, 'a task route is now open to network peers');
 });

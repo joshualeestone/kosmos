@@ -95,7 +95,9 @@ test('win32-cli-verbs: a request presenting a VALID agent token is valved even w
 });
 
 test('#4491 slice 3: with the cap spent, an agent that is not on the project hears 403 (why), not 429 (the breaker)', async () => {
-  /* The cap is spent by the tests above. Membership is checked before the valve, as task built does. */
+  /* Spend the cap here (process posts until the valve answers 429), so this test does not depend on the ones above. */
+  for (let i = 0; i < 10 && (await post()).status !== 429; i += 1) { /* keep posting until valved */ }
+  assert.equal((await post()).status, 429, 'setup: the valve never tripped, so the order below proves nothing');
   const outsider = sendertoken.mint('outsider');
   assert.equal(outsider.ok, true, outsider.because);
   const r = await post({ 'x-kosmos-agent-token': outsider.token });

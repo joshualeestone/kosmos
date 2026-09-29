@@ -16604,7 +16604,7 @@ const server = http.createServer(async (req, res) => {
         let memberRecord = null;
         let unreadable = false;
         try { memberRecord = projects.readAll().find((x) => x && x.id === id) || null; } catch { unreadable = true; }
-        if (!viaScreen && senderCard) {   // an identified card with no name is refused below, as task built refuses it
+        if (!viaScreen && senderCard) {   // a card with no name is never a member, so it is refused below when the project exists (as task built)
           if (unreadable) {
             sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' });
             return;
