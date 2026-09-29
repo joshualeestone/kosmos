@@ -28,14 +28,15 @@ const REPO = __dirname;
 const SHIPPED = process.env.SUPERVISOR_UNDER_TEST || path.join(REPO, 'bin', 'agent-supervisor.sh');
 const NAME = 'relaunch4530';
 
-function fixture() {
+function fixture(runnerKind = 'claude') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-retire-token-4530-'));
   for (const dir of ['bin', 'data', 'work', 'state', 'shim', 'home']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.symlinkSync(SHIPPED, path.join(root, 'bin', 'agent-supervisor.sh'));
   fs.symlinkSync(path.join(REPO, 'engine'), path.join(root, 'engine'));   // the real sendertoken.js
   const evidence = path.join(root, 'tokens.txt');
   const runner = path.join(root, 'runner.sh');
-  fs.writeFileSync(runner, '#!/bin/bash\n[ "${1:-}" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nprintf "%s\\n" "${KOSMOS_AGENT_TOKEN:-<missing>}" >> "$EVIDENCE"\n', { mode: 0o755 });
+  const version = runnerKind === 'antigravity' ? 'agy 1.2.10' : '2.1.282 (Claude Code)';
+  fs.writeFileSync(runner, `#!/bin/bash\n[ "\${1:-}" = --version ] && { echo "${version}"; exit 0; }\nprintf "%s\\n" "\${KOSMOS_AGENT_TOKEN:-<missing>}" >> "$EVIDENCE"\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(root, 'shim', 'sleep'), '#!/bin/bash\n/bin/sleep 0.1\n', { mode: 0o755 });
   const tmux = path.join(root, 'tmux.sh');
   fs.writeFileSync(tmux, [
@@ -43,7 +44,10 @@ function fixture() {
     'S="$TMUX_STATE"',
     'case "${1:-}" in',
     /* FLAKE_ONCE: the next has-session fails like a tmux binary mid-swap (127), once. */
-    '  has-session) if [ -f "$S/flake" ]; then rm -f "$S/flake"; exit 127; fi; [ -f "$S/alive" ]; exit $? ;;',
+    /* FLAKE_ONES: the next N has-session calls answer 1 ("no such session") while it is alive. */
+    '  has-session) if [ -f "$S/flake" ]; then rm -f "$S/flake"; exit 127; fi;',
+    '    if [ -s "$S/ones" ]; then n=$(cat "$S/ones"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$S/ones"; exit 1; fi; fi;',
+    '    [ -f "$S/alive" ]; exit $? ;;',
     /* A plain-name target falls back to a PREFIX match when the exact session is gone, as
        tmux does (measured): it then reaches the -discord twin, whose options are twin-opt-*. */
     '  show-options) for a in "$@"; do last="$a"; done; p="opt"; [ -f "$S/alive" ] || p="twin-opt"; f="$S/$p-${last#@}"; [ -f "$f" ] && cat "$f"; exit 0 ;;',
@@ -63,7 +67,7 @@ function fixture() {
     '    while [ "$#" -gt 0 ]; do',
     '      case "$1" in',
     '        -d) shift ;;',
-    '        -P) shift ;;',
+    '        -P) print_pane=1; shift ;;',
     '        -s|-c|-F) shift 2 ;;',
     '        -e) export "$2"; shift 2 ;;',
     '        *) break ;;',
@@ -72,6 +76,7 @@ function fixture() {
     '    [ -f "$S/refuse" ] && exit 1',
     '    [ -f "$S/dieatonce" ] || touch "$S/alive"',
     '    "$@" >/dev/null 2>&1',
+    '    [ -n "${print_pane:-}" ] && printf "%%4530\\n"',
     '    exit 0 ;;',
     '  kill-session) rm -f "$S/alive"; exit 0 ;;',
     '  *) exit 0 ;;',
@@ -88,7 +93,7 @@ function fixture() {
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(root, 'home', '.claude.json'),
     CLAUDE_CONFIG_DIR: path.join(root, 'home', '.claude'),
   };
-  const args = [path.join(root, 'bin', 'agent-supervisor.sh'), NAME, path.join(root, 'work'), runner, tmux, '', '', 'claude'];
+  const args = [path.join(root, 'bin', 'agent-supervisor.sh'), NAME, path.join(root, 'work'), runner, tmux, '', '', runnerKind];
   const tokens = () => (fs.existsSync(evidence) ? fs.readFileSync(evidence, 'utf8').split('\n').filter(Boolean) : []);
   /* The store is read in a child process with the same data root, so this file never
      freezes store.ROOT on the real Application Support. */
@@ -205,17 +210,48 @@ test('#4530 OTHERS: a relaunch leaves a token with no launcher alone (a remote a
   } finally { f.cleanup(); }
 });
 
-test('#4530 FLAKE: a tmux that fails to answer once does not retire a live run\'s token', async () => {
+/* Every runner that launches differently: Antigravity makes its session itself (it needs the pane id)
+   instead of through launch_pane, and review iteration 2 found it losing a live token on exit. */
+for (const kind of ['claude', 'antigravity']) {
+  test(`#4530 FLAKE (${kind}): a tmux that fails to answer once does not retire a live run's token`, async () => {
+    const f = fixture(kind);
+    try {
+      const one = f.start();
+      await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+      const [t1] = f.tokens();
+      f.flag('flake');   // the next has-session exits 127 while the session is still alive
+      await f.ends(one);
+      assert.equal(fs.existsSync(path.join(f.root, 'state', 'alive')), true, 'CONTROL: the session is still alive');
+      assert.equal(f.resolves(t1), true, 'one failed has-session retired a live agent\'s token');
+    } finally { f.cleanup(); }
+  });
+
+  test(`#4530 STOPPED (${kind}): a supervisor stopped while its run lives does not take the run's token with it`, async () => {
+    const f = fixture(kind);
+    try {
+      const one = f.start();
+      await f.until(() => f.tokens().length === 1, 'the run to receive its token');
+      const [t1] = f.tokens();
+      await new Promise((r) => setTimeout(r, 500));   // past the launch, into the supervision loop
+      one.kill('SIGTERM');   // launchctl bootout, a logout, a manual stop
+      await f.ends(one);
+      assert.equal(f.resolves(t1), true, 'stopping the supervisor retired its live run\'s token');
+    } finally { f.cleanup(); }
+  });
+}
+
+test('#4530 ONES: "no such session" answered once more after the loop, by a session that is alive, retires nothing', async () => {
   const f = fixture();
   try {
     const one = f.start();
     await f.until(() => f.tokens().length === 1, 'the run to receive its token');
     const [t1] = f.tokens();
-    f.flag('flake');   // the next has-session exits 127 while the session is still alive
+    /* Two wrong answers of 1: the loop's own check, then the first check after it. Only the second,
+       two seconds later, sees the session, so this arm fails if that second check is removed. */
+    fs.writeFileSync(path.join(f.root, 'state', 'ones'), '2');
     await f.ends(one);
-    assert.equal(fs.existsSync(path.join(f.root, 'state', 'alive')), true, 'CONTROL: the session is still alive');
-    assert.equal(f.resolves(t1), true, 'one failed has-session retired a live agent\'s token');
-    f.endSession();
+    assert.equal(fs.readFileSync(path.join(f.root, 'state', 'ones'), 'utf8').trim(), '0', 'CONTROL: both wrong answers were used');
+    assert.equal(f.resolves(t1), true, 'a session that answered "gone" once too often lost its live token');
   } finally { f.cleanup(); }
 });
 

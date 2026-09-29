@@ -535,6 +535,9 @@ if [ -z "$adopt" ]; then
     [ -n "${SECRET_FILE:-}" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
     # #4530: a launch that minted and then never started its session (every `|| exit 1`
     # below, or losing the name to another launch) leaves a token no run holds.
+    # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
+    # Antigravity arm, which calls new-session itself. A new such path must set it too, or
+    # its live run loses its token here (supervisor.retire-token-4530 runs both).
     if [ "${RUN_STARTED:-0}" != 1 ]; then retire_run_token; fi
   }
   trap cleanup_launch_secrets EXIT
@@ -1005,6 +1008,11 @@ if [ -z "$adopt" ]; then
     prepare_secret_entry
     _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
+    # #4530: this arm makes its session itself rather than through launch_pane (it needs the pane
+    # id), so it marks the run started itself: left at 0, the EXIT trap would retire this LIVE
+    # run's token on any exit, a SIGTERM or a tmux that failed to answer once (review of #4530,
+    # iteration 2). Here, not inside the $(...): that runs in a subshell.
+    RUN_STARTED=1
     unset _AGY_ARGS
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
