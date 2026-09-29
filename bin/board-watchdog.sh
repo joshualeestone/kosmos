@@ -168,8 +168,8 @@ fi
 # only from a real local network fault, where a restart could not fix the kernel's state anyway.
 if [ "$STATUS_RC" -eq 5 ]; then
   # Logged when the spell starts, and again every 6 hours while it lasts, so a long one is not silent. Any other
-  # status reading ends the spell (its marker is removed), so only an unbroken run of exit-5 readings, across a
-  # reboot too, stays quiet between lines. If the marker cannot be written, this logs on every tick instead.
+  # status reading ends the spell (its marker is removed; the gates above exit before reading one), so only an
+  # unbroken run of exit-5 readings, across a reboot or a deliberate stop too, stays quiet between lines. If the marker cannot be written, this logs on every tick instead.
   if [ ! -f "$UNREACH_MARK" ] || [ "$(( $(now) - $(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)") ))" -ge 21600 ]; then
     log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"
     : > "$UNREACH_MARK" 2>/dev/null || true

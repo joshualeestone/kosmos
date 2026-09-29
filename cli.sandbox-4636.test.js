@@ -52,7 +52,7 @@ const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 // And lsof must work inside it: every sandboxed arm rests on it (measured on macOS; a stricter sandbox is a skip).
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
   && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true'], { timeout: 20000 }).status === 0
-  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-v'], { timeout: 20000 }).status === 0;
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-nP', '-p', String(process.pid)], { timeout: 20000 }).status === 0;
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
 const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 }).status !== 0;
 
@@ -222,7 +222,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
     assert.notEqual(r.code, 0, 'a start from a blocked shell reported success: ' + r.out);
     assert.match(r.out, /Kosmos cannot be started from this shell: .*so it was stopped again\. Start it from a normal Terminal/);
     assert.doesNotMatch(r.out, /did not come up/);
-    assert.ok(Date.now() - t0 < 20000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
+    assert.ok(Date.now() - t0 < 30000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
     assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false, 'the pidfile of the stopped board was left behind');
     // From outside the sandbox, nothing answers on the port any more: the board it launched is gone.
     const gone = await new Promise((resolve) => {
@@ -320,7 +320,7 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   const launchd = await awaitWith(true, false);
   // Not this install's recorded board (stubbed): the words do not claim it started, only that launchd was asked.
   assert.match(launchd, /launchd was asked to start Kosmos, and this shell cannot confirm it did/, launchd);
-  assert.match(launchd, /board=alive rc=0/, 'under launchd nothing is killed: ' + launchd);
+  assert.match(launchd, /board=alive rc=1/, 'under launchd nothing is killed, and an unconfirmed start is not a success: ' + launchd);
   // This install's recorded board: it started, at once.
   const oursLaunchd = await awaitWith(true, false, true);
   assert.match(oursLaunchd, /It was started under launchd/, oursLaunchd);

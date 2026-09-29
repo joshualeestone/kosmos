@@ -1024,8 +1024,8 @@ _await_board_up() {
         return 0
       fi
       if [ -z "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
-        say "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did; check from a shell that can reach it."
-        return 0
+        # Not shown to be ours: honest words, and not a success.
+        die "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did; check from a shell that can reach it."
       fi
       # Two readings in a row (a board mid-boot gets its moment), and then only on POSITIVE evidence that this
       # shell is sandboxed (ps denied: the measured sandbox denies it). Without that evidence the cause may be a
