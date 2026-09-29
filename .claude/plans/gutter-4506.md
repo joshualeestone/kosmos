@@ -85,3 +85,16 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
 - NIT, known: whichever of this PR and #4512 merges second re-measures the reason-grep counts.
 - Validation note: per-iteration validation (6g) was pre-empted twice by another agent's full suite holding the
   shared test ports (the helper waits up to 20 minutes); the full validation runs as the closing gate (6j).
+
+### Iteration 4 (sonnet)
+- WARNING, fixed: the dialog rules now skip Talk (`:not(:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])))`),
+  mirroring the tour's Talk exemption: Talk reserves no gutter where scrollbars are measured, and at phone width its
+  page must stay exactly the visible height. Reasoned from the tour's rule; the check has no Talk arm yet.
+- WARNING, fixed: the dialog rules skip `.tip-dimming`, so the tour owns the canvas while it dims (as #4216 does),
+  which keeps the tour's navy-correct canvas. The double-dim residual under tour plus dialog is unchanged.
+- NITs (root :has cost, Chromium-only check): consistent with the existing #4216/#4494 rules; stated honestly.
+
+## Paused 07:56 CDT for kosmos#4544 (Splinter, priority)
+Next when resumed: run the check, commit, run 6g validation (it queues behind other agents' suites for up to 20 min),
+then iteration 5 on opus. ITER_COMMITS so far: 9d9e71fe 1c59f686 bfbaf8c4 (plus this pause commit).
+Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the check.
