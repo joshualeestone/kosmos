@@ -873,6 +873,23 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNO
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 KOSMOS_TESTS_IGNORE_SUITE=1 runs past the queue too, as its message says" \
   || fail "#4498 the override still queued ($(printf '%s' "$out" | tail -2))"
+# #4609: the overrides are for THIS run's wait and are not handed to the tests it runs. A test that runs its own
+# run-tests.sh (the #4498 queue arms above) would otherwise inherit them and skip the queue it is testing. RT stops at
+# the coverage gate on purpose, so this uses a second copy with no stray test file: the gate passes (1 == 1) and the
+# run reaches its `node --test` line, where a stand-in node first on PATH reports what it inherited. KOSMOS_TEST_PART=node
+# keeps it from going on to the shell part.
+RT2="$(mktemp -d /tmp/rt4609.XXXXXX)"; mkdir -p "$RT2/tools/lib" "$T/fakebin"
+cp "$HERE/run-tests.sh" "$RT2/tools/"; cp "$HERE"/lib/*.sh "$RT2/tools/lib/"
+: > "$RT2/one.test.js"   # one root test file: the gate's two counts agree (1 == 1) and the list is not empty
+printf '#!/bin/sh\necho "IGNORE_SEEN=${KOSMOS_TESTS_IGNORE_SUITE:-unset} HARNESS_SEEN=${KOSMOS_TESTS_IGNORE_HARNESS:-unset}"\nexit 0\n' > "$T/fakebin/node"
+chmod +x "$T/fakebin/node"
+out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
+  KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
+rm -rf "$RT2"
+{ has "$out" "IGNORE_SEEN=unset HARNESS_SEEN=unset" && ! has "$out" "IGNORE_SEEN=1"; } \
+  && pass "#4609 the queue overrides are not inherited by the suite's own processes" \
+  || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \

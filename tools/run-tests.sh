@@ -238,6 +238,10 @@ if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
   fi
 fi
+# #4609: the overrides are for THIS run's wait, read above. Unset now, so no test this suite runs inherits them: an
+# inherited KOSMOS_TESTS_IGNORE_SUITE made the #4498 queue tests' own run-tests.sh skip the queue and fail (a run made
+# with the override while the queue was jammed, 2026-09-29).
+unset KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #
