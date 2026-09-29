@@ -801,6 +801,9 @@ _stop_advice() {
   elif [ -n "${1:-}" ]; then printf '%s' "Quit process $1 (for example: kill -9 $1), or reboot, then start again."
   else printf '%s' "Stop it with 'kosmos stop' (or reboot), then start again."; fi
 }
+# A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
+# loop. An agent that passes --force or clears its markers gets through, and so does one launched before
+# #4466 with none of the markers. Never rely on it as a security boundary.
 agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, exits to refuse
   local _verb="$1" _a _last _now _ago _cool
   shift

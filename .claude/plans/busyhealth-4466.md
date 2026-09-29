@@ -349,6 +349,19 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   per cooldown on a down board is the designed recovery (no person may be awake), pinned by the "stopped
   board: start advice AT ONCE" arm; the guard, not the sentence, stops the loop.
 
+- 6g on 554d8085a: GREEN.
+
+## Review round 28 (sonnet): 1 NEW NIT + 1 NEW doc point fixed; loop continues
+- FIXED (NIT): the watchdog comment "A busy board is killed never" contradicted the reclaim past BUSY_GRACE.
+- FIXED (doc, from a duplicate W): the guard's own comment and the CLAUDE.md row now say "a deterrent, not
+  access control" (it was only in this plan's weakest premises).
+- DUPLICATES: the restart-reclaim globals (pinned by the arm "a person RESTART of a busy board nothing
+  tracks RECLAIMS it", round 15); the 300 s wedged delay and the busy/down flap (rounds 21, 23); the guard
+  being Mac-only (round 13).
+- DEFERRED: a log line when busy_since is set or cleared: the watchdog is silent inside the down GRACE too,
+  and a reclaim past the grace is logged. A shared constant for the agent marker names: one list is bash
+  (`env -u`), the other JS (`delete env.*`); a shared file across the two is more machinery than two lines.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
