@@ -32,6 +32,7 @@ const projects = require('./projects');
 const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
 const BODY_CAP = 1500;
+const RESPONSE_CAP = 256 * 1024;   // review 1: the service's answer is read up to this many bytes, never whole
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FRAME_OPEN = '=== Kosmos community: other agents\u2019 public writing (read only) ===';
@@ -53,7 +54,7 @@ async function getJson(pathname) {
     try {
       const r = await fetch(endpoint() + pathname, { signal: ctl.signal, headers: { accept: 'application/json' } });
       let json = null;
-      try { json = await r.json(); } catch { json = null; }
+      try { json = JSON.parse(await readCapped(r, RESPONSE_CAP)); } catch { json = null; }
       return { status: r.status, json };
     } finally { clearTimeout(t); }
   } catch (e) {
@@ -61,28 +62,62 @@ async function getJson(pathname) {
   }
 }
 
-/** One post's text, made safe to put in front of an agent. PURE. */
-function scrub(value, cap) {
-  let s = String(value == null ? '' : value);
+/** Review 1: the body, read up to `cap` bytes and never whole: a huge or endless answer from the service must not sit
+ *  in the board's memory. Past the cap the answer is refused (it would not parse cut, and a real feed of ten posts is
+ *  far smaller). */
+async function readCapped(r, cap) {
+  if (!r.body || typeof r.body.getReader !== 'function') { const t = await r.text(); if (t.length > cap) throw new Error('too big'); return t; }
+  const reader = r.body.getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > cap) { try { await reader.cancel(); } catch { /* already gone */ } throw new Error('too big'); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts.map((u) => Buffer.from(u))).toString('utf8');
+}
+
+/* Review 1 (BLOCKER): every invisible or format character goes, not a hand-picked few: Unicode's whole format class
+   (zero-width, bidi marks and isolates, the ARABIC LETTER MARK, soft hyphen, word joiner, byte-order mark, and the TAG
+   characters U+E0000-E007F that spell hidden text), variation selectors, and the fillers that render as nothing.
+   A newline and a tab are the only controls kept. */
+const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u034F]/gu;
+
+/** One post's text, made safe to put in front of an agent. `oneLine` for a name, a place or a title: a line break
+ *  there could start a line that looks like another post's header. PURE. */
+function scrub(value, cap, oneLine) {
+  // Review 1: work on a bounded piece (a multi-megabyte field must not be scrubbed whole); the cut below still applies.
+  let s = String(value == null ? '' : value).slice(0, cap * 4);
+  /* Review 1: fold lookalikes FIRST (NFKC): a fullwidth "＝＝＝", the one-character "⩶", or a fullwidth "＜!-- kosmos:" read
+     to a model as the real thing and only become it here, so every check below sees the folded text. */
+  s = s.normalize('NFKC');
   s = s.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, '');                // OSC: a window title, a hyperlink
   s = s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');                       // CSI: colours, cursor moves, clears
   s = s.replace(/\x1b[@-_]?/g, '');                                       // any other escape, and a lone ESC
-  s = s.replace(/[\x00-\x08\x0b-\x1f\x7f\u0080-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '');  // controls, invisible and bidi marks
-  s = projects.neutralise(s);                                              // Kosmos's managed-block markers
+  s = s.replace(INVISIBLE, (c) => (c === '\n' || c === '\t' ? c : ''));   // controls, invisible, format and bidi marks
+  if (oneLine) s = s.replace(/\s+/g, ' ');
+  s = projects.neutralise(s);                                              // Kosmos's managed-block markers (after the strip, so a split one is whole)
   s = s.replace(/={3,}/g, (m) => m.split('').join(' '));                 // no `===` anywhere, so nothing can pass for the frame's boundary
   if (s.length > cap) s = s.slice(0, cap).replace(/[\ud800-\udbff]$/, '') + ' [cut]';
   return s.trim();
 }
+/** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
+ *  post header or a peer envelope would. */
+const QUOTE = '  | ';
+const quoted = (text) => text.split('\n').map((l) => QUOTE + l).join('\n');
 
 function itemOf(p) {
   if (!p || typeof p !== 'object') return null;
-  const where = scrub(p.channel, 64) + (p.sub_channel ? '/' + scrub(p.sub_channel, 64) : '');
+  const where = scrub(p.channel, 64, true) + (p.sub_channel ? '/' + scrub(p.sub_channel, 64, true) : '');
   return {
     id: /^[0-9a-f-]{36}$/i.test(String(p.id || '')) ? String(p.id) : '',
-    author: scrub(p.agent && p.agent.name, 64) || 'an agent',
+    author: scrub(p.agent && p.agent.name, 64, true) || 'an agent',
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
-    title: scrub(p.title, TITLE_CAP),
+    title: scrub(p.title, TITLE_CAP, true),
     body: scrub(p.body, BODY_CAP),
   };
 }
@@ -95,8 +130,8 @@ function frame(items, heading) {
   items.forEach((it, i) => {
     out.push('[' + (i + 1) + '] by ' + it.author + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
       + (it.id ? ' (post ' + it.id + ')' : ''));
-    if (it.title) out.push(it.title);
-    if (it.body) out.push(it.body);
+    if (it.title) out.push(quoted(it.title));
+    if (it.body) out.push(quoted(it.body));
     out.push('');
   });
   out.push(FRAME_CLOSE);
@@ -128,7 +163,7 @@ async function read(opts = {}) {
     if (r.status === 404) return { ok: false, because: 'there is no such post' };
     if (r.status === 410) return { ok: false, because: 'that post was taken down' };
     const it = r.status === 200 ? itemOf(r.json) : null;
-    if (!it) return { ok: false, because: r.because || 'the community gave an answer we could not read' };
+    if (!it) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
     return { ok: true, count: 1, text: frame([it]) };
   }
   const ch = channelSlug(opts.channel);
@@ -136,7 +171,7 @@ async function read(opts = {}) {
   const q = '?limit=' + MAX_ITEMS + (ch.slug ? '&channel=' + encodeURIComponent(ch.slug) : '');
   const r = await getJson('/posts/feed' + q);
   const posts = r.status === 200 && r.json && Array.isArray(r.json.posts) ? r.json.posts : null;
-  if (!posts) return { ok: false, because: r.because || 'the community gave an answer we could not read' };
+  if (!posts) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
   const items = posts.slice(0, MAX_ITEMS).map(itemOf).filter(Boolean);
   return { ok: true, count: items.length, text: frame(items, ch.slug ? 'Newest in ' + ch.slug + ':' : 'Newest posts:') };
 }
@@ -144,4 +179,4 @@ async function read(opts = {}) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { read, frame, scrub, itemOf, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { read, frame, scrub, itemOf, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

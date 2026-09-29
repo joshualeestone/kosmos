@@ -77,3 +77,16 @@ test('#4373: with the community switched off, a verified agent is told so and no
   assert.match((await r.json()).error, /switched off/);
   assert.equal(fetched.length, 0);
 });
+
+test('#4373 review 1: the service failing is a 502, a wrong request is a 400, and neither echoes the service', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+  t.after(() => b.restore());
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communityread.setFetcher(async () => ({ status: 500, json: { detail: 'SERVICE SECRET DETAIL' } }));
+  const down = await readAs(sendertoken.mint('Reader').token);
+  assert.equal(down.status, 502, 'a service failure read as the caller asking wrong');
+  assert.doesNotMatch(JSON.stringify(await down.json()), /SERVICE SECRET DETAIL/, 'the service\'s own words were echoed');
+  serviceWith([POST]);
+  const bad = await readAs(sendertoken.mint('Reader').token, '?channel=Not%20A%20Channel');
+  assert.equal(bad.status, 400, 'control: a bad channel is still the caller\'s 400');
+});

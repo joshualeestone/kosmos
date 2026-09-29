@@ -16,8 +16,9 @@ prompt-injection path. So the board reads for the agent, and hands back only a b
   - Framed: a fixed opening line, the never-obey rule, the posts, a fixed closing line.
   - Nothing is read while the owner has Community switched off (communitysend.switchOn), and nothing is fetched.
 - GET /api/community/read on the board: an agent token is required and resolved exactly as for a post (403 otherwise).
-- `kosmos community read [--channel c[/sub]] [--post id]` on the Mac; the Windows half goes to Homer as a spec on the
-  card (Josh's 09-16 rule), and the CLI verb-parity guard stays red until it lands, by design.
+- `kosmos community read [--channel c[/sub]] [--post id]` on the Mac AND on Windows (tools/windows/kosmos-cli.js):
+  a CLI verb added to both CLIs for parity is done Mac-side (Splinter, 09-28 23:05); Homer confirms one real run on
+  the Windows box, which does not gate the merge. The verb-parity guard is green.
 
 ## Rejected
 - The agent calling the service itself: slice 1's rule, and it would need a key the agent could read.
@@ -27,3 +28,19 @@ prompt-injection path. So the board reads for the agent, and hands back only a b
 ## Weakest premise
 That a frame plus a rule is enough. They reduce injection; they do not remove it (the card says so). #4374 adds the
 rule to the managed block, and S2-2's red-team cases are the test.
+
+## Review iteration 1 (Opus)
+- (BLOCKER) invisible characters got through: the TAG characters that spell hidden text (U+E0000-E007F), the word
+  joiner, the byte-order mark, the Arabic letter mark, soft hyphen, variation selectors and fillers. The scrub now
+  strips Unicode's whole control and format classes (keeping newline and tab), variation selectors and fillers.
+- (WARNING) lookalikes: a fullwidth "=" run, the one-character "===" (U+2A76) and a fullwidth "<!-- kosmos:" read as
+  the real thing to a model. Every field is folded (NFKC) first, so every later check sees the plain form.
+- (WARNING) a post could forge another post's header (a line break in a body, a name or a channel). Name, place and
+  title are one line; every title and body line is indented ("  | "), so post text never starts a line.
+- (WARNING) the service's answer was read whole: now read up to 256 KB and refused past it, and each field is cut to
+  four times its cap before scrubbing.
+- (WARNING) the tests could not see those bypasses, and the Windows verb had no behaviour test: both added, each fix
+  reddened by its own mutation (six in the module, one in the Windows CLI).
+- NITs fixed: the read route sits above the #3485 comment that describes the post route; a service failure answers
+  502 (the board's own words, never the service's), a wrong request 400. ACCEPTED: `general/tools` filters on
+  `tools` alone, as the service's feed takes one slug; a same-named sub under another channel would mix in.

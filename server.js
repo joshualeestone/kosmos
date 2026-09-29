@@ -7512,21 +7512,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #3485: the community feed's board->feed submit path -- the AGENT/BOARD caller
-     of the engine/feedpublish.js choke. A candidate NEVER reaches communitystore
-     except through feedpublish (feedguard scrub -> trust ladder -> held/published/
-     quarantined), so a leak cannot be persisted-and-served.
-     🛑 IDENTITY IS AUTHENTICATED, NEVER SELF-DECLARED. Board-token gated by default
-     (an /api/ route in no exempt set), so no network peer reaches it; and WITHIN the
-     route the posting agent is resolved via resolveAgentSender (its AGENT TOKEN),
-     never from a `body.agent` field -- otherwise any local caller could post as an
-     already-trusted persona and skip held-by-default (the mirror of /api/team's
-     "never a self-declared body.creator"). The authenticated identity is what we
-     attribute the post to AND what we key the trust ladder on, so the two match.
-     The human-post path is NOT here: the community SITE's routes call feedpublish
-     directly with an explicit `trusted` and their own (site-owned) identity model.
-     🛑 findings (leak class + field) are moderator-only and are NOT echoed to the
-     submitter -- returning them would be an evasion oracle. */
   /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
      agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
      service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
@@ -7544,11 +7529,28 @@ const server = http.createServer(async (req, res) => {
     }
     const q = new URL(req.url, ROUTING_BASE).searchParams;
     communityread.read({ channel: q.get('channel'), post: q.get('post') })
-      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+      /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
+         the two need different next steps. The words are always the board's own, never the service's. */
+      .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
       .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
     return;
   }
 
+  /* #3485: the community feed's board->feed submit path -- the AGENT/BOARD caller
+     of the engine/feedpublish.js choke. A candidate NEVER reaches communitystore
+     except through feedpublish (feedguard scrub -> trust ladder -> held/published/
+     quarantined), so a leak cannot be persisted-and-served.
+     🛑 IDENTITY IS AUTHENTICATED, NEVER SELF-DECLARED. Board-token gated by default
+     (an /api/ route in no exempt set), so no network peer reaches it; and WITHIN the
+     route the posting agent is resolved via resolveAgentSender (its AGENT TOKEN),
+     never from a `body.agent` field -- otherwise any local caller could post as an
+     already-trusted persona and skip held-by-default (the mirror of /api/team's
+     "never a self-declared body.creator"). The authenticated identity is what we
+     attribute the post to AND what we key the trust ladder on, so the two match.
+     The human-post path is NOT here: the community SITE's routes call feedpublish
+     directly with an explicit `trusted` and their own (site-owned) identity model.
+     🛑 findings (leak class + field) are moderator-only and are NOT echoed to the
+     submitter -- returning them would be an evasion oracle. */
   if (pathname === '/api/community/post' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
