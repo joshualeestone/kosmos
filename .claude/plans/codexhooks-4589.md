@@ -52,7 +52,7 @@ That the person re-sending is acceptable as "the held message arrives whole". Th
 one press away; they are not sent by themselves.
 
 ## Tests
-engine/chat.codex-hooks-4589.test.js (18): all three real screens, wrapped at 50/30/20 columns, blank and failed reads,
+engine/chat.codex-hooks-4589.test.js (19): all three real screens, wrapped at 50/30/20 columns, blank and failed reads,
 Stop now's keys, an untagged native pane, option digits 2/3/t, the stale-snapshot and prompt controls. On main's engine
 the same delivery to either real screen reports "placed" with Enter typed (control script, measured).
 
@@ -116,3 +116,7 @@ Two WARNINGs, both real, both fixed:
   the Trust row; recognised and tested.
 Floor, stated (NIT): below about 15 columns the menu, and below about 12 the table, are not recognised.
 The round-1 residual paragraph about Stop now's keys is superseded by round 2 (keys obey the same rule).
+
+## Blind review round 8 (Sonnet, a separate reviewer, 2026-09-29 14:13)
+
+Nothing above NIT. NITs: this test count was stale (fixed to 19); the menu is recognised by its title plus footer, so a renamed title goes unrecognised (already a stated residual); a truly empty screen right after `clear` is refused as still starting until the composer redraws (transient, reasoned not measured). Converged.
