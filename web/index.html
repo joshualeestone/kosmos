@@ -7926,6 +7926,26 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 .orgchart-nameopt { display: flex; align-items: center; gap: 8px; margin-top: 8px;
   font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
+/* #4557: the prebuilt team step. One row per agent: its seat, its name (editable until it is made),
+   where it stands, and Try again when it failed. The same card as the org chart preview. */
+.tc-h { margin: 0 0 4px; font: var(--text-title3, 600 1.1rem/1.3 var(--font-ui)); color: var(--label); }
+.tc-list { margin: var(--space-2) 0; padding: 12px 12px 12px 2.2em; list-style: decimal;
+  background: var(--field-fill); border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
+.tc-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+.tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
+.tc-seat { color: var(--label-2); }
+.tc-seat b { color: var(--label); font-weight: 600; }
+.tc-name { min-width: 0; font: var(--text-callout) var(--font-ui); color: var(--label);
+  background: var(--bg, transparent); border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-control); padding: 6px 8px; box-sizing: border-box; }
+.tc-name:disabled { border-color: transparent; background: transparent; padding-left: 0; }
+.tc-state { white-space: nowrap; color: var(--label-2); }
+.tc-state.made { color: var(--ok); }
+.tc-state.failed { color: var(--danger); }
+.tc-why { grid-column: 1 / -1; margin: 0; color: var(--danger); }
+.tc-retry { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -13976,6 +13996,23 @@ window.kosmosMeasureScrollbarWidth();
     </div>
   </div>
 
+  <!-- #4557 (umbrella #4554): a whole prebuilt team in one go. Reached by openTeamCreate(key), which the
+       Team path's dropdown calls (#4556). Names are editable; ONE confirm makes every agent; then one row
+       per agent, made in order through POST /api/agents (the lead first, because the others report to
+       it), each with its own Try again. -->
+  <div id="cstep-team" hidden>
+    <h2 class="tc-h" id="tc-title"></h2>
+    <p class="rolehelp" id="tc-purpose"></p>
+    <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
+    <label class="flabel" for="tc-project">Project</label>
+    <select id="tc-project"></select>
+    <p class="rolehelp" id="tc-note"></p>
+    <div class="importrow">
+      <button class="btn uprime" type="button" id="tc-go"></button>
+      <button class="btn" type="button" id="tc-back">Back</button>
+    </div>
+    <p class="rolelimit" id="tc-msg" role="status" aria-live="polite" hidden></p>
+  </div>
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
@@ -46199,8 +46236,226 @@ let CREATING = false;      // a create is in flight; guards the double-click
    the form, or the screen. */
 let IMPORT_GEN = 0;
 
+/* #4557 (umbrella #4554): make a whole prebuilt team. openTeamCreate(key) is the entry the Team path's
+   dropdown calls (#4556). The server BUILDS each member (POST /api/teams/seeded/<key>/specs, which writes
+   nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
+   gets a single agent's full birth and a failed one is retried alone without redoing the rest.
+   The lead is made first: the others report to it by name, so they wait until it exists. */
+let TC = null;       // { key, team, members:[{slot,title,name,state,why,made}], projectNew }
+let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
+
+async function openTeamCreate(key) {
+  openCreate();
+  cstep('team');
+  const gen = ++TC_GEN;
+  TC = null;
+  const msg = document.getElementById('tc-msg');
+  document.getElementById('tc-title').textContent = 'Loading the team…';
+  document.getElementById('tc-purpose').textContent = '';
+  document.getElementById('tc-list').replaceChildren();
+  document.getElementById('tc-go').hidden = true;
+  msg.hidden = true; msg.textContent = '';
+  let body = null;
+  try {
+    const res = await fetch('/api/teams/seeded/' + encodeURIComponent(key));
+    body = await res.json().catch(() => null);
+    if (gen !== TC_GEN) return;
+    if (!res.ok || !body || !Array.isArray(body.members)) throw new Error((body && body.error) || 'we could not load that team');
+  } catch (err) {
+    if (gen !== TC_GEN) return;
+    document.getElementById('tc-title').textContent = 'We could not load that team';
+    msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Try again in a moment.';
+    return;
+  }
+  TC = {
+    key, team: body.team,
+    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', state: 'ready', why: '', made: null, portrait: null })),
+    started: false,
+  };
+  document.getElementById('tc-title').textContent = body.team.label || 'Your team';
+  document.getElementById('tc-purpose').textContent = body.team.purpose || '';
+  /* The existing projects, for the project menu. A failed read only means the menu offers a new project or none. */
+  try { await loadProjects(); } catch { /* the menu still offers a new project or none */ }
+  if (gen !== TC_GEN) return;
+  tcFillProjects();
+  tcPaint();
+}
+
+function tcFillProjects() {
+  const sel = document.getElementById('tc-project');
+  const base = (TC && TC.team && TC.team.project && TC.team.project.name) || (TC && TC.team && TC.team.label) || 'Team';
+  /* A second Marketing team must not collide with the first one's project: Kosmos refuses a project
+     whose folder is already a project, so the new one takes the first free name (Marketing 2, ...). */
+  const taken = new Set((Array.isArray(PROJECTS) ? PROJECTS : []).map((p) => String((p && p.name) || '').trim().toLowerCase()));
+  let wanted = base;
+  for (let i = 2; taken.has(wanted.toLowerCase()) && i < 100; i++) wanted = base + ' ' + i;
+  TC.newProjectName = wanted;
+  const opts = [['new', 'A new project called ' + wanted], ['none', 'No project']];
+  for (const p of (Array.isArray(PROJECTS) ? PROJECTS : [])) {
+    if (p && p.id && !p.archived) opts.push(['id:' + p.id, p.name || p.id]);
+  }
+  sel.replaceChildren(...opts.map(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; }));
+  sel.value = 'new';
+}
+
+function tcPaint() {
+  if (!TC) return;
+  const list = document.getElementById('tc-list');
+  list.replaceChildren(...TC.members.map((m, i) => {
+    const li = document.createElement('li');
+    li.dataset.slot = m.slot;
+    const row = document.createElement('div'); row.className = 'tc-row';
+    const seat = document.createElement('span'); seat.className = 'tc-seat';
+    const b = document.createElement('b'); b.textContent = m.title;
+    seat.append(b, document.createTextNode(i === 0 ? ' (leads the team)' : ''));
+    const input = document.createElement('input');
+    input.className = 'tc-name'; input.type = 'text'; input.value = m.name; input.maxLength = 64;
+    input.setAttribute('aria-label', 'Name for the ' + m.title);
+    input.disabled = m.state === 'made' || m.state === 'creating';
+    input.addEventListener('input', () => { m.name = input.value; });
+    const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
+    st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
+      made: m.portrait === 'failed' ? 'Made (portrait not set)' : 'Made', failed: 'Not made' })[m.state] || '';
+    row.append(seat, input, st);
+    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = m.why; row.append(why); }
+    if (m.state === 'failed') {
+      const again = document.createElement('button');
+      again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
+      again.setAttribute('aria-label', 'Try again: the ' + m.title);
+      again.addEventListener('click', () => tcRetry(m.slot));
+      row.append(again);
+    }
+    li.append(row);
+    return li;
+  }));
+  const n = TC.members.length;
+  const go = document.getElementById('tc-go');
+  const pending = TC.members.filter((m) => m.state !== 'made').length;
+  go.hidden = TC.started;
+  go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
+  go.disabled = false;
+  document.getElementById('tc-project').disabled = TC.started;
+  document.getElementById('tc-note').textContent = TC.started
+    ? (pending ? '' : 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' on your board.')
+    : 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.';
+}
+
+function tcNames() {
+  const names = {};
+  for (const m of TC.members) names[m.slot] = (m.made && m.made.shownAs) || m.name.trim();
+  return names;
+}
+
+async function tcSpecs(project) {
+  const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ names: tcNames(), project: project || null }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
+  return body.specs;
+}
+
+document.getElementById('tc-back').addEventListener('click', () => { TC_GEN += 1; TC = null; cstep('role'); });
+
+document.getElementById('tc-go').addEventListener('click', async () => {
+  if (!TC || TC.started) return;
+  const gen = TC_GEN;
+  const go = document.getElementById('tc-go');
+  const msg = document.getElementById('tc-msg');
+  go.disabled = true; msg.hidden = true; msg.textContent = '';
+  try {
+    // Names first, with nothing made: a refused name must not leave an empty project behind.
+    await tcSpecs(null);
+    if (gen !== TC_GEN) return;
+    const choice = document.getElementById('tc-project').value;
+    let project = null;
+    if (choice === 'new') {
+      const want = TC.newProjectName;
+      const res = await fetch('/api/projects', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: want, ...(TC.team.project && TC.team.project.goal ? { description: TC.team.project.goal } : {}) }),
+      });
+      const body = await res.json().catch(() => null);
+      if (gen !== TC_GEN) return;
+      if (!res.ok || !body) throw new Error((body && body.error) || 'Kosmos could not make the project');
+      project = (body.project && body.project.id) || body.id || null;
+      if (!project) throw new Error('Kosmos made the project but did not say which one it is');
+    } else if (choice.startsWith('id:')) {
+      project = choice.slice(3);
+    }
+    TC.project = project;
+    TC.started = true;
+    for (const m of TC.members) m.state = 'waiting';
+    tcPaint();
+    await tcRun(gen);
+  } catch (err) {
+    if (gen !== TC_GEN) return;
+    go.disabled = false;
+    msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Something went wrong. Try again.';
+  }
+});
+
+/* Make every member that is not made yet, in order. The lead (the first member) must exist before the
+   others: if it is not made, they are held with that reason, and Try again on the lead releases them. */
+async function tcRun(gen) {
+  let specs;
+  try { specs = await tcSpecs(TC.project); } catch (err) {
+    if (gen !== TC_GEN) return;
+    for (const m of TC.members) if (m.state !== 'made') { m.state = 'failed'; m.why = String((err && err.message) || err); }
+    tcPaint(); return;
+  }
+  const bySlot = new Map(specs.map((s) => [s.slot, s]));
+  const lead = TC.members[0];
+  for (const m of TC.members) {
+    if (gen !== TC_GEN) return;
+    if (m.state === 'made') continue;
+    if (m !== lead && lead.state !== 'made') { m.state = 'held'; m.why = ''; continue; }
+    const s = bySlot.get(m.slot);
+    m.state = 'creating'; m.why = ''; tcPaint();
+    let out = null;
+    try {
+      const res = await fetch('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s.spec) });
+      out = await res.json().catch(() => null);
+    } catch (err) { out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + ')' }; }
+    if (gen !== TC_GEN) return;
+    if (out && out.outcome === 'created') {
+      m.state = 'made'; m.made = { name: out.name, shownAs: out.shownAs || m.name.trim() };
+      if (s.avatar && s.avatar.image) m.portrait = await tcPortrait(out.name, s.avatar.image);
+    } else {
+      m.state = 'failed';
+      m.why = (out && (out.because || out.error)) ? String(out.because || out.error) : 'Kosmos did not say why.';
+    }
+    tcPaint();
+  }
+  tcPaint();
+}
+
+/* A shipped portrait becomes the agent's avatar. It never costs the agent: a failure only says so on the row. */
+async function tcPortrait(name, image) {
+  try {
+    const src = '/' + String(image).replace(/^web\//, '');
+    const img = await fetch(src);
+    if (!img.ok) return 'failed';
+    const blob = await img.blob();
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
+    return res.ok ? 'set' : 'failed';
+  } catch { return 'failed'; }
+}
+
+async function tcRetry(slot) {
+  if (!TC) return;
+  const m = TC.members.find((x) => x.slot === slot);
+  if (!m || m.state !== 'failed') return;
+  const gen = TC_GEN;
+  m.state = 'waiting'; m.why = '';
+  for (const o of TC.members) if (o.state === 'held') o.state = 'waiting';
+  tcPaint();
+  await tcRun(gen);
+}
+
 function cstep(which) {
-  ['role', 'name', 'made'].forEach((s) => {
+  ['role', 'name', 'made', 'team'].forEach((s) => {
     document.getElementById('cstep-' + s).hidden = (s !== which);
   });
 }

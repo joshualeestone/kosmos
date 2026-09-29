@@ -64,6 +64,21 @@ creates through the existing route.
 - The org chart import (#1280) moves onto the same progress step later. Kano owns that path; the step will
   accept plain members for it.
 
+### Slice 2, as built (measured)
+- The step is a fourth create step, `cstep-team`, beside role / name / made. `openTeamCreate(key)` opens the
+  create panel and switches to it, so the New Agent mode list (Angel's #4556 region) is not touched.
+- Order on the button:
+  1. the names are checked through the specs route with no project (a refused name makes nothing);
+  2. the project is made;
+  3. the members are made one by one.
+- **A new project takes the first free name.** A second Marketing team collided with the first one's project
+  (measured: `that folder is already the project "Marketing"`), so the menu offers "Marketing 2" and says so.
+- **A failed row keeps its name editable.** Try again re-reads the specs with the current names (made members
+  keep their made names), so a renamed lead's reports get the new machine name.
+- render-teamcreate-4557.js, 51 checks, chromium + webkit. The service worker is blocked there, because in
+  webkit it answered /api/agents before the intercept and those creates reached the real route (the sandboxed
+  one; no launchd job leaked, checked). The check asserts the server's created count stays 0.
+
 ## Slice 3: portraits
 Once #4555's images exist, `avatar.image` is filled and slice 1's server path starts setting them. No code
 change is expected.
