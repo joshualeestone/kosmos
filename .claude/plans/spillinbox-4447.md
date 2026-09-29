@@ -19,7 +19,7 @@ Card: #4447 (claimed pigeonpete, from Splinter). Found in Baron's #4424 rehearsa
 - **A spill never creates a worker folder.** It requires the agent's folder to exist, and creates only Inbox inside it.
 - **The folder is the agent's, so the agent could plant a link there.**
   - A linked Inbox is refused (lstat).
-  - The file is opened with O_NOFOLLOW, so a link planted at `Inbox/<id>.txt` cannot redirect the board's write. Same OS user, so this is defence in depth, not a privilege boundary.
+  - (Superseded in rounds 1 and 2, see below: the name is unlinked first and the file written with securewrite.writeSecret, and an Inbox is Kosmos's only if it made it, marked by its .gitignore.) First version: the file was opened with O_NOFOLLOW. Same OS user, so this is defence in depth, not a privilege boundary.
 
 ## Rejected
 - Keeping the shared folder and only changing permissions: every agent runs as the same OS user, so permissions cannot separate them. Only where the file sits can.
@@ -36,7 +36,7 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
 - A long DM leaves one file in the recipient's Inbox, none in the sender's, none in the old folder.
 - A folderless recipient is refused and no worker folder is created. A short message to it still goes (control).
 - A linked Inbox is refused, and a link planted at the file name is not followed.
-- Mutants, each red and restored: the old shared folder (5 fails), one shared file per post (2), no O_NOFOLLOW (1), stat instead of lstat (1).
+- First-version mutants, each red and restored: the old shared folder (5 fails), one shared file per post (2), no O_NOFOLLOW (1), stat instead of lstat (1). The later rounds below list the mutants for the code as it now is.
 
 ## Review round 1 (opus, blind): 0 BLOCKERs, 3 WARNINGs, 3 NITs
 - **WARNING** O_NOFOLLOW does not stop a HARD link (and O_TRUNC wipes its target), and O_NOFOLLOW is undefined on Windows.
@@ -84,3 +84,8 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
   - Rewritten to say exactly what it proves: the unlink guard keeps the fallback off a planted link, and where the name cannot be removed the spill is refused (asserted, with the reason) and the target untouched.
   - The mutant without the guard still goes red: it reaches the fallback and writes through.
 - **WARNING** "is a link, not a folder" also fired for a plain FILE named Inbox. Reworded to "is not a folder (a file or a link is there)", with a new test that asserts the file is left unchanged.
+
+## Review round 5 (opus, blind): 0 BLOCKERs, 0 WARNINGs, 2 NITs. CONVERGED.
+- All four of the card's done criteria are met and tested (3 files for a 3-member post, each pane naming its own; 1 for a DM; the old folder unchanged; no sender Inbox).
+- **NIT** The comment above spillInto still said "path, or null". Fixed: it returns `{ file }` or `{ because }`.
+- **NIT** The top of this plan still described the O_NOFOLLOW design. Marked as superseded.

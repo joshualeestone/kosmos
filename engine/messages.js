@@ -133,9 +133,9 @@ const INBOX = 'Inbox';
 /* The Inbox's .gitignore: git ignores the whole folder, and its exact words mark the folder as Kosmos's. */
 const INBOX_MARK = '*\n';
 /**
- * Write a long message into one recipient's Inbox and return the file's path, or null when it
- * has no folder of its own or the file could not be written (the caller refuses that recipient:
- * there is no shared folder to fall back to, by design).
+ * Write a long message into one recipient's Inbox. Returns `{ file }`, the path written, or `{ because }`,
+ * why it was not (always an object, so test `.file`, never the value itself). The caller refuses that
+ * recipient: there is no shared folder to fall back to, by design.
  *
  * The folder is the agent's, so the agent could have put a link there. A linked worker folder or a
  * linked Inbox is refused (lstat: the spill writes only into real folders, unlike Files, which follows
