@@ -30190,7 +30190,10 @@ function orgPlace(nodes) {
     leaves.set(name, w);
     return w;
   };
-  const ORG_LANE = 58;        // #4472: how much further out a big team's second ring sits (as the flat spill)
+  /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
+     sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
+  const ORG_LANE = ORG_MIN_ARC;
+  const ORG_LINE_CLEAR = 12;  // #4472: the least distance from a line to a face that is not one of its ends
   const ORG_LANE_SLOT = 31;   // #4472: the least room per report in a two-ring team: half ORG_MIN_ARC
   /* #4472: a manager's reports in the order they are laid out: heaviest and lightest alternating, by leaf count,
      instead of input order. Each report's share of the window is its leaf count, so a light report gets a sliver:
@@ -30279,6 +30282,42 @@ function orgPlace(nodes) {
         const slot = (2 * half) / ks.length;
         const laned = ks.length > 1 && !ks.some((k) => (kids.get(k.agent.sessionName) || []).length)
           && 2 * r * Math.sin(slot / 2) < ORG_MIN_ARC;
+        if (laned) {
+          /* The inner ring's faces evenly across the window; each outer face on the line from the manager through
+             the midpoint between two inner faces, so its line passes midway between them however slantwise it
+             runs (a line starts at the manager, not the hub). clear() measures every such line all the same. */
+          const inner = Math.ceil(ks.length / 2);
+          const step = (2 * half) / inner;
+          const start = ps.ang - left;
+          const mx = Math.cos(ps.ang) * ps.r; const my = Math.sin(ps.ang) * ps.r;
+          const R = r + ORG_LANE;
+          ks.forEach((k, i) => {
+            const slot = Math.floor(i / 2);
+            let ang = start + step * (slot + 0.5);
+            let rr = r;
+            if (i % 2) {
+              const q = start + step * (slot + 1);
+              const ux0 = Math.cos(q) * r - mx; const uy0 = Math.sin(q) * r - my; const len = Math.hypot(ux0, uy0);
+              const ux = ux0 / len; const uy = uy0 / len;
+              const b = mx * ux + my * uy;   // |m + t u| = R: t^2 + 2bt + |m|^2 - R^2 = 0
+              const t = -b + Math.sqrt(b * b - (mx * mx + my * my - R * R));
+              /* Back to an angle near the manager's, then it must lie inside the manager's slice: outside it, a
+                 line would enter a neighbour's slice, which is what keeps lines from crossing. */
+              ang = ps.ang + Math.atan2(Math.sin(Math.atan2(my + t * uy, mx + t * ux) - ps.ang), Math.cos(Math.atan2(my + t * uy, mx + t * ux) - ps.ang));
+              if (ang < ps.lo || ang > ps.hi) out.bad = true;
+              rr = R;
+            }
+            out.set(k.agent.sessionName, { ang, r: rr, node: k, span: step / 2, lane: i % 2, laned });
+          });
+          /* Their slices: cut at the midpoints between neighbouring faces by angle, the ends at the window's edges
+             or the outermost face, whichever is further out, so each face sits inside its own slice. */
+          const team = ks.map((k) => out.get(k.agent.sessionName)).sort((a, b) => a.ang - b.ang);
+          team.forEach((sp, i) => {
+            sp.lo = i ? (team[i - 1].ang + sp.ang) / 2 : Math.max(ps.lo, Math.min(start, sp.ang));
+            sp.hi = i < team.length - 1 ? (sp.ang + team[i + 1].ang) / 2 : Math.min(ps.hi, Math.max(start + 2 * half, sp.ang));
+          });
+          continue;
+        }
         let from = ps.ang - left;
         ks.forEach((k, i) => {
           const span = (2 * half * weigh(k)) / w;
@@ -30297,6 +30336,7 @@ function orgPlace(nodes) {
     /* Whether a ring's spots are clear: no two faces nearer than ORG_MIN_ARC, and in a laned team the slots
        at least ORG_LANE_SLOT apart (the gap a line to the outer ring passes through). */
     const clear = (spots) => {
+      if (spots.bad) return false;
       const all = [...spots.values()];
       const xy = all.map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
       for (let i = 0; i < all.length; i += 1) {
@@ -30304,6 +30344,20 @@ function orgPlace(nodes) {
           if (Math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]) < ORG_MIN_ARC) return false;
         }
         if (all[i].laned && all[i].span * (all[i].r - all[i].lane * ORG_LANE) < ORG_LANE_SLOT) return false;
+      }
+      /* A line to the outer of two rings starts at the manager, not the hub, so it runs slantwise across the inner
+         ring: measured, a lead with 18 reports had one pass 0.2px from an inner face's centre. So each such line
+         is measured against every face on the ring but its own, and must clear it by ORG_LANE_SLOT. */
+      for (let i = 0; i < all.length; i += 1) {
+        if (!all[i].lane) continue;
+        const m = placed.get(all[i].node.parent);
+        const ax = Math.cos(m.ang) * m.r; const ay = Math.sin(m.ang) * m.r;
+        const dx = xy[i][0] - ax; const dy = xy[i][1] - ay;
+        for (let j = 0; j < all.length; j += 1) {
+          if (j === i) continue;
+          const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy)));
+          if (Math.hypot(xy[j][0] - ax - t * dx, xy[j][1] - ay - t * dy) < ORG_LANE_SLOT) return false;
+        }
       }
       return true;
     };
@@ -30313,27 +30367,55 @@ function orgPlace(nodes) {
        away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
     const placedXY = () => [...placed.values()].map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
     let others = placedXY();
+    /* Every line placed so far (hub or manager to report) with both ends' names, and the least distance from a
+       segment to a point, for the clearance below. */
+    const at = (name) => { const s = placed.get(name); return [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]; };
+    const lineOf = (name, p, xy) => ({ a: p ? at(p) : [0, 0], b: xy, ends: [name, p] });
+    const segDist = (q, g) => {
+      const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
+      const t = Math.max(0, Math.min(1, ((q[0] - g.a[0]) * dx + (q[1] - g.a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(q[0] - g.a[0] - t * dx, q[1] - g.a[1] - t * dy);
+    };
+    let lines = [...placed].map(([name, s]) => lineOf(name, s.node.parent, at(name)));
+    const facesAt = () => [...placed].map(([name]) => ({ name, xy: at(name) }));
+    let faces = facesAt();
     for (const p of prev) {
       if (!(kids.get(p.agent.sessionName) || []).length) continue;
       const ps = placed.get(p.agent.sessionName);
-      const apart = (spots) => {
+      const apart = (spots, strict) => {
         if (!clear(spots)) return false;
-        for (const s of spots.values()) {
-          const x = Math.cos(s.ang) * s.r; const y = Math.sin(s.ang) * s.r;
-          for (const o of others) if (Math.hypot(x - o[0], y - o[1]) < ORG_MIN_ARC) return false;
+        const mine = [...spots].map(([name, s]) => ({ name, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] }));
+        for (const f of mine) for (const o of others) if (Math.hypot(f.xy[0] - o[0], f.xy[1] - o[1]) < ORG_MIN_ARC) return false;
+        /* No line passes nearer than ORG_LINE_CLEAR to a face that is not one of its ends: this team's lines past
+           every face, and every line already drawn past this team's faces. Teams at different radii made this a
+           real case (measured: a line 9.8px from an unrelated face's centre). */
+        if (!strict) return true;
+        const mineLines = mine.map((f) => lineOf(f.name, p.agent.sessionName, f.xy));
+        for (const g of mineLines) {
+          for (const f of faces) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          for (const f of mine) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         }
+        for (const g of lines) for (const f of mine) if (segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         return true;
       };
-      let r = Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP);
-      let spots = lay(r, [p]);
+      const r0 = Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP);
       /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
-         room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
-      for (let tries = 0; tries < 400 && !apart(spots); tries += 1) {
+         room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2).
+         The line clearance is tried first, but only while the team stays within three times its first radius:
+         a lone report goes straight out, so if a face sits on that ray no radius clears it, and one team grew to
+         46,656,912px before this limit. Past it, the team is placed by the face spacing alone, as before #4472. */
+      let r = r0;
+      let spots = lay(r, [p]);
+      let strict = true;
+      for (let tries = 0; tries < 400 && !apart(spots, strict); tries += 1) {
         r = Math.max(r + 8, r * 1.03);
+        if (strict && r > 3 * r0) { strict = false; r = r0; }
         spots = lay(r, [p]);
       }
       for (const [name, spot] of spots) { placed.set(name, spot); maxR = Math.max(maxR, spot.r); }
       others = placedXY();
+      lines = [...placed].map(([name, s]) => lineOf(name, s.node.parent, at(name)));
+      faces = facesAt();
     }
     prev = ring.map((x) => x.n);
     depth += 1;
