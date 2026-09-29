@@ -96,6 +96,12 @@ test('#4409: sending, typing or leaving while listening drops anything still com
 
 /* The page's own functions, run against stubs: the view check in voiceOnEvent is what keeps one agent's words out of
    the next agent's box, so it is driven, not grepped. */
+/* One statement of the page's, by its opening words, so the harness runs on the page's own state shapes. */
+function pageLine(head) {
+  const at = PAGE.indexOf('\n' + head);
+  assert.notEqual(at, -1, head + ' is gone from the page');
+  return PAGE.slice(at + 1, PAGE.indexOf(';', at) + 1);
+}
 function voiceHarness() {
   const posted = [];
   const mkBtn = () => ({ attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, title: '' });
@@ -103,8 +109,8 @@ function voiceHarness() {
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; let VOICE_WATCH = 0; const SPEAK = { btn: null, text: \'\', where: \'\', seq: 0 };\n'
-    + PAGE.slice(PAGE.indexOf('const VOICE = {'), PAGE.indexOf(';', PAGE.indexOf('const VOICE = {')) + 1) + '\n'
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {};\n'
+    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
     + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
@@ -244,8 +250,11 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(bridge, /private var recognizer: SFSpeechRecognizer\?/, 'the recognizer is released while its task runs');
   assert.match(bridge, /self\.recognizer = recognizer/, 'the recognizer is never held');
   assert.match(bridge, /DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 5, execute: wait\)/, 'a stop with no final answer leaves "Stop listening" for good');
-  assert.match(SWIFT, /voice\?\.hostCancel\(\)   \/\/ #4409: a hidden window never leaves the mic on/, 'closing the window leaves the mic on');
-  assert.match(SWIFT, /func windowDidMiniaturize\(_ notification: Notification\) \{\n        voice\?\.hostCancel\(\)/, 'minimising leaves the mic on');
+  assert.match(SWIFT, /voice\?\.hostCancel\("window hidden"\)   \/\/ #4409: a hidden window never leaves the mic on/, 'closing the window leaves the mic on');
+  assert.match(SWIFT, /func windowDidMiniaturize\(_ notification: Notification\) \{\n        voice\?\.hostCancel\("window minimised"\)/, 'minimising leaves the mic on');
+  // Review 3: a page that died or was replaced draws every mic off, so the listening ends with it.
+  assert.match(SWIFT, /func webViewWebContentProcessDidTerminate\(_ webView: WKWebView\) \{\n[^\n]*\n        voice\?\.hostCancel\("page process ended"\)/, 'a crashed page leaves the mic on with no button');
+  assert.match(SWIFT, /didCommit navigation: WKNavigation!\) \{\n        voice\?\.hostCancel\("new page loaded"\)/, 'a reload draws the mic off while it listens');
   assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
   assert.match(bridge, /event\["id"\] = pageId/, 'events carry no session id, so a late one ends the next session');
   assert.match(bridge, /guard pending \|\| engine != nil/, 'a window hidden during the permission prompt leaves the next start listening');

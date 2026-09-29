@@ -39,6 +39,14 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   the app echoes it on every event, and the page ignores another session's events (an app without ids is taken as
   before). NITs: a window hidden during the permission prompt now cancels the pending start; two messages with the
   same words keep read-aloud on the one it started on; the tests now drive voiceToggle and the watch itself.
+- Review iteration 3: (WARNING) a crashed page process, or a reload, left the Mac listening while the new page drew
+  every mic off. The app now cancels on webViewWebContentProcessDidTerminate and on each main-frame commit. NIT: the
+  idle stop clears the pending flag. The test harness now runs on the page's own VOICE, SPEAK and VOICE_WATCH.
+  ACCEPTED (not changed): if the bridge were to drop a start without a word (an origin mismatch, not seen on a normal
+  board load), the button stays "asking" until a reload. Clearing it on the page alone could say off while the mic
+  is on, which is the one thing this card must not do. The native half of the id protocol is pinned by source
+  reads; its ordering (cancel emits before a new start sets the id) holds because WebKit delivers the page's
+  messages in order on the main thread.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand

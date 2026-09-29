@@ -1179,7 +1179,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
     /// Stop listening and let the recognizer deliver what it heard (a final result follows).
     private func stop() {
-        guard let req = request else { session += 1; stopAudio(); emit(["kind": "stopped"]); return }
+        guard let req = request else { session += 1; pending = false; stopAudio(); emit(["kind": "stopped"]); return }
         stopAudio()
         req.endAudio()
         // #4409 (review 1): the final answer normally follows at once; if it never comes, the button must not say
@@ -1194,11 +1194,12 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: wait)
     }
 
-    /// #4409 (review 1): the app itself ends listening when the person can no longer see it: the window closed
-    /// (stay-running mode only hides it, so the page gets no pagehide) or minimised. No-op when not listening.
-    func hostCancel() {
+    /// #4409 (review 1): the app itself ends listening when the page cannot show it: the window closed (stay-running
+    /// mode only hides it, so the page gets no pagehide), minimised, or (review 3) the page's process died or a new
+    /// page loaded, which would draw the mic as off while it listened. No-op when not listening.
+    func hostCancel(_ why: String) {
         guard pending || engine != nil || request != nil || task != nil else { return }
-        logLine("voice: cancelled, window hidden")
+        logLine("voice: cancelled, " + why)
         cancel()
     }
 
@@ -3228,6 +3229,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // reload() branch recovers it (reload relaunches the content process).
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
+        voice?.hostCancel("page process ended")   // #4409 (review 3): no page is left to show the mic is on
+    }
+
+    /// #4409 (review 3): a new page (a reload, a navigation) starts with every mic drawn off, so the old page's
+    /// listening must end with it. Main-frame commits only reach this delegate method.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        voice?.hostCancel("new page loaded")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -3358,14 +3366,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // way, but the point of hiding rather than closing is that re-showing
         // the window later doesn't need to reload or re-authenticate anything.
         logLine("windowShouldClose: hiding (stay-running mode)")
-        voice?.hostCancel()   // #4409: a hidden window never leaves the mic on
+        voice?.hostCancel("window hidden")   // #4409: a hidden window never leaves the mic on
         window.orderOut(nil)
         return false
     }
 
     // #4409: minimised is out of sight too.
     func windowDidMiniaturize(_ notification: Notification) {
-        voice?.hostCancel()
+        voice?.hostCancel("window minimised")
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
