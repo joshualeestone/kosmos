@@ -9525,7 +9525,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard > * { grid-column: 2 / -1; margin: 0; }
 /* The number as drawn, "#4": the "Task 4 (done)" text stays in the markup and is clipped like .vh (never a
    zero font size, which some screen readers skip), so a screen reader reads it; the "#4" is drawn from the
-   button's own data-task, with empty alt text so it is not read twice. */
+   button's own data-task. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard::before { grid-column: 1; grid-row: 1; content: "#" attr(data-task); content: "#" attr(data-task) / ""; font: 400 .875rem var(--font-ui); color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed::before { content: "#" attr(data-task) " (done)"; content: "#" attr(data-task) " (done)" / ""; }
