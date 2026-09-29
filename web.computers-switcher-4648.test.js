@@ -38,7 +38,11 @@ function dom() {
 }
 function render(data, visibleBefore) {
   const t = dom();
-  if (visibleBefore) t.box.hidden = false; // as a previous render left it
+  if (visibleBefore) {
+    // As a previous render left it: visible, holding a row, so both the hide AND the emptying are tested.
+    t.box.hidden = false;
+    t.list.appendChild(t.d.document.createElement('div'));
+  }
   // eslint-disable-next-line no-new-func
   new Function('document', '_d', `${RE}${RENDER}\ncomputersRender(_d);`)(t.d.document, data);
   return t;

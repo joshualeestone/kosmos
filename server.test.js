@@ -11492,7 +11492,7 @@ test('the Plus state route says configured through the production default, and t
   }
 });
 
-test('kosmos#4648: /api/remote/computers is served, and a board not signed in to Kosmos+ answers 200 { ok: false } with a reason, never a list', async () => {
+test('kosmos#4648: /api/remote/computers is served, and when no signed list can be read it answers 200 { ok: false } with a reason, never a list (the not-signed-in gate itself is pinned in engine/account-computers.test.js)', async () => {
   const r = await req('/api/remote/computers');
   assert.equal(r.status, 200, 'the page hides the section on { ok: false }; an error status would read as broken');
   const body = JSON.parse(r.body);

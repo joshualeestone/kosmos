@@ -82,3 +82,14 @@ Coordinator route (kosmos-relay) first, deployable on its own; then this repo. T
 - Verified: the engine and page domain rules agree and resist uppercase, a trailing dot, the domain itself, two
   levels deep, unicode, punycode, a scheme, a path, a port and userinfo; hide-and-empty is sound across slow reads,
   fast reopens and a close during a read.
+
+## Review round 3 (fable): 1 WARNING, 2 NITs, fixed
+- W: the browser check's not-signed-in control read the DOM right after the SYNCHRONOUS hide at the read's start,
+  before the stubbed { ok: false } was served and rendered, so a render that wrongly shows the section passed
+  (measured 84/84). It now waits for the stub's served counter, then a render tick, and asserts the read was served.
+  Red-checked with that exact mutation: 4 FAILED (both engines, both themes).
+- NIT: the server arm's title claimed the not-signed-in path; under node --test it returns at the suite guard.
+  Retitled to what it proves (served, 200, { ok: false }, no list); the gate itself is in the engine test.
+- NIT: the "emptied" half of the no-list unit arm could not fail (the list started empty). It now seeds a stale row.
+- Process: the reviewer's full sweep of every test and guard touching the changed files ran 559 node files (556
+  green; the 3 reds are contention or identical on origin/main) and 35/35 shell guards.

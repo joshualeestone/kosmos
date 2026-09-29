@@ -57,6 +57,7 @@ const FOUR = {
       const real = window.fetch;
       window.fetch = (url, opts) => {
         if (String(url).indexOf('/api/remote/computers') !== -1) {
+          window.__computersServed = (window.__computersServed || 0) + 1;
           return Promise.resolve(new Response(JSON.stringify(window.__computers), { status: 200, headers: { 'content-type': 'application/json' } }));
         }
         return real(url, opts);
@@ -126,12 +127,18 @@ const FOUR = {
     // ---- Arm 2 (the control): not signed in, so NO section ----
     await page.evaluate(() => { window.__computers = { ok: false, because: 'this computer is not signed in to Kosmos+' }; });
     const b = await page.evaluate(async () => {
+      /* Wait for the stubbed { ok: false } to be SERVED and rendered, not just for the hide at the
+         read's start (which is synchronous): otherwise this control could not see a render that
+         wrongly shows the section (round 3 measured exactly that). */
+      const before = window.__computersServed || 0;
       worldswClose();
       worldswOpen();
-      for (let i = 0; i < 20 && !document.getElementById('worldsw-computers').hidden; i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));   // the render runs after the answer's json()
       const box = document.getElementById('worldsw-computers');
-      return { hidden: box.hidden, display: getComputedStyle(box).display, rows: document.querySelectorAll('#worldsw-computers-list .worldsw-row').length };
+      return { hidden: box.hidden, display: getComputedStyle(box).display, rows: document.querySelectorAll('#worldsw-computers-list .worldsw-row').length, served: (window.__computersServed || 0) > before };
     });
+    ok(`${t} not signed in: the read was really served before this was checked`, b.served === true, JSON.stringify(b));
     ok(`${t} not signed in: the section is gone`, b.hidden === true && b.display === 'none' && b.rows === 0, JSON.stringify(b));
 
     await page.close();
