@@ -208,3 +208,22 @@ test('#4466 part 6: the agent token alone also marks an agent (a pane launched w
     assert.match(out.stdout, /an agent may not start it again yet/);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+test('#4466 part 6: a pane whose session carries the @kosmos_agent claim is an agent even with no variables', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    fs.writeFileSync(path.join(home, 'board.started-at'), String(Math.floor(Date.now() / 1000)));
+    // A fake tmux that answers the claim query: the claimed session's name, or nothing (the control).
+    const fake = (claim) => {
+      const f = path.join(home, `tmux-${claim || 'none'}`);
+      fs.writeFileSync(f, `#!/bin/bash\ncase "$*" in *@kosmos_agent*) printf '%s' '${claim}' ;; esac\n`, { mode: 0o755 });
+      return f;
+    };
+    const claimed = await bash(`source "${CLI}"; agent_board_guard restart`, baseEnv(port, { KOSMOS_HOME: home, TMUX_PANE: '%9', AGENT_WORKFORCE_TMUX_BIN: fake('grok-agent') }));
+    assert.equal(claimed.code, 1, claimed.stdout + claimed.stderr);
+    assert.match(claimed.stdout, /an agent may not start it again yet/);
+    const unclaimed = await bash(`source "${CLI}"; agent_board_guard restart && echo went`, baseEnv(port, { KOSMOS_HOME: home, TMUX_PANE: '%9', AGENT_WORKFORCE_TMUX_BIN: fake('') }));
+    assert.match(unclaimed.stdout, /went/, 'CONTROL: an unclaimed pane (a person in tmux) goes ahead');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
