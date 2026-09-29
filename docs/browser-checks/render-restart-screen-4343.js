@@ -60,6 +60,8 @@ const server = http.createServer((req, res) => {
     // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 6 s late (well
     // inside the page's 10 s limit); 'onestuck' holds ONE /api/status past the limit and answers the rest.
     if (MODE === 'frozen') { HELD.push(res); return; }
+    // 'refusestall': a REFUSAL (500 headers) whose body never finishes. It answered, so it keeps its own words.
+    if (MODE === 'refusestall' && req.url.startsWith('/api/status')) { res.writeHead(500, { 'content-type': 'application/json' }); res.write('{"error":"'); HELD.push(res); return; }
     if (MODE === 'onestuck' && req.url.startsWith('/api/status') && !ONESTUCK_TAKEN) { ONESTUCK_TAKEN = true; HELD.push(res); return; }
     if (MODE === 'onestuck') MODE_ONESTUCK_UP = true;
     if (MODE === 'slow' && req.url.startsWith('/api/status')) {
@@ -371,6 +373,19 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     ok('[onestuck] the harness really held one poll and answered later ones (control)', ONESTUCK_TAKEN && MODE_ONESTUCK_UP, JSON.stringify({ ONESTUCK_TAKEN, MODE_ONESTUCK_UP }));
     ok('[onestuck] a stuck poll timing out after a newer answer paints nothing: no note, no failure clock, no "could not refresh"',
       !os.noted && os.since === null && !/could not refresh/.test(os.stamp), JSON.stringify(os));
+    await page.close();
+  }
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[refusestall] pageerror: ' + e.message));
+    MODE = 'refusestall';
+    await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
+    const failed = await page.waitForFunction(() => /could not refresh/.test(document.getElementById('checked').textContent || ''), null, { timeout: 20000 }).then(() => true, () => false);
+    const rs = await page.evaluate(() => ({ grid: (document.getElementById('grid') || {}).textContent || '',
+      note: /not answering/.test(document.getElementById('uoffline-slot').textContent || '') }));
+    ok('[refusestall] a 500 whose body stalls past the limit is a failed poll (control)', failed);
+    ok('[refusestall] and it keeps its own words: status 500, not "nothing answered", and no "not answering" note',
+      /status 500/.test(rs.grid) && !/nothing answered for/.test(rs.grid) && !rs.note, JSON.stringify({ note: rs.note, grid: rs.grid.slice(0, 260) }));
     await page.close();
   }
   for (const r of HELD.splice(0)) { try { r.destroy(); } catch { /* already gone */ } }
