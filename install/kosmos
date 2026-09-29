@@ -1500,7 +1500,7 @@ cmd_msg() {
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
       sleep 1   # not straight back into the same busy moment
       rc=0
-      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$? ;;
   esac
@@ -1907,13 +1907,17 @@ cmd_post() {
     _keep_piped
     exit 2
   fi
+  # The post's budget: 120 s (a fan-out to many agents takes time). KOSMOS_POST_TIMEOUT_S is a test seam, whole
+  # seconds only, so a test can reach the timeout branch without waiting two minutes.
+  local _post_budget=120
+  case "${KOSMOS_POST_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) _post_budget="$KOSMOS_POST_TIMEOUT_S" ;; esac
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
   # as a --data argument, so a long piped message cannot make curl fail to start.
   # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
   # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 120 -X POST "$URL/api/post" \
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   # #4580: a cut reply may come AFTER the board kept the post; the board keeps one copy of the same post
@@ -1924,7 +1928,7 @@ cmd_post() {
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
       sleep 1   # not straight back into the same busy moment
       rc=0
-      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$? ;;
   esac

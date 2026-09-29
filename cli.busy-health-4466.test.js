@@ -93,6 +93,8 @@ const server = http.createServer((req, res) => {
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
   // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
   // with the board's duplicate receipt; 'cutalways' cuts every send. Sends are counted in firstFile + '.sends'.
+  // #4580: a board still fanning a post out: it takes the post and never answers in the budget.
+  if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
   if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
     const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');
     const n = fsm.readFileSync(firstFile + '.sends', 'utf8').length;
@@ -449,6 +451,14 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
     });
   }
 });
+
+test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', () => withBoard('posthang', async (port, firstFile) => {
+  const out = await runCli(['post', 'proj', 'long fan-out'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_POST_TIMEOUT_S: '2' }));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /still delivering that post .*Do not re-post/);
+  assert.doesNotMatch(out.stderr, /asking once more/);
+  assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 1, 'a timed-out post was sent again');
+}));
 
 test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {
   const port = await closedPort();

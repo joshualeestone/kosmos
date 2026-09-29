@@ -52,7 +52,7 @@ function sequence(steps) {
   const lines = { out: [], err: [] };
   let calls = 0;
   const io = {
-    env: { TMUX_PANE: '%42' },
+    env: { TMUX_PANE: '%42', KOSMOS_RETRY_PAUSE_MS: '0' },
     url: 'http://127.0.0.1:16180',
     out: (s) => lines.out.push(s),
     err: (s) => lines.err.push(s),
