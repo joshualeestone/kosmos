@@ -55,3 +55,21 @@ turn (agy has no screen reader here; the resume is unmeasured on a real agy). A 
   the page test uses a real card's shape and pins the grid and the detail path.
 - (N, left) the bridge's absolute `until` follows its own clock (a skewed remote machine shifts the pause).
 Controls: each fix reds its test when removed. The engine regression set: 728/728.
+
+## Review iteration 2 (blind, sonnet)
+0 BLOCKER, 5 WARNING:
+- (W, taken) the antigravity branch set notify: true, so accountnotify typed "please tell the person ... so they can fix
+  it" into the manager for a pause that clears itself (and a manager on the same account is likely paused too, and
+  would spend the fresh quota on it). notify: false; the card and the DM line already say it.
+- (W, taken) the quota rule sat above the screen rules and ignored them: it now applies only over a screen that says
+  nothing (UNKNOWN or IDLE; agy's is never read, so always for agy), so a question, work or a lost connection on
+  screen outranks it. Past the reset it says "reset at H:MM" for six hours (the sweep's window), then plainly at rest.
+- (W, taken) a refusal (COULD_NOT) stamped the stagger clock and giving up was silent: only a line that may have
+  reached the pane spaces the next agent out, and giving up is logged ('gave-up').
+- (W, residual, disclosed) the resume book is in memory: after a restart an agent whose latest report is still the
+  quota idle (an UNCONFIRMED nudge that never started a turn) can be typed into once more, within six hours.
+- (W, taken) server-side times now carry their zone ("9:47 PM CDT"), since that sentence is formatted on the board's
+  machine and can be read from another; the card formats in the viewer's own zone.
+- (N, taken) the stagger stamp is a Symbol key; the plan's stale lines are fixed. (N, left) "Resets in 1 hour 5 minutes"
+  reads as 1 hour (the real text is compact; early only means a failed nudge and a new pause).
+Controls: each fix reds its test when removed. The engine regression set: 730/730.
