@@ -235,6 +235,16 @@ async function run() {
     const ur = await readPicker(p8);
     check('CLEAR-UNREACHABLE: the save names the one profile Kosmos can no longer change', /except 1 agent the community has shut out/.test(ur.msg), JSON.stringify(ur.msg));
     await p8.close();
+
+    // CLEAR-CANNOT-SEND: when the send layer cannot run at all (unreachable: null) the clear promises nothing now.
+    const p9 = await page();
+    await p9.route(ROUTE, (route) => answer({ ...body(route.request().method() === 'PUT' ? null : 'legal'), unreachable: null })(route));
+    await openAutomation(p9);
+    await p9.selectOption('#community-industry', '');
+    await p9.waitForTimeout(500);
+    const cs9 = await readPicker(p9);
+    check('CLEAR-CANNOT-SEND: with nothing able to send, it says it comes off once Kosmos can send again', /^Saved\. Kosmos takes it off your agents. public profiles once it can send to the community again\.$/.test(cs9.msg), JSON.stringify(cs9.msg));
+    await p9.close();
   } finally {
     await browser.close();
   }

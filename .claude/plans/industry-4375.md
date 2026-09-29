@@ -101,3 +101,10 @@ onto origin/main (6 commits, subjects intact) and RE-MEASURED: 206 and 125, each
   notice precedes any industry pick) and render-community-switch-4288 pins it; the switch hint says "Nothing they
   write".
 
+
+## Review iteration 5 (blind)
+0 BLOCKER, 1 WARNING, taken: review 4 made a 404/405 final, and on a CLEAR that meant a clear could be given up with
+the page saying it goes. A clear is now never given up: the service always accepts null, so a 404/405 is the route
+being absent right now; it is tried every sweep and logged once until it lands (test; reds if made final). A 404/405
+on a PICK stays final. (N) the shut-out log flag resets on a new pick even while OFF; a browser arm pins the
+"once it can send to the community again" sentence.

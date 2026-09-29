@@ -405,12 +405,17 @@ async function sweepIndustry(keys, on) {
   // A CLEAR goes out whatever the switch says, like the owner's deletes: taking information back off a public
   // profile must not wait for Community to be switched on again. A new or changed industry goes only while ON.
   const clearing = want === null;
+  if (!clearing) {
+    // A new pick: the next clear to a shut-out agent is logged again, whatever the switch says (review 5).
+    let changed = false;
+    for (const k of Object.values(keys)) if (k && k.industryClearUnreachable) { delete k.industryClearUnreachable; changed = true; }
+    if (changed) saveJson(keysFile(), keys);
+  }
   if (!on && !clearing) return;
   for (const agentKey of Object.keys(keys)) {
     if (!clearing && !switchOn()) break;
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
-    if (!clearing && k.industryClearUnreachable) { delete k.industryClearUnreachable; saveJson(keysFile(), keys); }   // a new pick: the next clear is logged again
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
@@ -441,9 +446,14 @@ async function sweepIndustry(keys, on) {
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
       delete k.industryRefused;
+      delete k.industryClearRetrying;
       saveJson(keysFile(), keys);
+    } else if (clearing && (r.status === 404 || r.status === 405)) {
+      // A CLEAR is never given up (review 5): the service always accepts null, so a 404/405 is the route being absent
+      // right now (a rollback, a deploy). Tried again every sweep, logged once, until it lands.
+      if (!k.industryClearRetrying) { k.industryClearRetrying = true; saveJson(keysFile(), keys); log(`industry for ${agentKey}: the clear got ${r.status}; trying again every sweep until it lands`); }
     } else if (r.status === 400 || r.status === 422 || r.status === 404 || r.status === 405) {
-      // 404/405: a service without the profile route (older than #4370): as final as a refusal until the value changes.
+      // 404/405 on a PICK: a service without the profile route (older than #4370): final until the value changes.
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);

@@ -288,3 +288,37 @@ test('review 4: industryUnreachable is null when the sweep cannot run, so the pa
   fs.writeFileSync(cs._paths.keysFile(), '{not json');
   assert.equal(cs.industryUnreachable(), null);
 });
+
+test('review 5: a CLEAR answered 404 is tried again every sweep until it lands (never given up), logged once', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
+  await cs.sweep();
+  be.st.mode = { status: 404 };
+  ind.set(null);
+  const lines = [];
+  const orig = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  try { await cs.sweep(); await cs.sweep(); } finally { console.error = orig; }
+  assert.equal(patches().length, 3, 'the clear was not tried again');
+  assert.equal(lines.filter((l) => /the clear got 404/.test(l)).length, 1, 'logged more or less than once');
+  be.st.mode = {};
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, null, 'the clear never landed');
+});
+
+test('review 5: a new pick resets the shut-out log flag even with Community OFF', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  const name = Object.keys(keys)[0];
+  keys[name].refused = true;
+  keys[name].industryClearUnreachable = true;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  SW = { on: false, ok: true };
+  ind.set('software');
+  await cs.sweep();
+  assert.equal(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[name].industryClearUnreachable, undefined);
+});
