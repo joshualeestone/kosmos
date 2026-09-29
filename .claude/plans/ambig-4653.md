@@ -9,18 +9,25 @@ reads exactly as before.
 
 ## Change
 - engine/messages.js: `mentionedMembers` keeps, for each ambiguous word, the members it could mean.
-  `ambiguousNote(map)` builds one sentence per word ("@Sub-Zero could mean frost or subzero, so it reached
-  neither as a request. To ask one of them, use its exact name, like @frost."). The post's delivery answer
-  carries it as `ambiguousNote`, only when there is one. The log row keeps `ambiguousMentions` (words only).
+  `ambiguousNote` builds one sentence per name, however it was spelled in the post ("@Sub-Zero could mean
+  Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the
+  exact name, like @frost."). Members are shown by display name with the handle to type. When the post also
+  named one of them exactly, the sentence names only those not asked; when it named all of them, there is no
+  sentence. Display names lose quotes, backslashes and control characters, so the CLI's sed read holds. The
+  post's delivery answer carries it as `ambiguousNote`, only when non-empty. The log row keeps
+  `ambiguousMentions` (the words, less trailing punctuation).
 - install/kosmos: `kosmos post` prints the sentence after its verdict (placed or unconfirmed), exit codes
   unchanged. Read with sed like `because`; the sentence is [A-Za-z0-9._-] words, so no quote can cut it.
 - web/index.html: pjPostSend leaves the sentence under the composer (#pj-room-msg) and appends it to the
   receipt the screen reader hears.
 
 ## Tests
-- engine/messages.mention-4642.test.js: a real post with a clash returns the sentence naming both; a unique
-  mention and no mention return none; three candidates and two words are worded right, with no quote or
-  backslash. Red with the answer field removed.
+- engine/messages.mention-4642.test.js: a real post with a clash returns the sentence naming both by display
+  name; a unique mention and no mention return none; a post that also names one exactly is told only about
+  the other, and one naming all gets none; three spellings of one name give one sentence; three candidates
+  are worded right and a display name's quote, backslash and control character are stripped. Mutations (by
+  hand): answer field removed, the addressed filter removed, dedupe on the raw word, no stripping, keeping the
+  trailing full stop: each turns a test red.
 - cli.post-ambiguous-4653.test.js (stub board): placed and unconfirmed print the sentence, exit 0 and 3;
   control: no note prints nothing extra and still exits 0 (it caught `[ ] && say` leaking exit 1);
   control: post text quoting the field name is never read as the note.

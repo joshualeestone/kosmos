@@ -2036,7 +2036,8 @@ cmd_post() {
   # EVERY member got it; unconfirmed means the room is partly reached
   # (the outcomes live in the record for the screens to draw).
   # #4653: an @-word that named two members reached neither as a request; the board says so in
-  # ambiguousNote, a sentence of [A-Za-z0-9._-] words (no quote to cut it short), printed after the verdict.
+  # ambiguousNote, printed after the verdict. The engine strips quotes, backslashes and control characters
+  # from the display names in it (engine/messages.js ambiguousNote), so no quote can cut the sed read short.
   # `if`, never `[ ] && say`: as a branch's last command a false test would become the post's exit status.
   local _ambig
   _ambig=$(printf '%s' "$body" | sed -n 's/.*"ambiguousNote":"\([^"]*\)".*/\1/p')

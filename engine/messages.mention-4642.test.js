@@ -162,24 +162,40 @@ test('#4642: the sender is never addressed, so its own display name can only rea
 });
 
 /* #4653: the sender is told when an @-word named two members and so reached neither. */
-test('#4653: the post answer tells the sender which members an ambiguous @-word could mean', () => {
-  const agents = [
-    fleet.agent('leo', { state: 'idle' }),
-    fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
-    fleet.agent('frost', { state: 'idle', displayName: 'Sub Zero' }),
-    fleet.agent('mara', { state: 'idle' }),
-  ];
-  const room = ['leo', 'subzero', 'frost', 'mara'];
-  assert.equal(post('@Sub-Zero please', agents, room).note,
-    '@Sub-Zero could mean frost or subzero, so it reached neither as a request. To ask one of them, use its exact name, like @frost.');
-  assert.equal(post('@subzero please', agents, room).note, undefined, 'a unique mention carried a note');
-  assert.equal(post('no mention at all', agents, room).note, undefined);
+const CLASH = () => [
+  fleet.agent('leo', { state: 'idle' }),
+  fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
+  fleet.agent('frost', { state: 'idle', displayName: 'Sub Zero' }),
+  fleet.agent('mara', { state: 'idle' }),
+];
+const CLASH_ROOM = ['leo', 'subzero', 'frost', 'mara'];
+
+test('#4653: the post answer tells the sender who an ambiguous @-word could mean, by the names the page shows', () => {
+  assert.equal(post('@Sub-Zero. please', CLASH(), CLASH_ROOM).note,
+    '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.');
+  assert.equal(post('@subzero please', CLASH(), CLASH_ROOM).note, undefined, 'a unique mention carried a note');
+  assert.equal(post('no mention at all', CLASH(), CLASH_ROOM).note, undefined);
 });
 
-test('#4653: ambiguousNote words three candidates and two words', () => {
-  assert.equal(messages.ambiguousNote(new Map([['X-1', ['a1', 'b1', 'c1']]])),
-    '@X-1 could mean a1, b1 or c1, so it reached none of them as a request. To ask one of them, use its exact name, like @a1.');
-  const two = messages.ambiguousNote(new Map([['Aa', ['a1', 'a2']], ['Bb', ['b1', 'b2']]]));
-  assert.match(two, /^@Aa could mean a1 or a2, .* @Bb could mean b1 or b2, /);
-  assert.doesNotMatch(two, /["\\]/, 'the note carries a quote or backslash the CLI would cut on');
+test('#4653: when the post also names one of them exactly, the note says only who was not asked', () => {
+  const r = post('@Sub-Zero and @frost please', CLASH(), CLASH_ROOM);
+  assert.deepEqual(r.addressed, ['frost']);
+  assert.equal(r.note, '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it did not ask Sub-Zero (@subzero). To ask them, use the exact name, like @subzero.');
+  assert.equal(post('@Sub-Zero, @frost and @subzero', CLASH(), CLASH_ROOM).note, undefined, 'everyone was named exactly, yet a note said someone was not asked');
+});
+
+test('#4653: one sentence per name, however it is spelled in the post', () => {
+  const note = post('@Sub-Zero and @sub_zero and @SUBZERO.', CLASH(), CLASH_ROOM).note;
+  assert.equal((note.match(/could mean/g) || []).length, 1, note);
+});
+
+test('#4653: ambiguousNote words three candidates, strips quotes and backslashes, and says nothing when nothing was lost', () => {
+  const amb = new Map([['x1', { word: 'X-1', members: ['a1', 'b1', 'c1'] }]]);
+  assert.equal(messages.ambiguousNote(amb, new Set(), new Map()),
+    '@X-1 could mean @a1, @b1 or @c1, so it reached none of them as a request. To ask one of them, use the exact name, like @a1.');
+  const shown = new Map([['a1', 'Al "the" \\Bot\u0007']]);
+  const note = messages.ambiguousNote(amb, new Set(['b1']), shown);
+  assert.equal(note, '@X-1 could mean Al the Bot (@a1), @b1 or @c1, so it did not ask Al the Bot (@a1) or @c1. To ask one of them, use the exact name, like @a1.');
+  assert.doesNotMatch(note, /["\\\u0000-\u001f]/, 'the note carries a character the CLI would cut on');
+  assert.equal(messages.ambiguousNote(amb, new Set(['a1', 'b1', 'c1']), shown), '');
 });

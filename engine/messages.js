@@ -1474,22 +1474,12 @@ function _roomMembers(members) {
 }
 
 /* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
-   and the @-words that named more than one member and so addressed none (`ambiguous`: word -> the members
-   it could mean; logged on the post, and told to the sender by ambiguousNote, #4653). Display names come from the roster card's `name`, the same
+   and the @-words that named more than one member and so addressed none (`ambiguous`: normalised name ->
+   { word as typed less trailing . _ -, the members it could mean }; logged on the post, and told to the
+   sender by ambiguousNote, #4653), and each member's display name (`shown`). Display names come from the roster card's `name`, the same
    safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
    agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
    pjMentionResolve to it. */
-/* #4653: the sentence that tells a sender their @-word named more than one member and so reached none of
-   them as a request. One sentence per word, built here so the CLI and the page say the same thing. The
-   words and names are [A-Za-z0-9._-] only (the tokenizer's and NAME_RE's charsets), so the sentence
-   carries no quote or backslash for a reader to trip on. */
-function ambiguousNote(ambiguous) {
-  const list = (names) => (names.length === 2 ? names.join(' or ') : names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1]);
-  return [...ambiguous].map(([word, members]) => '@' + word + ' could mean ' + list(members)
-    + ', so it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use its exact name, like @'
-    + members[0] + '.').join(' ');
-}
-
 function mentionedMembers(cleaned, recipients, roster) {
   const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map();   // normalised name -> the members it could mean
@@ -1500,8 +1490,12 @@ function mentionedMembers(cleaned, recipients, roster) {
     byKey.get(key).add(member);
   };
   for (const member of recipients) alias(member, member);
+  const shown = new Map();
   for (const card of Array.isArray(roster) ? roster : []) {
-    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
+    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') {
+      alias(card.name, card.sessionName);
+      if (!shown.has(card.sessionName)) shown.set(card.sessionName, card.name);
+    }
   }
   const mentioned = new Set();
   const ambiguous = new Map();
@@ -1510,11 +1504,34 @@ function mentionedMembers(cleaned, recipients, roster) {
     if (recipients.includes(token)) { mentioned.add(token); continue; }
     const stripped = token.replace(/[._-]+$/, '');
     if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
-    const hit = byKey.get(mentionKey(token));
+    const key = mentionKey(token);
+    const hit = byKey.get(key);
     if (hit && hit.size === 1) mentioned.add([...hit][0]);
-    else if (hit && !ambiguous.has(token)) ambiguous.set(token, [...hit].sort());
+    else if (hit && !ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
   }
-  return { mentioned, ambiguous };
+  return { mentioned, ambiguous, shown };
+}
+
+/* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
+   (or, when the post also named one exactly, not the others). One sentence per word, built here so the
+   CLI and the page say the same thing. A member is shown as its display name with its exact handle
+   ("Sub Zero (@frost)"), since the page shows display names and the handle is what to type. The CLI
+   reads the sentence out of JSON with sed, so a display name loses any quote, backslash or control
+   character here; the words and handles are [A-Za-z0-9._-] already. '' when there is nothing to say. */
+function ambiguousNote(ambiguous, mentioned, shown) {
+  const clean = (s) => String(s == null ? '' : s).replace(/["\\\u0000-\u001f\u007f]/g, '').trim();
+  const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== m ? n + ' (@' + m + ')' : '@' + m; };
+  const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);
+  const out = [];
+  for (const { word, members } of ambiguous.values()) {
+    const left = members.filter((m) => !(mentioned && mentioned.has(m)));
+    if (!left.length) continue;   // every candidate was named on its own too: nothing was lost
+    const could = '@' + word + ' could mean ' + list(members.map(who)) + ', so ';
+    out.push(left.length === members.length
+      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name, like @' + left[0] + '.'
+      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'them' : 'one of them') + ', use the exact name, like @' + left[0] + '.');
+  }
+  return out.join(' ');
 }
 
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
@@ -1832,7 +1849,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, shown } = mentionedMembers(cleaned, recipients, roster);
+  const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -2167,7 +2185,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
          one. */
       ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous.keys()] } : {}),
+      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous.values()].map((a) => a.word) } : {}),
       ...(operator === true ? { operator: true } : {}),
       /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
          "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
@@ -2201,7 +2219,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. */
-      ...(ambiguous.size ? { ambiguousNote: ambiguousNote(ambiguous) } : {}) };
+      ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
 
   if (asynchronousDelivery) {
