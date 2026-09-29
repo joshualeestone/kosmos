@@ -41604,21 +41604,21 @@ async function pollAsk() {
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
   ASK.email = r.email || '';
-  /* A finished row leaves once the tunnel stops listing the device (allowed
-     ids are excluded from pending; a deny drops the row at the coordinator),
-     and an allowed row leaves on its own after a few seconds regardless. */
+  /* #4637 (review rounds 2 to 4): an answer made here is forgotten only when it can no longer hide anything:
+     - the same device asking AGAIN is a new request, told apart by its first_seen being a DIFFERENT value from the one
+       answered (the relay resets it on a re-ask). No clock is compared: first_seen is relay time and the page's clock
+       may not agree with it (round 4);
+     - otherwise only once the tunnel no longer lists the device (a lagging listing must not bring an answered request
+       back), and a result is kept a while so it is read first (6s allowed, a minute kept out), never while the sheet
+       shows it. A failed answer (error) still waits, and goes when the device does. */
   for (const id of Object.keys(ASK.done)) {
-    const still = ASK.devices.some((d) => d.device_id === id);
     const e = ASK.done[id];
-    if (e.state === 'allowed' && Date.now() - e.at > 6000 && KP_MODAL !== id) delete ASK.done[id];   // the sheet's result stays until Done
-    else if (e.state === 'error' && !still) delete ASK.done[id];
-    /* #4637 review round 2: a kept-out or dismissed answer is forgotten once the device is no longer listed (after a
-       minute, so its result is read first, and never while the sheet shows it), so the same device can ask again. */
-    else if ((e.state === 'denied' || e.state === 'gone') && KP_MODAL !== id) {
-      /* A request from the same device that STARTED after this answer is a new ask: it is shown, not hidden. */
-      const again = ASK.devices.find((d) => d.device_id === id);
-      if ((!still && Date.now() - e.at > 60000) || (again && Number(again.first_seen) * 1000 > e.at)) delete ASK.done[id];
-    }
+    const listed = ASK.devices.find((d) => d.device_id === id);
+    if (KP_MODAL === id) continue;
+    if (listed && e.asked != null && Number(listed.first_seen) !== Number(e.asked) && e.state !== 'error') { delete ASK.done[id]; continue; }
+    if (listed) continue;
+    const age = Date.now() - e.at;
+    if (e.state === 'error' || (e.state === 'allowed' && age > 6000) || ((e.state === 'denied' || e.state === 'gone') && age > 60000)) delete ASK.done[id];
   }
   paintAsk();
 }
@@ -41737,7 +41737,11 @@ function kpClose() {
   const modal = document.getElementById('kp-modal');
   const was = !modal.hidden;
   /* Its result was seen; a failed answer is dropped so the request is simply waiting again (review round 2). */
-  if (KP_MODAL && ASK.done[KP_MODAL] && (ASK.done[KP_MODAL].state === 'allowed' || ASK.done[KP_MODAL].state === 'error')) delete ASK.done[KP_MODAL];
+  if (KP_MODAL && ASK.done[KP_MODAL]) {
+    const e = ASK.done[KP_MODAL];
+    if (e.state === 'error') delete ASK.done[KP_MODAL];   // it is simply waiting again
+    else if (e.state === 'allowed' || e.state === 'denied') ASK.done[KP_MODAL] = { ...e, state: 'gone' };   // read; still hides a lagging listing (round 4)
+  }
   KP_MODAL = null;
   KP_MODAL_DEV = null;
   modal.hidden = true;
@@ -41815,7 +41819,7 @@ async function askAct(act, id) {
   if (act === 'gotit') {
     /* Review round 3: keep the ANSWER's time, so a re-ask made while the result was being read (its first_seen is after
        the answer, before this press) still counts as newer and is shown. */
-    if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: ASK.done[id].at || Date.now(), device: d };
+    if (ASK.done[id]) ASK.done[id] = { ...ASK.done[id], state: 'gone', at: ASK.done[id].at || Date.now(), device: d };
     /* The sheet moves on to the next request, or closes when none is left. */
     const was = KP_MODAL === id;
     if (was) { const next = askLive()[0]; if (next) kpShow(next.device_id); else kpClose(); }
@@ -41835,10 +41839,10 @@ async function askAct(act, id) {
       body: JSON.stringify({ device_id: id, name: d.name || undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
-    ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
+    ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d, asked: d.first_seen };   // asked: which request was answered (round 4)
   } else {
     const said = res ? await res.json().catch(() => null) : null;
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, asked: d.first_seen, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
   }
   ASK.busy.delete(id);   // the answer has landed (as a result or an error)
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no

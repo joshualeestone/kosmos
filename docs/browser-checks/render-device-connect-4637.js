@@ -56,7 +56,7 @@ async function open(browser, { width, scheme, pending }) {
     if (id === 'd-fail') return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) });
     if (id === 'd-slow') await new Promise((r) => setTimeout(r, 600));
     const d = st.pending.find((x) => x.device_id === id);
-    st.pending = st.pending.filter((x) => x.device_id !== id);
+    if (id !== 'd-lag') st.pending = st.pending.filter((x) => x.device_id !== id);   // d-lag: the listing lags the answer
     if (d && /allow$/.test(req.url())) st.allowed.push({ device_id: id, name: d.name, allowed_at: now() });
     route.fulfill(json({ ok: true }));
   });
@@ -234,12 +234,28 @@ let BASE = '';
       await page.waitForTimeout(300);
       await page.click('#kp-sheet [data-ask="deny"]');
       await page.waitForTimeout(1500);
-      st.pending = [{ device_id: 'd-rr', name: 'iPhone \u00b7 Safari', code: 'WX-YZ', first_seen: now(), denied_at: now() - 1 }];
+      // first_seen is RELAY time; here it is earlier than the page's clock at the answer (a relay clock behind the Mac's,
+      // review round 4), yet it is a different request, so it must show.
+      st.pending = [{ device_id: 'd-rr', name: 'iPhone \u00b7 Safari', code: 'WX-YZ', first_seen: now() - 100, denied_at: now() - 1 }];
       await page.waitForTimeout(5800);   // a poll lists the re-ask while the result is on screen
       await page.click('#kp-sheet [data-ask="gotit"]');
       await page.waitForTimeout(5800);
       const back = await notice(page);
       chk(back.shown && back.head === 'Your iPhone wants to connect', 'Got it on "kept out", after the same device asked again, still shows the re-ask', JSON.stringify(back));
+      await page.close();
+    }
+
+    // Review round 4: Allow, then Escape, while the tunnel's listing still shows the device: it must not come back.
+    {
+      const { page } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd-lag', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 }] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      await page.click('#kp-sheet [data-ask="allow"]');
+      await page.waitForTimeout(400);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(12000);   // two polls past the 6-second clear, the device still listed
+      const lag = await notice(page);
+      chk(!lag.shown, 'an allowed device a lagging listing still shows does not come back as a request', JSON.stringify(lag));
       await page.close();
     }
 

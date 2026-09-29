@@ -47,3 +47,9 @@ Accepted NIT: the page behind the sheet is not `inert` (Tab is trapped; a screen
 Two WARNINGs fixed, each with a check arm that fails its mutant:
 - Got it on "kept out" stamped the dismissal with the press time, so a re-ask made while the result was being read (first_seen between the answer and the press) stayed hidden for as long as it waited. Got it keeps the answer's own time.
 - Done put focus straight on the next device's Allow, so a second Done press or a held key could allow a device the person had not looked at. Done now focuses the sheet.
+
+## Blind review round 4 (Sonnet, separate reviewer)
+Two WARNINGs fixed, both arms failing on the previous commit's page:
+- A re-ask was told apart by comparing the relay's first_seen with the page's clock, so a Mac clock ahead of the relay hid it. Each answer now stores the first_seen it answered (`asked`); a listed device with a DIFFERENT first_seen is a new request. No clock comparison.
+- Closing the sheet on an allowed result (Escape, backdrop, See your devices, Kosmos Plus) deleted it, and the 6s expiry deleted it whether or not the device was still listed, so a lagging listing brought an answered device back with Allow on it. Closing turns a result into `gone`, and an answer is forgotten only once the device is no longer listed (after 6s allowed / a minute kept out).
+NIT (accepted): navigating to Kosmos Plus with the sheet on a fresh Allowed result closes it; the device row and its ring still show it.
