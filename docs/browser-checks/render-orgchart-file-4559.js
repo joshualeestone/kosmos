@@ -106,7 +106,7 @@ async function run() {
       const m = teams[0] ? teams[0].members : [];
       const idx = (n) => m.findIndex((x) => x.name === n);
       check('CSV: Create sends every manager before the people under them', m.length === 7 && idx('chief-executive') < idx('head-of-sales') && idx('head-of-sales') < idx('account-executive') && idx('head-of-operations') < idx('office-manager'), JSON.stringify(m.map((x) => x.name)));
-      check('CSV: Create raises the team cap to the chart\'s size (the person\'s own create, #2972)', teams[0] && teams[0].cap === 7, JSON.stringify(teams[0] && teams[0].cap));
+      check('CSV: seven people are within the usual team size, so Create asks nothing and sends no raise', teams[0] && !('cap' in teams[0]), JSON.stringify(teams[0] && teams[0].cap));
       check('CSV: each member carries its manager\'s agent name, the top none', !('reportsTo' in m[idx('chief-executive')]) && m[idx('account-executive')].reportsTo === 'head-of-sales' && m[idx('office-manager')].reportsTo === 'head-of-operations', JSON.stringify(m));
     }
     await p1.close();
@@ -230,6 +230,33 @@ async function run() {
         stopGone && pvAborted && pv.rows.length === 1 && /Office Manager/.test(pv.rows[0].text), JSON.stringify([stopGone, pvAborted, pv.rows.map((x) => x.text)]));
     } else check('PREVIEW: the panel offers a file', false);
     await ppv.close();
+
+    // MANY: past the usual team size (12), Create asks in words about the load and the bill; Not now sends nothing,
+    // and only Start all sends #2972's raise, set to the chart's size (Liu Kang m3436).
+    const pm = await page();
+    const teamsM = [];
+    await pm.route('**/api/team', (r) => { const body = JSON.parse(r.request().postData() || '{}'); teamsM.push(body); r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } }); });
+    await openPanel(pm);
+    if (await pm.$('#orgchart-file-btn')) {
+      const thirteen = 'Name,Title\n' + Array.from({ length: 13 }, (_, i) => 'Person ' + (i + 1) + ',Role ' + (i + 1)).join('\n');
+      await pm.setInputFiles('#orgchart-file', { name: 'thirteen.csv', mimeType: 'text/csv', buffer: Buffer.from(thirteen) });
+      await pm.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pm.click('#orgchart-create');
+      await pm.waitForSelector('#orgchart-many:not([hidden])', { timeout: 3000 }).catch(() => {});
+      const ask = await pm.evaluate(() => ({ shown: !document.getElementById('orgchart-many').hidden, say: document.getElementById('orgchart-many-say').textContent, go: document.getElementById('orgchart-many-go').textContent }));
+      check('MANY: Create on 13 people asks first, naming the subscription and the memory, and sends nothing yet',
+        ask.shown && ask.say === 'This starts 13 agents at once. Each one runs on your AI subscription and uses this Mac\'s memory. Start all 13?' && ask.go === 'Start all 13' && teamsM.length === 0, JSON.stringify([ask, teamsM.length]));
+      await pm.click('#orgchart-many-no');
+      await pm.waitForTimeout(300);
+      const no = await readPreview(pm);
+      check('MANY: Not now creates nothing and says so', teamsM.length === 0 && /Nothing was created/.test(no.msg) && !no.createDisabled, JSON.stringify([teamsM.length, no.msg]));
+      await pm.click('#orgchart-create');
+      await pm.waitForSelector('#orgchart-many:not([hidden])', { timeout: 3000 }).catch(() => {});
+      await pm.click('#orgchart-many-go');
+      await pm.waitForFunction(() => /Created 13 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
+      check('MANY: Start all sends the raise set to the chart\'s size, once', teamsM.length === 1 && teamsM[0].cap === 13 && teamsM[0].members.length === 13, JSON.stringify(teamsM.map((t) => [t.cap, t.members.length])));
+    } else check('MANY: the panel offers a file', false);
+    await pm.close();
 
     // LEAVE: leaving the panel with a picture waiting for Read it disarms it; coming back shows no consent box.
     const pl = await page();
