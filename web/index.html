@@ -41813,12 +41813,16 @@ async function askAct(act, id) {
   if (act === 'close') { kpClose(); return; }
   if (act === 'devices') { kpClose(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // "See your devices"
   if (act === 'gotit') {
-    if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d };
+    /* Review round 3: keep the ANSWER's time, so a re-ask made while the result was being read (its first_seen is after
+       the answer, before this press) still counts as newer and is shown. */
+    if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: ASK.done[id].at || Date.now(), device: d };
     /* The sheet moves on to the next request, or closes when none is left. */
     const was = KP_MODAL === id;
     if (was) { const next = askLive()[0]; if (next) kpShow(next.device_id); else kpClose(); }
     paintAsk(); paintDevices();
-    if (was && KP_MODAL) { const a = document.querySelector('#kp-sheet-body [data-ask="allow"]'); if (a) a.focus(); }
+    /* Review round 3: focus the sheet, not the next device's Allow, so a second Done press (or a held key) cannot allow a
+       device the person has not looked at. */
+    if (was && KP_MODAL) document.getElementById('kp-sheet').focus();
     return;
   }
   if (!d) return;

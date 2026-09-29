@@ -42,3 +42,8 @@ WARNINGs fixed, each with a check arm that fails its mutant:
 - A double press sent two answers: an in-flight guard (ASK.busy).
 - Reasoned, not measured: a poll between the tunnel dropping the request and our own answer arriving showed "no longer waiting"; while our answer is in flight the card stays (ASK.busy).
 Accepted NIT: the page behind the sheet is not `inert` (Tab is trapped; a screen reader's virtual cursor can still leave).
+
+## Blind review round 3 (Opus, separate reviewer)
+Two WARNINGs fixed, each with a check arm that fails its mutant:
+- Got it on "kept out" stamped the dismissal with the press time, so a re-ask made while the result was being read (first_seen between the answer and the press) stayed hidden for as long as it waited. Got it keeps the answer's own time.
+- Done put focus straight on the next device's Allow, so a second Done press or a held key could allow a device the person had not looked at. Done now focuses the sheet.

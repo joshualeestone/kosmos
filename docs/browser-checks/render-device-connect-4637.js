@@ -84,7 +84,7 @@ const sheet = (page) => page.evaluate(() => {
   const r = s.getBoundingClientRect();
   const gold = [...s.querySelectorAll('button')].filter((b) => /gradient/.test(getComputedStyle(b).backgroundImage) && b.getBoundingClientRect().height > 0).map((b) => b.textContent.trim());
   const allowBtn = s.querySelector('[data-ask="allow"]');
-  return { allowBg: allowBtn ? getComputedStyle(allowBtn).backgroundImage : '', open: !m.hidden, head: (document.getElementById('kp-sheet-h') || {}).textContent || '', text: s.innerText.replace(/\s+/g, ' ').trim(),
+  return { sheetFocused: document.activeElement === s, allowBg: allowBtn ? getComputedStyle(allowBtn).backgroundImage : '', open: !m.hidden, head: (document.getElementById('kp-sheet-h') || {}).textContent || '', text: s.innerText.replace(/\s+/g, ' ').trim(),
     code: (s.querySelector('.kp-code') || {}).textContent || '', codePx: s.querySelector('.kp-code') ? parseFloat(getComputedStyle(s.querySelector('.kp-code')).fontSize) : 0,
     boxes: s.querySelectorAll('.devcode-cell').length, gold, focus: document.activeElement && (document.activeElement.getAttribute('data-ask') || ''),
     bottom: Math.round(innerHeight - r.bottom), left: Math.round(r.left), width: Math.round(r.width), vw: innerWidth, grab: getComputedStyle(s.querySelector('.kp-grab')).display };
@@ -146,7 +146,7 @@ let BASE = '';
       await page.click('#kp-sheet [data-ask="gotit"]');
       await page.waitForTimeout(400);
       s = await sheet(page);
-      chk(s.open && s.head === 'Your iPhone wants to connect' && /Asked again\./.test(s.text) && s.focus === 'allow', `${t} Done moves on to the next request (focus on its Allow); it says it asked again after a No`, JSON.stringify(s));
+      chk(s.open && s.head === 'Your iPhone wants to connect' && /Asked again\./.test(s.text) && s.sheetFocused, `${t} Done moves on to the next request (focus on the sheet, never straight onto its Allow); it says it asked again after a No`, JSON.stringify(s));
       // Not me -> kept out
       await page.click('#kp-sheet [data-ask="deny"]');
       await page.waitForTimeout(500);
@@ -224,6 +224,22 @@ let BASE = '';
       await page.waitForTimeout(5800);
       const back = await notice(page);
       chk(back.shown && back.head === 'Your iPhone wants to connect', 'a device kept out that asks again is shown again', JSON.stringify(back));
+      await page.close();
+    }
+
+    // Review round 3: Not me, the SAME device asks again while "kept out" is being read, then Got it: the re-ask shows.
+    {
+      const { page, st } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd-rr', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 }] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      await page.click('#kp-sheet [data-ask="deny"]');
+      await page.waitForTimeout(1500);
+      st.pending = [{ device_id: 'd-rr', name: 'iPhone \u00b7 Safari', code: 'WX-YZ', first_seen: now(), denied_at: now() - 1 }];
+      await page.waitForTimeout(5800);   // a poll lists the re-ask while the result is on screen
+      await page.click('#kp-sheet [data-ask="gotit"]');
+      await page.waitForTimeout(5800);
+      const back = await notice(page);
+      chk(back.shown && back.head === 'Your iPhone wants to connect', 'Got it on "kept out", after the same device asked again, still shows the re-ask', JSON.stringify(back));
       await page.close();
     }
 
