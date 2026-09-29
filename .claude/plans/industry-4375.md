@@ -116,3 +116,13 @@ profile kept the industry the owner took back. Now ONLY 400/422 are final; any 4
 once per value (industryRetrying), cleared on success. Tests: a pick's 404 retried until it lands; clear-then-pick in
 one outage ends on the pick (reds when a pick's 404 is made final). The NIT (a second clear's log) is covered by the
 per-value flag.
+
+## Review iteration 7 (blind)
+0 BLOCKER, 1 WARNING, taken: a PATCH the service APPLIED but whose answer was lost (a timeout, a gateway 5xx after the
+commit, the board stopping mid-send) left industrySent stale, and the "nothing to send" shortcut then skipped the
+correction for good (pick then None: the profile kept the industry; change then back: it kept the change). A
+write-ahead `industryUnsure` mark is saved before each PATCH and cleared only by an answer (200/204, or a 400/422
+refusal); while it is set the shortcut is not taken, and the PATCH (idempotent) is sent again. Tests with a fake
+service that applies then answers 504; both red when the shortcut ignores the mark.
+(N) a 400/422 on a CLEAR is retried, not final (the service always accepts null, so it came from something in between);
+a throw while counting shut-out agents reads as "cannot tell" (null), never as 0.

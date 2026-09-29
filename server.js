@@ -7479,7 +7479,7 @@ const server = http.createServer(async (req, res) => {
   const industryBody = () => {
     const r = communityindustry.read();
     let unreachable = 0;
-    try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = 0; }
+    try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = null; }   // cannot tell: promise nothing
     return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {

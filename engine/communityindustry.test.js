@@ -50,6 +50,7 @@ function backend() {
         if (st.mode.refuse || (body.industry !== null && !KNOWN.has(body.industry))) return send(400, { detail: 'unknown industry' });
         if (st.mode.status) return send(st.mode.status, { detail: 'no' });
         a.industry = body.industry;
+        if (st.mode.appliedThen504) return send(504, { detail: 'gateway timeout' });   // stored, answer lost
         res.writeHead(204); return res.end();
       }
       return send(404, { detail: 'not found' });
@@ -342,4 +343,31 @@ test('review 5: a new pick resets the shut-out log flag even with Community OFF'
   ind.set('software');
   await cs.sweep();
   assert.equal(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[name].industryClearUnreachable, undefined);
+});
+
+test('review 7: a pick applied but unanswered, then None: the clear still goes (the profile must not keep it)', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { appliedThen504: true };
+  ind.set('legal');
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, 'legal', 'control: the service did apply it');
+  be.st.mode = {};
+  ind.set(null);
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, null, 'the profile kept the industry the owner took off');
+});
+
+test('review 7: a change applied but unanswered, then back to the old value: the profile ends on the old value', async () => {
+  await on();
+  await registered('ava');
+  ind.set('accounting');
+  await cs.sweep();
+  be.st.mode = { appliedThen504: true };
+  ind.set('legal');
+  await cs.sweep();
+  be.st.mode = {};
+  ind.set('accounting');
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, 'accounting');
 });

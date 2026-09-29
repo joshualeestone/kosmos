@@ -427,7 +427,9 @@ async function sweepIndustry(keys, on) {
       continue;
     }
     const sentBefore = Object.prototype.hasOwnProperty.call(k, 'industrySent');
-    if (sentBefore ? k.industrySent === want : want === null) {
+    // An unanswered PATCH may have landed (review 7): until one is answered, what the profile shows is unknown, so the
+    // "nothing to send" shortcut is not taken. The PATCH is idempotent, so sending again is always safe.
+    if (!k.industryUnsure && (sentBefore ? k.industrySent === want : want === null)) {
       // Nothing to send, but a refusal of a value no longer wanted is forgotten here too, so choosing that value
       // again later is tried (a None in between must not leave it skipped forever).
       if (Object.prototype.hasOwnProperty.call(k, 'industryRefused') && k.industryRefused !== want) {
@@ -442,13 +444,19 @@ async function sweepIndustry(keys, on) {
       if (k.industryRefused === want) continue;
       delete k.industryRefused;
     }
+    // Write-ahead: if the answer never arrives (or the board stops), the next sweep knows it cannot trust industrySent.
+    k.industryUnsure = true;
+    saveJson(keysFile(), keys);
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
       delete k.industryRefused;
       delete k.industryRetrying;
+      delete k.industryUnsure;
       saveJson(keysFile(), keys);
-    } else if (r.status === 404 || r.status === 405) {
+    } else if (r.status === 404 || r.status === 405 || (clearing && (r.status === 400 || r.status === 422))) {
+      // (A 400/422 cannot be the service's answer to null, which it always accepts: something in between refused it,
+      // so a CLEAR is not given up on it either.)
       // The route being absent right now (a rollback, a deploy, a service older than #4370) is a fact about the ROUTE,
       // not the value (review 6): nothing is given up on it, a clear least of all. Tried again every sweep, logged once
       // per value, until it lands. Only 400/422 (the service refusing this value) are final.
@@ -458,6 +466,7 @@ async function sweepIndustry(keys, on) {
         log(`industry for ${agentKey}: got ${r.status}; trying again every sweep until it lands`);
       }
     } else if (r.status === 400 || r.status === 422) {
+      delete k.industryUnsure;                          // a refusal is an answer: the profile did not change
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
