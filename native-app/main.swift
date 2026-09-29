@@ -1715,6 +1715,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// One open panel at a time, because a second one is not queued -- it is
     /// dropped, and a dropped request is a crash.
     private var openPanelOutstanding = false
+    /// #4412: the answer for the panel that is up, held HERE so WebKit's handler is never released
+    /// un-called. Josh's 0.7.06 window aborted because NSOpenPanel.begin dropped its completion
+    /// (never called it): with the handler reachable only through that completion, it was released
+    /// at return and WebKit's checker aborted the app.
+    /// Written and never read, on purpose: defensive. Today the local `respond` is also held by the watch
+    /// closure (and by the stack frame through begin), so this duplicates that hold; it keeps the handler
+    /// reachable if a later edit moves or drops the watch.
+    private var openPanelHeld: (([URL]?) -> Void)?
+    /// #4412: stands in for "is the picker on screen" when openPanelPresenter is set (the selftest).
+    static var openPanelPresenterShowing: (() -> Bool)?
+    /// #4412: how long a picker has to appear before it counts as never shown, then how often an
+    /// open picker is looked at. A picker seen gone on two looks in a row without answering is answered
+    /// with nil (two, so a panel that hides a moment before AppKit delivers its answer keeps the pick).
+    /// A real panel shows within about 0.03 s of begin (measured); one slower than the first look would be
+    /// answered nil under the person, the accepted cost of never leaving WebKit's handler unanswered.
+    static let openPanelFirstLook: TimeInterval = 5
+    static let openPanelLookEvery: TimeInterval = 0.5
+    /// #4412: how many pickers the watch has answered nil itself. Only the selftest reads it: a picker still in
+    /// use must never be counted here.
+    static var openPanelWatchAnswers = 0
+    /// #4412: after this many looks at a picker that stays up, the watch logs once, so a picker that never goes
+    /// away (and keeps every later press refused) leaves a trace. It does not answer: the person may still be
+    /// choosing a file. 1200 looks is 10 minutes.
+    static let openPanelLongLooks = 1200
+    /// #4412: whether a real NSOpenPanel still counts as up. A panel on screen is left alone. While
+    /// Kosmos is not the active app the answer is deferred, whatever the panel reports: NSOpenPanel does
+    /// not hide on deactivate (measured: hidesOnDeactivate=false, isVisible stays true), so this is not
+    /// about a hidden panel. It keeps a picker Josh left up while he switched to the browser from being
+    /// answered under him; a dropped one is answered within openPanelLookEvery of his coming back, and
+    /// nothing can be pressed while he is away. Its own function so the selftest pins the rule.
+    static func openPanelStillUp(visible: Bool, appActive: Bool) -> Bool { visible || !appActive }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,
@@ -1765,10 +1796,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if answered { return }
             answered = true
             self?.openPanelOutstanding = false
+            self?.openPanelHeld = nil
             completionHandler(urls)
+        }
+        openPanelHeld = respond
+        /* #4412: if the picker never appears, or goes away without answering, answer nil ourselves.
+           A picker the person is still using is left alone. `giveUp` closes a real panel the watch has
+           answered for, so the screen matches what WebKit was told and no second picker opens beside it. */
+        var looks = 0
+        var giveUp: (() -> Void)?
+        func watch(after: TimeInterval, goneBefore: Bool = false, _ showing: @escaping () -> Bool) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) {
+                if answered { return }
+                looks += 1
+                if looks == AppDelegate.openPanelLongLooks {
+                    logLine("runOpenPanelWith: the file picker has been up 10 minutes and has not answered (#4412)")
+                }
+                if showing() { watch(after: AppDelegate.openPanelLookEvery, showing); return }
+                /* Gone once: look again before answering, in case its own answer is on the way. */
+                if !goneBefore { watch(after: AppDelegate.openPanelLookEvery, goneBefore: true, showing); return }
+                logLine("runOpenPanelWith: the file picker is not showing and never answered; answering nil (#4412)")
+                AppDelegate.openPanelWatchAnswers += 1
+                respond(nil)
+                giveUp?()
+            }
         }
         if let present = AppDelegate.openPanelPresenter {
             present(parameters) { urls in respond(urls) }
+            watch(after: AppDelegate.openPanelFirstLook, AppDelegate.openPanelPresenterShowing ?? { false })
             return
         }
         let panel = NSOpenPanel()
@@ -1793,10 +1848,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            picture.
 
            So present with the app-modal `panel.begin`, NOT beginSheetModal:
-           begin does not attach to a window, so no window state can silently
-           drop it -- it ALWAYS presents and ALWAYS calls its completion, which
-           closes the ENTIRE abort class rather than the one attached-sheet
-           instance a `host.attachedSheet == nil` guard would cover. The cost is
+           begin does not attach to a window, so no window state can drop it.
+           It was expected to always call its completion too, and #4412 showed
+           it does not: Josh's 0.7.06 window aborted when begin dropped it. So
+           begin alone no longer closes the abort class; the answer held past
+           begin plus the watch above do, for any presenter. The cost is
            the picker is app-modal (centred) rather than a sheet on the window;
            for a path that otherwise aborts the app that is the right trade.
            `answer` routes through the call-once `respond`, so OK and Cancel each
@@ -1805,6 +1861,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             respond(resp == .OK ? panel.urls : nil)
         }
         panel.begin(completionHandler: answer)
+        giveUp = { panel.cancel(nil) }   // its own answer then arrives at a respond that has already answered
+        /* See openPanelStillUp: on screen, or Kosmos in the background, counts as still up. */
+        watch(after: AppDelegate.openPanelFirstLook) {
+            AppDelegate.openPanelStillUp(visible: panel.isVisible, appActive: NSApp.isActive)
+        }
     }
 
     /* 🛑 #3309: BOARD alert()/confirm()/prompt() WERE SILENTLY DROPPED IN THE APP.
@@ -3609,11 +3670,12 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        the exact defect the commit that added this poll set out to remove. The
        fix removed one instance and shipped another. `filepanel selftest TIMED
        OUT` is the unique string the shell keys its gate-fault arm on.
-       Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
-       shell's 40s alarm. The page loads in well under half a second here, so
-       this is ~30x the observed margin rather than the ~12x it was. The whole
-       run is about 11-12s (the #2807 with-a-sheet-up arm added a sheet poll plus
-       a wait), still well inside the 25s watchdog. */
+       Budget: 150 x 0.1s = 15s, inside the hatch's own 65s watchdog and the
+       shell's 80s alarm. The page loads in well under half a second here, so
+       this is ~30x the observed margin rather than the ~12x it was. The run's
+       length is not restated here (it goes stale with every arm): the watchdog
+       has to cover the arms plus this 15s, and tools.filepanel-gate.test.js
+       pins the alarm at least 15s above the watchdog. */
     func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
         web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
             if (r as? Bool) == true { go(); return }
@@ -3708,7 +3770,86 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                                         print("press:with-a-sheet-up\tno-abort-and-panel-presented:\((modal != nil) ? "yes" : "no")")
                                         if let m = modal as? NSOpenPanel { m.cancel(nil) }
                                         if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
-                                        exit(modal != nil ? 0 : 1)
+                                        guard modal != nil else { exit(1) }
+                                        /* 🛑 #4412: A PICKER THAT DROPS ITS CALLBACK. Josh's 0.7.06 window aborted
+                                           because NSOpenPanel.begin released its completion without calling it,
+                                           and the handler WebKit gave us was reachable only through it. This stub
+                                           does the same: it throws the callback away. Before the fix WebKit's
+                                           checker aborts the app right here (this line never prints); after it,
+                                           the delegate holds the answer, answers nil once the picker is not
+                                           showing, and the next press reaches the app again. */
+                                        var dropped = false
+                                        var afterDrop = false
+                                        AppDelegate.openPanelPresenterShowing = { false }
+                                        AppDelegate.openPanelPresenter = { _, _ in dropped = true }
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                            web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.openPanelFirstLook + 1.5) {
+                                                print("press:dropped-callback\tno-abort:yes asked:\(dropped ? "yes" : "no")")
+                                                AppDelegate.openPanelPresenter = { _, done in afterDrop = true; done(nil) }
+                                                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                                    print("press:after-a-dropped-callback\treaches-the-app-again:\(afterDrop ? "yes" : "no")")
+                                                    guard dropped && afterDrop else { exit(1) }
+                                                    /* 🛑 #4412 (Josh 17:09, "Change picture dead until an app restart"): a picker
+                                                       that KEEPS its callback and never calls it. Nothing aborts, but before the
+                                                       fix openPanelOutstanding stayed true, so every later press was refused
+                                                       with nil and no picker ever opened again. The watch must answer it. */
+                                                    var held: (([URL]?) -> Void)?
+                                                    var afterHung = false
+                                                    AppDelegate.openPanelPresenter = { _, done in held = done }   // kept, never called
+                                                    web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                                    DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.openPanelFirstLook + 1.5) {
+                                                        AppDelegate.openPanelPresenter = { _, done in afterHung = true; done(nil) }
+                                                        web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                                            print("press:after-a-hung-picker\treaches-the-app-again:\(afterHung ? "yes" : "no")")
+                                                            _ = held
+                                                            /* The real panel's rule, which these stubbed arms cannot reach (this
+                                                               process is never the active app): all four cases, so a rule that
+                                                               never answers, or answers under a person who is away, reads wrong. */
+                                                            let r = { (v: Bool, a: Bool) in AppDelegate.openPanelStillUp(visible: v, appActive: a) ? "up" : "gone" }
+                                                            let rule = "shown+here:\(r(true, true)) gone+here:\(r(false, true)) shown+away:\(r(true, false)) gone+away:\(r(false, false))"
+                                                            print("rule:picker-still-up\t\(rule)")
+                                                            let ruleOK = rule == "shown+here:up gone+here:gone shown+away:up gone+away:up"
+                                                            /* 🛑 #4412: A PICKER STILL IN USE IS LEFT ALONE. The arms above only ever see a
+                                                               picker that is gone. These two keep one up past the first look (and one that
+                                                               reads gone, then back, then gone again), and the watch must not answer either: a watch
+                                                               that did would throw away the person's pick. */
+                                                            /* Judged after the watch has looked `looks` times (not after a fixed wait, which
+                                                               can land before the look under test), within a 12 s budget. */
+                                                            func leftAlone(_ label: String, looks: Int, _ showing: @escaping (Int) -> Bool, then: @escaping (Bool) -> Void) {
+                                                                let before = AppDelegate.openPanelWatchAnswers
+                                                                var keep: (([URL]?) -> Void)?
+                                                                var seen = 0
+                                                                AppDelegate.openPanelPresenterShowing = { seen += 1; return showing(seen) }
+                                                                AppDelegate.openPanelPresenter = { _, done in keep = done }
+                                                                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                                                func judge(tries: Int) {
+                                                                    if seen < looks && tries > 0 {
+                                                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { judge(tries: tries - 1) }
+                                                                        return
+                                                                    }
+                                                                    let ok = keep != nil && seen >= looks && AppDelegate.openPanelWatchAnswers == before
+                                                                    print("press:\(label)\tleft-alone:\(ok ? "yes" : "no")")
+                                                                    keep?(nil)   // the person closes it; the next arm starts clean
+                                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { then(ok) }
+                                                                }
+                                                                judge(tries: 120)
+                                                            }
+                                                            leftAlone("still-up-past-first-look", looks: 3, { _ in true }) { up in
+                                                                /* Gone, back, gone again: each gone reading is a first look again once it was back, so a watch that
+                                                               carried the first one over would answer on the second. */
+                                                            leftAlone("gone-once-then-back", looks: 4, { n in n != 1 && n != 3 }) { back in
+                                                                    AppDelegate.openPanelPresenterShowing = nil   // no later arm inherits the stub
+                                                                    exit(afterHung && ruleOK && up && back ? 0 : 1)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                     return
                                 }
@@ -3726,8 +3867,8 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
             }
         }
     }
-    // A hung run loop must fail, not hang a release cut.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
+    // A hung run loop must fail, not hang a release cut. The shell's alarm stays 15 s above this, so this fires first.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 65) {
         print("filepanel selftest TIMED OUT")
         exit(1)
     }
