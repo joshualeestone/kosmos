@@ -165,3 +165,20 @@ test('#4502: placing a big flat fleet again (every poll does) reuses its lane tu
   assert.equal(turns.size, known, 'a repeat placement searched again');
   for (const [k, s] of first) assert.equal(again.get(k).ang, s.ang, 'a repeat placement moved ' + k);
 });
+
+test('#4502: an outer lane (third and beyond) is turned to more clearance than an unturned lane would have', () => {
+  const R0 = pageConst('ORG_R0');
+  const angDist = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d < 0) d += 2 * Math.PI; return d > Math.PI ? 2 * Math.PI - d : d; };
+  for (const n of [30, 36, 50]) {
+    const spots = [...flatFleet(n).values()];
+    const radii = [...new Set(spots.map((s) => s.r))].sort((a, b) => a - b);
+    assert.ok(radii.length >= 3, n + ' agents: no third lane to check');
+    const inner = spots.filter((s) => s.r < radii[2]).map((s) => ({ b: s.ang, half: Math.asin(Math.min(1, FACE / s.r)) }));
+    const lane = spots.filter((s) => s.r === radii[2]).map((s) => s.ang);
+    const worst = (angs) => Math.min(...angs.flatMap((a) => inner.map((f) => angDist(a, f.b) - f.half)));
+    const step = (2 * Math.PI) / lane.length;
+    const unturned = lane.map((_, m) => -Math.PI / 2 + step * m);   // what a turn of 0 would give
+    assert.ok(worst(lane) > worst(unturned), n + ' agents: the third lane is no clearer than unturned (' + worst(lane).toFixed(3) + ' vs ' + worst(unturned).toFixed(3) + ')');
+    assert.ok(R0 > 0);
+  }
+});
