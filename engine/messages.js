@@ -165,7 +165,7 @@ function spillInto(recipient, id, text) {
   try { fs.mkdirSync(dir); made = true; } catch (e) { if (!e || e.code !== 'EEXIST') return { because: 'we could not make ' + dir }; }
   let d = null;
   try { d = fs.lstatSync(dir); } catch { d = null; }
-  if (!d || !d.isDirectory()) return { because: dir + ' is a link, not a folder, so we did not write into it' };   // lstat: a link is not the agent's folder
+  if (!d || !d.isDirectory()) return { because: dir + ' is not a folder (a file or a link is there), so we did not write into it' };   // lstat: a link is not the agent's folder
   const marker = path.join(dir, '.gitignore');
   if (made) {
     try { fs.writeFileSync(marker, INBOX_MARK, { flag: 'wx' }); }   // 'wx' never follows or reuses anything already there
@@ -182,8 +182,9 @@ function spillInto(recipient, id, text) {
   if (!ours) return { because: dir + ' already exists and is not the Inbox Kosmos made (its .gitignore is missing or changed), so we did not write into it' };
   const file = path.join(dir, id + '.txt');
   try {
-    /* Whatever sits at this name goes first, so even writeSecret's rare in-place fallback (it opens the NAME
-       with O_TRUNC) can never write through a hard link planted there (review round 3). */
+    /* Whatever sits at this name goes first, so writeSecret's rare in-place fallback (it opens the NAME with
+       O_TRUNC) never meets a link planted there (review round 3). If the name cannot be removed, nothing is
+       written: the unlink needs the same folder permission that the fallback's temp would have needed. */
     try { fs.unlinkSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
     require('./securewrite').writeSecret(file, text + '\n', 0o600);
   } catch { return { because: 'we could not write the file in ' + dir }; }

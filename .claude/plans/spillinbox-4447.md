@@ -76,3 +76,11 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
   - Tested by forcing the fallback (a read-only Inbox). The mutant without the unlink goes red: it wrote through the link.
 - **NIT** A room member refused over its folder is recorded as COULD_NOT without the reason. KEPT: outcomes carry states only across the room code, and the DM path (where a person reads a reason) has it.
 - **NIT** writeSecret's orphan-temp reap now also sweeps Inboxes. KEPT: harmless, as the reviewer measured.
+
+## Validation (8fc9f7b2): PASSED (11488 tests, 0 fail)
+
+## Review round 4 (sonnet, blind): 0 BLOCKERs, 2 WARNINGs
+- **WARNING** The "writeSecret fallback" test did not reach the fallback: a read-only Inbox makes our own unlink refuse first, so writeSecret is never called with the link in place. Its claim was wrong, not its safety.
+  - Rewritten to say exactly what it proves: the unlink guard keeps the fallback off a planted link, and where the name cannot be removed the spill is refused (asserted, with the reason) and the target untouched.
+  - The mutant without the guard still goes red: it reaches the fallback and writes through.
+- **WARNING** "is a link, not a folder" also fired for a plain FILE named Inbox. Reworded to "is not a folder (a file or a link is there)", with a new test that asserts the file is left unchanged.

@@ -2721,7 +2721,12 @@ test('#4447: an Inbox whose marker was removed is refused with a reason that nam
   });
 });
 
-test('#4447: writeSecret\'s in-place fallback cannot write through a hard link planted at the next id', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder that forces the fallback' : false }, () => {
+/* What this proves, said exactly (review round 4): a read-only Inbox with a hard link planted at the next id.
+   With the unlink-first guard, the spill REFUSES there (the unlink needs the folder writable), so the board never
+   reaches writeSecret's in-place fallback with a link in place, and the link's target is untouched. Without the guard
+   (the mutant), writeSecret cannot make its temp in the read-only folder, falls back to opening the NAME with
+   O_TRUNC, and writes through the link: that is the path the guard closes. */
+test('#4447: a hard link planted at the next id in a read-only Inbox is never written through (the unlink guard keeps writeSecret\'s fallback off it)', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder' : false }, () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
@@ -2731,15 +2736,30 @@ test('#4447: writeSecret\'s in-place fallback cannot write through a hard link p
     fs.writeFileSync(victim, 'untouched\n');
     const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
     fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
-    /* A read-only Inbox: no temp can be created there, so writeSecret's atomic path fails and only its in-place
-       fallback (open the NAME with O_TRUNC) remains. That is the path a hard link could be written through. */
     fs.chmodSync(inboxOf('mara'), 0o555);
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
-      messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
-      assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the fallback wrote through the planted hard link');
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'the spill was not refused where the planted name could not be removed');
+      assert.match(out.because, /could not write the file in/, out.because);
+      assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted hard link was written through');
     } finally { fs.chmodSync(inboxOf('mara'), 0o755); }
+  });
+});
+
+test('#4447: a plain FILE where the Inbox should be is refused as "not a folder", not called a link', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    fs.writeFileSync(inboxOf('mara'), 'a file named Inbox\n');
+    try {
+      armSender('leo-discord');
+      arm([ok(), ok()]);
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      assert.equal(out.state, chat.DELIVERY.COULD_NOT);
+      assert.match(out.because, /is not a folder \(a file or a link is there\)/, out.because);
+      assert.equal(fs.readFileSync(inboxOf('mara'), 'utf8'), 'a file named Inbox\n', 'the file was changed');
+    } finally { fs.rmSync(inboxOf('mara'), { force: true }); }
   });
 });
 
