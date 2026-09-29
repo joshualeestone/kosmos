@@ -3229,7 +3229,7 @@ PLIST
   # keep its cached tile until the Dock restarts; that is the Dock's
   # cache, not a bad icns.)
   [ -f "$KOSMOS_HOME/app/assets/Kosmos.icns" ] && cp "$KOSMOS_HOME/app/assets/Kosmos.icns" "$target/Resources/Kosmos.icns" \
-    && chmod 644 "$target/Resources/Kosmos.icns"
+    && chmod 644 "$target/Resources/Kosmos.icns" || true   # best effort, like the copy it follows
   return 0
 }
 
