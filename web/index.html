@@ -3757,6 +3757,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
    the same placement the relocated Tasks panel uses. The agents list stays the rail beside it. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-agents { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+/* #4377: the full projects page in the consolidated display column, placed like the Agents view. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-projects { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+.cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
+.cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
 .cons-agents-lay { display: inline-flex; gap: 6px; margin: 0 0 var(--space-5) 0; }
 .cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
@@ -3955,7 +3960,7 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-anc .pj-anc-sep { opacity: .55; }
 .pj-dots { display: inline-flex; gap: 2px; flex: none; }
 .pj-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--gold, #d6a62e); opacity: .9; }
-body.consolidated .pj-anc { justify-content: flex-start; }
+body.consolidated :where(#pj-list) .pj-anc { justify-content: flex-start; }   /* #4377: the rail only; the full projects grid keeps it centred */
 /* #2487: the detail-page parent trail (above the name) and the sub-projects
    section (between the head and the members/files/tasks grid). The rows are the
    same open-on-click buttons the cards are, at a lighter weight. */
@@ -4005,7 +4010,7 @@ html[data-layout="consolidated"] body.consolidated #pj-one-view .pj-crumbrow { d
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row { margin-left: calc(var(--pj-depth, 0) * 22px); }
 /* #2929: the fold caret is hidden everywhere by default; only the consolidated
    rail rule below turns it on. So the wide list and the grid never show one. */
-#pj-list .pjtreefold { display: none; }
+#pj-list .pjtreefold, #pj-full-list .pjtreefold { display: none; }   /* #4377: the copy is a grid; the fold belongs to the tree */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px solid var(--k-rule); }
 /* Hide the chip ONLY on rows the indent already places (.child). A child whose
    parent is archived/dangling falls back to depth 0 with no indent and no
@@ -4514,8 +4519,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      ground colour stays and the affordance reads in both themes (--k-rule). */
   html[data-layout="consolidated"] body.consolidated .lrow:hover { box-shadow: inset 0 0 0 1.5px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
-  html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row:hover { background: var(--k-surface); box-shadow: none; }
   /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
      side ground with a hairline ring, stronger than hover and persistent,
      so the rail always answers "which one am I looking at". */
@@ -4548,7 +4553,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      just want it to be a white area to indicate that that project is selected."
      ⇒ The white ground IS the selection now. The inset 3px was the left bar and
      the 0 0 0 1px was the stroke; both go, the background stays. */
-  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-sel, var(--k-surface)); }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row.open { background: var(--k-sel, var(--k-surface)); }
   /* 🛑 AND THE SAME IDEA HAS TO SURVIVE THE THEME, WHICH IT DID NOT.
      Measured on the real page, selected ground against the column behind it:
        light   rgb(255,255,255) on rgb(243,241,236)   12 units apart
@@ -4812,9 +4817,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      count, the sort and the view toggle are for the full-width tab. */
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .stats, html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .viewctl { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { margin: 0 0 8px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { box-shadow: none; } /* #3126: dead `padding: 8px 10px` removed (overridden by the tightened .pj-row padding later in this block) */
-  html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { box-shadow: none; } /* #3126: dead `padding: 8px 10px` removed (overridden by the tightened .pj-row padding later in this block) */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
   /* #980: stretch, not start -- the projects rail and the open project
      both run the panel's full height, so the columns and their rules
@@ -5026,7 +5031,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      of #pj-list's own asgrid/list class, is the fix -- not a new
      truncation rule, the existing one from :2096 was already right. */
   html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { height: auto; align-items: stretch; text-align: left; padding: 5px 10px; } /* #3126: tighter vertical padding (was 8px) */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { height: auto; align-items: stretch; text-align: left; padding: 5px 10px; } /* #3126: tighter vertical padding (was 8px) */
   /* ⚠️ FIRST ATTEMPT put the name and pill side by side (matching the tab
      view's own row, and how #879 solved this same class of bug there) --
      measured wrong: at the rail's real width a short name ("Book Launch")
@@ -5037,9 +5042,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      to truncate against, which is the actual fix -- also closer to the
      real mock, which never puts a status pill beside the title in this
      rail at all. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { order: 1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { order: 1; }
   /* #2929 (Josh, 6.59 QA): the consolidated projects rail reads as an openable
      file structure -- each row indented by its tree depth, a fold caret on any
      parent, a folded branch's descendants hidden. This supersedes the earlier
@@ -5107,7 +5112,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
      ("4 agents"). The narrow rail has no room for the face icons the tab
@@ -5122,9 +5127,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
                                 90.2px -> 86.2px, and they STILL wrapped apart.
      ⇒ The goal is "get a whole lot more of them displayed", so a restructure
      that does not put them on one line has no payoff to justify its risk. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { display: block; margin-top: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces > [aria-hidden] { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces { display: block; margin-top: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces > [aria-hidden] { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { margin-left: 0; }
   /* 🔑 ONE TYPE SCALE (kosmos#1191). Josh: the project name matches the agent
      name, and the status pill and the agent count match the agent's TITLE.
      Measured before, at 1600 wide:
@@ -5134,9 +5139,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      "Nothing running" read louder than a person's actual role. That inversion is
      what he meant by "much, much smaller", and it is why this is hierarchy
      rather than taste. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname b { font-size: .8125rem; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname b { font-size: .8125rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { font-size: .625rem; }
   /* 🔑 TWO LINES, WITH THE STATUS ON THE AGENTS LINE (kosmos#1303 E). Josh: "the
      title / right below it, three agents / on the same line as the three agents,
      in the same font size, the status... That way we can tighten up these
@@ -5154,11 +5159,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      Josh did not ask about. A rule scoped to this layout cannot.
      📌 `.pj-warn` spans both columns so a bad-folder warning keeps a line of its
      own rather than being squeezed beside the status. */
-  html[data-layout="consolidated"] body.consolidated .pj-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: contents; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { grid-column: 1 / -1; grid-row: 1; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { grid-column: 1; grid-row: 2; margin-top: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { grid-column: 2; grid-row: 2; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcard-h { display: contents; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname { grid-column: 1 / -1; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces { grid-column: 1; grid-row: 2; margin-top: 0; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { grid-column: 2; grid-row: 2; }
   /* 🛑 THE TWO THINGS THAT ACTUALLY COST THE HEIGHT, both MEASURED after two
      wrong guesses of mine (a row gap, then a line-height, neither of which was
      it): the count is an INLINE element that WRAPPED to two lines in a rail this
@@ -5166,10 +5171,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      6px of vertical padding that belong to the TILE layout, where it sits at the
      top right with room around it. Neither is visible in the CSS for this view;
      both came from the computed box. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { margin-top: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; align-items: baseline; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { margin-top: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; align-items: baseline; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
 
-  html[data-layout="consolidated"] body.consolidated .pj-row .pj-warn { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pj-warn { grid-column: 1 / -1; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
      the files" -- Files sits in .pjsplit, stacked under Members in the
@@ -21428,7 +21433,11 @@ function showTab(tab) {
   // so it always closes the Agents view; the board is what the consolidated tabs arrive at.
   CONS_AGENTS_OPEN = false;
   placeAgentsPanel(cons);
-  if (cons) consNavLight('projects');
+  // #4377: a tab switch closes the full projects page too; the board lights no nav item (a lit
+  // Projects means the full projects page is in the column).
+  CONS_PROJECTS_OPEN = false;
+  { const cp = document.getElementById('panel-cons-projects'); if (cp) cp.hidden = true; }
+  if (cons) consNavLight(null);
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -29700,6 +29709,9 @@ let BOARD_LAYOUT = 'grid';
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
 let CONS_AGENTS_OPEN = false;
+/* #4377: true while the consolidated display column shows the full projects page
+   (openConsolidatedProjects). Cleared like CONS_AGENTS_OPEN. */
+let CONS_PROJECTS_OPEN = false;
 function boardApplyVisibility(onAgents) {
   /* ⚠️ THREE CONTAINERS NOW, AND EACH ASKS FOR ITSELF. The two-container
      version tested `=== 'list'` and `=== 'grid'`, which are opposites only
@@ -39398,10 +39410,11 @@ function takeOverDisplayColumn() {
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
+  CONS_PROJECTS_OPEN = false;   // #4377: openConsolidatedProjects sets it again after this
   // #4345: one overlay at a time; openConsolidatedAgents sets it again after this. Re-hide the chart and
   // grid too, so paintOrg's skip-while-hidden guard holds while another overlay has the column.
   if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
@@ -39517,12 +39530,84 @@ function openConsolidatedAgents() {
   syncPlusChrome();
   consNavLight('agents');
 }
+/* #4377 (Josh, 2026-09-28: "you could see your full projects and you could sort it in different
+   ways"): the full projects page in the consolidated display column. The rail keeps #pj-list; this
+   is a second render of the SAME rows (pjTreeRows over the same sorted list paintProjects uses) in a
+   `.pj-list.asgrid` container of its own, so it looks like the Projects tab's grid. The rail's
+   consolidated row rules are scoped to #pj-list with :where() (zero specificity, so the rail's
+   cascade is unchanged) and do not reach it. Its sort select forwards to #pj-sort, so there is one
+   sort, one stored preference and one repaint path. A row click is the rail's own action,
+   openProject: the project becomes active in the column, never a nested view. */
+function consProjectsWrap() {
+  const projects = document.getElementById('panel-projects');
+  if (!projects) return null;
+  let wrap = document.getElementById('panel-cons-projects');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'panel-cons-projects';
+    wrap.hidden = true;
+    const main = document.getElementById('pj-sort');
+    wrap.innerHTML = '<div class="cons-proj-head"><h2 class="cons-proj-title">Projects</h2>'
+      + '<label class="sortctl" for="pj-full-sort"><select id="pj-full-sort" aria-label="Sort projects">'
+      + (main ? main.innerHTML : '') + '</select>'
+      // The chevron #pj-sort has beside it: .sortctl select is appearance:none, so without it the control
+      // does not read as a dropdown (review round 1).
+      + ((main && main.parentElement && main.parentElement.querySelector('.sortctl-i')) ? main.parentElement.querySelector('.sortctl-i').outerHTML : '')
+      + '</label></div>'
+      + '<div class="pj-list asgrid" id="pj-full-list"></div>';
+    wrap.querySelector('#pj-full-sort').addEventListener('change', (e) => {
+      const m = document.getElementById('pj-sort');
+      if (!m) return;
+      m.value = e.target.value;
+      m.dispatchEvent(new Event('change'));
+    });
+    wrap.querySelector('#pj-full-list').addEventListener('click', (e) => {
+      if (e.target.closest('[data-pj-new-empty]')) { openAddProject(); return; }
+      const row = e.target.closest('[data-project]');
+      if (row) openProject(row.dataset.project);
+    });
+  }
+  if (wrap.parentElement !== projects) projects.appendChild(wrap);
+  return wrap;
+}
+/* Called from every exit of paintProjects and from the projects read's failure path, so the copy
+   never disagrees with the rail: the same rows when there are rows, the rail's own sentence (empty,
+   signed out, could not read) when there are not. */
+function paintConsProjects() {
+  if (!CONS_PROJECTS_OPEN) return;
+  const full = document.getElementById('pj-full-list');
+  const list = document.getElementById('pj-list');
+  if (!full || !list) return;
+  const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
+  setIfChanged(full, active.length && list.querySelector('[data-project]') ? pjTreeRows(active) : list.innerHTML);
+  /* The copy never marks the open project (the page closes when one opens, and the rail already says
+     which is current), and its empty-state button carries a data attribute instead of the rail's id,
+     so no id or aria-current appears twice on the page (review round 1). Done on the nodes, after
+     the write: setIfChanged compares against the string it last wrote, so this cannot cause a
+     rebuild, and a repeat write that it skips leaves these edits in place. */
+  for (const r of full.querySelectorAll('[aria-current]')) r.removeAttribute('aria-current');
+  const dup = full.querySelector('#pj-new-empty');
+  if (dup) { dup.removeAttribute('id'); dup.setAttribute('data-pj-new-empty', ''); }
+  const m = document.getElementById('pj-sort'); const f = document.getElementById('pj-full-sort');
+  if (m && f && f.value !== m.value) f.value = m.value;
+}
+function openConsolidatedProjects() {
+  if (!document.body.classList.contains('consolidated')) { showTab('projects'); return; }
+  const wrap = consProjectsWrap();
+  if (!wrap) return;
+  takeOverDisplayColumn();
+  CONS_PROJECTS_OPEN = true;
+  wrap.hidden = false;
+  paintConsProjects();
+  syncPlusChrome();
+  consNavLight('projects');
+}
 /* #4345: the top-nav click in the consolidated layout. Returns true when it handled the click, so the
    tab handler stays short (a source pin reads the first 1600 characters of it for the top-level reset). */
 function consNavClick(btn) {
   /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
-   switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
-   way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
+   switching to the tab view. Agents, Tasks and (#4377) the full projects page open there; Projects
+   pressed again puts the board back (the "easy way to get back"), not the tab path's reset. */
   /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
    the full Tasks page drop the class while the person's layout is still consolidated, and from
    there Agents must still land on the Agents view, not the board (review round 1). The burger
@@ -39532,14 +39617,18 @@ function consNavClick(btn) {
   if (!layoutConsolidated() || !['agents', 'tasks', 'projects'].includes(btn.dataset.tab)) return false;
   WATCH += 1;
   const t = btn.dataset.tab;
-  if (!document.body.classList.contains('consolidated') || t === 'projects') showTab('projects');
+  /* #4377: Projects loads the full projects page into the column; pressed again while it is open it
+     is the way back to the board (as is opening any project from it or the rail). */
+  if (t === 'projects' && CONS_PROJECTS_OPEN && document.body.classList.contains('consolidated')) { showTab('projects'); return true; }
+  if (!document.body.classList.contains('consolidated')) showTab('projects');
   if (t === 'agents') openConsolidatedAgents();
   else if (t === 'tasks') openConsolidatedTasks();
+  else openConsolidatedProjects();
   return true;
 }
 /* #4345: which top-nav item is lit in the consolidated view says what the display column holds:
-   Agents or Tasks when those are open there, Projects for the board itself, none for an overlay
-   (Settings, New Agent) that no top-nav item opens. */
+   Agents, Tasks or Projects when that page is open there; none for the board itself (#4377: a lit
+   Projects now means the full projects page) or for an overlay (Settings, New Agent). */
 function consNavLight(tab) {
   document.querySelectorAll('#tabs .tab').forEach((t) => {
     const on = tab != null && t.dataset.tab === tab;
@@ -39705,7 +39794,8 @@ function paintPjNone(which) {
   })();
   // #4345: the Agents view in the column is an overlay like the three above.
   const appAgentsOpen = (() => { const pa = document.getElementById('panel-cons-agents'); return !!(pa && !pa.hidden); })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen;
+  const appProjectsOpen = (() => { const pf = document.getElementById('panel-cons-projects'); return !!(pf && !pf.hidden); })();   // #4377
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen && !appProjectsOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -47667,14 +47757,15 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    for (const id of ['panel-create', 'panel-tasks', 'panel-cons-agents']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too; #4345: the Agents view too
+    for (const id of ['panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too; #4345: the Agents view too; #4377: the full projects page too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
-  /* #4345: project navigation closes the consolidated Agents view (its panel was hidden above) and,
-     in the consolidated view, is the board, so Projects is the lit top-nav item. */
+  /* #4345: project navigation closes the consolidated Agents view (its panel was hidden above).
+     #4377: and the full projects page; in the consolidated view it is the board, which lights no nav item. */
   if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
-  if (document.body.classList.contains('consolidated')) consNavLight('projects');
+  CONS_PROJECTS_OPEN = false;
+  if (document.body.classList.contains('consolidated')) consNavLight(null);
   /* #520: the list is the projects rail in the consolidated view, so it
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
@@ -48327,6 +48418,7 @@ function paintProjects() {
          taught two mental models on two screens. The pack draws gold for both. */
       + '<button class="btn uprime big" id="pj-new-empty" type="button">Add a project</button>'
       + '</div>');
+    paintConsProjects();   // #4377
     return;
   }
   if (!active.length) {
@@ -48337,6 +48429,7 @@ function paintProjects() {
     if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>Nothing here right now.</b><br>Everything you have is archived.</p>'
       + '</div>');
+    paintConsProjects();   // #4377
     return;
   }
   /* #2929 slice 2: do NOT replace the list's innerHTML while a cluster drag is in flight
@@ -48350,6 +48443,7 @@ function paintProjects() {
      .pj-fold-hidden classes, so this runs every paint, not just on toggle. The fold
      set was already pruned to live active ids above (before the empty-state returns). */
   applyConsFold();
+  paintConsProjects();   // #4377: the full projects page, when it is open
 }
 
 /* #2929/#3276: the fold state for the indented tree, by project id. Shared by the
@@ -49140,6 +49234,7 @@ async function loadProjects() {
       : BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
+    paintConsProjects();   // #4377: the full projects page says the same thing
     // The tiles are claims too: confident counts one element above the
     // could-not-look sentence are the same stale juxtaposition the
     // archived disclosure below is hidden to avoid.
