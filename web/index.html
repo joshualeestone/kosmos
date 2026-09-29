@@ -30305,7 +30305,10 @@ function orgPlace(nodes) {
            counter-example was not attempted, so the guard stays until one is (or a proof replaces it). */
         const oneRing = (2 * half) / ks.length;
         const laned = ks.length > 1 && !ks.some((k) => (kids.get(k.agent.sessionName) || []).length)
-          && 2 * r * Math.sin(oneRing / 2) < ORG_MIN_ARC;
+          && 2 * r * Math.sin(oneRing / 2) < ORG_MIN_ARC
+          // and only when the second ring still sits inside the radius one ring would need: a lead with 10 reports took
+          // two rings at 668px where one ring fitted at 576 (post-rebase review 3).
+          && r + ORG_LANE < ORG_MIN_ARC / (2 * Math.sin(Math.min(oneRing, Math.PI) / 2));
         if (laned) {
           /* Every face at an even half-step across the window, inner faces on the even steps and outer faces on the
              odd ones. An odd step is the midpoint of its two neighbours, so each outer face goes on the line from

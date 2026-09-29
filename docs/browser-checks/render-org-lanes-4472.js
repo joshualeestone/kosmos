@@ -2,7 +2,7 @@
 
 /**
  * kosmos#4472: on the rendered org chart, a big team with no managers in it sits on two staggered rings, and the
- * wires still do not cross or pass nearer a face than the layout promises.
+ * wires do not cross or pass nearer a face than the layout aims for, as measured on this board.
  *
  * web.org-lanes-4472.test.js pins orgPlace's geometry in node; this drives the real page on a board with a CEO over
  * three managers of fourteen reports each (tools/browser-checks.sh ORG_LANES_TREE), where every team takes two rings,
@@ -29,13 +29,20 @@ const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orgla
 const AGENTS = 46;
 const MANAGERS = 3;
 const FACE_R = 22;   // a face is 44px across
-/* The nearest a wire may come to a face that is not one of its ends: what orgPlace promises inside a two-ring team
-   (ORG_LANE_SLOT, 31px) at the tightest squeeze orgFit applies on a phone (ORG_SQUEEZE_MIN, 0.7). A tighter threshold
-   would pass only by this board's spacing, not by anything the layout guarantees (review it5). */
-const WIRE_CLEAR = 31 * 0.7;
-/* Any other wire past a face: orgPlace promises ORG_LINE_CLEAR (12px) at its natural size (review of the rebased branch:
-   holding every pair to the two-ring figure passed only by this board's spacing). */
-const CROSS_CLEAR = 12 * 0.7;
+/* The clearances are read from the served page (see readConsts), not copied here, so a change to the layout's
+   constants moves the thresholds with it. WIRE_CLEAR: a team's wire past another face of its own team, ORG_LANE_SLOT
+   at the tightest squeeze orgFit applies on a phone (ORG_SQUEEZE_MIN). CROSS_CLEAR: any other wire past a face,
+   ORG_LINE_CLEAR at the same squeeze. Both are MEASURED ON THIS BOARD: orgPlace aims for them and the check says
+   whether the drawn chart met them here, not that every tree does. */
+let WIRE_CLEAR = NaN;
+let CROSS_CLEAR = NaN;
+async function readConsts(pg) {
+  const src = await pg.content();
+  const num = (k) => Number((src.match(new RegExp('const\\s+' + k + '\\s*=\\s*([\\d.]+)\\s*;')) || [])[1]);
+  const slot = num('ORG_LANE_SLOT'); const line = num('ORG_LINE_CLEAR'); const squeeze = num('ORG_SQUEEZE_MIN');
+  if (!(slot > 0 && line > 0 && squeeze > 0)) throw new Error('a layout constant is no longer declared in the page: ORG_LANE_SLOT ' + slot + ', ORG_LINE_CLEAR ' + line + ', ORG_SQUEEZE_MIN ' + squeeze);
+  WIRE_CLEAR = slot * squeeze; CROSS_CLEAR = line * squeeze;
+}
 
 /* A proper crossing: interior to both segments (as render-org-sectors-4434 counts it). */
 function crossings(segs) {
@@ -96,6 +103,7 @@ async function settledRead(pg) {
     const ctx = await b.newContext({ viewport });
     const pg = await ctx.newPage();
     await pg.goto(URL, { waitUntil: 'networkidle' });
+    await readConsts(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     await pg.waitForTimeout(1200);
     await pg.click('[data-scope="agents"] .vt[data-layout="org"]');

@@ -107,6 +107,19 @@ test('a lead with 30 reports, and one with 50: the natural size stays near its p
   assert.deepEqual([...lanes].sort(), [0, 1], 'CONTROL: the 30 reports are not on two rings, so this tests nothing');
 });
 
+test('a small team is no bigger than on main: two rings only when they beat one (#4472)', () => {
+  /* Post-rebase review 3: two rings were taken whenever one ring was too tight at the trial radius, so a lead with
+     10 reports grew from main's 576px to 668. Measured on main / now: 10 reports 576 / 576, 11 624 / 624, 12 656 / 656,
+     13 704 / 668. */
+  for (const [n, main] of [[10, 576], [11, 624], [12, 656], [13, 704]]) {
+    const t = paint(lead(n));
+    assert.ok(t.size <= main, 'a lead with ' + n + ' reports is ' + t.size + 'px, over main\'s ' + main);
+  }
+  /* CONTROL: 13 is past the point where two rings win, so the guard has not simply switched two rings off. */
+  const lanes = new Set([...paint(lead(13)).pos.values()].filter((p) => p.parent).map((p) => p.lane));
+  assert.deepEqual([...lanes].sort(), [0, 1], 'CONTROL: a lead with 13 reports is not on two rings, so this tests nothing');
+});
+
 test('deep 100-agent trees: the median natural size over 60 seeds, and the largest (#4472)', () => {
   /* Measured over seeds 1..60, through these cards: median 1432 before #4434, 3232 with it, 2700 now; largest 2024,
      8113, 4805. (Plain cards in a different order give 2718: the heavy/light order keeps input order on ties.) The
