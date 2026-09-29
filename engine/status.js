@@ -6524,10 +6524,10 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     if (quotaPauseUntil(reported, now) !== null) {
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
     }
-    /* Past the reset: said as such for the resume sweep's six hours, then plainly at rest (the time carries no date).
-       Never the report's own text either way. */
-    const recent = now - quotaAt <= QUOTA_RESUME_WINDOW_MS;
-    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: recent ? "its Google account's shared Antigravity quota reset at " + hhmm : 'it is at rest and nothing is needed', reported: true, conflict: null };
+    /* Past the reset, while this is still its latest report: its turn was cut off and nothing has started it again
+       (the resume may be switched off, have given up, or not have landed). Said as such, never "nothing is needed"
+       (review 5), and never the report's own text. */
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: 'its turn stopped when its Google quota ran out and has not picked up again (the quota reset at ' + hhmm + ')', reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the

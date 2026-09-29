@@ -74,8 +74,8 @@ function accountProblemOf(card) {
     return { kind: 'usage', provider: 'Gemini', notify: true, text: head + todo, summary: head + todo };
   }
   /* #4588: an Antigravity agent paused on its Google account's shared quota, read from Google's own error through agy's
-     hook (status.js quotaPauseUntil), so it is firm. Every agy agent on this computer is signed in to that one account,
-     so they share it. Said without "add credits": this is a subscription's allowance. */
+     hook (status.js quotaPauseUntil), so it is firm. Every agent signed in to that account shares it. Said without "add
+     credits": this is a subscription's allowance. */
   if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
     const resetAt = Date.parse(card.quotaUntil);
     const hhmm = new Date(resetAt).toLocaleString([], { ...(resetAt - Date.now() > 20 * 3600 * 1000 ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });

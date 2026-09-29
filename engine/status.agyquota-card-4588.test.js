@@ -1,5 +1,5 @@
 'use strict';
-/* #4588: the board CARD carries quotaUntil, so the page can say when Kosmos resumes a quota-paused agy agent.
+/* #4588: the board CARD carries quotaUntil, so the page can say when a quota-paused agy agent's quota resets.
    status.agyquota-4588.test.js pins the reconcile rule; this pins the copy onto the card, the seam between them. */
 const fs = require('node:fs');
 const os = require('node:os');

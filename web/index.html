@@ -65211,7 +65211,7 @@ function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
   /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
      a subscription allowance that refills by itself: no "add credits" (review 4). */
-  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' Its Google quota refills by itself; until then, I am helping here.'
+  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
     : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;

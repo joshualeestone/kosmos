@@ -43,13 +43,16 @@ test('#4588: a question, work or a lost connection read off a screen outranks th
   assert.equal(status.reconcileReport(quota(), UNKNOWN, NOW).state, status.STATE.RATE_LIMITED);
 });
 
-test('#4588: past the reset it says so for six hours, then plainly at rest, never Paused or the raw text', () => {
-  const later = status.reconcileReport(quota(), UNKNOWN, Date.parse(RESET) + 7 * 3600e3);
-  assert.equal(later.state, status.STATE.IDLE);
-  assert.equal(later.because, 'it is at rest and nothing is needed');
+test('#4588: past the reset, while it is still the latest report, it never reads as calm (review 5)', () => {
+  for (const after of [60e3, 7 * 3600e3, 3 * 86400e3]) {
+    const later = status.reconcileReport(quota(), UNKNOWN, Date.parse(RESET) + after);
+    assert.equal(later.state, status.STATE.IDLE);
+    assert.match(later.because, /its turn stopped when its Google quota ran out and has not picked up again/, String(after));
+    assert.doesNotMatch(later.because, /nothing is needed/);
+  }
 });
 
-test('#4588: after the reset the same report reads as the ordinary idle again (CONTROL)', () => {
+test('#4588: after the reset the same report is no longer Paused, and quotes no raw text', () => {
   const r = status.reconcileReport(quota({ because: status.QUOTA_REPORT_PREFIX + ' Google said: API error: RESOURCE_EXHAUSTED ... Resets in 24m54s.' }), UNKNOWN, Date.parse(RESET) + 60 * 1000);
   assert.equal(r.state, status.STATE.IDLE);
   assert.equal(r.quotaUntil, undefined);

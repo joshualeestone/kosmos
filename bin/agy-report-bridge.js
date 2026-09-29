@@ -155,13 +155,14 @@ function readStdin() {
    seconds are each optional, but at least one must be present. */
 function quotaResetMs(error) {
   const e = typeof error === 'string' ? error : '';
-  // The quota, not any RESOURCE_EXHAUSTED: a short per-minute limit with its own "Resets in" is not the account's
-  // quota being used up (review 4). The measured text says "Individual quota reached".
-  if (!/RESOURCE_EXHAUSTED/.test(e) || !/quota/i.test(e)) return null;
-  // `m(?!s)`: the minutes of "Resets in 5m", never the m of a "500ms" (review 1).
-  const m = /Resets in\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?/i.exec(e);
-  if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined)) return null;
-  const ms = ((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0)) * 1000;
+  // The account's quota, not any RESOURCE_EXHAUSTED: Google's per-minute limit also says "Quota exceeded for metric
+  // ... per minute", so the guard is the measured phrase "quota reached" (reviews 4 and 5).
+  if (!/RESOURCE_EXHAUSTED/.test(e) || !/quota reached/i.test(e)) return null;
+  // `m(?!s)`: the minutes of "Resets in 5m", never the m of a "500ms" (review 1). Days are read too (review 5): the
+  // weekly window may print as "3d4h" (unmeasured; the measured form is "24m54s").
+  const m = /Resets in\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?/i.exec(e);
+  if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined && m[4] === undefined)) return null;
+  const ms = ((Number(m[1]) || 0) * 86400 + (Number(m[2]) || 0) * 3600 + (Number(m[3]) || 0) * 60 + (Number(m[4]) || 0)) * 1000;
   return ms > 0 ? ms : null;
 }
 

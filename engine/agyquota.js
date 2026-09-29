@@ -3,8 +3,8 @@
 /*
  * #4588: resume Antigravity (agy) agents after their Google account's shared quota resets.
  *
- * Every agy agent on a machine signs in to the same Google account (agy's sign-in is machine-wide), so they share
- * one quota. When it runs out, agy ends the turn with RESOURCE_EXHAUSTED ... "Resets in 24m54s", and
+ * Agy agents signed in to the same Google account share one quota (agy keeps one sign-in per machine today, so on
+ * one computer that is usually all of them; not measured across worlds). When it runs out, agy ends the turn with RESOURCE_EXHAUSTED ... "Resets in 24m54s", and
  * bin/agy-report-bridge.js reports an automatic idle whose `until` is that reset as an ISO time (status.js reads it
  * as Paused until then; see quotaPauseUntil). This sweep types one carry-on line into each such agent after its
  * reset has passed, the connlost-heal pattern (#3410): a nudge keeps the agent's in-flight context, a restart

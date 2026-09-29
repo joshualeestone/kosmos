@@ -4,18 +4,20 @@ Card: #4588 (priority; a user's six Gemini agents on one Google account all stop
 "Individual quota reached ... Resets in 24m54s"). This branch is PR A of part 2. The design and its correction are on
 the card (comments 5895338362 and 5895357615).
 
-## Call
-- bin/agy-report-bridge.js: a Stop whose error is RESOURCE_EXHAUSTED with "Resets in XhYmZs" is still reported IDLE
-  (agy's loop has ended), with the reset as an ISO time in the report's existing `until` field and text naming the
-  account's shared quota (Google's own words kept at the end).
-- engine/status.js: quotaPauseUntil(reported) = an AUTOMATIC idle whose `until` is a time still ahead. reconcileReport
-  reads it as the existing rate_limited state (the board's "Paused"), with the reset in its reason and `quotaUntil`;
-  the card carries quotaUntil.
-- web/index.html stateReason: a rate_limited card with quotaUntil reads "Usage limit reached. The Google quota resets
-  at 9:47 PM." (review 1); without it the wording is unchanged.
-- engine/agyquota.js + server.js: a sweep types one carry-on line into each agy agent whose reset has passed (+30 s),
-  ONE agent per sweep and at least 55 s apart (review 1), oldest reset first, at most 3 tries per reset; live-execution gate,
-  brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1. The agent's next automatic working then clears the pause.
+## Call (current, after review 5; the per-round sections below record how it got here)
+- bin/agy-report-bridge.js: a Stop whose error is RESOURCE_EXHAUSTED with "quota reached" and "Resets in [Nd][Nh][Nm][Ns]"
+  is still reported IDLE (agy's loop has ended), with the reset as a strict ISO time in the report's existing `until`
+  and a first sentence status.js keys on (QUOTA_REPORT_PREFIX); Google's own words follow, for the record.
+- engine/status.js: quotaResetOf = an automatic idle with that first sentence and a strict ISO until. Before the reset
+  (quotaPauseUntil) it reads as rate_limited (the board's Paused) with "its ... quota ran out; it resets at <time zone>";
+  after it, while still the latest report, idle with "its turn stopped when its Google quota ran out and has not picked
+  up again". Only over a screen that says nothing (agy's always). The card carries quotaUntil.
+- web/index.html: stateReason says "Usage limit reached. The Google quota resets at <time>." (the day too when more
+  than 20 hours out); the guide fallback says the Google quota refills by itself, not "add credits".
+- engine/accountproblem.js: a plain line to the person naming the shared account and the reset; notify: false.
+- engine/agyquota.js + server.js: after the reset (+30 s), one carry-on line per agent, one agent per sweep and 55 s
+  apart, oldest first, only over an idle, unknown or paused card, refusals backing off, 3 tries, a six-hour window;
+  live-execution gate and AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1.
 
 ## Rejected
 - A `blocked` report: #2456 deliberately keeps an automatic blocked from being cleared by automatic reports
@@ -109,3 +111,16 @@ Controls: each fix reds its test when removed. The engine regression set: 733/73
   NUDGE_TEXT carries no Kosmos marker (as connlost-heal and firstreply-nudge); past the six hours "at rest" replaces
   the ordinary idle reading for this one report shape.
 The engine regression set (with setup-assistant): 743/743.
+
+## Review iteration 5 (blind, opus)
+0 BLOCKER, 3 WARNING, all taken:
+- (W, SELF) past the reset the card read "quota reset at" and then "at rest and nothing is needed", a false calm when
+  no resume happened (sweep off, given up, unconfirmed). While it is still the latest report it now reads "its turn
+  stopped when its Google quota ran out and has not picked up again (the quota reset at ...)", at any age.
+- (W) "quota" did not separate the account's quota from Google's per-minute limit ("Quota exceeded for metric ... per
+  minute"): the guard is the measured phrase "quota reached", and the control is Google's real per-minute sentence.
+- (W) days were shown but never parsed: "Resets in 3d4h" now reads (unmeasured form; the measured one is "24m54s").
+- (N, taken) a test titled CONTROL that was not one is renamed; two test headers and a commit-era phrase no longer say
+  "when Kosmos resumes"; comments no longer state as fact that every agy agent on a machine shares one account; the
+  fallback line is one sentence; the page test lifts the page's own provider map.
+- (N, left) book entries are never pruned (bounded by sessions per board run).
