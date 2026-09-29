@@ -1,8 +1,9 @@
 #!/bin/bash
 # kosmos#4641: the install checks that read only files in this repo (install/setup.sh, install/kosmos,
 # install/pkg-scripts/postinstall) and need no install, sandbox, port or network. Sourced by
-# tools/test-install.sh, which calls each group where its checks sit in the install story (so the cut
-# still runs them, step 4b), and by tools/test-install-static.sh, which runs them all in the shell suite
+# tools/test-install.sh, which calls each group where its checks sit in the install story (the port,
+# update and board-off groups before its release-gate exit, so the cut runs them at step 4b; the open group
+# after it, so only a full run does), and by tools/test-install-static.sh, which runs them all in the shell suite
 # on every PR (so a merge that breaks one goes red at the merge, not at the next cut: the 0.7.11 cut
 # failed on a stale grep of setup.sh that no PR had run).
 # The caller defines chk (label, expression) and sets HERE (the repo) and SETUP (install/setup.sh).
@@ -68,7 +69,7 @@ install_static_port_checks() {
 
 install_static_update_checks() {
   chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -B1 'it is not this install.s, and this install does not start a board here now, so it is left alone' | grep -q 'if _kosmos_mode_keeps_board_off; then'"
-  chk "an update of a set-up install from before #4356 records run, so it is never asked (source; the run-it arm is below)" "sed -n '/^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME\/mode\" \\]/,/^fi\$/p' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
+  chk "an update of a set-up install from before #4356 records run, so it is never asked (source; test-install.sh has the run-it arm)" "sed -n '/^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME\/mode\" \\]/,/^fi\$/p' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
   chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login \$(_kosmos_off_why)' \"$SETUP\""
 }
 

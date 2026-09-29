@@ -5,7 +5,8 @@
 # into a sandbox. Some of its checks only read files in this repo, and one of them went stale in a merge
 # (#4466 changed a line of install/setup.sh a grep looked for) that no PR, local run or CI had run: the
 # 0.7.11 cut failed at 4b. Those checks live in tools/lib/install-static-checks.sh; test-install.sh still
-# calls them at the cut, and this runs them all here, where a merge would see them.
+# calls them where they sat (three groups before its release-gate exit, so the cut runs them; the open group
+# after it, as before, so only a full run does), and this runs them all here, where a merge would see them.
 #
 #   bash tools/test-install-static.sh
 #
@@ -33,10 +34,17 @@ if [ "$((PASS + FAIL))" -ne "$EXPECTED" ]; then
   echo "install-static: $((PASS + FAIL)) checks ran, expected $EXPECTED (a check was added or lost: update EXPECTED with it)" >&2
   exit 1
 fi
-# The cut runs these through tools/test-install.sh, one call per group where its checks sat: each group must be
-# called there exactly once, or the cut would quietly run fewer of them than this does.
+# test-install.sh calls each group exactly once, where its checks sat; the port, update and board-off groups
+# must come before its release-gate exit (the `if` on KOSMOS_INSTALL_GATE), or the cut would quietly stop
+# running them while this stayed green. The open group has always sat after it (a full run only).
+gate=$(grep -nE '^if \[ "\$\{KOSMOS_INSTALL_GATE:-0\}" = 1 \]; then$' "$INSTALL_SH" | cut -d: -f1 || true)
+if [ "$(printf '%s\n' "$gate" | grep -c .)" != 1 ]; then echo "install-static: $INSTALL_SH has no single release-gate exit to measure the calls against" >&2; exit 1; fi
 for g in install_static_port_checks install_static_update_checks install_static_board_off_checks install_static_open_checks; do
   n=$(grep -cE "^${g}([[:space:]]|$)" "$INSTALL_SH" || true)
   if [ "$n" != 1 ]; then echo "install-static: $INSTALL_SH calls $g $n times, not once (the cut would not run its checks as before)" >&2; exit 1; fi
+  at=$(grep -nE "^${g}([[:space:]]|$)" "$INSTALL_SH" | cut -d: -f1)
+  if [ "$g" != install_static_open_checks ] && [ "$at" -gt "$gate" ]; then
+    echo "install-static: $INSTALL_SH calls $g at line $at, after the release-gate exit at line $gate (the cut would skip it)" >&2; exit 1
+  fi
 done
 [ "$FAIL" -eq 0 ]

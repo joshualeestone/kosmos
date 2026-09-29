@@ -3,7 +3,8 @@
 # The untouched file must pass; a copy whose launchd restart no longer reads the choice first must fail on
 # the "restart reads the choice again first" check (the check the 0.7.11 cut failed on, there because a
 # correct change made it stale); a lib that has lost a check must fail the count; and a test-install.sh that
-# no longer calls a group must fail, because the cut would then skip that group's checks.
+# no longer calls a group must fail, and so must one that calls a cut group after the release-gate exit,
+# because the cut would then skip that group's checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 T="$(mktemp -d)"
@@ -30,4 +31,9 @@ if KOSMOS_STATIC_INSTALL_SH="$T/test-install.sh" bash "$HERE/tools/test-install-
   cat "$T/nocall.log"; echo "control: a test-install.sh that dropped a group call still passed" >&2; exit 1
 fi
 grep -q "calls install_static_board_off_checks 0 times" "$T/nocall.log" || { cat "$T/nocall.log"; echo "control: it failed, but not on the group call" >&2; exit 1; }
-echo "install-static control: clean passes, a restart that skips the choice fails on its check, a lost check fails the count, a dropped group call fails"
+{ sed '/^install_static_port_checks /d' "$HERE/tools/test-install.sh"; echo 'install_static_port_checks'; } > "$T/test-install-late.sh"
+if KOSMOS_STATIC_INSTALL_SH="$T/test-install-late.sh" bash "$HERE/tools/test-install-static.sh" > "$T/late.log" 2>&1; then
+  cat "$T/late.log"; echo "control: a cut group called after the release-gate exit still passed" >&2; exit 1
+fi
+grep -q "after the release-gate exit" "$T/late.log" || { cat "$T/late.log"; echo "control: it failed, but not on the gate position" >&2; exit 1; }
+echo "install-static control: clean passes, a restart that skips the choice fails on its check, a lost check fails the count, a dropped group call fails, a cut group after the gate exit fails"

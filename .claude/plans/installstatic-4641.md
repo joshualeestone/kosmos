@@ -5,7 +5,9 @@ The 0.7.11 staging cut failed at release.sh step 4b on a stale grep of install/s
 
 ## Finished means
 The test-install.sh checks that only read files in this repo run in CI's shell suite on every PR; the cut still
-runs them; and a break of one of them goes red in the shell suite (a control proves it).
+runs the ones it ran before (the port, update and board-off groups, which sit before test-install.sh's release-gate
+exit; the open-default check sits after it, so only a full run ever ran it, and still does); and a break of one of
+them goes red in the shell suite (a control proves it).
 
 ## Change
 - `tools/lib/install-static-checks.sh` (new, sourced): the 23 checks, found by reading every `chk` in
@@ -19,11 +21,13 @@ runs them; and a break of one of them goes red in the shell suite (a control pro
   cut runs them as before (the selftest block above them still uses `_kosmos_expected_port` from the lib).
 - `tools/test-install-static.sh` (new): defines the same `chk`, runs `install_static_all`, fails on any FAIL, on a
   count other than 23 (so a group that loses a check does not pass quietly), and unless tools/test-install.sh calls
-  each of the four groups exactly once (so the cut keeps running them).
+  each of the four groups exactly once, with the three cut groups before its release-gate exit (so the cut keeps
+  running them).
 - `tools/test-install-static-control-4641.sh` (new): the runner passes on setup.sh; fails, on the exact check, on a
   copy whose launchd restart no longer reads the choice first (a regression, where 0.7.11's was a check made stale
   by a correct change: either way a setup.sh change now meets the check on the PR); fails the count on a lib
-  with one check removed; and fails the group-call guard on a test-install.sh with one group call removed.
+  with one check removed; fails the group-call guard on a test-install.sh with one group call removed; and fails it
+  on one whose port group is called after the release-gate exit.
 - `package.json` `test:shell`: `bash -n` the lib, then the runner, then the control, beside `bash -n tools/test-install.sh`.
 
 ## Rejected
@@ -40,8 +44,9 @@ runs them; and a break of one of them goes red in the shell suite (a control pro
 - Shell-wiring guards (tools.every-test-runs, tools.shell-shard-4317, tools.all-node-tests-considered-1934): 18/18.
 
 ## Weakest premise
-The group-call guard counts calls at column 0 in test-install.sh; a call made dead (after an `exit`, inside a
-branch the cut never takes) would still count. It fails safe on an indented or renamed call.
+The group-call guard counts calls at column 0 and places them against the release-gate exit; a call made dead
+some other way (after another `exit`, inside a branch the cut never takes) would still count. It fails safe on an
+indented or renamed call.
 
 The classifier is a text rule, not a proof: a check whose expression reads a repo file through a variable other
 than SETUP or HERE would be missed and stay cut-only. The static set only grows by someone moving a check into the
