@@ -405,15 +405,19 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 2500));
           await route.continue();
         });
-        await p.fill('#pj-post', 'My slow post 4639-d' + slug);
-        await p.click('#pj-post-go');
-        await p.waitForTimeout(300);
-        await scrollBack();
-        const scrolledMid = await roomPos();
-        await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), 'My slow post 4639-d' + slug, { timeout: GROW_MS });
-        await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
-        const afterSlow = await roomPos();
-        await p.unroute('**/api/project/*/room');
+        let scrolledMid, afterSlow;
+        try {
+          await p.fill('#pj-post', 'My slow post 4639-d' + slug);
+          await p.click('#pj-post-go');
+          await p.waitForTimeout(300);
+          await scrollBack();
+          scrolledMid = await roomPos();
+          await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), 'My slow post 4639-d' + slug, { timeout: GROW_MS });
+          await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
+          afterSlow = await roomPos();
+        } finally {
+          await p.unroute('**/api/project/*/room');   // never leave the delay on for the arms after this one
+        }
         if (scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4) ok('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands');
         else bad('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands',
           JSON.stringify({ scrolledMid, afterSlow }));

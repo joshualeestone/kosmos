@@ -9,6 +9,8 @@
  *   J2  an agent's message arriving while they read back does not move them (the existing rule)
  *   J3  the person's OWN send takes them to the bottom, showing it
  *   J4  after that, the agent's next message keeps them at the bottom
+ *   J5  with a search filtering the thread, their send does not move them
+ *   J6  someone who scrolls up while a slow send is in flight is not pulled back when it lands
  *
  * Harness: loaded over file:// with fetch answered here (render-dm-reply-4256.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -46,6 +48,7 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
         const u = String(url);
         if (u.includes('/thread') && init && init.method === 'POST') {
           const body = JSON.parse(init.body || '{}');
+          if (window.__slowPost) await new Promise((r) => setTimeout(r, window.__slowPost));
           window.__fx = { messages: window.__fx.messages.concat([{ at: new Date().toISOString(), text: body.text,
             delivery: { state: 'placed', paneState: 'idle' } }]) };
           return enc({ delivery: { state: 'placed', at: new Date().toISOString() }, recorded: true });
@@ -113,13 +116,40 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     const afterNext = await pos();
     chk(afterNext.gap <= 8, 'J4 after their send, the agent\'s next message keeps them at the bottom', afterNext.gap + 'px above the floor');
 
+    // J5
+    await page.fill('#d-talk-search', 'Agent message');
+    await page.waitForFunction(() => TALK_QUERY === 'Agent message', null, { timeout: 5000 });
+    await page.evaluate(() => { const el = document.getElementById('d-dmthread'); el.scrollTop = Math.floor(el.scrollHeight * 0.35); });
+    const filteredUp = await pos();
+    await page.fill('#d-say', 'My filtered message 4639-e');
+    await page.click('#d-send');
+    await page.waitForFunction(() => !TALK_SENDING, null, { timeout: 5000 });
+    const afterFiltered = await pos();
+    await page.fill('#d-talk-search', '');
+    await page.waitForFunction(() => TALK_QUERY === '', null, { timeout: 5000 });
+    chk(filteredUp.gap > 200 && Math.abs(afterFiltered.top - filteredUp.top) <= 4,
+      'J5 with a search filtering the thread, their send does not move them', JSON.stringify({ filteredUp, afterFiltered }));
+
+    // J6
+    await page.evaluate(() => { window.__slowPost = 2500; });
+    await page.fill('#d-say', 'My slow message 4639-f');
+    await page.click('#d-send');
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { const el = document.getElementById('d-dmthread'); el.scrollTop = Math.floor(el.scrollHeight * 0.35); });
+    const scrolledMid = await pos();
+    await page.waitForFunction(() => !TALK_SENDING, null, { timeout: 8000 });
+    await page.evaluate(() => { window.__slowPost = 0; });
+    const afterSlow = await pos();
+    chk(scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4,
+      'J6 someone who scrolls up while a slow send is in flight is not pulled back when it lands', JSON.stringify({ scrolledMid, afterSlow }));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } catch (e) {
     chk(false, 'the check itself', String((e && e.message) || e));
   } finally {
     await browser.close().catch(() => {});
   }
-  if (ran < 5) { console.log('dm-sendjump: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 7) { console.log('dm-sendjump: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (fail.length) { console.log('dm-sendjump: ' + fail.length + ' FAILED'); process.exit(1); }
   console.log('dm-sendjump: all good, ' + ran + ' checks');
 })();

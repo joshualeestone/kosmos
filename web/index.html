@@ -32970,8 +32970,7 @@ function holdFloorOnResize(el) {
 /* #4639 (Josh, 2026-09-29, "like Discord"): the person's OWN message takes them to
    the newest row, wherever they were reading. An agent's post never moves them;
    that rule stays with setThread and paintRoom, untouched. Not while a search is
-   filtering the list: their message may not be in it, and the filtered list does
-   not follow the tail. */
+   filtering the list. */
 function jumpToOwnSend(el, query) {
   if (!el || String(query || '').trim()) return;
   pinToBottom(el);
