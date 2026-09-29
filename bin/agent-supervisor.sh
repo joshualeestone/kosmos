@@ -606,6 +606,11 @@ if [ -z "$adopt" ]; then
     # quotes nor backslashes can appear in SUPPORT_DIR paths we write.
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
+    # #4477: codex reads AGENTS.md only up to project_doc_max_bytes (32 KiB by default) and
+    # silently drops the rest, which is Kosmos's own rules (appended after the person's brief).
+    # Raised to Kosmos's instruction-file cap (engine/workerfile.js MAX_BYTES, 256 KiB); the
+    # Windows launch passes the same value and engine/codex-docbytes-4477.test.js pins both.
+    DOCBYTES_CFG="project_doc_max_bytes=262144"
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
       # whatever is current NOW, which is what stops an EXISTING agent meeting a
@@ -627,10 +632,10 @@ if [ -z "$adopt" ]; then
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
     fi
   elif [ "$RUNNER" = gemini ]; then
     # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's
