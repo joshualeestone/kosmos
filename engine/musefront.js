@@ -87,24 +87,34 @@ function bodyOf(text) {
   const end = text.indexOf(']');
   return end === -1 ? '' : text.slice(end + 1).trim();
 }
+/* The person's own words: the body without Kosmos's framing around it (review round 1). In front, a reply's
+   '(answering: "...") ' (engine/messages.js, #4256 / #3745); after, the reactions note (' [kosmos] ...',
+   chat.dmReactionNews, #3650) and a room's catch-up note (' [This room has been talking without you: ...'). */
+function wordsOf(text) {
+  let b = bodyOf(text).replace(/^\(answering: "[^"]*"\)\s*/, '');
+  for (const cut of [' [kosmos] ', ' [This room has been talking']) { const at = b.indexOf(cut); if (at !== -1) b = b.slice(0, at); }
+  return b.trim();
+}
 /* A short message that only asks the agent to stop. Narrow on purpose: "stop posting duplicates in
    the room and fix X" is an instruction to carry out, not a stop, so anything longer is a normal message. */
 const STOP_WORDS = new Set(['stop', 'stop now', 'stop it', 'please stop', 'stop please', 'stop working', 'stop posting',
   'pause', 'please pause', 'pause now', 'you can stop', 'you can pause', 'halt', 'hold', 'stop stop', 'stfu']);
 function isStopRequest(text) {
   if (kindOf(text) !== 'operator') return false;
-  const said = bodyOf(text).toLowerCase().replace(/[.!,?\u2026]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const said = wordsOf(text).toLowerCase().replace(/[.!,?\u2026]+/g, ' ').replace(/\s+/g, ' ').trim();
   return STOP_WORDS.has(said);
 }
 /* What the pane and the stop note call a waiting message: its words, short. */
 function shortOf(text) {
-  const b = bodyOf(text) || text;
+  const b = wordsOf(text) || text;
   const one = b.replace(/\s+/g, ' ');
   return one.length > 60 ? one.slice(0, 57) + '...' : one;
 }
 
 /** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
-const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
+const WORKING_EVERY_MS = 50 * 1000;
+/* #4569 review round 1: the most background posts one digest turn carries. */
+const DIGEST_MAX = 40;   // under the report bridge's 60 s throttle, so no beat is dropped
 
 /**
  * The front's logic, with its edges passed in so a test can drive it:
@@ -117,6 +127,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   let line = '';
   const queue = [];
   let running = false;
+  const STOP_NOTES = new Set();   // #4569: stop notes waiting or running (a second stop leaves them alone)
+  let stopNoteRunning = false;
   let stopTurn = null;   // ends the turn that is running now, when runTurn handed one over
   let waiters = [];
   const decoder = new StringDecoder('utf8');   // a character split across two reads stays one character
@@ -124,7 +136,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   const settle = () => { if (!running && !queue.length) { const w = waiters; waiters = []; w.forEach((f) => f()); } };
 
   /* #4569: the next turn. A person's message is already at the front (submit puts it there). When the
-     next is background, every waiting background post is taken with it, as one turn. */
+     next is background, every waiting background post is taken with it, as one turn, including ones that
+     came after a colleague's addressed message (they are one turn, so that colleague waits one turn, not
+     many). At most DIGEST_MAX go in (review round 1: one argv string); the rest are counted, not sent. */
   function next() {
     const first = queue.shift();
     if (kindOf(first) !== 'background') return first;
@@ -132,8 +146,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     for (let i = queue.length - 1; i >= 0; i--) if (kindOf(queue[i]) === 'background') rest.unshift(queue.splice(i, 1)[0]);
     if (!rest.length) return first;
     const all = [first, ...rest];
+    const kept = all.slice(-DIGEST_MAX);   // the newest, which the room has not moved past yet
+    const left = all.length - kept.length;
     return '[Kosmos: ' + all.length + ' room posts arrived while you were busy, all background, none addressed to you.'
-      + ' Read them together; answer only if one needs you.]\n' + all.join('\n');
+      + (left ? ' The ' + left + ' oldest are left out; run kosmos room to read them if you need to.' : '')
+      + ' Read them together; answer only if one needs you.]\n' + kept.join('\n');
   }
 
   async function pump() {
@@ -142,13 +159,14 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     try {
       while (queue.length) {
         const prompt = next();
+        stopNoteRunning = STOP_NOTES.delete(prompt);
         report('working');
         const beat = setInterval(() => report('working'), workingEveryMs);
         if (beat.unref) beat.unref();
         let r;
         try { r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } }); }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
-        finally { clearInterval(beat); stopTurn = null; }
+        finally { clearInterval(beat); stopTurn = null; stopNoteRunning = false; }
         const text = r && typeof r.text === 'string' ? printable(r.text).trim() : '';
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
@@ -171,7 +189,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;
-      while (at < queue.length && kindOf(queue[at]) === 'operator') at++;
+      while (at < queue.length && (kindOf(queue[at]) === 'operator' || STOP_NOTES.has(queue[at]))) at++;
       queue.splice(at, 0, text);
       if (running) write('(queued first: a message from your operator; Muse is still on the last message)\n');
     } else {
@@ -195,6 +213,15 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
      dropped. Then the stop itself runs, with a note saying what was dropped, so the agent tells the
      person it stopped (and which of their own messages it did not get to). */
   function stopFor(text) {
+    /* Review round 1: Josh stops twice. A second stop while the first stop's note is running or waiting must
+       not end that note or replace it, or the list of what was dropped (and the agent saying it stopped) is lost.
+       The rest of what waits is still dropped, and the pane says so. */
+    if (stopNoteRunning || queue.some((t) => STOP_NOTES.has(t))) {
+      const extra = queue.filter((t) => !STOP_NOTES.has(t));
+      queue.splice(0, queue.length, ...queue.filter((t) => STOP_NOTES.has(t)));
+      write('(already stopping' + (extra.length ? '; ' + extra.length + (extra.length === 1 ? ' more waiting message was' : ' more waiting messages were') + ' dropped' : '') + ')\n');
+      return;
+    }
     const waiting = queue.splice(0, queue.length);
     const mine = waiting.filter((t) => kindOf(t) === 'operator');
     const others = waiting.length - mine.length;
@@ -205,7 +232,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (ended) parts.push('the turn you were on was ended');
     if (others) parts.push(others + (others === 1 ? ' other waiting message was' : ' other waiting messages were') + ' dropped');
     if (mine.length) parts.push('these earlier messages from your operator were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
-    queue.push('[Kosmos: your operator asked you to stop, so ' + (parts.join('; ') || 'nothing else was waiting') + '. Stop the work you were doing.]\n' + text);
+    const note = '[Kosmos: your operator asked you to stop, so ' + (parts.join('; ') || 'nothing else was waiting') + '. Stop the work you were doing.]\n' + text;
+    STOP_NOTES.add(note);
+    queue.push(note);
   }
 
   function feed(chunk) {

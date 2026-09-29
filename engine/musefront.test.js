@@ -326,3 +326,49 @@ test('#4569: background posts that pile up during a turn run as ONE turn; addres
   c.pending[0](OK('done')); await c.f.drained();
   assert.equal(c.calls[1].prompt, BG(1));
 });
+
+test('#4569 review round 1: a stop with Kosmos\'s framing around it (a reply quote, a reactions note, a catch-up note) still stops', async () => {
+  for (const [label, words] of [
+    ['a reply quote', '(answering: "working on it") stop'],
+    ['a reactions note', 'stop [kosmos] reactions from the person you have not been told about yet: \u{1F44D} on "done"'],
+    ['a catch-up note', 'you can pause [This room has been talking without you: 3 earlier posts]'],
+  ]) {
+    const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+    h.f.feed('long job\r'); h.f.feed(OP(words) + '\r');
+    await within(h.f.drained(), label + ': the stop did not end the turn');
+    assert.equal(h.stops[0], 1, label + ' was not read as a stop');
+  }
+  // CONTROL: framing around an instruction does not make it a stop.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('(answering: "stop") keep going') + '\r');
+  assert.equal(c.stops[0], 0, 'a quoted "stop" in a reply stopped the turn');
+  c.pending[0](OK('done')); await c.f.drained();
+});
+
+test('#4569 review round 1: a second stop leaves the first stop\'s note running, so what was dropped is still said', async () => {
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(OP('are you there') + '\r');
+  h.f.feed(OP('stop') + '\r');            // ends turn 0; the note becomes turn 1 (held)
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.calls.length, 2, 'the stop note did not start');
+  assert.match(h.calls[1].prompt, /dropped unread: "are you there"/);
+  h.f.feed(BG(1) + '\r');
+  h.f.feed(OP('STOP!') + '\r');           // must not end the note or replace it
+  assert.equal(h.stops[1], 0, 'the second stop ended the first stop\'s note');
+  assert.match(h.out(), /already stopping; 1 more waiting message was dropped/);
+  h.pending[1](OK('Stopped, sorry.'));
+  await within(h.f.drained(), 'the note did not finish');
+  assert.equal(h.calls.length, 2, 'something ran after the note: ' + h.calls.map((c) => c.prompt.slice(0, 30)).join(' | '));
+});
+
+test('#4569 review round 1: a digest carries at most 40 posts, the newest, and says how many it left out', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 45; n++) h.f.feed(BG(n) + '\r');
+  h.pending[0](OK('done')); await h.f.drained();
+  const d = h.calls[1].prompt;
+  assert.match(d, /^\[Kosmos: 45 room posts arrived while you were busy, all background, none addressed to you\. The 5 oldest are left out; run kosmos room to read them if you need to\./);
+  assert.ok(!d.includes('thanks 5\n') && d.includes('thanks 6\n') && d.endsWith('thanks 45'), 'not the newest 40');
+  assert.equal(h.calls.length, 2);
+});

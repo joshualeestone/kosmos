@@ -23,9 +23,17 @@ This PR is the write-up's fixes 1-3, in the Muse front only. Fix 4 (show the que
 - Rejected: skipping background posts for Muse entirely (the agent would miss room context it may need);
   a digest keeps them, in one turn.
 
+- A whole-room post from the person ("[from your operator in project ... for the whole room]") counts as the
+  person's too: a room-wide "stop" stops every busy Muse member. Claude and Codex agents only weigh such a post;
+  for Muse it is mechanical on purpose (Josh's report is that a stop was not heard).
+- Review round 1: the stop test reads the person's own words, without a reply's '(answering: "...")' in front or
+  the reactions / catch-up notes after; a second stop leaves the first stop's note alone (its list of what was
+  dropped survives); a digest carries at most 40 posts, the newest, and says how many it left out.
+
 ## Weakest premise
 That the stop request reaches the front as its own typed message while a turn runs. It does today (chat.js
-types each message and presses Enter); a room post with a quote before the words is not recognised as a stop.
+types each message and presses Enter). Framing Kosmos adds that this code does not know about would make a stop
+read as an ordinary message (it still goes first, so the agent sees it after its current turn).
 
 ## Tests (engine/musefront.test.js)
 Priority order (control: colleague order kept); stop ends the turn and names what it dropped; a long
