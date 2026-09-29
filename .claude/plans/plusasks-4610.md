@@ -51,3 +51,13 @@ The earlier "review round" on this branch was the loop's own; this is the first 
 Weakest premise, carried to #4616: at the coordinator a device id is whatever a signing-in client presents; a client
 with the account's credentials that presents this Mac's id would now be granted without a person's Allow. The id is
 never on a read route any more, which narrows who can learn it.
+
+## Blind review round 2 (Sonnet, a separate reviewer, 2026-09-29 13:37) and what changed
+- A grant still out when the identity changed could land and mark the NEXT identity granted (device_id survives a
+  Forget by design), so that Mac was never granted. Now an epoch bumped by every identity change; an answer counts only
+  for its own epoch (tested with a slowed fake grant; removing the epoch check fails it).
+- The "granted" mark is reset at every identity change (all four sites, through forgetPendingSnapshot) and a reported
+  success is re-tried if the id is still pending ten minutes later.
+- The pre-change-Mac test raced two grant sources; now it has only the tick. A stranger arm that only read the snapshot
+  (and so could not fail) is removed; the tick test holds that case.
+Kept, stated: this Mac is filtered from Allowed by its id, which a client on the same account could present (#4616).

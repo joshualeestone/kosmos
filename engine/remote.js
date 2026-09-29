@@ -1171,6 +1171,7 @@ function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
    nothing waiting (pendingDevices). */
 function forgetPendingSnapshot() {
   try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
+  resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
 }
 /* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
    behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
@@ -1189,7 +1190,17 @@ let selfAllowing = false;
    keeps the old snapshot listing it, which re-spawned the grant every minute forever), and a grant that fails is
    logged once per id rather than retried in silence. Both reset on a new identity (signinRegister). */
 let selfGrantedId = '';
+let selfGrantedAt = 0;
 let selfFailLoggedId = '';
+/* Round 2: every identity change bumps this, and a grant's answer counts only if it still matches, so a grant started
+   for one account that lands after a re-sign-in cannot mark the next account's device as granted (device_id survives a
+   Forget by design). A reported success is re-checked after SELF_REGRANT_MS if the snapshot still lists the id. */
+let selfEpoch = 0;
+const SELF_REGRANT_MS = 10 * 60 * 1000;
+function resetSelfGrant() {
+  selfEpoch += 1;
+  selfAllowAt = 0; selfAllowing = false; selfGrantedId = ''; selfGrantedAt = 0; selfFailLoggedId = '';
+}
 const SELF_ALLOW_RETRY_MS = 60000;
 /* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
 function selfPendingInSnapshot() {
@@ -1202,21 +1213,24 @@ function selfPendingInSnapshot() {
 }
 function allowSelfQuietly() {
   const id = typeof read().device_id === 'string' ? read().device_id : '';
-  if (!id || selfAllowing || !enrolled() || selfGrantedId === id) return false;
+  if (!id || selfAllowing || !enrolled()) return false;
+  if (selfGrantedId === id && Date.now() - selfGrantedAt < SELF_REGRANT_MS) return false;
   if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
+  const epoch = selfEpoch;
   selfAllowing = true;
   selfAllowAt = Date.now();
   Promise.resolve()
     .then(() => deviceAllow(id, thisComputerDeviceName()))
     .then((r) => {
-      if (r && r.ok) { selfGrantedId = id; return; }
+      if (epoch !== selfEpoch) return;   // an identity change since this grant started: its answer is not ours
+      if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
       if (selfFailLoggedId !== id) {
         selfFailLoggedId = id;
         process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
       }
     })
     .catch(() => null)
-    .finally(() => { selfAllowing = false; });
+    .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
@@ -1962,7 +1976,7 @@ async function signinRegister(name) {
   if (macIdHere() !== before) { stopChild(); forgetPendingSnapshot(); }   // #4610
   /* #4610 (Josh's ruling): grant this Mac's own sign-in now. After this call returns, so the register's in-flight
      flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
-  selfAllowAt = 0; selfGrantedId = ''; selfFailLoggedId = '';
+  resetSelfGrant();
   setImmediate(allowSelfQuietly);
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
@@ -2039,7 +2053,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); selfAllowAt = 0; selfAllowing = false; selfGrantedId = ''; selfFailLoggedId = ''; stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
