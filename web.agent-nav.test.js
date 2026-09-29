@@ -56,8 +56,8 @@ test('each shipped box lives in the section the mock puts it in', () => {
 test('only Talk is on screen before a click, and every section can be reached from the nav', () => {
   const secs = [...PANEL.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
-  // Eight since Skills joined (#477); nine since the Files screen (#3757).
-  assert.equal(secs.length, 9, 'the page has ' + secs.length + ' sections, not nine');
+  // Eight since Skills joined (#477); nine since the Files screen (#3757); ten since Swarm Settings (#4433).
+  assert.equal(secs.length, 10, 'the page has ' + secs.length + ' sections, not ten');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['talk'], 'the landing is not Talk alone');
   const gos = [...PANEL.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   // #2916: pills are now a SUBSET of sections -- memory folds under the 'model' pill (Model and
