@@ -275,3 +275,16 @@ follows because this is code after convergence.
   removing the filter reds it ("43979 43979"). Also: the -z "$want" override is commented, the two start-time helpers
   are told apart, and the first notice says the bound counts from joining or the last departure.
 Measured: plain and KOSMOS_NO_WAIT=1 both 0 failures.
+
+## Review iteration 20 (blind, sonnet)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) the inheritance arm checked 4 of the 9 names in KOSMOS_WAIT_CONTROL_VARS: it now sets every listed name and the
+  stand-in node reports every one, so the assertion follows the list. Control: exporting KOSMOS_WAIT_QUEUE_CEIL_S after
+  the unset reds it and names it.
+- (W, SELF) "nothing below reads them" was too broad: the comment now says descendants lose the overrides on purpose,
+  a nested run-tests.sh in a test included (it no longer inherits an operator's KOSMOS_IGNORE_MACHINE_CLAIM).
+- (N, taken) unmark also removes a stray .tmp; an arm pins that an empty UTC reading is stale on its own (only the
+  UTC helper stubbed).
+- DISCLOSED: my first commit of this round (2a0c56aed) went in with the arm RED. A case pattern's ")" inside a nested $( )
+  ends the substitution on bash 3.2, so the arm never ran as written, and I committed without gating on the test's
+  exit status. Fixed in 2ad1a172d (the list is built before the command), committed only after both runs passed.
