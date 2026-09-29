@@ -43,15 +43,35 @@ test('a board running older engine code than the disk says so, and outranks both
   const engine = { startedAt: '2026-08-23T11:51:00Z', staleSince: '2026-08-23T15:30:00Z' };
   const t = toast({ baked: '0.2.75', served: '0.2.76', offer: { version: '0.2.77' }, engine });
   assert.equal(t.v, 'engine');
-  assert.match(t.html, /Kosmos changed on disk/);
-  assert.match(t.html, /running code from \d/);
-  assert.match(t.html, /kosmos restart/);
+  // #4408: plain words, no Terminal command (#996), no "running code from 9:59".
+  assert.match(t.html, /Kosmos needs a quick restart/);
+  assert.match(t.html, /A Kosmos file was changed on this computer, and Kosmos is still running the old copy\./);
+  assert.match(t.html, /Kosmos cannot restart itself here, so it keeps running the old copy until it is next started\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /restart your computer|Restarting your computer/i, 'a remedy that is false for the boards that reach this arm');
+  assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal|changed on disk|running code from/i);
+  assert.doesNotMatch(t.html, /ut-engine-restart/, 'a board that cannot restart itself offered a button that would fail');
   assert.doesNotMatch(t.html, /previous version|ut-reload|0\.2\.77/, 'a lower state rendered beside the one that settles it');
   // Null and a current engine fall through to the states below.
   for (const e of [null, { startedAt: '2026-08-23T11:51:00Z', staleSince: null }]) {
     const f = toast({ baked: '0.2.75', served: '0.2.76', engine: e });
     assert.equal(f.v, 'stale', 'an engine that is not stale hid the page-stale state');
   }
+});
+
+test('#4408: a stale board that can restart itself offers ONE Restart Kosmos button, no Terminal wording', () => {
+  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js', 'server.js'], canRestart: true };
+  const t = toast({ baked: '0.2.75', served: '0.2.75', engine });
+  assert.equal(t.v, 'engine-btn');
+  assert.match(t.html, /<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos<\/button><\/div>/, "the button is the house gold action");
+  // #4408: it names what changed and says it changed here (the tester's was an agent's edit, not an update).
+  assert.match(t.html, /Kosmos files were changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
+  assert.match(t.html, /A restart picks it up\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /finish updating/, 'it said "updating" about a file an agent edited');
+  assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal/i);
+  assert.equal(t.listeners.length, 1, 'the button is not wired');
+  // CONTROL: the same board without canRestart gets no button (the arm above can fail).
+  const n = toast({ baked: '0.2.75', served: '0.2.75', engine: { ...engine, canRestart: false } });
+  assert.doesNotMatch(n.html, /ut-engine-restart/);
 });
 
 test('a page older than the running Kosmos says so, and offers the one thing that fixes it', () => {
@@ -380,4 +400,31 @@ test('#4347: What\'s New deciding or open, or the person active in the last 30 s
   assert.equal(hold({ kosmosWhatsNewPending: false, kosmosLastActivity: Date.now() - 60000 }, false), false, 'CONTROL: a quiet page is not held');
   assert.match(SCRIPT, /async function whatsNewCheck\(\) \{\n[\s\S]{0,400}?window\.kosmosWhatsNewPending = true; window\.kosmosWhatsNewSince = Date\.now\(\);/, 'whatsNewCheck no longer marks itself pending');
   assert.match(SCRIPT, /\} finally \{\n\s*if \(typeof window !== 'undefined'\) window\.kosmosWhatsNewPending = false;/, 'whatsNewCheck no longer clears its pending mark');
+});
+
+test('#4408: a Kosmos+ remote view (a phone) says "your Kosmos computer" and offers no restart of it', () => {
+  const slot = { dataset: {}, innerHTML: '' };
+  const doc = {
+    getElementById: (id) => (id === 'utoast-slot' ? slot : { addEventListener() {}, focus() {}, hidden: true }),
+    querySelector: () => ({ getAttribute: () => '0.2.75' }),
+  };
+  const engine = { startedAt: '2026-09-28T14:59:00Z', staleSince: '2026-09-28T15:10:00Z', changed: ['engine/roles.js'], canRestart: true };
+  const draw = (remote) => {
+    slot.innerHTML = ''; slot.dataset = {};
+    new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE', 'offlineRemoteView',
+      page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'renderUpdateToast'])
+      + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), false, '0.2.75', () => false, null, null, engine, () => remote);
+    return slot.innerHTML;
+  };
+  const far = draw(true);
+  assert.match(far, /A Kosmos file was changed on your Kosmos computer \(engine\/roles\.js\)/);
+  assert.doesNotMatch(far, /ut-engine-restart/, 'a phone was offered a restart of the Mac');
+  assert.doesNotMatch(far, /cannot restart itself/, 'a phone said a board that can restart itself cannot');
+  assert.match(far, /Restart it from Kosmos on that computer/);
+  engine.canRestart = false;
+  assert.match(draw(true), /cannot restart itself/, 'CONTROL: a board that cannot restart itself still says so on a phone');
+  engine.canRestart = true;
+  const near = draw(false);
+  assert.match(near, /changed on this computer/, 'CONTROL: the computer itself says this computer');
+  assert.match(near, /ut-engine-restart/, 'CONTROL: and gets the button');
 });

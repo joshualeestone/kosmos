@@ -525,7 +525,8 @@ test('the board reports when its own engine is behind the disk, and says nothing
    * running across a merge answers with old code while looking current.
    * Measured 2026-08-23: six hours, three merged PRs, /api/roles serving the
    * morning's file. A version comparison cannot see it (nothing bumped), so
-   * the field compares loaded modules' mtimes to the process start. Always
+   * the field compares each loaded module's content with what the process
+   * loaded (#4408: an mtime alone called a byte-for-byte restore stale). Always
    * present, null when current, so the fixture's field list is stable.
    */
   const board = await req('/api/status');
@@ -536,20 +537,33 @@ test('the board reports when its own engine is behind the disk, and says nothing
   assert.ok('staleSince' in first, 'staleSince is absent rather than null');
   assert.equal(first.staleSince, null, 'a freshly started server reports itself stale');
 
-  /* POSITIVE CONTROL: a loaded module whose file moves on. The sweep is cached
-     for the poll's five seconds, so wait it out once; mtime is restored after,
-     and nothing in the file changes. */
-  const target = require.resolve('./engine/roles');
-  const before = fs.statSync(target);
-  const future = new Date(Date.now() + 10000);
-  fs.utimesSync(target, future, future);
+  /* #4408 (an external tester on prod): a file TOUCHED, or restored byte-for-byte, is not stale; only changed CONTENT
+     is, and the changed file is named. A throwaway module at the app root (never a real source file:
+     another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
+  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  const dir = nodePath.join(__dirname, `.probe-freshness-${process.pid}`);
+  const probe = nodePath.join(dir, 'x.js');
+  const rel = nodePath.basename(dir) + '/x.js';
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(probe, 'module.exports = 1;\n');
   try {
+    require(probe);
+    await new Promise((r) => setTimeout(r, 5200));   // the sweep is cached for five seconds; this one remembers it
+    await req('/api/status');
+    const future = new Date(Date.now() + 10000);
+    fs.utimesSync(probe, future, future);
+    await new Promise((r) => setTimeout(r, 5200));
+    const touched = JSON.parse((await req('/api/status')).body).engine;
+    assert.equal(touched.staleSince, null, 'a file whose time moved but whose content did not was reported as stale (#4408)');
+    fs.writeFileSync(probe, 'module.exports = 2;\n');
     await new Promise((r) => setTimeout(r, 5200));
     const again = JSON.parse((await req('/api/status')).body).engine;
-    assert.ok(again.staleSince, 'a changed engine file went unreported');
+    assert.ok(again.staleSince, 'CONTROL: a file whose content changed went unreported');
+    assert.deepEqual(again.changed, [rel], 'the changed file is not named');
     assert.equal(again.startedAt, first.startedAt, 'startedAt moved, so it is not the process start');
   } finally {
-    fs.utimesSync(target, before.atime, before.mtime);
+    delete require.cache[probe];
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
