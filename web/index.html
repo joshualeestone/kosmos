@@ -46354,6 +46354,8 @@ let ORGCHART_FILE_PENDING = null;
 /* Each chosen or dropped file takes a number; an answer for an older one is dropped, so two quick uploads cannot
    paint the first one's rows over the second. */
 let ORGCHART_FILE_SEQ = 0;
+/* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
+   the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
 async function orgchartSendFile(file, consent, seq) {
   const msg = document.getElementById('orgchart-msg');
@@ -46414,6 +46416,7 @@ document.getElementById('orgchart-file').addEventListener('change', (e) => {
   orgchartTakeFile(f);
 });
 document.getElementById('orgchart-consent-go').addEventListener('click', () => {
+  if (ORGCHART_CREATING) return;   // as orgchartTakeFile: a read must not paint over a create in flight
   const f = ORGCHART_FILE_PENDING;
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
@@ -46526,7 +46529,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
     });
     result = await res.json().catch(() => null);
-    ORGCHART_CREATING = false; previewBtn.disabled = false;
+    /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
+       during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
     if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
@@ -46536,8 +46540,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       + ((err && err.message) ? err.message : 'network error') + '). Try again.';
     return;
   }
-  if (gen !== ORGCHART_GEN) return;   // superseded during the fetch: do not touch the screen
+  if (gen !== ORGCHART_GEN) { ORGCHART_CREATING = false; previewBtn.disabled = false; return; }   // superseded during the fetch
   if (!result) {
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
@@ -46551,6 +46556,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and read as a bare "No agents were created", hiding the real reason on a 15-20 person
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
+    ORGCHART_CREATING = false; previewBtn.disabled = false;
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = result.error ? String(result.error) : 'Kosmos refused the request.';
@@ -46593,6 +46599,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     if (!ok) unfixed.push(f.name);
     else if (!f.to) orphans.push(f.name);
   }
+  ORGCHART_CREATING = false; previewBtn.disabled = false;
   if (gen !== ORGCHART_GEN) return;
   if (created.length && !refused.length) {
     countEl.textContent = 'Created ' + created.length

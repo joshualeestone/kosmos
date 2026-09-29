@@ -179,7 +179,8 @@ async function run() {
 
     // NO CLAUDE
     const p4 = await page();
-    await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: ['Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.'] } }));
+    const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy
+    await p4.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { unavailable: true, problems: [NO_MODEL] } }));
     await openPanel(p4);
     if (await p4.$('#orgchart-file-btn')) {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
