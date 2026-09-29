@@ -35,7 +35,9 @@ the words. The behaviour (an agent actually closing a tab) is measured after the
   which tabs an agent opens, so it is not cheap.
 
 ## Weakest premise
-That a written rule changes what agents do with the browser. Measured only after release. The
+That a written rule changes what agents do with the browser. Measured only after release.
+Also reasoned, not measured: an existing agent with a managed doctrine span gets the section through
+doctrine.js planFor, which is heading-generic (doctrine.test.js 13/13); the test here pins missingFrom. The
 Windows check shows the text reaches a Windows-created boot file; the block has no win32 branch, so
 there is no separate Windows wording to diverge.
 
