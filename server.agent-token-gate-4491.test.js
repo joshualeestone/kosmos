@@ -190,11 +190,18 @@ test('task message and task built pass the gate with only an agent token; close 
   for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
     assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: {} })), `POST ${p} was reachable with only an agent token`);
   }
-  /* An encoded slash passes the gate (the pattern is judged before the handler decodes), and the handler records
-     nothing for it (refused, or no project by that name). */
-  const enc = await call('POST', '/api/project/a%2Fb/task/1/message', { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
-  assert.ok(!refusedAtGate(enc), 'control: an encoded slash was refused at the gate, so this proves nothing about the handler');
-  assert.ok(enc.code === 403 || enc.code === 404, 'an encoded slash reached a task: ' + enc.code + ' ' + enc.text.slice(0, 120));
+});
+
+test('an encoded slash passes the gate and then names no project: 404 (#4491 slice 3)', async (t) => {
+  /* The pattern is judged before the handler decodes the project, so `a%2Fb` passes the gate as one segment; the
+     handler decodes it to `a/b`, which no stored project has. A member token, so the 404 is the project lookup. */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [{ id: 'a', name: 'a', agents: ['mara'] }, { id: 'b', name: 'b', agents: ['mara'] }];
+  t.after(() => { projectsEngine.readAll = realAll; board.restore(); });
+  const enc = await call('POST', '/api/project/a%2Fb/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'hi' } });
+  assert.ok(!refusedAtGate(enc), 'control: an encoded slash was refused at the gate');
+  assert.equal(enc.code, 404, 'an encoded slash was not a 404: ' + enc.code + ' ' + enc.text.slice(0, 120));
 });
 
 test('task message refuses an agent that is not on the project, before recording anything (#4491 slice 3)', async (t) => {
@@ -281,6 +288,27 @@ test('task message: a pane held by a stranger is not taken for our agent; an unr
   const u = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'while unreadable' } });
   assert.equal(u.code, 503, 'an unreadable project list was not a 503: ' + u.code + ' ' + u.text.slice(0, 160));
   assert.deepEqual(said, ['from a stranger pane']);
+});
+
+test('task message does not tell an assignee that has left the project, and says so (#4491 slice 3)', async (t) => {
+  /* Removing an agent from a project does not unassign it, so tasks.whoOf still names it; its reply would be refused
+     as not on the project, so it is not told, and `delivered` says why. */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara'] }];
+  tasksEngine.say = (id, num) => ({ number: Number(num) });
+  tasksEngine.whoOf = () => ['mara', 'gone-agent'];
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD, 'sec-fetch-site': 'same-origin', origin: base }, body: { text: 'from the person' } });
+  assert.equal(r.code, 200, r.text.slice(0, 160));
+  const delivered = JSON.parse(r.text).delivered;
+  const gone = delivered.find((d) => d.agent === 'gone-agent');
+  assert.ok(gone && /not on this project any more/.test(gone.because), 'the departed assignee was told, or not said: ' + JSON.stringify(delivered));
+  /* CONTROL: the member is still sent the notification (whatever its delivery outcome), so the filter is membership. */
+  const mara = delivered.find((d) => d.agent === 'mara');
+  assert.ok(mara && !/not on this project/.test(mara.because || ''), 'control: the member was filtered too: ' + JSON.stringify(delivered));
 });
 
 test('membership is exact for a carded agent, and by key only for a token that resolved without a roster row (#4491 slice 3)', async (t) => {

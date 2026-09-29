@@ -3761,7 +3761,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (removing, restarting or
-   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the
+   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and
+   keep requiring the
    board token. The header only, never `token` in the body: this gate runs before the body is
    read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
@@ -3795,6 +3796,10 @@ function sameAgentName(a, b, byKey) {
   const key = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const ka = key(a);
   return ka !== null && ka === key(b);
+}
+/* A caller whose token resolved without a roster row (`paneless`, on the result or its card): its name is the key. */
+function panelessCaller(tokenSender) {
+  return !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
 }
 function projectHasAgent(stored, name, byKey) {
   return (stored.agents || []).some((a) => sameAgentName(a, name, byKey));
@@ -16459,7 +16464,8 @@ const server = http.createServer(async (req, res) => {
      { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
-     a proof (an enforcing board still needs the board token, or the agent's own token via AGENT_TOKEN_ROUTE_PATTERNS (#4491), to reach this at all). An identified agent may mark or
+     a proof (an enforcing board still needs the board token, or the agent's own token via
+     AGENT_TOKEN_ROUTE_PATTERNS (#4491), to reach this at all). An identified agent may mark or
      clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
      only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
@@ -16506,7 +16512,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 503, { error: 'we could not read the projects, so the task was not marked' });
           return;
         }
-        if (card && proj && !projectHasAgent(proj, card.sessionName, !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless))))) {
+        if (card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
@@ -16589,7 +16595,7 @@ const server = http.createServer(async (req, res) => {
         const targetCard = !viaScreen && !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
         const byPane = !viaScreen && !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;   // the screen is never held to membership, so its pane is not looked up
         const senderCard = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
-        const byKey = !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
+        const byKey = panelessCaller(tokenSender);
         /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded,
            delivered or valved (so it hears why, not the breaker), as task built refuses it. ⚠️ Advisory, not a
            boundary: it applies only to a caller that identifies itself (a token, or a pane tied to an agent); a
@@ -16651,7 +16657,13 @@ const server = http.createServer(async (req, res) => {
         /* #3564: a swarm switched off in this project is not told about its tasks. */
         const offHere = projects.swarmOffSet(id);
         const others = senderName ? named.filter((m) => !sameAgentName(m, senderName, byKey)) : named;
-        const recipients = others.filter((m) => !offHere.has(String(m)));
+        /* #4491 slice 3: an assignee that has left the project stays on its tasks (removal does not unassign), but is
+           not told about them: its reply would be refused as not on the project. Said in `delivered`, like an Off
+           swarm. If the project list cannot be read here, everyone is told, as before. */
+        let memberRecord = null;
+        try { memberRecord = projects.readAll().find((x) => x.id === id) || null; } catch { memberRecord = null; }
+        const departed = (m) => !!memberRecord && !projectHasAgent(memberRecord, String(m), false);
+        const recipients = others.filter((m) => !offHere.has(String(m)) && !departed(m));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
@@ -16666,6 +16678,9 @@ const server = http.createServer(async (req, res) => {
         const delivered = others.filter((m) => offHere.has(String(m))).map((m) => ({
           agent: m, state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: projects.SWARM_OFF_SENTENCE(m),
         }));
+        for (const m of others.filter((x) => !offHere.has(String(x)) && departed(x))) {
+          delivered.push({ agent: m, state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: m + ' is not on this project any more, so it was not told' });
+        }
         for (const one of recipients) {
           let outcome;
           try { outcome = await chat.deliverAsync(one, line, roster); }

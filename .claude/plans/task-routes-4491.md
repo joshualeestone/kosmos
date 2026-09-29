@@ -44,6 +44,15 @@ onto main.
   (before, `roster.find` on null threw and came back as a 400) and for an unreadable project list; task built
   answers 503 for an unreadable project list too.
 
+- DECIDED (review round 5): removing an agent from a project does not unassign it from that project's tasks
+  (engine/projects.js, on purpose), so tasks.whoOf still names a departed agent, and task message used to notify it
+  with "reply in the task", a reply this slice now refuses. A task message is therefore not delivered to an assignee
+  that is no longer on the project; `delivered` lists it as not sent, with the reason (like an Off swarm). Rejected:
+  letting a current assignee past membership, which reopens the non-member write this slice closes. If the project
+  list cannot be read at delivery time, everyone is told, as before. Residual, stated: task built still refuses a
+  departed assignee's mark (it did before this slice, on the pane path).
+- The paneless test is one helper (panelessCaller), shared by both handlers with sameAgentName/projectHasAgent.
+
 ## Weakest premise
 That no legitimate agent messages a task on a project it is not a member of. Task built has refused that since
 its own review; a coordinator-style agent that relays into other projects' tasks would now be refused on
@@ -63,4 +72,6 @@ project.
 - A stranger's pane is not taken for our agent; unreadable project lists are 503 on both routes.
 - Task built matches a paneless token by key (control: refused when not on the record).
 - A paneless sender is left off its own notification (control: the co-assignee is notified).
+- A departed assignee is not told and is listed with the reason (control: the member is sent it).
+- An encoded slash passes the gate and is a 404 for a member token.
 - The 570 pin: the pattern list pinned exactly, like the set.
