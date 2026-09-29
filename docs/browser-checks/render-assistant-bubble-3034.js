@@ -178,6 +178,62 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(pos.right === 16 && pos.bottom === 16, 'B2 it sits in the bottom-right corner', JSON.stringify(pos));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'bubble-light.png') }); }
 
+    // B2x (#4405, Josh 15:14-15:15): hold the pointer on the bubble about a second and a small circled X shows at its
+    // top-right. The hit area is ONLY the circle: a click just outside it (still inside the X's square box, on the
+    // avatar) opens the chat, the circle itself switches the Guide off (Settings > Help), reversibly.
+    const xs = async () => page.evaluate(() => {
+      const x = document.getElementById('asb-close'), b = document.getElementById('asb');
+      const xr = x.getBoundingClientRect(), br = b.getBoundingClientRect();
+      return { on: x.classList.contains('on') && getComputedStyle(x).visibility === 'visible', cx: xr.left + xr.width / 2, cy: xr.top + xr.height / 2,
+        w: xr.width, bRight: br.right, bTop: br.top, bx: br.left + br.width / 2, by: br.top + br.height / 2, label: x.getAttribute('aria-label') };
+    });
+    // The stored setting, read back (a GET: an empty POST patch answers without it).
+    const saOn = async () => page.evaluate(async () => { const r = await fetch('/api/settings'); const b = await r.json(); return b && b.setupAssistant ? b.setupAssistant.on : 'missing'; });
+    chk((await saOn()) === true, 'B2x precondition: the Guide switch reads ON before the X is tried');
+    let x0 = await xs();
+    chk(!x0.on, 'B2x the X is not shown before a hover', JSON.stringify(x0));
+    await page.mouse.move(x0.bx, x0.by); await page.waitForTimeout(300);
+    chk(!(await xs()).on, 'B2x a short hover (0.3 s) does not show it yet');
+    await page.waitForTimeout(1000);
+    x0 = await xs();
+    chk(x0.on && x0.w === 20 && Math.abs(x0.cx - (x0.bRight - 4)) <= 1 && Math.abs(x0.cy - (x0.bTop + 4)) <= 1,
+      'B2x held about a second, a 20px X shows on the bubble\'s top-right corner', JSON.stringify(x0));
+    chk(x0.label === 'Close the Kosmos Guide', 'B2x the X is labelled "Close the Kosmos Guide"', String(x0.label));
+    // Tight: a point 11.3px from the X's centre (outside its 10px circle, INSIDE its 20px square box) is the avatar.
+    const nearX = { x: x0.cx - 8, y: x0.cy + 8 };
+    const hitNear = await page.evaluate((p) => { const e = document.elementFromPoint(p.x, p.y); return e && (e.closest('#asb-close') ? 'x' : e.closest('#asb') ? 'bubble' : e.tagName); }, nearX);
+    chk(hitNear === 'bubble', 'B2x just outside the circle (inside its square box) is the avatar, not the X', String(hitNear));
+    await page.mouse.click(nearX.x, nearX.y);
+    chk(await waitFor(page, () => !document.getElementById('asp').hidden, 4000), 'B2x a click just outside the circle opens the chat');
+    chk((await saOn()) === true, 'B2x and it does not switch the Guide off');
+    await page.evaluate(() => asbFold());
+    chk(await waitFor(page, () => !document.getElementById('asb').hidden && document.getElementById('asp').hidden, 4000), 'B2x precondition: the chat folded back to the bubble');
+    // Keyboard: reaching the bubble shows the X at once, and Tab goes on to it.
+    await page.mouse.move(2, 2);
+    await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });   // the click above left the bubble focused
+    let tabs = 0;
+    while (tabs < 200 && !(await page.evaluate(() => document.activeElement && document.activeElement.id === 'asb'))) { await page.keyboard.press('Tab'); tabs++; }
+    const kb = await page.evaluate(() => document.activeElement && document.activeElement.id === 'asb' && document.getElementById('asb-close').classList.contains('on'));
+    await page.keyboard.press('Tab');
+    const kb2 = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    chk(kb && kb2 === 'asb-close', 'B2x from the keyboard, the X shows when the bubble is reached and Tab goes on to it', JSON.stringify({ kb, kb2, tabs }));
+    await page.keyboard.press('Shift+Tab'); await page.mouse.move(2, 2); await page.waitForTimeout(400);
+    // The circle itself: switches the Guide OFF (recorded) and the bubble goes.
+    x0 = await xs();
+    await page.mouse.move(x0.bx, x0.by); await page.waitForTimeout(1250);
+    x0 = await xs();
+    chk(x0.on, 'B2x precondition: the X shows again after a hold');
+    await page.mouse.click(x0.cx, x0.cy);
+    chk(await waitFor(page, () => document.getElementById('asb').hidden && !document.getElementById('asb-close').classList.contains('on'), 4000),
+      'B2x a click on the circle hides the bubble and its X');
+    const xOff = await saOn();
+    chk(xOff === false, 'B2x and it is recorded as the Kosmos Guide switch OFF', String(xOff));
+    // Back ON for the rest of the check (the switch is the way back).
+    await setting({ on: true });
+    await boot();
+    // The bubble needs the guide agent to exist, so its return proves the X deleted nothing.
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'B2x switched back on, the same guide\'s bubble returns (the X deleted nothing)');
+
     // B15: the corner is shared. On an agent's page the chat's Send button lives there: the bubble lifts
     // above it, Send is still what the pointer hits, and the open panel does not cover it either.
     await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
