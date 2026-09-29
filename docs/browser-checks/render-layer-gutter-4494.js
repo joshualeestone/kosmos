@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-back upd-back uc-go updconfirm
+// Browser-check-surface: fr-back upd-back uc-go updconfirm firstrun
 'use strict';
 
 /**
