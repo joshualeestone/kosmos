@@ -3693,7 +3693,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
   /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
-     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan. */
+     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan:
+     any local process can make this single-threaded board read every token file per request by
+     sending random hex, with no rate valve. That is the same accepted cost the exempt report and
+     reply routes already carry, not a new class. */
   return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
@@ -3990,6 +3993,8 @@ const server = http.createServer((req, res) => {
     // board token, and re-enforces auth in the handler (agent token OR board
     // token; no-credential refused on an enforcing board). It stays OUT of
     // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
+    // #4491: AGENT_TOKEN_ROUTES are exempt too, but only with a valid agent token in the header
+    // (the `exemptAgentToken` term below), unlike the two sets above.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
       || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     // #3055: the names-only world list is exempt too (see PUBLIC_WORLD_ROUTES) -- it carries
@@ -12215,7 +12220,8 @@ const server = http.createServer((req, res) => {
            `source` above (that says which reader answered for the account/model).
            resolveAgentSender identifies by the presented launch token when there
            is one, and otherwise falls back to the tmux pane. A pane id is
-           enumerable and this route is unauthenticated, so a pane-identified
+           enumerable and, on a non-enforcing board, this route needs no
+           credential (#4491: an enforcing one wants the board or an agent token), so a pane-identified
            agent is the weak case the card cares about; naming it makes a possible
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share
