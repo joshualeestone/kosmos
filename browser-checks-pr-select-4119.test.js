@@ -241,3 +241,67 @@ test('only changed lines inside hunks count, including one that itself begins wi
   assert.equal(sel.hits('dashed', text), true);
   assert.equal(sel.hits('index', text), false);
 });
+
+/* ---- `function`: a change inside the body of a page function a check declares (#4119, Liu Kang's go-ahead) ---- */
+
+test('#3828 replay: render-assistant-hosted-3660 is selected by `function asbAvatar`, which no other rule reaches', () => {
+  const c = '0f95dcf36'; // #3828, squash-merged: it changed only lines INSIDE asbAvatar(), and the 0.6.95 cut found it
+  needCommit(c);
+  const got = rows(run(`${c}^`, c));
+  assert.equal(got.get('render-assistant-hosted-3660'), 'function asbAvatar', 'selected by the function rule, and by it alone');
+  assert.match(got.get('render-assistant-bubble-3034') || '', /\bfunction asbAvatar\b/);
+  // CONTROL: without its declaration the check is not selected at all, so this is the rule doing it.
+  const diff = execFileSync('git', ['diff', `${c}^...${c}`, '--', 'web/index.html'], { cwd: __dirname, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const page = execFileSync('git', ['show', `${c}:web/index.html`], { cwd: __dirname, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const src = fs.readFileSync(path.join(CHECKS, 'render-assistant-hosted-3660.js'), 'utf8');
+  const orig = fs.readFileSync;
+  fs.readFileSync = (p, ...a) => (String(p).endsWith('render-assistant-hosted-3660.js')
+    ? src.replace(/^\/\/ Browser-check-functions:.*\n/m, '') : orig(p, ...a));
+  try { assert.equal(sel.select(diff, [], page).has('render-assistant-hosted-3660'), false, 'something else now selects it; update this arm'); }
+  finally { fs.readFileSync = orig; }
+});
+
+test('touchedLines numbers the head side: each added line, and the head line a removed line sat before', () => {
+  const diff = [
+    'diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -10,4 +10,4 @@', ' ctx10', '-gone', '+new11', ' ctx12', '--- a removed line starting with dashes', ' ctx13',
+    '@@ -40,2 +40,3 @@', ' ctx40', '+added41', ' ctx42',
+  ].join('\n');
+  assert.deepEqual(sel.touchedLines(diff), [11, 11, 13, 41]);
+});
+
+test('functionRange runs from the declaration to its own closing brace, and is null for a function the page lacks', () => {
+  const page = ['x', 'function outer(a) {', '  if (a) {', '  }', '  function inner() {', '  }', '}', 'function next() {', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(page, 'outer'), [2, 7]);
+  assert.deepEqual(sel.functionRange(page, 'inner'), [5, 6]);
+  assert.equal(sel.functionRange(page, 'missing'), null);
+});
+
+test('declaredFunctions is read from a check\'s first lines only', () => {
+  assert.deepEqual(sel.declaredFunctions('// Browser-check-surface: a\n// Browser-check-functions: asbAvatar fooBar\n'), ['asbAvatar', 'fooBar']);
+  assert.deepEqual(sel.declaredFunctions('1\n2\n3\n4\n5\n// Browser-check-functions: late\n'), []);
+});
+
+test('through select(): a line inside the declared body selects, a line outside does not, and a vanished function selects', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const [start, end] = sel.functionRange(page, 'asbAvatar');
+  const hunk = (at) => ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    `@@ -${at},1 +${at},1 @@`, '-  const probeOld = 1;', '+  const probeNew = 2;'].join('\n');
+  assert.match((sel.select(hunk(start + 2), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/);
+  assert.doesNotMatch((sel.select(hunk(end + 5), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/, 'CONTROL: a line after the body');
+  assert.doesNotMatch((sel.select(hunk(start - 1), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/, 'CONTROL: the line before the declaration');
+  const renamed = page.replace('function asbAvatar(', 'function asbAvatarRenamed(');
+  assert.match((sel.select(hunk(end + 5), [], renamed).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(not on the page\)/);
+});
+
+test('every function a check declares is defined on the page today, so no declaration selects on every diff', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const declared = [];
+  for (const f of fs.readdirSync(CHECKS).filter((x) => x.endsWith('.js'))) {
+    for (const fn of sel.declaredFunctions(fs.readFileSync(path.join(CHECKS, f), 'utf8'))) {
+      declared.push(`${f}:${fn}`);
+      assert.ok(sel.functionRange(page, fn), `${f} declares ${fn}, which web/index.html no longer defines (or whose closing brace is not at its own indentation)`);
+    }
+  }
+  assert.ok(declared.length >= 2, `CONTROL: the walker found ${declared.length} declarations; it must see the two this card added`);
+});
