@@ -364,10 +364,22 @@ test('#4468: status answers during a 25-recipient post, and concurrent posts nev
     new Promise((_, reject) => setTimeout(() => reject(new Error('status waited behind the room post')), 500)),
   ]);
   assert.equal(statusDuringPost.status, 200);
+  let dmSettled = false;
+  const personDm = postJson('/api/agent/load1/thread', {
+    text: 'the person waits behind the room fanout',
+  }).then((answer) => { dmSettled = true; return answer; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(dmSettled, false, 'the person-facing DM was refused instead of queued behind the busy pane');
   releaseFirstGap();
-  const delivered = await post;
+  const [delivered, dmDelivered] = await Promise.all([post, personDm]);
   assert.equal(JSON.parse(delivered.body).delivery.state, chat.DELIVERY.PLACED);
-  assert.equal(gaps.length, 25, 'one unchanged paste-to-Enter gap per recipient');
+  assert.equal(JSON.parse(dmDelivered.body).delivery.state, chat.DELIVERY.PLACED);
+  assert.equal(gaps.length, 26, 'one unchanged paste-to-Enter gap per room recipient plus the queued DM');
+  const busyPane = [...paneEvents.values()].find((events) => events.some((event) => /the person waits behind the room fanout/.test(event))) || [];
+  assert.equal(busyPane.length, 4, 'the busy pane did not get the room post and person DM as two complete deliveries');
+  assert.equal(busyPane[1], 'Enter', 'the person DM pasted before the room post submitted');
+  assert.match(busyPane[2], /the person waits behind the room fanout/);
+  assert.equal(busyPane[3], 'Enter');
 
   paneEvents.clear();
   const firstPost = postJson('/api/post', {
