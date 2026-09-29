@@ -217,12 +217,30 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Tab');
     const kb2 = await page.evaluate(() => document.activeElement && document.activeElement.id);
     chk(kb && kb2 === 'asb-close', 'B2x from the keyboard, the X shows when the bubble is reached and Tab goes on to it', JSON.stringify({ kb, kb2, tabs }));
-    await page.keyboard.press('Shift+Tab'); await page.mouse.move(2, 2); await page.waitForTimeout(400);
-    // The circle itself: switches the Guide OFF (recorded) and the bubble goes.
+    // Keyboard focus leaving backwards (X -> bubble -> the element before it) takes the X away.
+    await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Shift+Tab'); await page.waitForTimeout(100);
+    const kbOff = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id, on: document.getElementById('asb-close').classList.contains('on') }));
+    chk(kbOff.focus !== 'asb' && kbOff.focus !== 'asb-close' && !kbOff.on, 'B2x focus leaving the bubble backwards hides the X', JSON.stringify(kbOff));
+    // The circle itself: switches the Guide OFF (recorded) and the bubble goes. Start from nothing shown, so the
+    // re-hold below is what shows it (not keyboard focus left over from above).
+    await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+    await page.mouse.move(2, 2); await page.waitForTimeout(400);
+    chk(!(await xs()).on, 'B2x precondition: nothing shown before the re-hold');
     x0 = await xs();
     await page.mouse.move(x0.bx, x0.by); await page.waitForTimeout(1250);
     x0 = await xs();
-    chk(x0.on, 'B2x precondition: the X shows again after a hold');
+    chk(x0.on, 'B2x the X shows again after a hold');
+    // A save that fails keeps the X shown and focused and says so, and records nothing (one refused POST).
+    let refusedX = 0;
+    const refuseX = (route) => { if (route.request().method() === 'POST' && refusedX === 0) { refusedX++; return route.fulfill({ status: 500, body: '{}' }); } return route.continue(); };
+    await page.route('**/api/settings', refuseX);
+    await page.mouse.click(x0.cx, x0.cy);
+    const failed = await waitFor(page, () => !document.getElementById('asb-close-msg').hidden, 4000);
+    const fs2 = await page.evaluate(() => ({ on: document.getElementById('asb-close').classList.contains('on'), focus: document.activeElement && document.activeElement.id, bub: !document.getElementById('asb').hidden }));
+    await page.unroute('**/api/settings', refuseX);
+    chk(refusedX === 1 && failed && fs2.on && fs2.focus === 'asb-close' && fs2.bub, 'B2x a failed save keeps the X shown and focused, the bubble stays, and says so', JSON.stringify({ refusedX, failed, ...fs2 }));
+    chk((await saOn()) === true, 'B2x and nothing was recorded off');
+    x0 = await xs();
     await page.mouse.click(x0.cx, x0.cy);
     chk(await waitFor(page, () => document.getElementById('asb').hidden && !document.getElementById('asb-close').classList.contains('on'), 4000),
       'B2x a click on the circle hides the bubble and its X');

@@ -1670,8 +1670,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 /* #4405 (Josh 15:14-15:15): hold the pointer on the bubble about a second and a small circled X shows at its top-right.
    It turns the Kosmos Guide switch OFF (Settings > Help; reversible, deletes nothing). A SEPARATE element, not inside the
    bubble (a button cannot hold a button), sized exactly to its circle with no padding, so only the circle closes and
-   anywhere else on the avatar still opens the chat. The bubble is right 16 / bottom 16, 52px: the X's centre sits on its
-   top-right edge. */
+   anywhere else on the avatar still opens the chat. The bubble is right 16 / bottom 16, 52px: the X's centre is 4px in
+   from the corner of the bubble's box. */
 .asb-close { position: fixed; right: 10px; bottom: 54px; z-index: 45; width: 20px; height: 20px; padding: 0; margin: 0; border: 0;
   border-radius: 50%; box-sizing: border-box; background: var(--k-ink); color: var(--k-surface); font: 700 14px/20px system-ui, sans-serif;
   text-align: center; cursor: pointer; box-shadow: 0 0 0 2px var(--k-surface); opacity: 0; visibility: hidden; transition: opacity .12s; }
@@ -65087,6 +65087,8 @@ function asbPaint() {
   /* #4405: the X follows a lifted bubble (its centre on the bubble's top-right edge: bottom + 52 - 14). */
   const xb = document.getElementById('asb-close');
   if (xb) { xb.style.bottom = (parseFloat(bub.style.bottom) || 16) + 38 + 'px'; if (bub.hidden) asbCloseShow(false); }
+  const xm = document.getElementById('asb-close-msg');
+  if (xm) xm.style.bottom = (parseFloat(bub.style.bottom) || 16) + 14 + 'px';
   /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
      a question is out. The same signal draws the dots on the folded bubble and the row in the chat. */
   /* A reply that landed after the board's last snapshot outranks a "working" the snapshot still carries (#2660's
@@ -65651,18 +65653,27 @@ function asbCloseWire() {
   x.addEventListener('pointerenter', () => clearTimeout(leave));
   x.addEventListener('pointerleave', out);
   bub.addEventListener('focus', () => { if (bub.matches(':focus-visible')) asbCloseShow(true); });
-  x.addEventListener('blur', () => { if (!bub.matches(':hover')) asbCloseShow(false); });
+  // Keyboard focus leaving the bubble for anything but its X (Shift+Tab back, a click elsewhere) takes the X away.
+  bub.addEventListener('blur', (e) => { if (e.relatedTarget !== x && !bub.matches(':hover')) asbCloseShow(false); });
+  x.addEventListener('blur', (e) => { if (e.relatedTarget !== bub && !bub.matches(':hover')) asbCloseShow(false); });
+  let msgTimer = 0;
   x.addEventListener('click', async (e) => {
     e.stopPropagation();
     const ok = await asbSwitchOff();
-    asbCloseShow(false);
     const msg = document.getElementById('asb-close-msg');
-    if (!ok && msg) {
+    if (ok) {
+      asbCloseShow(false);
+      asbFocusPage();
+      return;
+    }
+    // A failed save keeps the X shown and focused, so "try again" is one press away.
+    asbCloseShow(true);
+    x.focus();
+    if (msg) {
       msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.';
       msg.hidden = false;
-      setTimeout(() => { msg.hidden = true; }, 5000);
-    } else if (ok) {
-      asbFocusPage();
+      clearTimeout(msgTimer);
+      msgTimer = setTimeout(() => { msg.hidden = true; }, 5000);
     }
   });
 }
