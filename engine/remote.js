@@ -1183,7 +1183,8 @@ function forgetPendingSnapshot() {
    remote device cannot claim it. Every other device still asks.
    Retried from the supervisor's 15s tick (ensure) while the running tunnel's snapshot still lists it (a failed call,
    a register still in flight when it first ran, or a Mac signed in before this change), at most once a minute and
-   never two at once. NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
+   never two at once within one identity (after an identity change the old call may still be finishing; its answer is
+   ignored by epoch). NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
 let selfAllowAt = 0;
 let selfAllowing = false;
 /* Blind review round 1: once the grant for an id succeeds it is not asked again (a tunnel whose poll keeps failing

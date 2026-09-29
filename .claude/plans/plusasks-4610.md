@@ -61,3 +61,11 @@ never on a read route any more, which narrows who can learn it.
 - The pre-change-Mac test raced two grant sources; now it has only the tick. A stranger arm that only read the snapshot
   (and so could not fail) is removed; the tick test holds that case.
 Kept, stated: this Mac is filtered from Allowed by its id, which a client on the same account could present (#4616).
+
+## Blind review round 3 (Opus, a separate reviewer, 2026-09-29 13:46): nothing above NIT (converged)
+Fixed without changing behaviour: two tests waited a fixed 300 ms for the sign-in's own grant (flake-prone on a loaded
+runner); they now wait for it. The "never two at once" comment now says within one identity.
+Named, not changed (NITs): the grant reads remote.json's device_id and does not fall back to the in-memory minted id
+if that write failed; no test drives setupComplete / cancelledAfter / abandonChangedIdentity against the grant reset
+(the epoch test uses resetForTests); stopChild does not wait for the old tunnel to exit, so for up to ~5s a dying
+tunnel could rewrite the old snapshot; the browser check sets the sign-in state by hand rather than driving it.

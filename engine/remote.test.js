@@ -2791,7 +2791,9 @@ test('#4610 reading pending never spawns, even while this Mac\'s own sign-in is 
   await remote.signinVerify('her@example.com', '111111');
   assert.equal((await remote.signinRegister('readmac')).ok, true);
   const self = remote.read().device_id;
-  await new Promise((r) => setTimeout(r, 300));   // let the sign-in's own grant finish first
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
   /* Clear the once-a-minute throttle that grant just set, or a spawn from the read path would be blocked by the
      throttle and this test could not tell the two apart (measured: it passed with the read-path call put back). */
   remote.resetForTests();
@@ -2838,7 +2840,9 @@ test('#4610 round 1: through the supervisor tick, ONLY this Mac\'s own id is gra
   assert.equal((await remote.signinRegister('strangermac')).ok, true);
   await until(() => remote.status().state === 'up', 'the tunnel to come up');
   const self = remote.read().device_id;
-  await new Promise((r) => setTimeout(r, 300));   // the sign-in's own grant
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
   remote.resetForTests();                          // clear the throttle and the granted mark, as a later tick would find it
   remote.setOn(true);
   remote.ensure(4600);
