@@ -2474,8 +2474,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    animation, per the same rule the DM busy-line follows). They are decorative
    (aria-hidden), so the meaning rides in the text label, which sits in
    --k-ink-2 -- the same muted ink the .atask/.amodel/.ltask/.lmodel lines
-   already use on this ground, so it clears AA. `.act` is already
-   reduced-motion-safe. font-weight 400 so it does not inherit .lstate's 600. */
+   already use on this ground, so it clears AA. `.act` fades, and does not
+   move, under reduced motion (#4591). font-weight 400 so it does not inherit .lstate's 600. */
 .alsowork { display: inline-flex; align-items: center; gap: 6px;
             font-size: .8125rem; font-weight: 400; color: var(--k-ink-2); }
 .acard .alsowork { align-self: center; margin-top: 6px; }
