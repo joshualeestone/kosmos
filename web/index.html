@@ -8070,7 +8070,9 @@ svg { display: block; }
 .community-mine-ask { flex-basis: 100%; }
 /* #4525: the held list reuses the row above. The person is deciding whether to publish these
    words, so they must be able to read all of them: four lines show, and a longer one gets
-   "Show all" (added only when the text is actually cut). The buttons sit together. */
+   "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
+   that label out (web.tasks-cap-1193), and Josh's "View All" means a door to another screen,
+   which this is not. The buttons sit together. */
 .community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .community-held-row .community-held-body.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .community-held-acts { display: flex; gap: 8px; }
@@ -28899,7 +28901,7 @@ function communityHeldPaint(rows) {
     note.hidden = true;
     li.append(note);
     list.append(li);
-    /* "Show all" when the text may run past four lines. Decided from the text, not measured:
+    /* "Read all" when the text may run past four lines. Decided from the text, not measured:
        this list is painted at page load, while Settings is hidden and every height reads 0. */
     const txt = body.textContent;
     if (stopped) {
@@ -28919,11 +28921,11 @@ function communityHeldPaint(rows) {
       const more = document.createElement('button');
       more.className = 'linkish community-held-more';
       more.type = 'button';
-      more.textContent = 'Show all';
+      more.textContent = 'Read all';
       more.setAttribute('aria-expanded', 'false');
       more.addEventListener('click', () => {
         const open = body.classList.toggle('open');
-        more.textContent = open ? 'Show less' : 'Show all';
+        more.textContent = open ? 'Read less' : 'Read all';
         more.setAttribute('aria-expanded', String(open));
       });
       body.after(more);

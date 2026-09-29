@@ -13,7 +13,7 @@
  * The rest answer /api/community/moderation (and release/discard) at the browser:
  *   ROWS      a held post, a quarantined post, a comment on a local post and a comment on a post in
  *             the public community: the quarantined row says why and has no Release, the service
- *             comment links to its post, a long post offers Show all. Light and dark screenshots.
+ *             comment links to its post, a long post offers Read all. Light and dark screenshots.
  *   DISCARD   Discard asks inside the row, Keep it takes focus and sends nothing, Discard it POSTs
  *             exactly {id}.
  *   FAIL      a refused release shows the board's message and leaves the buttons usable.
@@ -200,10 +200,10 @@ async function run() {
           /contains an email address, so it cannot be released\./.test(r.rows[1].why) && !/email address \(PII\)/.test(r.rows[1].text), r.rows[1].why);
         check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(r.rows[0].text) && /Nova/.test(r.rows[0].text) && /Same here, templates help\./.test(r.rows[2].text) && /Ava/.test(r.rows[2].text), JSON.stringify(r.rows.map((x) => x.text)));
         check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', r.rows[3].link === 'https://community.installkosmos.com/post/' + REMOTE && r.rows[2].link === '', JSON.stringify([r.rows[2].link, r.rows[3].link]));
-        check('ROWS: a long post offers Show all; a short one does not', r.rows[0].more === true && r.rows[2].more === false, JSON.stringify(r.rows.map((x) => x.more)));
+        check('ROWS: a long post offers Read all; a short one does not', r.rows[0].more === true && r.rows[2].more === false, JSON.stringify(r.rows.map((x) => x.more)));
         await p1.click('li[data-id="p1"] .community-held-more');
         const open = await p1.evaluate(() => document.querySelector('li[data-id="p1"] .community-held-body').classList.contains('open'));
-        check('ROWS: Show all opens the whole post', open === true);
+        check('ROWS: Read all opens the whole post', open === true);
         await p1.click('li[data-id="p1"] .community-held-more');
         await p1.click('li[data-id="p2"] .community-held-reveal');
         const shown = (await readList(p1)).rows[1].bodyShown;
