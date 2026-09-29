@@ -25,6 +25,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
+const fleet = require('./test-support/fleet');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -77,6 +78,33 @@ test('an agent token never opens a person-only route', async () => {
     const r = await call(method, p, { headers: { 'x-kosmos-agent-token': agentToken }, body: method === 'GET' ? undefined : {} });
     assert.ok(refusedAtGate(r), `${method} ${p} was reachable with only an agent token: ${r.code}`);
   }
+});
+
+test('the caller is identified as the token\'s agent, even when the body names another', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const mara = board.roster.find((c) => c.sessionName === 'mara');
+  const maraToken = sendertoken.mint('mara').token;
+  const alone = await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': agentToken }, body: {} });
+  assert.equal(alone.code, 200);
+  assert.equal(JSON.parse(alone.text).agent, 'poc-agent', 'the header token did not identify its own agent: ' + alone.text.slice(0, 160));
+  const spoof = await call('POST', '/api/whoami', {
+    headers: { 'x-kosmos-agent-token': agentToken },
+    body: { token: maraToken, from_pane: mara.session },
+  });
+  assert.equal(JSON.parse(spoof.text).agent, 'poc-agent', 'a body naming another agent changed who the caller is: ' + spoof.text.slice(0, 160));
+  /* CONTROL: the body token IS read when there is no header token (with the board token to pass
+     the gate), so the assertion above is the header winning, not the body being ignored. */
+  const bodyOnly = await call('POST', '/api/whoami', { headers: { 'x-kosmos-board-token': BOARD }, body: { token: maraToken } });
+  assert.equal(JSON.parse(bodyOnly.text).agent, 'mara', 'control: a body token alone did not identify its agent: ' + bodyOnly.text.slice(0, 160));
+});
+
+test('a revoked agent token no longer opens the gate', async () => {
+  const gone = sendertoken.mint('gone-agent');
+  assert.ok(gone.ok);
+  assert.ok(!refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': gone.token }, body: {} })), 'control: the fresh token passes');
+  sendertoken.revoke('gone-agent');
+  assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': gone.token }, body: {} })), 'a revoked token still passes the gate');
 });
 
 test('the board token still works on the agent routes (nothing that works today breaks)', async () => {

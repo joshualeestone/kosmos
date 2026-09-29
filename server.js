@@ -3678,7 +3678,11 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    reconfiguring agents, settings, POST /api/agents) are not in this set and keep requiring the
    board token. The header only, never `token` in the body: this gate runs before the body is
    read, and the handlers resolve the header first (presentedAgentToken), so both see the same
-   caller. Not in REMOTE_AGENT_ROUTES: a network peer is still refused by remoteWriteGuard. */
+   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
+   does not see it: what stops an internet caller there is the tunnel itself, which forwards only
+   for an admitted device and then presents the person's board token anyway (read from
+   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). POST /api/react joins later (#4491). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami']);
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -3991,9 +3995,11 @@ const server = http.createServer((req, res) => {
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
-    // #4491: an agent route, reached with a valid agent token and no board token (see AGENT_TOKEN_ROUTES).
-    const exemptAgentToken = AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !exemptAgentToken && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #4491: an agent route, reached with a valid agent token and no board token (see
+    // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
+    // token never pays for the token-store scan.
+    const exemptAgentToken = () => AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }

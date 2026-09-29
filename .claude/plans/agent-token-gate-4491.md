@@ -15,7 +15,12 @@ person-only route. Nothing that works today with the board token stops working.
 - Header only: the gate runs before the body is read, and presentedAgentToken resolves the
   header first, so the gate and the handler identify the same caller. A token in the body alone
   does not pass the gate.
-- Not in REMOTE_AGENT_ROUTES: a network peer is still refused by remoteWriteGuard.
+- Not in REMOTE_AGENT_ROUTES: a DIRECT network peer is still refused by remoteWriteGuard. Kosmos+
+  tunnel traffic arrives over loopback, so that guard does not see it; the tunnel itself forwards
+  only for an admitted device and then presents the person's board token anyway (kosmos-relay
+  proxy.rs, another repo), so an agent token adds no reach there.
+- server.agent-token-sender-570.test.js's pin is rewritten to the new invariant and pins
+  AGENT_TOKEN_ROUTES exactly, so widening the set is a deliberate edit.
 - Only three routes now. Widening to every agent verb, and the CLIs dropping board.token, are
   separate PRs (listed on the card).
 
