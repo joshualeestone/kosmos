@@ -231,3 +231,13 @@ test('#4583 round 2: "PM" counts only as a whole role word; spelled-out forms co
   for (const yes of ['PM', 'Senior PM', 'Project Management Lead', 'Project-Manager', 'Program Manager', 'PM (delivery)']) assert.ok(r.test(yes), yes);
   for (const no of ['AM/PM Shift Lead', 'Post-PM Analyst', 'Marketing Manager', 'Product Manager', 'Tech Lead']) assert.ok(!r.test(no), no);
 });
+
+test('#4583 round 5: the create form routes EXACTLY cleanDone\'s refusals to the done box (coupled to the engine)', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const m = page.match(/else if \(err && err\.message && (\/\^\(what done looks like[^\n]*?\$\/i)\.test\(err\.message\)\)/);
+  assert.ok(m, 'the done-box route was not found on the page');
+  const route = new Function('return ' + m[1])();
+  const thrown = [() => projects.cleanDone({}), () => projects.cleanDone('x'.repeat(1001))].map((f) => { try { f(); } catch (e) { return e.message; } return null; });
+  for (const said of thrown) assert.ok(said && route.test(said), 'an engine done refusal would miss the done box: ' + said);
+  assert.ok(!route.test('that folder is already the project "What done looks like for Q4"'), 'a refusal quoting a project name was routed to the done box');
+});

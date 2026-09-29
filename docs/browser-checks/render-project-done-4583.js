@@ -93,6 +93,15 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     await p.waitForTimeout(400);
     const refused = await p.evaluate(() => document.getElementById('pj-add-done-err').textContent);
     ok('refused by the engine: the reason is at the done box', refused === 'What done looks like has to be words.', refused);
+    // Review round 5: a folder refusal quoting a project NAMED like the done box is not sent to the done box.
+    await p.unroute('**/api/projects');
+    await p.route('**/api/projects', (route) => (route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'that folder is already the project "What done looks like for Q4"' }) })
+      : route.continue()));
+    await p.click('#pj-create');
+    await p.waitForTimeout(400);
+    const other = await p.evaluate(() => ({ done: document.getElementById('pj-add-done-err').textContent, msg: document.getElementById('pj-add-msg').textContent }));
+    ok('a folder refusal naming a "done looks like" project stays off the done box', other.done === '' && /What done looks like for Q4/.test(other.msg), JSON.stringify(other));
     await p.unroute('**/api/projects');
     await p.evaluate(() => { document.getElementById('pj-add-view').hidden = true; });
 

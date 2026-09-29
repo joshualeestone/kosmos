@@ -43,3 +43,6 @@ One WARNING, fixed: the brief note (#2707) had been reworded to ask for done too
 
 ## Blind review round 4 (Sonnet, separate reviewer)
 One WARNING, fixed: a done refusal reached no field. The done box now has its own error line (pj-add-done-err), a pre-check at 1000 code points before the round trip (as the description has), and the create catch routes an engine refusal naming "done looks like" to it. Browser check: +2 arms (too long caught at the box with nothing sent; an engine refusal shown at the box), both failing their mutant. Accepted NIT: a done typed for a folder whose own brief already has a Done section is not written (their words win) and nothing says so.
+
+## Blind review round 5 (Opus, separate reviewer)
+One WARNING, fixed: the done-box route matched /done looks like/ anywhere, so a folder refusal quoting a project NAMED "What done looks like..." went to the done box. Now anchored to cleanDone's two sentences, whole (like the name route). Browser check +1 arm (fails the loose mutant); engine test couples the page's regex to cleanDone's actual refusals (fails when a refusal is reworded). Accepted NIT: the 1000-character pre-check counts raw text while the engine counts after collapsing whitespace, the same as the description box.
