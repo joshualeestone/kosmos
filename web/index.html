@@ -17907,18 +17907,6 @@ function asSentence(s) {
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
-/* #4416: the ONE derivation of which model an agent's card names: a stopped agent names what it will start on (its
-   job), a running one what it runs. modelLine and the Gemini/Grok model menu both read it, so the two cannot name one
-   agent two ways. */
-function cardModelName(a) {
-  const notRunning = cardStOf(a).pres === 'off';
-  return (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
-}
-/* #4416: what the Gemini/Grok model menu says it runs on: the card's model, never a second reading of it. Antigravity
-   and Muse really do pick their own, so they get '' (the menu then says so). */
-function menuRunsOn(a) {
-  return (a && (a.runner === 'gemini' || a.runner === 'grok')) ? (cardModelName(a) || '') : '';
-}
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
      carries the provider does not become "Claude Claude...". The "Claude"
@@ -17955,7 +17943,8 @@ function modelLine(a) {
      profile on stopped ones). #4416: its model is named from codex's own
      rollout (turn_context), never scraped off the screen; the provider is
      the fallback while no turn has named one. */
-  const name = cardModelName(a);
+  const notRunning = cardStOf(a).pres === 'off';
+  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
@@ -17972,6 +17961,14 @@ function modelLine(a) {
      (tied pane, no plist), so every surface splits the same way. */
   if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
+}
+/* #4416: what the Gemini/Grok model menu says it runs on: the card's own line (modelLine), never a second reading of
+   the model, so a stopped agent is not named two ways. While no model is known at all the menu says the runner picks
+   its own ('' here). Antigravity and Muse really do pick their own. Defined after modelLine and derived from it on
+   purpose: several tests lift modelLine alone, so modelLine must not call anything new. */
+function menuRunsOn(a) {
+  if (!a || (a.runner !== 'gemini' && a.runner !== 'grok')) return '';
+  return (a.modelName || a.plannedModelName) ? modelLine(a) : '';
 }
 /**
  * The Runs on line, in the tense that is true of it.

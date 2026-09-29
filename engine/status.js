@@ -5144,8 +5144,29 @@ function readCodexSession(agentName) {
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!dir || !job || job.runner !== 'codex') return { found: false };
   const home = job.configDir || create.defaultAgentCodexHome();
-  try { return require('./codexsession').read(dir, home); }
+  let sess;
+  try { sess = require('./codexsession').read(dir, home); }
   catch { return { found: false }; }
+  return withoutModelFromBeforeJob(sess, agentName);
+}
+
+/* #4416 (iteration 5): codex creates its rollout LAZILY, on the first turn, not at launch (measured 2026-09-28,
+   codex-cli 0.149.1: idle at its prompt for 30 s, no rollout). So right after Kosmos switches a Codex agent's model
+   (setModel rewrites the job, then restarts it), the newest rollout for the folder is still the OLD session's, and its
+   turn_context names the OLD model: the card would say it confidently until the first turn. A rollout last written
+   BEFORE the job file was cannot speak for the job that is running now, so its model is dropped and the card falls
+   back to the job's planned model (server.js plannedFor), exactly as for an agent with no turn yet. Only the model:
+   the context ring and the rest still read the rollout. Mac only (a Scheduled Task has no file to compare); on any
+   stat failure the reading is left as it was. Also drops it after an account change (the job is rewritten too),
+   which costs at most "OpenAI Codex" until the next turn, never a wrong name. */
+function withoutModelFromBeforeJob(sess, agentName) {
+  if (!sess || !sess.found || !sess.model || !sess.file || process.platform === 'win32') return sess;
+  try {
+    const jobAt = fs.statSync(require('./create').plistPath(agentName)).mtimeMs;
+    const rolloutAt = fs.statSync(sess.file).mtimeMs;
+    if (jobAt > rolloutAt) return { ...sess, model: null };
+  } catch { /* a stat that fails changes nothing */ }
+  return sess;
 }
 
 function readCodexContext(agentName, sess) {
@@ -7917,7 +7938,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, claudeAccountDirOf, ownsFor,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).

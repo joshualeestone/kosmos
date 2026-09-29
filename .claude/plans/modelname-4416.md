@@ -26,8 +26,16 @@ by asking the agent.
 
 - Review iteration 4: the Gemini/Grok menu read `modelName || plannedModelName` while the card prefers the job for a
   stopped agent, so a stopped Gemini that last ran Pro said "Runs on Gemini 3.8 Pro" beside a card saying "Gemini 3.8
-  Flash (default)". Now ONE derivation, cardModelName, read by modelLine and menuRunsOn; a behavioural test lifts both
-  (reverting menuRunsOn to the old expression reds it). DEFERRED (cosmetic): ids outside MODEL_WORDS keep simple
+  Flash (default)". Now the menu reads the card's own line: menuRunsOn returns modelLine(a) (defined after it; modelLine
+  stays self-contained because several tests lift it alone). A behavioural test lifts both; reverting menuRunsOn to
+  the old expression reds it.
+- Review iteration 5: (a) my iteration-4 helper made modelLine call a new function, and 7 tests in 4 files that lift
+  modelLine alone threw ReferenceError; fixed as above, all four files green. (b) Codex writes its rollout LAZILY, on
+  the first turn (MEASURED: codex-cli 0.149.1 idle at its prompt 30 s in a sandbox CODEX_HOME, no rollout), so right
+  after Kosmos switches a Codex agent's model the newest rollout is the old session's and names the old model.
+  status.readCodexSession now drops the model of a rollout last written before the job file (setModel rewrites it);
+  the card falls back to the planned model. Mac only; an account change drops it too (costs "OpenAI Codex" until the
+  next turn, never a wrong name). Tested with set mtimes in a sandbox; disabling the guard reds the switched case. DEFERRED (cosmetic): ids outside MODEL_WORDS keep simple
   casing ("Chatgpt 4o Latest", "GPT 5.6 mini"); no version is mis-said.
 ## Rejected
 - A pure dash-to-space transform for every id: "Claude Haiku 4 5" on the next dashed version.

@@ -120,7 +120,7 @@ function pageFns() {
     if (script[k] === '{') depth += 1;
     else if (script[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
   }
-  const prelude = script.slice(at, end) + ';\n' + page.liftAll(script, ['cardStOf', 'cardModelName', 'menuRunsOn', 'modelLine', 'runsOnLine']);
+  const prelude = script.slice(at, end) + ';\n' + page.liftAll(script, ['cardStOf', 'modelLine', 'menuRunsOn', 'runsOnLine']);
   // eslint-disable-next-line no-new-func
   return new Function(prelude + '\nreturn { modelLine, runsOnLine, menuRunsOn };')();
 }
