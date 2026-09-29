@@ -77,6 +77,8 @@ const look = (page) => page.evaluate(() => {
     titleTop: title ? r(title).top : null,
     btns: btns.map((b) => ({ text: b.innerText.trim(), name: b.getAttribute('aria-label'), top: r(b).top, left: r(b).left, h: r(b).height, disabled: b.disabled })),
     covered: shown && pts.every(([x, y]) => el.contains(document.elementFromPoint(x, y))),
+    // What sits at each sampled point, so a red here names what shows around the screen (#4489 CI).
+    hits: pts.map(([x, y]) => { const h = document.elementFromPoint(x, y); if (h && el.contains(h)) return null; return [Math.round(x), Math.round(y), h ? h.tagName.toLowerCase() + (h.id ? '#' + h.id : '') + (h.className && typeof h.className === 'string' ? '.' + h.className.trim().split(/\s+/).join('.') : '') : '(nothing: outside the page, e.g. a scrollbar)']; }).filter(Boolean),
     focused: document.activeElement && document.activeElement.classList.contains('frc-btn') ? document.activeElement.innerText.trim() : null,
     wizard: (() => { const w = document.getElementById('firstrun'); return !!w && !w.hidden; })(),
     search: location.search,
@@ -113,7 +115,7 @@ const look = (page) => page.evaluate(() => {
     chk(s.btns.length === 3 && s.btns.every((b) => Math.abs(b.top - s.btns[0].top) < 1) && s.btns[0].left < s.btns[1].left && s.btns[1].left < s.btns[2].left,
       'C1 the buttons sit side by side in order, Run on the left', JSON.stringify(s.btns));
     chk(s.btns.length === 3 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
-    chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen');
+    chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen', JSON.stringify(s.hits));
     chk(s.focused === null, 'C1 no button shows focus on load, as in the approved mockup', String(s.focused));
     await page.keyboard.press('Tab');
     chk((await look(page)).focused === RUN, 'C1 and Tab reaches Run agents first');
