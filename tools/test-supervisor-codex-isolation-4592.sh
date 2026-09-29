@@ -21,6 +21,7 @@ printf '%s\n' '{"name":"browser","version":"1.0.0","description":"test stand-in"
 printf '%s\n' '{"hooks":{"SessionStart":[{"command":"fixture-hook"}]}}' > "$PLUGIN/hooks/hooks.json"
 printf '%s\n' '{"latest_version":"0.149.1"}' > "$PERSON_HOME/version.json"
 cp "${SUPERVISOR_UNDER_TEST:-bin/agent-supervisor.sh}" "$SB/bin/agent-supervisor.sh"
+printf '%s\n' "$PWD/engine" > "$SB/bin/engine-path"
 
 # The fake tmux records the real supervisor's complete new-session vector. It
 # also resolves the CODEX_HOME handed to the fake pane and records whether that
@@ -68,10 +69,13 @@ if [ -L "$RUNTIME_HOME/auth.json" ] && [ "$(readlink "$RUNTIME_HOME/auth.json")"
 else
   bad "the private home did not link the selected account credential"
 fi
-if [ ! -e "$RUNTIME_HOME/plugins" ] && [ ! -e "$RUNTIME_HOME/config.toml" ]; then
-  ok "plugins and account config were not copied into the private home"
+if [ ! -e "$RUNTIME_HOME/plugins" ] \
+  && grep -Fq "[projects.\"$(cd "$SB/work" && pwd -P)\"]" "$RUNTIME_HOME/config.toml" 2>/dev/null \
+  && grep -Fq 'trust_level = "trusted"' "$RUNTIME_HOME/config.toml" 2>/dev/null \
+  && ! grep -Fq 'model_provider' "$RUNTIME_HOME/config.toml" 2>/dev/null; then
+  ok "only launch-folder trust, not account plugins or settings, enters the private home"
 else
-  bad "plugin or config state leaked into the private home"
+  bad "private home trust is absent or account config leaked"
 fi
 if [ "$(stat -f %Lp "$RUNTIME_HOME" 2>/dev/null || stat -c %a "$RUNTIME_HOME" 2>/dev/null)" = 700 ]; then
   ok "the private home is owner-only"
@@ -135,6 +139,22 @@ if [ ! -e "$DATA_PARENT/Kosmos/codex-homes/noauthprobe/auth.json" ] && [ ! -L "$
   ok "an unsigned-in account stays unsigned in, with no credential fallback"
 else
   bad "a missing account credential was invented or carried over"
+fi
+
+# A hostile or stale runtime-home symlink must never make the auth replacement
+# remove the selected account's only credential. This is the exact self-link
+# shape: both auth paths resolve through the same physical directory.
+SELFLINK_HOME="$SB/selflink-codex"
+mkdir -p "$SELFLINK_HOME" "$DATA_PARENT/Kosmos/codex-homes"
+printf '%s\n' 'selflink-fixture' > "$SELFLINK_HOME/auth.json"
+ln -s "$SELFLINK_HOME" "$DATA_PARENT/Kosmos/codex-homes/selflinkprobe"
+CODEX_HOME="$SELFLINK_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
+  STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" selflinkprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/selflink.log" 2>&1 || true
+if [ "$(cat "$SELFLINK_HOME/auth.json" 2>/dev/null)" = selflink-fixture ]; then
+  ok "a runtime-home self-link cannot remove the selected account credential"
+else
+  bad "the runtime-home self-link removed or changed the selected account credential"
 fi
 
 # A second agent on the same account gets a different runtime home. This is the
