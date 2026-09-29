@@ -8231,6 +8231,9 @@ const server = http.createServer(async (req, res) => {
      Only device_status ever comes back (pending, acked, denied); `stop` says there is nothing left to wait for
      (no second computer waiting, a final answer given, or a tunnel too old to ask), so the page stops asking. */
   if (pathname === '/api/remote/signin-allowed' && req.method === 'GET') {
+    // A final answer is given once, so another website must not be able to take it.
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     remote.signinAllowStatus()
       .then((got) => sendJson(res, 200, got.ok
         ? { ok: true, device_status: got.data.device_status }
@@ -8246,7 +8249,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const name = String(body.name || '').trim();
         if (!name) { sendJson(res, 400, { error: 'pick a name for this computer' }); return; }
-        const got = await remote.signinRegister(name);
+        const got = await remote.signinRegister(name, { awaitAllow: body.awaitAllow === true });   // #4640
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, {

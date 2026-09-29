@@ -2030,7 +2030,10 @@ function turnOnAfterSignin() {
   if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
 }
 
-async function signinRegister(name) {
+async function signinRegister(name, opts) {
+  /* #4640: the page says it will wait on the code screen (awaitAllow). The token is kept only then AND when the sign-in
+     answer named another computer, so a page that took the chooser (a reinstalled computer) leaves nothing behind. */
+  const awaitAllow = Boolean(opts && opts.awaitAllow === true);
   // First, before every path (the #1010 shortcut included): one register at a time (a
   // page that lost its connection can press Try again while the first is still
   // out, and a second must not start into the same directory), and none while
@@ -2065,7 +2068,7 @@ async function signinRegister(name) {
       ensure(localPort);
       // #4640: a second computer signing in again (after its first computer said no, a fresh knock) waits for the
       // answer the same way a first register does. The token was not spent here, so it is the one to ask with.
-      if (signinSession && signinSession.second === true && typeof signinSession.token === 'string') keepAllowWatch(signinSession.token);
+      if (awaitAllow && signinSession && signinSession.second === true && typeof signinSession.token === 'string') keepAllowWatch(signinSession.token);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
@@ -2091,7 +2094,7 @@ async function signinRegister(name) {
   // waiting on the connector must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
   const token = signinSession.token;
-  const second = signinSession.second === true;
+  const second = awaitAllow && signinSession.second === true;
   const before = macIdHere();
   const addressBefore = address();
   const startedAt = Date.now();

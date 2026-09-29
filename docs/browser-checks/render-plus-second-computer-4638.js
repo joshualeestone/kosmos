@@ -66,10 +66,12 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     page.on('pageerror', (e) => errs.push(String(e)));
     await openWizard(page, URL);
     const names = [];
+    const waits = [];
     let chooserSeen = false;
     await page.route('**/api/remote/signin-register', async (route, req) => {
       const name = req.postDataJSON().name;
       names.push(name);
+      waits.push(req.postDataJSON().awaitAllow === true);
       chooserSeen = chooserSeen || await seen(page, 'plus-si-name-field');
       if (name === 'pizzarama') return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the coordinator said no (409): that name is taken' }) });
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) });
@@ -78,6 +80,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
     ok('the address chooser never showed', !chooserSeen && !(await seen(page, 'plus-si-name-field')));
     ok('registered under its own name, then name-2 when that was taken', JSON.stringify(names) === JSON.stringify(['pizzarama', 'pizzarama-2']), JSON.stringify(names));
+    ok('#4640 each register asks the engine to keep what it waits with (awaitAllow)', waits.length === 2 && waits.every(Boolean), JSON.stringify(waits));
     const done = await page.evaluate(() => ({
       line: document.getElementById('plus-si-done-line').textContent,
       lead: document.getElementById('plus-si-match-lead').textContent,
@@ -159,7 +162,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       const st = await state(pg);
       const line = await pg.evaluate(() => document.getElementById('plus-si-done-line').textContent);
       ok('#4640 denied: it says so, drops the code, keeps Done, and stops asking', /said no to letting this one in/.test(st.lead) && !st.code && st.done && st.landed && n === 1 && asked.n === 1, JSON.stringify({ ...st, n, after: asked.n }));
-      ok('#4640 denied: the landing no longer says it is connected, and says how to ask again', line === 'PizzaRama was not let in.' && /To ask again, sign out here, sign in again/.test(st.lead), JSON.stringify({ line, lead: st.lead }));
+      ok('#4640 denied: the landing no longer says it is connected, and points at the control that asks again', line === 'PizzaRama was not let in.' && /To ask again, choose Remove this computer in Settings, Kosmos Plus, then sign in again/.test(st.lead), JSON.stringify({ line, lead: st.lead }));
       const live = await pg.evaluate(() => document.getElementById('plus-si-match-lead').getAttribute('aria-live'));
       ok('#4640 the changing line is announced (aria-live)', live === 'polite', String(live));
       await pg.close();
@@ -203,10 +206,14 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     const first = await browser.newPage({ viewport: { width: 1400, height: 950 } });
     await openWizard(first, URL);
     let registered = 0;
-    await first.route('**/api/remote/signin-register', (route) => { registered += 1; route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"not expected"}' }); });
+    const firstWaits = [];
+    await first.route('**/api/remote/signin-register', (route, req) => { registered += 1; firstWaits.push(req.postDataJSON().awaitAllow === true); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'mine.kosmosplus.com', name: 'mine', standing: 'active', switchedOn: true }) }); });
     await first.evaluate(() => plusSiStage('session', { stage: 'session', account_address: '' }));
     await first.waitForTimeout(400);
     ok('CONTROL: a first computer gets the address chooser, and nothing registers by itself', await seen(first, 'plus-si-name-field') && registered === 0);
+    await first.evaluate(() => plusSiDoRegister('mine'));
+    await first.waitForTimeout(600);
+    ok('#4640 CONTROL: a first computer\'s register does not ask the engine to keep the token', registered === 1 && firstWaits[0] === false, JSON.stringify(firstWaits));
     // And a finished second-computer sign-in leaves nothing behind for the next one.
     await first.evaluate(() => { PLUS_SI_SECOND = { base: 'x', tries: 0, code: 'AB-CD', other: 'y.kosmosplus.com', computer: 'X', domain: 'kosmosplus.com' }; plusSiSecondDone('x.kosmosplus.com'); plusSiClear(); });
     const after = await first.evaluate(() => ({ match: document.getElementById('plus-si-match').hidden, line: document.getElementById('plus-si-done-line').textContent, second: PLUS_SI_SECOND }));

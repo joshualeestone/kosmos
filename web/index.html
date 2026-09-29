@@ -43739,12 +43739,13 @@ function plusSiAllowed() {
     document.getElementById('plus-si-done-go').click();
   }, 1500);
 }
-/* Denied: this computer is registered but not let in. Signing in again is a fresh request (the coordinator turns a
-   denied device back to pending on its next sign-in, kosmos-relay db.rs upsert_device), so say that. */
+/* Denied: this computer is registered but not let in. Remove this computer retires its address, so the next sign-in
+   is a second computer again (the account lists live addresses only, kosmos-relay db.rs macs_for_account) and a fresh
+   request (a denied device's next sign-in goes back to pending, db.rs upsert_device). */
 function plusSiRefused() {
   const sec = PLUS_SI_SECOND;
   document.getElementById('plus-si-done-line').textContent = (sec.computer || 'This computer') + ' was not let in.';
-  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in. To ask again, sign out here, sign in again, and allow it on the other computer.';
+  document.getElementById('plus-si-match-lead').textContent = 'Your other computer said no to letting this one in. To ask again, choose Remove this computer in Settings, Kosmos Plus, then sign in again.';
   document.getElementById('plus-si-match-code').hidden = true;
 }
 
@@ -43781,8 +43782,9 @@ async function plusSiDoRegister(name, owned) {
   /* #3827: a register includes the certificate (about a minute; the engine bounds it at
      five, plus a minute to retire an earlier half sign-in), so the page must not give up
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
+  // #4640: a second computer lands on the code screen and asks whether it was allowed, so the engine keeps what it asks with.
   let r;
-  try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
+  try { r = await plusSiPost('/api/remote/signin-register', PLUS_SI_SECOND ? { name, awaitAllow: true } : { name }, PLUS_REGISTER_TIMEOUT_MS); }
   catch (e) { siRestore(); if (!owned) plusSiMsg(''); throw e; }
   PLUS_SI_REGISTERING = false;
   if (r.stale) return;

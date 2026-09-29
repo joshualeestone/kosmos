@@ -39,6 +39,11 @@ match could never fire).
   to ask again (a denied device's next sign-in is a fresh knock, kosmos-relay db.rs upsert_device).
 - register's already-set-up shortcut keeps the watch too (a retry after a no).
 - The page stops after 15 unanswered asks (the board itself silent). The window is a test-only setter, not an env var.
+- Iteration 3: the page OPTS IN. It sends awaitAllow with register only when it lands on the code screen (PLUS_SI_SECOND),
+  and the engine keeps the token only when awaitAllow AND the sign-in answer named another computer. A reinstalled
+  computer that takes the chooser keeps nothing. The denied copy points at a control that exists: Remove this computer
+  retires the address (the account lists live addresses only), so the next sign-in is a second computer again and a
+  fresh request. GET /api/remote/signin-allowed refuses a cross-site read (a final answer is given once).
 
 ## Validation
 - node --test engine/remote.test.js (118/118); #4640 tests x4; server.test.js in-app sign-in route test.

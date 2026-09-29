@@ -1260,7 +1260,7 @@ async function signedInSecond(code = '282828') {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', code);
   assert.equal(v.ok, true, v.because);
-  const reg = await remote.signinRegister('herlaptop');
+  const reg = await remote.signinRegister('herlaptop', { awaitAllow: true });
   assert.equal(reg.ok, true, reg.because);
 }
 test('#4640 a second computer reads pending, then acked, with the token on stdin; the answer ends the wait', async () => {
@@ -1295,6 +1295,13 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
   assert.equal(first.ok, false);
   assert.equal(first.data.stop, true, 'a first computer kept the session token');
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'a first computer asked the coordinator');
+  // CONTROL: a second computer whose page did NOT ask to wait (it took the chooser: a reinstalled computer) keeps nothing.
+  remote.signinCancel();
+  await remote.forget();
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '282828')).ok, true);
+  assert.equal((await remote.signinRegister('herlaptop')).ok, true);
+  assert.equal(remote.allowWatchHeldForTests(), false, 'the token was kept for a page that never asked to wait');
 });
 test('#4640 Sign out, a new sign-in and Forget each drop the kept token', async () => {
   fs.rmSync(ALLOW, { force: true });
@@ -1341,7 +1348,6 @@ test('#4640 review: the window drops the token on its own clock, and a refused s
     assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'an expired watch still asked the coordinator');
   } finally { remote.setAllowWatchMsForTests(0); }
   await signedInSecond();
-  process.env.FAKE_TUNNEL_MODE = 'status-401';
   process.env.FAKE_TUNNEL_MODE = 'status-403';
   const forbidden = await remote.signinAllowStatus();
   assert.equal(forbidden.data.stop, false, 'a 403 ended the wait; only a refused session (401) is final');
