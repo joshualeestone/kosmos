@@ -143,4 +143,6 @@ nudge repeated into a silent room, and the cost of the other error is a room ful
 ## Status
 - [x] engine + Mac CLI + Windows CLI, red-checked; messages/chat/server 406/406, CLI 231/231, Windows CLI 112/112
 - [x] review round 1 fixed; engine+federation 404/404, CLI 231/231, Windows 112/112
-- [ ] challenge loop (focused tests per iteration), rebase after #4539 + noproxy, full suite once, PR
+- [x] challenge loop CONVERGED at iteration 8 (sonnet): zero NEW after dedup (details in the proof)
+- [x] rebased onto origin/main (f80887e31, incl. #4544's agent nudge: it types through chat.deliver, which this change does not touch); focused 234/234 (engine, federation, CLIs, agentnudge) and every CLI + Windows CLI file 327/327
+- [x] SHIPS AS ONE PR WITH noproxy-4466 (Splinter agreed 13:26 CDT): both are #4466 follow-ups, stacked, each converged on its own diff; one PR saves an hour-long CI queue cycle. The full suite runs in PR CI (the local queue is deadlocked until #4574). Weakest premise: a revert takes both.
