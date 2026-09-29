@@ -54434,7 +54434,11 @@ function pjInline(text) {
    agent authored is a navigation risk for a non-technical reader. #4627: it
    renders as its text followed by the address in full, `text (url)`, and a
    web address there is linked exactly as a bare URL is (the address is what
-   the reader sees and clicks, so nothing is hidden). Before #4627 the address
+   the reader sees and clicks, so nothing is hidden). The label is never linked
+   to the address; a label that is itself a bare URL is linked to ITSELF by the
+   autolink, like any bare URL. Limits: an address is cut at its first `)`, as a
+   bare one is; a title (`(url "t")`) stays text; an address naming a project
+   file gets no "Show me" chip. Before #4627 the address
    was dropped, and agents pasted bare URLs to get it seen. A non-web address
    (mailto:, javascript:, a relative path) stays visible text, never a link.
    The bare-URL autolink that predates this is unchanged.
@@ -54582,7 +54586,7 @@ function pjRich(text) {
      list, `N.` list, `---` rule) are checked at line start only, so `#tag`,
      `well-being` and `C#` stay literal. The `[text](url)` disqualifier is what
      routes a link to ANY target (a relative path, `mailto:`, an anchor -- not
-     just http) to the slow path, where its syntax is stripped to the text; the
+     just http) to the slow path, where it becomes `text (address)` (#4627); the
      http/https checks alone would leave a non-http link showing raw markup.
      📌 On `.pj-msg-text`: a plain multiline message keeps its literal `\n` here,
      while a message carrying any marker/URL/link takes the slow path and its
