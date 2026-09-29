@@ -49,6 +49,7 @@
 
 const create = require('./create');
 const store = require('./store');
+const instructions = require('./instructions');
 
 /* Read a created agent's id the SAME way create.createAgent does (#170): from
    the profile, the single mint point. createAgent's RETURN carries no id -- the
@@ -123,7 +124,10 @@ function resolveCap(deps, env) {
  */
 const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*,/;
 function vetAgentMember(member) {
-  const role = typeof member.role === 'string' ? member.role.trim() : member.role;
+  /* The role exactly as create reads it (create.js: String(opts.role || '').trim()), never a second reading: a
+     role sent as ["setup"] is not the string 'setup' here, but create coerces it to 'setup' and would make the
+     guide. One derivation, so the two cannot disagree (the repo's two-derivations rule, #1228). */
+  const role = String(member.role || '').trim();
   if (role === 'setup') {
     return { because: 'the setup guide is Kosmos\'s own and only Kosmos makes it; pick another role, or write a new one with --new-role' };
   }
@@ -131,24 +135,27 @@ function vetAgentMember(member) {
   if (madeUp && role !== 'own') {
     return { because: 'a role\'s own label and text are not replaced; to make an agent with a role of your own, use role own with a label and text (kosmos agent create "<name>" --new-role "<label>" --from <file>)' };
   }
-  if (typeof member.instructions !== 'string') return { member };
+  /* The label is flattened on every path (with or without text), so it can break neither the identity line nor
+     the card: a newline, or a ** run (a single * a person meant, as in "C* specialist", is kept). */
+  const label = typeof member.label === 'string' ? member.label.replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';
+  const out = {};
+  if (typeof member.label === 'string') out.label = label;
+  if (typeof member.instructions !== 'string') return { member: Object.assign({}, member, out) };
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
   let text = member.instructions.split('{{NAME}}').join(name);
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
      it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be
-     made whose whole brief is its name. The label is flattened so it cannot break the line (a newline, or a **
-     run; a single * a person meant, as in "C* specialist", is kept). */
-  const label = typeof member.label === 'string' ? member.label.replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';
-  const enough = text.trim().length >= require('./instructions').MIN_CHARS;
+     made whose whole brief is its name. */
+  const enough = text.trim().length >= instructions.MIN_CHARS;
   const said = IDENTITY_LINE.exec(text);
   if (said && name && said[2].trim() !== name) {
-    /* Written for another name ("You are **Bob**," for Ann): the agent's own brief would contradict its name. */
-    text = text.replace(IDENTITY_LINE, said[1] + 'You are **' + name + '**,');
+    /* Written for another name ("You are **Bob**," for Ann): the agent's own brief would contradict its name.
+       A replacer FUNCTION, so a name carrying $&, $' or $1 is written as typed, never expanded. */
+    text = text.replace(IDENTITY_LINE, (_, lead) => lead + 'You are **' + name + '**,');
   } else if (!said && enough && name && label) {
     text = 'You are **' + name + '**, ' + label + '.\n\n' + text.replace(/^\s+/, '');
   }
-  const out = { instructions: text };
-  if (typeof member.label === 'string') out.label = label;   // the card shows the same flattened label
+  out.instructions = text;
   return { member: Object.assign({}, member, out) };
 }
 

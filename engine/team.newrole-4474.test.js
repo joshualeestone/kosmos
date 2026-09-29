@@ -24,7 +24,7 @@ test('#4474: {{NAME}} becomes the member\'s name, and text with no identity line
   assert.equal(got[0].instructions, 'You are **Ann**, Grant writer.\n\nWrite grants.\nAnn signs every draft.\n');
   assert.equal(got[0].role, 'own');
   assert.equal(got[0].label, 'Grant writer');
-  assert.equal(got[0].createdBy, 'pm1', 'the team no longer stamps the creator');
+  assert.equal(got[0].createdBy, 'pm1', 'the creator was not stamped on the member');
 });
 
 test('#4474: text that opens with the identity line (as role-draft gives it) is kept, with one identity line', () => {
@@ -33,6 +33,9 @@ test('#4474: text that opens with the identity line (as role-draft gives it) is 
 });
 
 test('#4474: an own role with a label and no text is passed through (create uses the default text)', () => {
+  const { got: messy } = build([{ name: 'Di', role: 'own', label: 'Field\n**scout**' }]);
+  assert.equal(messy[0].label, 'Field scout', 'a label sent without text was not flattened');
+  assert.equal(messy[0].instructions, undefined);
   const { got } = build([{ name: 'Cy', role: 'own', label: 'Scout' }]);
   assert.deepEqual({ name: got[0].name, role: got[0].role, label: got[0].label, instructions: got[0].instructions }, { name: 'Cy', role: 'own', label: 'Scout', instructions: undefined });
 });
@@ -83,4 +86,17 @@ test('#4474: an identity line written for another name is given the member\'s na
   ]);
   assert.equal(got[0].instructions, 'You are **Ann**, the editor.\n\nEdit everything twice.');
   assert.equal(got[1].instructions, 'You are **Cal**, the editor.\n\nEdit everything twice.', 'CONTROL: the right name was changed');
+});
+
+test('#4474: a role sent as a list is read as create reads it, so ["setup"] is refused too', () => {
+  const { out, got } = build([{ name: 'Gus', role: ['setup'] }, { name: 'Pat', role: ['pm'], label: 'x' }]);
+  assert.equal(got.length, 0, 'a non-string role reached create past the vetting');
+  assert.match(out.refused[0].because, /setup guide is Kosmos's own/);
+  assert.match(out.refused[1].because, /role's own label and text are not replaced/);
+});
+
+test('#4474: a name carrying $ patterns is written as typed in the identity line, never expanded', () => {
+  const tail = 'Edit everything twice. TAIL';
+  const { got } = build([{ name: "X$'", role: 'own', label: 'Editor', instructions: 'You are **Bob**, the editor.\n\n' + tail }]);
+  assert.equal(got[0].instructions, "You are **X$'**, the editor.\n\n" + tail);
 });

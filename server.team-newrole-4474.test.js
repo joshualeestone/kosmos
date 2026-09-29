@@ -98,6 +98,13 @@ test('#4474: an agent\'s blank role text is refused by create\'s own rule, and n
   assert.equal(birthOf('Nil'), null, 'an agent whose whole brief is its name was made');
 });
 
+test('#4474: a setup role sent as a list (["setup"]) is refused too; create would read it as "setup"', async () => {
+  const r = await asAgent('pmfive', [{ name: 'Gil', role: ['setup'] }]);
+  assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+  assert.match(r.json.refused[0].because, /setup guide is Kosmos's own/);
+  assert.equal(birthOf('Gil'), null, 'a second guide was made from a role sent as a list');
+});
+
 test('#4474 CONTROL: the same built-in-role-with-a-label request from the operator is not vetted', async () => {
   create.setClaudeProbe(LIVE);
   const board = fleet.install([]);
