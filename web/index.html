@@ -7085,8 +7085,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    is, not where the visible text is). Two properties differed: letter-spacing (a form control does not
    inherit the body's -0.006em, the mirror did, so its words were narrower and fitted more on a line) and
    word-break (break-word on the mirror only). The mirror now takes the textarea's own values, and the
-   textarea is listed too so no later rule can move one without the other (a form control already resets
-   these, so today it changes nothing on the textarea). */
+   textarea is listed too so no later rule can move one without the other: the browser resets letter- and
+   word-spacing on form controls, but word-break is inherited, so this rule is what pins it on both. */
 #pj-post, #pj-post-mirror .pj-mirror-in { letter-spacing: normal; word-spacing: normal; word-break: normal; }
 .pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
@@ -57170,13 +57170,15 @@ function pjMentionPaint() {
   /* #4585: the textarea's REAL box, not offsetLeft/offsetTop/offsetWidth (whole pixels: the mirror was up
      to 1px narrower, and wrapped a word the textarea did not). Placed relative to the mirror's offset parent
      (the composer box), inside its border. The textarea shows no scrollbar (.cinput hides it in both engines;
-     render-composer-caret-4585 asserts that), so its full width is its text's width. */
+     render-composer-caret-4585 asserts it in Chromium, where scrollbars are classic; WebKit's overlay
+     scrollbars take no width either way), so its full width is its text's width. */
   const inR = input.getBoundingClientRect();
   const host = mirror.offsetParent;   // the composer box (position: relative); null only when not laid out
   if (!host) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
   const hostR = host.getBoundingClientRect();
-  mirror.style.left = (inR.left - hostR.left - host.clientLeft) + 'px';
-  mirror.style.top = (inR.top - hostR.top - host.clientTop) + 'px';
+  const hostCs = getComputedStyle(host);   // its border in real pixels (clientLeft/Top are whole ones)
+  mirror.style.left = (inR.left - hostR.left - (parseFloat(hostCs.borderLeftWidth) || 0)) + 'px';
+  mirror.style.top = (inR.top - hostR.top - (parseFloat(hostCs.borderTopWidth) || 0)) + 'px';
   mirror.style.width = inR.width + 'px';
   mirror.style.height = inR.height + 'px';
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
