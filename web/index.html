@@ -46337,7 +46337,8 @@ function tcPaint() {
   document.getElementById('tc-project').disabled = TC.started;
   document.getElementById('tc-note').textContent = TC.started
     ? (pending ? '' : 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' on your board.')
-    : 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.';
+    : 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.'
+      + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
 }
 
 function tcNames() {

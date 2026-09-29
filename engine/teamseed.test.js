@@ -10,7 +10,7 @@ const teamseed = require('./teamseed');
 function fixture() {
   const teams = [
     {
-      key: 'marketing', kind: 'business', rank: 2, label: 'Marketing Team', blurb: 'b', purpose: 'Grow the business.',
+      key: 'marketing', kind: 'business', rank: 2, label: 'Marketing Team', blurb: 'b', purpose: 'Grow the business.', caution: 'The lead briefs the rest.',
       project: { name: 'Marketing', goal: 'g' },
       members: [
         { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', focus: [], avatar: { id: 'm-content', image: null } },
@@ -57,6 +57,8 @@ test('detail: lead first, suggested names, and whether a portrait ships', () => 
   const r = teamseed.detail('marketing', fixture());
   assert.equal(r.ok, true);
   assert.equal(r.team.lead, 'lead');
+  assert.equal(r.team.caution, 'The lead briefs the rest.');
+  assert.equal(teamseed.detail('home', fixture()).team.caution, null, 'a team with no caution says none');
   assert.deepEqual(r.members.map((m) => m.slot), ['lead', 'content', 'social']);
   assert.deepEqual(r.members.map((m) => m.name), ['Maya', 'Leo', 'Ana']);
   assert.deepEqual(r.members.map((m) => m.portrait), [true, false, false]);

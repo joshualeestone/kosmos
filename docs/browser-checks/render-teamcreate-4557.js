@@ -6,7 +6,7 @@
  * What this pins, and why each line can fail:
  *  - openTeamCreate(key) lands on the team step: the team's name and purpose, one row per member with
  *    the suggested name editable, the lead FIRST, ONE button that says how many agents it makes, and a
- *    note that each one works on the person's AI plan;
+ *    note that each one works on the person's AI plan, followed by the team's caution (#4555);
  *  - the project defaults to a new one named from the seed, and pressing the button makes it (for real,
  *    in this sandbox) before any agent;
  *  - every member is made through POST /api/agents in order, lead first, each report carrying the
@@ -51,7 +51,7 @@ const create = require('../../engine/create');
 
 const TEAM = {
   key: 'marketing', kind: 'business', rank: 1, label: 'Marketing Team', blurb: 'One line',
-  purpose: 'Plans and runs your marketing.', project: { name: 'Marketing', goal: 'Grow the business' },
+  purpose: 'Plans and runs your marketing.', caution: 'The lead briefs the rest of the team and checks their work on its own.', project: { name: 'Marketing', goal: 'Grow the business' },
   members: [
     { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { image: null } },
     { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { image: null } },
@@ -138,6 +138,7 @@ function chk(ok, label, extra) {
           chk(r0.map((r) => r.slot).join() === 'lead,content,social' && /leads the team/.test(r0[0].seat), `${E} one row per member, the lead first`, JSON.stringify(r0.map((r) => r.slot)));
           chk(r0.map((r) => r.name).join() === 'Maya,Leo,Ana' && r0.every((r) => r.editable), `${E} the suggested names are there and editable`, JSON.stringify(r0.map((r) => r.name)));
           chk(view.go === 'Create 3 agents' && /works on your AI plan/.test(view.note), `${E} ONE button says how many agents, and the note says they work on the person's AI plan`, view.go + ' | ' + view.note);
+          chk(/works on your AI plan[^]*The lead briefs the rest of the team and checks their work on its own\.$/.test(view.note), `${E} the team's caution follows the AI plan line`, view.note);
           /* The second engine runs on the same sandbox, where the first made "Marketing": the new one must
              take the next free name rather than collide (a second Marketing team, for a person). */
           const wantName = engineName === 'chromium' ? 'Marketing' : 'Marketing 2';

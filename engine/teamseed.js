@@ -74,7 +74,7 @@ function detail(key, cat) {
   }));
   return {
     ok: true,
-    team: { key: team.key, label: team.label, purpose: team.purpose, project: team.project || null, lead },
+    team: { key: team.key, label: team.label, purpose: team.purpose, caution: typeof team.caution === 'string' ? team.caution : null, project: team.project || null, lead },
     members,
   };
 }
