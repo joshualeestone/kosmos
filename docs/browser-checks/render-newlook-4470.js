@@ -183,7 +183,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor, `${tag} On: the current tab is marked by ink, not an underline`, JSON.stringify(tabs));
       }
       const bub = await page.evaluate(BUBBLES);
-      chk(bub.you === GREY_OF[theme] && bub.agent === 'rgba(0, 0, 0, 0)', `${tag} On: your message is grey, an agent's has no bubble`, JSON.stringify(bub));
+      const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
+      chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
@@ -201,7 +202,7 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         const cbForced = await page.evaluate(COMPOSER_BG);
         chk(cbForced === GREY.dark, `${tag} On + chosen Dark: the composer is the dark grey`, cbForced);
         const bubForced = await page.evaluate(BUBBLES);
-        chk(bubForced.you === GREY_OF.dark && bubForced.agent === 'rgba(0, 0, 0, 0)', `${tag} On + chosen Dark: your message is dark grey, an agent's has no bubble`, JSON.stringify(bubForced));
+        chk(bubForced.you === GREY_OF.dark && bubForced.agent === 'rgb(0, 0, 0)', `${tag} On + chosen Dark: your message is dark grey, an agent's is the black ground`, JSON.stringify(bubForced));
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
