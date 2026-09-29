@@ -37,7 +37,8 @@
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
  *              from the page, or its end cannot be found, or it is declared twice; in those cases it
- *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
+ *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never
+ *              name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -351,7 +352,8 @@ function main(argv) {
   let why;
   try {
     // Prefixes pinned: a diff.noprefix or diff.dstPrefix setting would change the `+++` header touchedLines reads.
-    diff = git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
+    diff = git(['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-ext-diff', '--no-textconv', '--no-color',
+      '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
     // A check the PR edits runs too: a changed assertion is only proven by running it. A top-level
     // .js is a check or lib by name; any other file is passed by its path under the directory.
     changedChecks = git(['diff', '--name-only', `${base}...${head}`, '--', 'docs/browser-checks/'])
@@ -361,8 +363,8 @@ function main(argv) {
     // The head's own page: a `function` range is read against the lines this diff numbers.
     // A head without the page (the PR deleted or moved it) is an empty page, so every declaring check selects.
     // Only that case: any other git failure still exits 2 below, which fails the job loudly.
-    let hasPage = true;
-    try { execFileSync('git', ['cat-file', '-e', `${head}:web/index.html`], { cwd: REPO, stdio: 'ignore' }); } catch { hasPage = false; }
+    // ls-tree answers an empty listing (exit 0) for a path head does not have, and throws for anything else.
+    const hasPage = git(['ls-tree', head, '--', 'web/index.html']).trim() !== '';
     const page = hasPage ? git(['show', `${head}:web/index.html`]) : '';
     why = select(diff, changedChecks, page);
   } catch (e) {

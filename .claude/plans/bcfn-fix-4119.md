@@ -29,4 +29,8 @@ Not changed, with reasons:
 - Neither merged commit had its own plan file; this file records both.
 
 Weakest part: the range finder still reads indentation, not syntax. A body whose own inner block closes at the
-declaration's indentation would end early. The tight-range guard cannot see an early end, only a late one.
+declaration's indentation would end early (under-selection). The balanced-body assertion catches that for
+every function a check declares today; it does not guard a function declared later until its test runs, and it
+cannot see a range that runs on over balanced code (over-selection, the safe side). The one-line indentation
+assertion does not fire today (both declarations are multi-line); it is a guard for a future one-line
+declaration, not current coverage.
