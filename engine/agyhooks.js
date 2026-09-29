@@ -156,7 +156,7 @@ function writeKeepingMode(target, body) {
  * ONLY key of theirs that survives there; anything else they add to `kosmos-report` is replaced on the
  * next launch (their own hooks belong under their own names, which are never touched).
  * A symlinked hooks.json is written through to its target, keeping the link and the file's mode. Returns
- * { ok, changed, why } and never throws.
+ * { ok, changed, why } plus, when ok, `enabled` (the entry is on); never throws.
  */
 function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   if (!workdir || !nodeBin || !bridge) return { ok: false, changed: false, why: 'missing workdir, node or bridge' };
@@ -196,7 +196,11 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   const same = had && typeof had === 'object' && !Array.isArray(had)
     && Object.keys(had).length === Object.keys(want).length
     && Object.keys(want).every((k) => JSON.stringify(had[k]) === JSON.stringify(want[k]));
-  if (same) return { ok: true, changed: false, why: null };
+  /* #4417: `enabled` says whether Kosmos's own entry is on (the person may have switched it off); a switch outside
+     this entry (an agy-wide setting) is not seen here. The supervisor
+     sends a launch-time idle only for a hook that is in place AND on: without it nothing ever corrects that idle. */
+  const on = want.enabled !== false;
+  if (same) return { ok: true, changed: false, why: null, enabled: on };
   const next = { ...current, [HOOK_NAME]: want };
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -204,7 +208,7 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
   } catch (err) {
     return { ok: false, changed: false, why: 'could not write ' + file + ': ' + (err && err.message) };
   }
-  return { ok: true, changed: true, why: null };
+  return { ok: true, changed: true, why: null, enabled: on };
 }
 
 if (require.main === module) {
@@ -216,6 +220,9 @@ if (require.main === module) {
   }
   const r = ensureHooks(workdir, nodeBin, bridge, tools);
   if (!r.ok) process.stderr.write('agyhooks: ' + r.why + '\n');
+  /* #4417: stdout says `hooked` only when the hook is in place and on; the supervisor reads it to decide whether to send
+     a launch-time idle. Anything else (a git project, a file left alone, the entry off) prints nothing. */
+  if (r.ok && r.enabled) fs.writeSync(1, 'hooked\n');   // sync: process.exit next could drop an async pipe write
   process.exit(0);
 }
 

@@ -175,6 +175,10 @@ if (require.main === module) {
   try {
     const r = trustAgyFolder(process.argv[2]);
     if (!r.ok) process.stderr.write(`agytrust: ${r.because}; agy may ask to trust this folder\n`);
+    /* #4417: stdout says `trusted` only when the folder is in agy's trusted list, so the supervisor does not report an
+       agy idle while it waits on its "trust this folder?" prompt. writeSync: process.exit right after an async write to a
+       pipe can lose it, and a lost word here fails closed with nothing in the log. */
+    else require('node:fs').writeSync(1, 'trusted\n');
   } catch (err) {
     process.stderr.write(`agytrust: ${err && err.message}; agy may ask to trust this folder\n`);
   }

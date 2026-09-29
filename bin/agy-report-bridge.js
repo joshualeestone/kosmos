@@ -57,6 +57,12 @@ const STATE_FOR_EVENT = Object.freeze({
   PreToolUse: 'needs_you', // ask_question only; see reportFor
   PostToolUse: 'working', // ask_question only
 });
+/* #4417: NOT an agy hook. The supervisor runs this bridge once with this event right after it starts an agy pane,
+   because agy has no session-start hook: its only reports come at a turn's start and end, so an agent restarted and
+   not yet spoken to read "Can't tell" until its first message (Josh read that as a broken status, #4414). Kept out of
+   STATE_FOR_EVENT on purpose: that map is what agy's hooks fire, and agy never fires this. */
+const LAUNCH_EVENT = 'KosmosLaunch';
+
 /* agy's tool that asks the person something and waits (Gemini-Sub's spec, #4043). */
 const ASK_TOOL = 'ask_question';
 
@@ -145,6 +151,7 @@ function readStdin() {
 /* The pure event -> report translation, exported for tests. `eventName` is argv[2]; `payload` the
    parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null. */
 function reportFor(eventName, payload) {
+  if (eventName === LAUNCH_EVENT) return { state: 'idle', text: '' };   // #4417: up, and no turn has started
   const state = STATE_FOR_EVENT[eventName];
   if (!state) return null; // an event we did not hook is ignored, never guessed at
   if (eventName === 'PreToolUse' || eventName === 'PostToolUse') {
@@ -217,7 +224,7 @@ async function main() {
      HANDLER_TIMEOUT_S), and if anything fails before it is written, the exit path answers ASK. */
   const eventName = process.argv[2] || '';
   if (eventName !== 'PreToolUse') answer(answerFor(eventName));
-  if (!STATE_FOR_EVENT[eventName]) return;
+  if (!STATE_FOR_EVENT[eventName] && eventName !== LAUNCH_EVENT) return;
   const raw = await readStdin();
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
@@ -257,4 +264,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
