@@ -91,7 +91,6 @@ render-frame-phone-718
 render-frnav-2647
 render-gemini-logo-3422
 render-grok-subscription-3391
-render-gskills-ask-4450
 render-guide-hidden-3739
 render-handoff-restart-3492
 render-head-row

@@ -22,7 +22,9 @@ all of that, and screenshots in both themes go to Mona.
   (untinted ink text): neither is a plain light-gold note.
 - Copy is Josh's words, with the question in bold and curly quotes. No extra sentence.
 - The browser check runs on the shared read-only board in tools/browser-checks.sh (the one with
-  first run completed), and is listed in gated.txt, b8-board.txt (that board's roster) and the README.
+  first run completed), and is listed in b8-board.txt (that board's roster) and the README. NOT in
+  gated.txt: that list runs each check with no address (for checks that boot their own board),
+  and CI measured this one failing there on the default port.
 - Text size matches the hint below it (.9375rem), so the note does not read smaller than the body.
 - The reason-grep count is unchanged, measured: its emit lines start with a condition, the uncounted shape the #2164
   check it is modelled on also uses.
