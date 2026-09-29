@@ -1213,6 +1213,7 @@ test('#4638 signin verify tells a second computer what it needs to skip the choo
   assert.equal(second.data.account_address, '');
   assert.equal(second.data.other_address, 'josh09292026.kosmosplus.com');
   assert.equal(second.data.match_code, 'K7-3M');
+  assert.deepEqual(second.data.other_labels, ['josh09292026']);
   assert.equal(typeof second.data.computer, 'string');
   assert.ok(!/\(Kosmos app\)/.test(second.data.computer), 'the computer name kept the device label');
   assert.ok(!JSON.stringify(second.data).includes('kst1.'), 'the session token leaked');

@@ -1350,9 +1350,14 @@ function signinDeviceId() {
 const MATCH_CODE = /^[2-9A-HJKMNP-Z]{2}-[2-9A-HJKMNP-Z]{2}$/;
 function secondComputerFields(data, ownedAddress) {
   if (ownedAddress) return {};
-  const addresses = Array.isArray(data && data.addresses) ? data.addresses : [];
-  const other = addresses.find((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a)) || '';
+  const addresses = (Array.isArray(data && data.addresses) ? data.addresses : [])
+    .filter((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a));
+  const other = addresses[0] || '';
   if (!other) return {};
+  /* Review round 1: every label, so the page can tell a reinstalled computer (its own name already on the account)
+     from a new one, and say "one of your other computers" when there are several (the first is not always the
+     one whose Allow card is showing). */
+  const labels = addresses.slice(0, 20).map((a) => a.split('.')[0]);
   const code = typeof data.match_code === 'string' && MATCH_CODE.test(data.match_code) ? data.match_code : '';
   let computer = '';
   try {
@@ -1360,7 +1365,7 @@ function secondComputerFields(data, ownedAddress) {
     computer = label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : '';
     if (computer === 'This computer') computer = '';
   } catch { computer = ''; }
-  return { other_address: other, match_code: code, computer };
+  return { other_address: other, other_labels: labels, match_code: code, computer };
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return

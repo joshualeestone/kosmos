@@ -20,3 +20,9 @@ The sign-in answer (coordinator/src/signin.rs SigninVerifyResp) carries `account
 - engine/remote.test.js #4638: second computer fields; hostile shapes absent; a code outside the alphabet dropped; an owned address and a brand-new account are not second computers. 4 mutants each fail.
 - docs/browser-checks/render-plus-second-computer-4638.js (gated, 8): no chooser; pizzarama then pizzarama-2; landing line, other computer named, code large; controls. Fails on main's page and without the clash retry.
 - Regression: render-plus-signin-3478 all passed; engine/remote.test.js 114/114.
+
+## Blind review round 1 (Opus, separate reviewer)
+BLOCKER fixed: a reinstalled computer (its old record still live, so it looks like a second computer) got its "already in use by a Mac on this account" refusal swallowed and was registered again as name-2, with an Allow card nobody could answer. Now: a computer whose own name is already one of the account's addresses takes today's path (the chooser, and the coordinator's refusal explains); and only "that name is taken" / "kept by Kosmos itself" are retried, never "already in use by a Mac on this account", which is shown.
+WARNING fixed: a reserved computer name (Admin, Support) dead-ended on an endless Try again; it now moves on to name-2. After name-9 the last try is the private suggestion, so a run of clashes never ends on a Try again that resends a taken name.
+NIT fixed: with several other computers the landing says "one of your other computers" (the first address is not always the one asking). The engine passes every label (other_labels).
+Tests: the check has 5 new arms (reinstall, in-use, reserved, the run's end, several), each failing its own mutant.

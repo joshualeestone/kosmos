@@ -71,7 +71,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       if (name === 'pizzarama') return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the coordinator said no (409): that name is taken' }) });
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) });
     });
-    await page.evaluate(() => plusSiStage('session', { stage: 'session', account_address: '', other_address: 'josh09292026.kosmosplus.com', match_code: 'K7-3M', computer: 'PizzaRama' }));
+    await page.evaluate(() => plusSiStage('session', { stage: 'session', account_address: '', other_address: 'josh09292026.kosmosplus.com', other_labels: ['josh09292026'], match_code: 'K7-3M', computer: 'PizzaRama' }));
     await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
     ok('the address chooser never showed', !chooserSeen && !(await seen(page, 'plus-si-name-field')));
     ok('registered under its own name, then name-2 when that was taken', JSON.stringify(names) === JSON.stringify(['pizzarama', 'pizzarama-2']), JSON.stringify(names));
@@ -86,6 +86,36 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     ok('it shows the code to match, large', done.code === 'K7-3M' && await seen(page, 'plus-si-match-code') && done.size >= 28, JSON.stringify(done));
     ok('no page errors (second computer)', errs.length === 0, errs.join(' | '));
     await page.close();
+
+    // ---- review round 1: the refusals that must NOT be retried, the ones that must, and the end of the run ----
+    const flow = async (answer, refuse) => {
+      const pg = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      await openWizard(pg, URL);
+      const tried = [];
+      await pg.route('**/api/remote/signin-register', (route, req) => {
+        const name = req.postDataJSON().name;
+        tried.push(name);
+        const no = refuse(name, tried.length);
+        if (no) return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: no }) });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) });
+      });
+      await pg.evaluate((a) => plusSiStage('session', a), answer);
+      await pg.waitForTimeout(1500);
+      const st = await pg.evaluate(() => ({ chooser: !document.getElementById('plus-si-name-field').hidden, done: !document.getElementById('plus-si-done').hidden, msg: document.getElementById('plus-signin-msg').textContent, lead: document.getElementById('plus-si-match-lead').textContent }));
+      await pg.close();
+      return { tried, st };
+    };
+    const SECOND = { stage: 'session', account_address: '', other_address: 'josh09292026.kosmosplus.com', other_labels: ['josh09292026'], match_code: 'K7-3M', computer: 'PizzaRama' };
+    const reinstall = await flow({ ...SECOND, other_labels: ['josh09292026', 'pizzarama'] }, () => 'not expected');
+    ok('a computer whose own name is already on the account gets today\'s chooser, and nothing registers by itself', reinstall.st.chooser && reinstall.tried.length === 0, JSON.stringify(reinstall));
+    const inUse = await flow(SECOND, () => 'the coordinator said no (409): The name pizzarama is already in use by a Mac on this account, at pizzarama.kosmosplus.com. If that is this Mac, it is already set up and there is nothing more to do here.');
+    ok('"already in use by a Mac on this account" is shown to the person, never retried as name-2', JSON.stringify(inUse.tried) === '["pizzarama"]' && /already in use by a Mac on this account/.test(inUse.st.msg), JSON.stringify(inUse));
+    const reserved = await flow({ ...SECOND, computer: 'Admin' }, (n) => (n === 'admin' ? 'the coordinator said no (400): that name is kept by Kosmos itself: please pick another' : ''));
+    ok('a name Kosmos keeps for itself moves on to name-2', JSON.stringify(reserved.tried) === '["admin","admin-2"]' && reserved.st.done, JSON.stringify(reserved));
+    const run = await flow(SECOND, (n, i) => (i <= 9 ? 'the coordinator said no (409): that name is taken' : ''));
+    ok('a long run of clashes ends on a private name, not an endless Try again', run.tried.length === 10 && run.tried[8] === 'pizzarama-9' && /^[a-z0-9]{8}$/.test(run.tried[9]) && run.st.done, JSON.stringify(run.tried));
+    const several = await flow({ ...SECOND, other_labels: ['josh09292026', 'studio'] }, () => '');
+    ok('with several other computers it does not name one that may not be the one asking', /one of your other computers is asking/.test(several.st.lead), several.st.lead);
 
     // ---- CONTROL: a first computer ----
     const first = await browser.newPage({ viewport: { width: 1400, height: 950 } });

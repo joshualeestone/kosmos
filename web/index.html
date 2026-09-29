@@ -43049,7 +43049,13 @@ function plusSiSecondStart(data) {
   const domain = plusSiDomainOf(data.other_address);
   if (!domain) return false;
   const base = plusSiSecondName(data.computer);
-  PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), computer: String(data.computer || ''), domain };
+  const labels = Array.isArray(data.other_labels) ? data.other_labels.map(String) : [];
+  /* Review round 1: this computer's own name is already one of the account's addresses. That is most likely THIS
+     computer, reinstalled or restored, with its old record still live: registering it again as name-2 would leave
+     an Allow card that nobody can answer. Take today's path instead (the chooser), where the coordinator's own
+     refusal for that name explains what to do. */
+  if (labels.includes(base)) return false;
+  PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
   plusSiRegisterMode(base + '.' + domain);
   plusSiShow('plus-si-register');
   plusSiDoRegister(base, base + '.' + domain);
@@ -43060,11 +43066,11 @@ function plusSiSecondDone(address) {
   const sec = PLUS_SI_SECOND;
   const who = sec.computer || 'This computer';
   document.getElementById('plus-si-done-line').textContent = who + ' is connected to Kosmos+ as ' + (address || (sec.base + '.' + sec.domain)) + '.';
-  const other = sec.other.replace(/\..*$/, '');
+  const whose = sec.several ? 'one of your other computers is' : 'your other computer (' + sec.other.replace(/\..*$/, '') + ') is';
   const box = document.getElementById('plus-si-match');
   document.getElementById('plus-si-match-lead').textContent = sec.code
-    ? 'Last step: your other computer (' + other + ') is asking whether to let this one in. Allow it there if it shows this code:'
-    : 'Last step: your other computer (' + other + ') is asking whether to let this one in. Allow it there.';
+    ? 'Last step: ' + whose + ' asking whether to let this one in. Allow it there if it shows this code:'
+    : 'Last step: ' + whose + ' asking whether to let this one in. Allow it there.';
   document.getElementById('plus-si-match-code').textContent = sec.code;
   document.getElementById('plus-si-match-code').hidden = !sec.code;
   box.hidden = false;
@@ -43099,10 +43105,14 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
-  /* #4638: a second computer's own name is taken (by another computer or account): try the next one, a few times. */
-  if (!r.ok && owned && PLUS_SI_SECOND && PLUS_SI_SECOND.tries < 8 && /name is taken|already in use/i.test(String(r.because || ''))) {
+  /* #4638: a second computer's own name is taken by someone else, or kept by Kosmos itself: try the next one, a few
+     times. NOT "already in use by a Mac on this account" (review round 1): that refusal is about THIS account's own
+     computers and says what to do, so the person reads it (below) rather than getting a name-2 they did not ask for. */
+  if (!r.ok && owned && PLUS_SI_SECOND && PLUS_SI_SECOND.tries < 9 && /that name is taken|that name is kept by Kosmos itself/i.test(String(r.because || ''))) {
     PLUS_SI_SECOND.tries += 1;
-    const next = plusSiSecondNext(PLUS_SI_SECOND.base, PLUS_SI_SECOND.tries);
+    // name-2 ... name-9, then once the private suggestion (#3842), so a run of clashes never ends on a Try again
+    // that can only resend the same taken name.
+    const next = PLUS_SI_SECOND.tries >= 9 ? plusNameSuggest() : plusSiSecondNext(PLUS_SI_SECOND.base, PLUS_SI_SECOND.tries);
     plusSiRegisterMode(next + '.' + PLUS_SI_SECOND.domain);
     plusSiDoRegister(next, next + '.' + PLUS_SI_SECOND.domain);
     return;
