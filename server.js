@@ -3802,17 +3802,23 @@ function sameAgentName(a, b, byKey) {
    not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
    sender is already off `delivered`. */
 function taskMessageSummary(delivered, assigned) {
-  const plain = (x) => String(x == null ? '' : x).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const plain = (x) => String(x == null ? '' : x).replace(/["\\\u0000-\u001f\u007f\ud800-\udfff]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
-  const told = list.filter((d) => d && d.state === chat.DELIVERY.PLACED).map((d) => plain(d.agent));
-  const maybe = list.filter((d) => d && d.state === chat.DELIVERY.UNCONFIRMED).map((d) => plain(d.agent));
+  const names = (state) => [...new Set(list.filter((d) => d && d.state === state).map((d) => plain(d.agent)))];
+  const told = names(chat.DELIVERY.PLACED);
+  const maybe = names(chat.DELIVERY.UNCONFIRMED);
   const not = list.filter((d) => d && d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.UNCONFIRMED);
   const parts = [];
   if (told.length) parts.push('Told ' + told.join(', ') + '.');
   if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
-  for (const d of not) parts.push('Not told: ' + plain(d.because || (plain(d.agent) + ' could not be reached')).replace(/\.$/, '') + '.');
+  /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
+  for (const d of not) {
+    const who = plain(d.agent);
+    const why = plain(d.because).replace(/\.$/, '');
+    parts.push('Not told: ' + (!why ? who + ' could not be reached' : (why.startsWith(who + ' ') ? why : who + ' (' + why + ')')) + '.');
+  }
   return parts.join(' ');
 }
 /* A caller whose token resolved without a roster row (`paneless`, on the result or its card): its name is the key. */

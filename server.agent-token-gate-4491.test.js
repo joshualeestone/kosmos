@@ -353,6 +353,7 @@ test('task message does not tell an assignee that has left the project, and says
   const summary = JSON.parse(r.text).summary;
   assert.match(summary, /Not told: gone-agent is not on this project any more, so it was not told\./, summary);
   assert.doesNotMatch(summary, /were notified/);
+  assert.match(summary, /(Told mara\.|mara may have been told|Not told: mara )/, 'the other assignee is not named: ' + summary);
   /* #4540: a sender alone on its task is told nobody else was told (assigned counts the sender, delivered does not). */
   tasksEngine.whoOf = () => ['mara'];
   const alone = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'just me' } });

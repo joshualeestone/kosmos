@@ -47,12 +47,24 @@ test('nobody assigned, and only the sender assigned, each say no agent was told'
 test('the sentence carries no double quote, backslash or newline, whatever the reason says (the Mac CLI reads it with sed)', () => {
   const s = taskMessageSummary([{ agent: 'a"b', state: 'could_not', because: 'it said "no"\\ and\nstopped' }], 1);
   assert.doesNotMatch(s, /["\\\r\n]/, s);
-  assert.match(s, /^Not told: it said no/);
+  assert.match(s, /^Not told: a b \(it said no/);
 });
 
 test('control characters are stripped too, so JSON never puts a backslash back into the sentence', () => {
   const s = taskMessageSummary([{ agent: 'zed', state: 'could_not', because: 'bell\u0007 and escape\u001b[31m red\u007f' }], 1);
   assert.doesNotMatch(JSON.stringify(s), /\\/, JSON.stringify(s));
+});
+
+test('a reason that does not name the agent (chat\'s own) is said after the name', () => {
+  assert.equal(taskMessageSummary([{ agent: 'mara', state: 'could_not', because: 'we could not type it into its window.' }], 1),
+    'Not told: mara (we could not type it into its window).');
+  assert.equal(taskMessageSummary([{ agent: 'mona', state: 'could_not', because: 'mona is switched off in this project.' }], 1),
+    'Not told: mona is switched off in this project.', 'a reason that already starts with the name is not doubled');
+});
+
+test('duplicates are said once, and a blank reason falls back to the name', () => {
+  assert.equal(taskMessageSummary([{ agent: 'a', state: 'placed' }, { agent: 'a', state: 'placed' }], 2), 'Told a.');
+  assert.equal(taskMessageSummary([{ agent: 'zed', state: 'could_not', because: '   ' }], 1), 'Not told: zed could not be reached.');
 });
 
 test('a could-not with no reason still names the agent', () => {
