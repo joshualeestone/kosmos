@@ -8517,8 +8517,19 @@ const server = http.createServer(async (req, res) => {
           /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
              still be read again, so a newer dead answer can reach it (review round 9). */
           /* #4139: which outcome made it green, so a check green does not claim an agent's request. */
+          const from = obs === checkObs ? 'check' : 'agent';
+          /* #4538: a ChatGPT sign-in whose badge is green from a fresh recorded answer is connected, and its row says so.
+             #4064 made the badge outlast the check's 30s cache but left the state on that cache, so a read after 30s
+             carried "unknown, we could not reach ChatGPT" beside "working" (the screen draws from the badge; the API row,
+             which agents and people read, contradicted itself). Only an `unknown` state is lifted: a dead answer (`none`)
+             never reaches here with a green (deadIsNewer, the refused guard above). liveCheckPending is kept, so a newer
+             dead answer from the check now running still reaches the row (review round 9). */
+          const lift = isChatgpt && base.connection && base.connection.state === 'unknown';
           return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-            observedFrom: obs === checkObs ? 'check' : 'agent' } };
+            observedFrom: from,
+            ...(lift ? { state: 'connected', because: from === 'check'
+              ? 'this sign-in reached ChatGPT when Kosmos last checked it, so it is working'
+              : 'a Codex agent on this sign-in reached ChatGPT recently, so it is working' } : {}) } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason

@@ -204,7 +204,7 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
 /**
  * livenessCached(dir, nowMs?) -> { verdict, cause }. The NON-BLOCKING read for the badge render
  * path (kosmos#1921): the FRESH cached result if there is one, else { verdict:'unknown',
- * cause:'indeterminate' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
+ * cause:'not_checked' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
  * effect (it does not spawn and does not kick a warm), so `/api/accounts` can read a chatgpt row's
  * verdict and return immediately (grey on a cold miss) without ever blocking on the 1.8-20s
  * handshake. The warm is codexauthprobe's (for a home with a running agent) and, since #3997, the
@@ -218,11 +218,16 @@ function deadIsNewer(dir, observedAt, nowMs) {
   const cur = cache.get(homeKey(dir));
   return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
 }
+/* #4538: a cold cache (no answer in the last TTL_MS) is its own cause, 'not_checked', and not the 'indeterminate' of a
+   check that ran and got no usable report: the list says "checking" for the first and "could not reach" only for the
+   second. Before this, any read more than 30s after the last check said "we could not reach ChatGPT" while the
+   check it had just started reached it within a second. */
+const NOT_CHECKED = 'not_checked';
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
   if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
-  return { verdict: 'unknown', cause: 'indeterminate' };
+  return { verdict: 'unknown', cause: NOT_CHECKED };
 }
 
 /* #3997: where this home's check stands, so /api/accounts can say "checking" only while one really is running (a
@@ -255,4 +260,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { NOT_CHECKED, liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
