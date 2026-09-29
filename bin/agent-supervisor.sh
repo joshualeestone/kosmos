@@ -890,7 +890,7 @@ if [ -z "$adopt" ]; then
         })();
       ' "$_eng/grokaccounts.js" "$_GROK_ACCT" || true)"
     elif [ -e "${_GROK_ACCT}/auth.json" ]; then
-      echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
+      echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it; unverified token doors are refused" >&2
     fi
     if [ "$_GROK_KIND" = subscription ]; then
       _kept=()
