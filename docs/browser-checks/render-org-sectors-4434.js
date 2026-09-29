@@ -114,6 +114,31 @@ async function settledRead(pg) {
     say(managers.size >= MANAGERS_MIN, label + ': the board has at least ' + MANAGERS_MIN + ' managers with reports (non-vacuity)', managers.size + ' managers: ' + [...managers].join(', '));
     const bad = crossings(m.segs);
     say(bad.length === 0, label + ': no two connector lines cross', bad.length + ' crossing(s)' + (bad.length ? ': ' + bad.slice(0, 5).join(', ') : ''));
+    /* #4434 (review it18): a failed poll empties the chart and clears its width; when the next poll succeeds
+       the chart must come back exactly where it was. The page measures where the canvas is before each paint
+       and carries kept positions by its move, and an emptied map is not a canvas anyone was drawn on: without
+       that guard every face came back shifted and slid home. Sampled every animation frame, on screen. */
+    await pg.evaluate(() => {
+      window.__orgJump = 0; const last = new Map();
+      const tick = () => {
+        for (const n of document.querySelectorAll('#orgmap .onode')) {
+          const r = n.getBoundingClientRect(); const c = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          const l = last.get(n.dataset.agent);
+          if (l) window.__orgJump = Math.max(window.__orgJump, Math.hypot(c.x - l.x, c.y - l.y));
+          last.set(n.dataset.agent, c);
+        }
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    await pg.route('**/api/status*', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"a failed poll, on purpose"}' }));
+    const emptied = await pg.waitForFunction(() => document.querySelectorAll('#orgmap .onode').length === 0, null, { timeout: 20000 }).then(() => true, () => false);
+    await pg.unroute('**/api/status*');
+    const back = emptied && await pg.waitForFunction((n) => document.querySelectorAll('#orgmap .onode').length === n, AGENTS, { timeout: 20000 }).then(() => true, () => false);
+    await pg.waitForTimeout(2500);
+    const jumped = await pg.evaluate(() => window.__orgJump);
+    say(emptied && back, label + ': a failed poll emptied the chart and the next one drew it again (non-vacuity)', 'emptied ' + emptied + ', back ' + back);
+    say(jumped < 2, label + ': after a failed poll every face comes back where it was, and none moves', jumped.toFixed(1) + 'px largest one-frame move');
     const shot = path.join(OUT, 'org-sectors-4434-' + (reduced ? 'reduced' : 'animated') + '.png');
     await pg.locator('#orgview').screenshot({ path: shot });
     console.log('      screenshot: ' + shot);
