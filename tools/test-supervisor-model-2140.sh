@@ -62,8 +62,8 @@ if grep -qx -- '--dangerously-bypass-approvals-and-sandbox' "$A"; then ok "codex
 if grep -qx -- '--model' "$A"; then bad "codex must use -m, not --model: $(tr '\n' ' ' < "$A")"; else ok "codex does NOT use --model (that is the claude flag)"; fi
 # #4477: codex reads AGENTS.md only up to project_doc_max_bytes; every codex launch raises it
 # to Kosmos's instruction cap, as a -c immediately before the value.
-docbytes_ok() { awk -v want='project_doc_max_bytes=262144' 'prev=="-c" && $0==want {f=1} {prev=$0} END {exit !f}' "$1"; }
-if docbytes_ok "$A"; then ok "codex+model: -c project_doc_max_bytes=262144 reached the launch"; else bad "codex+model: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$A")"; fi
+docbytes_ok() { awk -v want='project_doc_max_bytes=524288' 'prev=="-c" && $0==want {f=1} {prev=$0} END {exit !f}' "$1"; }
+if docbytes_ok "$A"; then ok "codex+model: -c project_doc_max_bytes=524288 reached the launch"; else bad "codex+model: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$A")"; fi
 
 # --- Arm 2: codex + empty model -> NO model flag (auto) -----------------------
 SBE="$(mktemp -d)"; make_sandbox "$SBE"
@@ -72,7 +72,7 @@ E="$SBE/new-session.args"
 if [ -s "$E" ]; then ok "codex+auto: the supervisor reached new-session"; else bad "codex+auto: new-session never reached: $(tail -3 "$SBE/out.log")"; fi
 if grep -qx -- '-m' "$E"; then bad "an empty model must pass NO -m flag (auto), but -m was present: $(tr '\n' ' ' < "$E")"; else ok "empty model passes NO -m flag -- the runner picks its own default, nothing substituted"; fi
 if grep -qx -- '--dangerously-bypass-approvals-and-sandbox' "$E"; then ok "codex still launched on the auto path"; else bad "codex auto path did not launch: $(tr '\n' ' ' < "$E")"; fi
-if docbytes_ok "$E"; then ok "codex+auto: -c project_doc_max_bytes=262144 reached the launch"; else bad "codex+auto: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$E")"; fi
+if docbytes_ok "$E"; then ok "codex+auto: -c project_doc_max_bytes=524288 reached the launch"; else bad "codex+auto: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$E")"; fi
 
 # --- Arm 3 (CONTROL): claude + a model -> `--model <id>`, never -m ------------
 # The discriminator: the codex `-m` above is codex-SPECIFIC, not a coincidence

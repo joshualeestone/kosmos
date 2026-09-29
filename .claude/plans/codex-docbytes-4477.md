@@ -5,7 +5,7 @@ Splinter 22:44 CDT, fix decided by Angel).
 
 ## Finished looks like
 Every Codex agent Kosmos launches, on Mac and Windows, is started with codex's AGENTS.md limit
-raised to Kosmos's own instruction-file cap (256 KiB), so the tail of the file (Kosmos's own
+raised to 512 KiB (twice Kosmos's 256 KiB instruction-file cap), so the tail of the file (Kosmos's own
 rules, appended after the person's brief) is never silently dropped. A test holds both launch
 sites and the cap to one number. One real Windows Codex launch is confirmed by Homer.
 
@@ -14,8 +14,10 @@ isolated CODEX_HOME, no account)
 - A 42 KB AGENTS.md with a marker as its last line: the marker is ABSENT by default (the file's
   earlier text is present), so codex cuts the tail.
 - With `-c project_doc_max_bytes=262144`, placed before or after the subcommand: marker PRESENT.
-- `codex -c ... exec resume --help` parses, so the top-level placement works for the Windows
-  `exec resume` turn too.
+- With `-c project_doc_max_bytes=524288` (the value shipped), before the subcommand: marker
+  PRESENT; the default re-run in the same session: marker ABSENT.
+- `codex -c ... exec resume --help` parses with the top-level placement the Windows `exec resume`
+  turn uses (parsing only; that it takes effect there is reasoned, see Limits).
 
 ## Decision
 - Raise the limit per launch with `-c project_doc_max_bytes=<workerfile.MAX_BYTES>`:
@@ -25,13 +27,18 @@ isolated CODEX_HOME, no account)
 - Rejected: trimming the Kosmos block (only moves the cliff), moving Kosmos text out of AGENTS.md
   (codex has no other file it always loads), writing the key into the agent's config.toml (would
   touch the person's own ~/.codex/config.toml for a default-account agent).
-- Test: engine/codex-docbytes-4477.test.js pins the Windows argv, every Mac codex launch line,
-  and both values equal to workerfile.MAX_BYTES; tools/test-supervisor-model-2140.sh runs the real
-  supervisor against a stub tmux and asserts `-c project_doc_max_bytes=262144` in both codex arms
+- Test: engine/codex-docbytes-4477.test.js pins the Windows argv, the Mac codex launch lines it
+  recognises, and both values equal to twice workerfile.MAX_BYTES (the behavioural guard is the
+  shell test below); tools/test-supervisor-model-2140.sh runs the real
+  supervisor against a stub tmux and asserts `-c project_doc_max_bytes=524288` in both codex arms
   and not in the claude arm.
 
 ## Limits, stated
-- A person's own higher `project_doc_max_bytes` in their config is lowered to 256 KiB for Kosmos
+- Twice the cap, because the brief is capped at MAX_BYTES and Kosmos's blocks (the working
+  rules, connections, community) are appended after it; the extra memory is trivial.
+- win32launch.argvFor also builds interactive launches, but win32supervisor routes codex to the
+  per-turn loop (win32codexsup), so codex never takes that path.
+- A person's own higher `project_doc_max_bytes` in their config is lowered to 512 KiB for Kosmos
   agents (a -c always wins).
 - codex counts the budget across every AGENTS.md from the git root down; an agent folder inside a
   repo with its own AGENTS.md shares the budget with it.
