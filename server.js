@@ -15975,6 +15975,29 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
+  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
+     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
+     it marks the project shared with the person's other computers (its owner seat then
+     opens even with no guest). */
+  if (pathname === '/api/federation/own-code' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        let proj = null;
+        try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
+        if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
+        const code = federation.ownCode(proj.id, proj.name);
+        if (!code) { sendJson(res, 409, { error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+        fedseats.ensure(proj.id).catch(() => {});
+        sendJson(res, 200, { code });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

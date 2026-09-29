@@ -378,3 +378,23 @@ test('#4649 an own code is still screen-only, like every join', async () => {
   const v = await post('/api/federation/verify', { code });
   assert.equal(v.status, 403, JSON.stringify(v.json));
 });
+
+test('#4649 own-code: the screen gets a code for its own project that another computer can join with', async () => {
+  const c = await post('/api/projects', { name: 'Four Computers' }, SCREEN);
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  const id = (c.json.project && c.json.project.id) || c.json.id;
+  const r = await post('/api/federation/own-code', { project: id }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const parsed = federation.parseOwnCode(r.json.code);
+  assert.equal(parsed.name, 'Four Computers');
+  const link = federation.linkFor(id);
+  assert.equal(link.role, 'owner');
+  assert.equal(link.ref, parsed.ref, 'the code names this project\'s room');
+  assert.equal(link.selfShared, true);
+  // Not from a process, not for a project that is not here, not for someone else's project.
+  assert.equal((await post('/api/federation/own-code', { project: id })).status, 403);
+  assert.equal((await post('/api/federation/own-code', { project: 'no-such-project' }, SCREEN)).status, 404);
+  const v = await post('/api/federation/verify', { code: 'CODE-ABC' }, SCREEN);
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  assert.equal((await post('/api/federation/own-code', { project: j.json.id }, SCREEN)).status, 409, 'a guest cannot share someone else\'s project');
+});
