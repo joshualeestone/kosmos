@@ -56950,6 +56950,10 @@ async function pjPostSend(attachment) {
   const sentText = text.trim();
   PJ_POSTING = true;
   document.getElementById('pj-post-go').disabled = true;
+  /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
+     seconds, and a jump that late would pull back someone who scrolled up meanwhile. The
+     repaints after this measure the floor before they write, so they keep them there. */
+  jumpToOwnSend(document.getElementById('pj-room'));
   const verdict = (line) => {
     if (PJ_CURRENT === sentProject) msg.textContent = line;
     pjRoomAnnounce(line);
@@ -56984,9 +56988,7 @@ async function pjPostSend(attachment) {
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
     pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
-    /* #4639: before the repaint that adds their post; paintRoom measures the floor
-       before it writes, so the new post is where they land. */
-    if (PJ_CURRENT === sentProject) { jumpToOwnSend(document.getElementById('pj-room')); await loadRoom(); }
+    if (PJ_CURRENT === sentProject) await loadRoom();
   } catch {
     verdict('We could not reach Kosmos to post that.');
   } finally {

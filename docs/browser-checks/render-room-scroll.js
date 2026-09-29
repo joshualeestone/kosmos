@@ -347,50 +347,81 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       sent.gap + 'px below the fold: ' + JSON.stringify(sent));
 
     /* ---- 4b. #4639 (Josh 2026-09-29, "like Discord"): scrolled back reading, a
-       post that ARRIVES (posted by fetch, not the composer, as an agent's post
-       reaches the screen) leaves them where they are; the person's OWN send takes
-       them to the bottom, showing it; the next arriving post keeps them there. */
-    const arrive = async (text) => {
-      await p.evaluate(async (t) => {
-        await fetch('/api/project/scrollrepro/room', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text: t }) });
-      }, text);
-      await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), text, { timeout: GROW_MS });
-    };
-    const roomPos = () => p.evaluate(() => {
-      const el = document.getElementById('pj-room');
-      return { top: el.scrollTop, gap: el.scrollHeight - el.scrollTop - el.clientHeight };
-    });
-    try {
-      await p.evaluate(() => { const el = document.getElementById('pj-room'); el.scrollTop = Math.floor(el.scrollHeight * 0.35); });
-      const up = await roomPos();
-      if (up.gap > 200) ok('#4639 CONTROL: the reader is really scrolled back (' + up.gap + 'px above the floor)');
-      else bad('#4639 CONTROL: the reader is really scrolled back', 'only ' + up.gap + 'px above the floor, so the arms below prove nothing');
-      await arrive('An arriving post 4639-a while the person reads back');
-      const afterArrive = await roomPos();
-      if (Math.abs(afterArrive.top - up.top) <= 4) ok('#4639 a post arriving while they read back does not move them');
-      else bad('#4639 a post arriving while they read back does not move them', 'was at ' + up.top + ', now at ' + afterArrive.top);
-      await p.fill('#pj-post', 'My own post 4639-b sent while reading back');
-      await p.click('#pj-post-go');
-      await p.waitForFunction(() => document.getElementById('pj-room').innerText.includes('My own post 4639-b'), null, { timeout: GROW_MS });
-      await p.waitForTimeout(600);
-      const afterSend = await roomPos();
-      const ownVisible = await p.evaluate(() => {
+       post that ARRIVES BY THE POLL (posted by fetch, not the composer, which is the
+       path an agent's post reaches the screen by) leaves them where they are; the
+       person's OWN send takes them to the bottom, showing it; the next arriving post
+       keeps them there; and someone who scrolls up again while a slow send is in
+       flight is not pulled back when it lands. Run here and in the consolidated
+       view (section 5). */
+    const sendJumpArms = async (tag) => {
+      /* The posts' words carry a plain slug: a "word:" in a post is shown differently, so the tag
+         itself would never be found by its exact text. */
+      const slug = tag ? 'cons' : 'tab';
+      const arrive = async (text) => {
+        await p.evaluate(async (t) => {
+          await fetch('/api/project/scrollrepro/room', { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: t }) });
+        }, text);
+        await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), text, { timeout: GROW_MS });
+      };
+      const roomPos = () => p.evaluate(() => {
         const el = document.getElementById('pj-room');
-        const row = [...el.querySelectorAll('*')].reverse().find((n) => n.children.length === 0 && n.textContent.includes('My own post 4639-b'));
-        if (!row) return false;
-        const a = row.getBoundingClientRect(), b = el.getBoundingClientRect();
-        return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+        return { top: el.scrollTop, gap: el.scrollHeight - el.scrollTop - el.clientHeight };
       });
-      if (afterSend.gap <= 8 && ownVisible) ok('#4639 sending their own post takes them to the bottom, showing it');
-      else bad('#4639 sending their own post takes them to the bottom, showing it', JSON.stringify({ afterSend, ownVisible }));
-      await arrive('An arriving post 4639-c after the person sent');
-      const afterNext = await roomPos();
-      if (afterNext.gap <= 8) ok('#4639 after their send, the next arriving post keeps them at the bottom');
-      else bad('#4639 after their send, the next arriving post keeps them at the bottom', afterNext.gap + 'px above the floor');
-    } catch (e) {
-      bad('#4639 the room send-jump arms ran', String((e && e.message) || e));
-    }
+      const settleAtFloor = () => p.waitForFunction(() => {
+        const el = document.getElementById('pj-room');
+        return el.scrollHeight - el.scrollTop - el.clientHeight <= 8;
+      }, null, { timeout: GROW_MS }).catch(() => {});
+      const scrollBack = () => p.evaluate(() => { const el = document.getElementById('pj-room'); el.scrollTop = Math.floor(el.scrollHeight * 0.35); });
+      try {
+        await scrollBack();
+        const up = await roomPos();
+        if (up.gap > 200) ok('#4639 ' + tag + 'CONTROL: the reader is really scrolled back (' + up.gap + 'px above the floor)');
+        else bad('#4639 ' + tag + 'CONTROL: the reader is really scrolled back', 'only ' + up.gap + 'px above the floor, so the arms below prove nothing');
+        await arrive('A post arriving by the poll 4639-a' + slug + ' while the person reads back');
+        const afterArrive = await roomPos();
+        if (Math.abs(afterArrive.top - up.top) <= 4) ok('#4639 ' + tag + 'a post arriving by the poll while they read back does not move them');
+        else bad('#4639 ' + tag + 'a post arriving by the poll while they read back does not move them', 'was at ' + up.top + ', now at ' + afterArrive.top);
+        await p.fill('#pj-post', 'My own post 4639-b' + slug + ' sent while reading back');
+        await p.click('#pj-post-go');
+        await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), 'My own post 4639-b' + slug, { timeout: GROW_MS });
+        await settleAtFloor();
+        const afterSend = await roomPos();
+        const ownVisible = await p.evaluate((t) => {
+          const el = document.getElementById('pj-room');
+          const row = [...el.querySelectorAll('*')].reverse().find((n) => n.children.length === 0 && n.textContent.includes(t));
+          if (!row) return false;
+          const a = row.getBoundingClientRect(), b = el.getBoundingClientRect();
+          return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+        }, 'My own post 4639-b' + slug);
+        if (afterSend.gap <= 8 && ownVisible) ok('#4639 ' + tag + 'sending their own post takes them to the bottom, showing it');
+        else bad('#4639 ' + tag + 'sending their own post takes them to the bottom, showing it', JSON.stringify({ afterSend, ownVisible }));
+        await arrive('A post arriving by the poll 4639-c' + slug + ' after the person sent');
+        const afterNext = await roomPos();
+        if (afterNext.gap <= 8) ok('#4639 ' + tag + 'after their send, the next arriving post keeps them at the bottom');
+        else bad('#4639 ' + tag + 'after their send, the next arriving post keeps them at the bottom', afterNext.gap + 'px above the floor');
+        /* A slow send: the POST is held 2.5s, and they scroll back up while it is in flight. */
+        await p.route('**/api/project/*/room', async (route) => {
+          if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 2500));
+          await route.continue();
+        });
+        await p.fill('#pj-post', 'My slow post 4639-d' + slug);
+        await p.click('#pj-post-go');
+        await p.waitForTimeout(300);
+        await scrollBack();
+        const scrolledMid = await roomPos();
+        await p.waitForFunction((t) => document.getElementById('pj-room').innerText.includes(t), 'My slow post 4639-d' + slug, { timeout: GROW_MS });
+        await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
+        const afterSlow = await roomPos();
+        await p.unroute('**/api/project/*/room');
+        if (scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4) ok('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands');
+        else bad('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands',
+          JSON.stringify({ scrolledMid, afterSlow }));
+      } catch (e) {
+        bad('#4639 ' + tag + 'the room send-jump arms ran', String((e && e.message) || e));
+      }
+    };
+    await sendJumpArms('');
 
     /* ---- 5. THE SAME ARMS IN THE CONSOLIDATED VIEW, which is the layout Josh
        is actually using. It gives the room a different box entirely (grid rows,
@@ -500,6 +531,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       consSent.gapWhileTyping + 'px of the newest messages went below the fold while he typed, having touched nothing but the keyboard');
     if (consSent.gap <= 8) ok('consolidated: after SENDING, the person can see their own message');
     else bad('consolidated: after SENDING, the person can see their own message', consSent.gap + 'px below the fold');
+
+    // #4639's arms again, in the layout Josh uses.
+    await sendJumpArms('consolidated: ');
 
     /* ---- 6. CONTENT ARRIVING WITHOUT A NEW POST, which is Josh's remaining
        two triggers. "As soon as the agent starts typing" and "every 30 seconds
