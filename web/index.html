@@ -46247,14 +46247,21 @@ let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answ
 async function openTeamCreate(key) {
   openCreate();
   cstep('team');
-  /* Round 2: reopening mid-run bumped TC_GEN, so an in-flight create's answer was dropped and that agent
-     existed with no row, no portrait and no project tell. A running team is resumed, never reset. */
-  if (TC && (TC.running || TC.watching)) {
+  /* Rounds 2 and 3: a team that was started and is not finished is RESUMED, never reset, however the person
+     left it (Back, closing the sheet, picking a team again). Resetting dropped in-flight answers, failed
+     rows with their Try again, and the watcher that sets portraits and project tells. Coming back also
+     looks again for members not yet seen running. A different team waits until this one is finished. */
+  if (tcLive()) {
+    const msg = document.getElementById('tc-msg');
+    msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
     tcPaint();
     if (TC.key !== key) {
-      const msg = document.getElementById('tc-msg');
-      msg.hidden = false;
+      msg.hidden = false; msg.dataset.kind = 'resume';
       msg.textContent = 'Kosmos is still making ' + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
+    }
+    if (!TC.running && !TC.watching && TC.members.some((m) => m.state === 'made' && m.seen !== 'running')) {
+      for (const m of TC.members) if (m.seen === 'unseen') m.seen = null;
+      tcWatch(TC_GEN);
     }
     return;
   }
@@ -46293,6 +46300,14 @@ async function openTeamCreate(key) {
   tcPaint();
 }
 
+/* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
+function tcFinished() {
+  return Boolean(TC && TC.started && TC.members.every((m) => m.state === 'made' && m.seen === 'running'));
+}
+function tcLive() {
+  return Boolean(TC && (TC.busy || TC.started) && !tcFinished());
+}
+
 function tcFillProjects() {
   const sel = document.getElementById('tc-project');
   const base = (TC && TC.team && TC.team.project && TC.team.project.name) || (TC && TC.team && TC.team.label) || 'Team';
@@ -46320,6 +46335,11 @@ function tcPaint() {
   const hadSlot = hadRow ? hadRow.dataset.slot : null;
   const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : 'name') : null;
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
+  /* Round 3: the watcher repaints every 2s. Rebuilding unchanged rows moved focus to a new element each
+     time (a screen reader re-announced it; an IME composition was lost), so only a change rebuilds. */
+  const sig = JSON.stringify([TC.started, TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
+  if (sig !== TC.paintedSig || !list.children.length) {
+  TC.paintedSig = sig;
   list.replaceChildren(...TC.members.map((m, i) => {
     const li = document.createElement('li');
     li.dataset.slot = m.slot;
@@ -46347,6 +46367,14 @@ function tcPaint() {
       row.append(note);
     }
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = m.why; row.append(why); }
+    /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
+       on the row, as the single create says it, never folded into "Running". */
+    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
+    if (m.state === 'made' && m.seen === 'unseen' && m.made && (m.made.image || (m.made.projects || []).some((pr) => pr && pr.added))) {
+      const p = document.createElement('p'); p.className = 'tc-why';
+      p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
+      row.append(p);
+    }
     if (m.state === 'failed') {
       const again = document.createElement('button');
       again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
@@ -46357,7 +46385,7 @@ function tcPaint() {
     li.append(row);
     return li;
   }));
-  if (hadSlot) {
+  if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
     const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
@@ -46369,6 +46397,7 @@ function tcPaint() {
       row.focus({ preventScroll: true });
     }
   }
+  }
   const n = TC.members.length;
   const go = document.getElementById('tc-go');
   const madeN = TC.members.filter((m) => m.state === 'made').length;
@@ -46378,8 +46407,10 @@ function tcPaint() {
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = false;
   document.getElementById('tc-project').disabled = TC.started;
-  /* Round 1: leaving mid-run abandoned a half-made team with no record on screen, so Back waits for it. */
-  document.getElementById('tc-back').disabled = Boolean(TC.running);
+  /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
+  document.getElementById('tc-back').disabled = false;
+  const msgEl = document.getElementById('tc-msg');
+  if (msgEl.dataset.kind === 'resume' && !tcLive()) { msgEl.hidden = true; msgEl.textContent = ''; delete msgEl.dataset.kind; }
   /* Progress is spoken politely (tc-note is a live region): a screen-reader user heard nothing before.
      "Ready" only once the board has seen every member running, not when every create was accepted. */
   let note;
@@ -46387,7 +46418,9 @@ function tcPaint() {
     note = 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.'
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
-    note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.';
+    const warned = TC.members.filter((m) => (m.warn || []).length).length;
+    note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.'
+      + (warned ? ' ' + warned + (warned === 1 ? ' of them has' : ' of them have') + ' something to look at, on its row.' : '');
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
@@ -46411,14 +46444,20 @@ async function tcSpecs(project, check) {
   return body.specs;
 }
 
-document.getElementById('tc-back').addEventListener('click', () => { if (TC && TC.running) return; TC_GEN += 1; TC = null; cstep('role'); });
+/* Back steps away. A live team (started, or being started) is KEPT and resumed when the person comes back
+   (round 3: resetting it here left an empty project behind, or dropped rows and the watcher). */
+document.getElementById('tc-back').addEventListener('click', () => {
+  if (tcLive()) { cstep('role'); return; }
+  TC_GEN += 1; TC = null; cstep('role');
+});
 
 document.getElementById('tc-go').addEventListener('click', async () => {
-  if (!TC || TC.started) return;
+  if (!TC || TC.started || TC.busy) return;
   const gen = TC_GEN;
   const go = document.getElementById('tc-go');
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
+  TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
     // leave an empty project or half a team behind.
@@ -46449,6 +46488,8 @@ document.getElementById('tc-go').addEventListener('click', async () => {
     if (gen !== TC_GEN) return;
     go.disabled = false;
     msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Something went wrong. Try again.';
+  } finally {
+    if (TC && gen === TC_GEN) TC.busy = false;
   }
 });
 
@@ -46467,6 +46508,9 @@ async function tcRun(gen) {
       TC.again = false;
       await tcRunOnce(gen);
     } while (TC && gen === TC_GEN && TC.again);
+  } catch (err) {
+    // Never an unhandled rejection with a row stuck on "Making": whatever was mid-make is failed, with why.
+    if (TC && gen === TC_GEN) for (const m of TC.members) if (m.state === 'creating') { m.state = 'failed'; m.why = String((err && err.message) || err); }
   } finally {
     if (TC && gen === TC_GEN) { TC.running = false; tcPaint(); }
   }
@@ -46487,6 +46531,7 @@ async function tcRunOnce(gen) {
     if (m.state !== 'waiting' && m.state !== 'held') continue;   // made, failed (needs its own Try again)
     if (m !== lead && lead.state !== 'made') { m.state = 'held'; m.why = ''; continue; }
     const s = bySlot.get(m.slot);
+    if (!s || !s.spec) { m.state = 'failed'; m.why = 'Kosmos did not prepare this member. Try again.'; tcPaint(); continue; }
     m.state = 'creating'; m.why = ''; tcPaint();
     let out = null;
     try {
@@ -46497,6 +46542,8 @@ async function tcRunOnce(gen) {
     if (out && out.outcome === 'created') {
       m.state = 'made'; m.seen = null;
       m.made = { name: out.name, shownAs: out.shownAs || m.name.trim(), image: (s.avatar && s.avatar.image) || null, projects: out.projects || [] };
+      m.warn = (Array.isArray(out.steps) ? out.steps : []).filter((st) => st && st.ok === false && st.label).map((st) => String(st.label));
+      for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + pr.because : '.'));
       if (m.firstName && m.firstName !== m.made.shownAs && TC.members.some((o) => o !== m && o.state === 'made')) m.renamedFrom = m.firstName;
     } else {
       m.state = 'failed';
@@ -46513,7 +46560,8 @@ async function tcRunOnce(gen) {
 let TC_WATCH_MS = 30000;   // let, not const: a browser check shortens it to run the timeout arm fast
 /* ONE watcher (round 2): a retry after a run ended started a second one, and both then set the same
    portrait and re-told the same project. A run that ends while one is watching asks it to go on longer.
-   It stops when the step is reset (TC or TC_GEN changes), not when the person merely looks away. */
+   Leaving the step does not stop it (Back keeps a live team); it stops at its window, or if the team is
+   replaced. A member not seen by then is marked unseen, and opening the team again looks once more. */
 async function tcWatch(gen) {
   if (!TC) return;
   if (TC.watching) { TC.watchUntil = Date.now() + TC_WATCH_MS; return; }

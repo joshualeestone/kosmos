@@ -21,6 +21,9 @@
  *    person's row through repaints, progress is a polite live region, a member reads "Made, starting"
  *    until the board sees it running (then Running), "ready" only when all are, and a member renamed on
  *    Try again says its made teammates still know the old name;
+ *  - round 3: Back mid-run steps away and reopening resumes the same rows (nothing made twice, one
+ *    project); another team waits while one is unfinished; a step create reports as not done is said
+ *    on its row;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -101,6 +104,7 @@ function chk(ok, label, extra) {
           const posted = [];
           const script = {};
           const slow = {};        // name -> ms to hold its create answer (to have one in flight)
+          const warnSteps = {};   // name -> a non-fatal step label create reports as not done
           const hidden = new Set();   // machine names the board must NOT see running (the unseen arm)
           const made = [];
           await page.route('**/api/agents', async (r) => {
@@ -111,7 +115,8 @@ function chk(ok, label, extra) {
             const s = script[b.name];
             if (s) { delete script[b.name]; return r.fulfill({ status: 400, json: { outcome: 'refused', because: s } }); }
             made.push(slug(b.name));
-            return r.fulfill({ status: 200, json: { outcome: 'created', name: slug(b.name), shownAs: b.name, steps: [], projects: (b.projects || []).map((id) => ({ id, added: true })) } });
+            const steps = warnSteps[b.name] ? [{ label: warnSteps[b.name], ok: false }] : [];
+            return r.fulfill({ status: 200, json: { outcome: 'created', name: slug(b.name), shownAs: b.name, steps, projects: (b.projects || []).map((id) => ({ id, added: true })) } });
           });
           /* Round 1: the step now waits for the BOARD to see each member before it says Running (and before
              the portrait and project tell). The real /api/status passes through, with each intercepted member
@@ -125,7 +130,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden };
+          return { page, errs, posted, script, slow, hidden, warnSteps };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -160,7 +165,8 @@ function chk(ok, label, extra) {
           chk(/works on your AI plan[^]*The lead briefs the rest of the team and checks their work on its own\.$/.test(view.note), `${E} the team's caution follows the AI plan line`, view.note);
           /* The second engine runs on the same sandbox, where the first made "Marketing": the new one must
              take the next free name rather than collide (a second Marketing team, for a person). */
-          const wantName = engineName === 'chromium' ? 'Marketing' : 'Marketing 2';
+          // chromium's run makes "Marketing" here and "Marketing 2" in the resume arm, so webkit's first is 3.
+          const wantName = engineName === 'chromium' ? 'Marketing' : 'Marketing 3';
           chk(view.project === 'new' && view.projectText === 'A new project called ' + wantName, `${E} the project defaults to a new one named from the seed, the first free name`, view.projectText);
 
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Maya Okafor');
@@ -228,8 +234,8 @@ function chk(ok, label, extra) {
           await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '')
             && /Making/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const during = await rows(page);
-          chk(during[1].state === 'Not made' && during[2].state === 'Making…' && await page.isDisabled('#tc-back'),
-            `${E} precondition: Leo failed while Ana is still being made, and Back waits for the run`, JSON.stringify(during.map((r) => r.state)));
+          chk(during[1].state === 'Not made' && during[2].state === 'Making…',
+            `${E} precondition: Leo failed while Ana is still being made`, JSON.stringify(during.map((r) => r.state)));
           // Focus survives the repaints a run makes: type a new name while Ana finishes.
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Leo Two');
           await page.focus('#tc-list li[data-slot="content"] .tc-retry');
@@ -260,6 +266,52 @@ function chk(ok, label, extra) {
           chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/ready/.test(await page.textContent('#tc-note')),
             `${E} after the wait it says so plainly, and still does not claim the team is ready`, JSON.stringify(after.map((r) => r.state)) + ' | ' + await page.textContent('#tc-note'));
           chk(errs.length === 0, `${E} no page errors (unseen arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- round 3: leaving a live team keeps it; coming back resumes the same rows ------------------- */
+        {
+          const { page, errs, posted, script, slow } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const before = projects.readAll().length;
+          script.Leo = 'an agent called Leo already exists';
+          slow.Ana = 1500;
+          await page.click('#tc-go');
+          await settle(page, () => /Making/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          // Back mid-run steps away; the run goes on.
+          await page.click('#tc-back');
+          const away = await page.evaluate(() => document.getElementById('cstep-team').hidden);
+          await page.waitForTimeout(2200);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => /Running/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          const back = await rows(page);
+          chk(away && back[1].state === 'Not made' && back[1].retry && back[2].state === 'Running' && back[0].state === 'Running',
+            `${E} Back mid-run steps away, and reopening the team shows the same rows: Leo still with Try again, Ana made meanwhile`, JSON.stringify(back.map((r) => r.state)));
+          chk(projects.readAll().length === before + 1 && posted.map((b) => b.name).join() === 'Maya,Leo,Ana',
+            `${E} nothing was made twice: one project, each member posted once`, (projects.readAll().length - before) + ' ' + JSON.stringify(posted.map((b) => b.name)));
+          // A different team while this one is live waits, and says so.
+          await page.evaluate(() => openTeamCreate('household'));
+          const other = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent }));
+          chk(/still making/.test(other.msg) && other.title === 'Marketing Team', `${E} picking another team while one is unfinished keeps this one and says why`, JSON.stringify(other));
+          chk(errs.length === 0, `${E} no page errors (resume arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- round 3: what create reports as not done is said on the row ------------------------------ */
+        {
+          const { page, errs, warnSteps } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          warnSteps.Ana = 'could not add the reports-to section to its instructions';
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
+          const r = await rows(page);
+          const note = await page.textContent('#tc-note');
+          chk(/could not add the reports-to section/.test(r[2].why) && /something to look at/.test(note),
+            `${E} a step create reports as not done is said on its row, and the ready line points at it`, r[2].why + ' | ' + note);
+          chk(errs.length === 0, `${E} no page errors (steps arm)`, errs.join(' | '));
           await page.close();
         }
 

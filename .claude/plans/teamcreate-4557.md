@@ -12,7 +12,9 @@ org chart import (#1280), which should end in the same step.
 - `POST /api/team` (server.js ~6447) is the operator/agent route for it, with the board-token gate.
 - The New Agent org-chart import in web/index.html (~45863) already posts members to `/api/team`.
 - Create takes `name, role, label, instructions, reportsTo, projects`. Explicit `instructions` are written
-  VERBATIM (create.js:4903): no `{{NAME}}` substitution.
+  VERBATIM (create.js:4903) IN PLACE of the role template, and the template-only blocks are then skipped. So
+  team members do NOT use it (Josh, 2026-09-29 20:22): they send `teamInstructions`, which create neutralises
+  and layers INTO the role's standard instructions as a `kosmos:team` block, before the usual blocks.
 - Avatars are an image PUT to `/api/agent/<name>/avatar` after the agent exists.
 
 ## The seed (agreed with April on #4557, 09:10)
@@ -35,9 +37,10 @@ creates through the existing route.
 
 - `engine/teamseed.js`:
   - `specs({team, names, project}, catalogue)` returns every member's create spec IN CREATION ORDER, lead
-    first: `{ slot, title, spec: { name, role, label, instructions, reportsTo, projects }, avatar: { image } }`.
-    `instructions` comes from `memberInstructions` (`{{NAME}}` filled). A report's `reportsTo` is the lead's
-    ACTUAL chosen name.
+    first: `{ slot, title, spec: { name, role, label, teamInstructions, reportsTo, projects }, avatar: { image } }`.
+    `teamInstructions` comes from `memberInstructions` (`{{NAME}}` filled). `role` is the catalogue's when
+    Kosmos has it, else `own` (the general template, titled). A report's `reportsTo` is the lead's machine
+    name, stored in its RECORD, so the board's reports sweep writes the tree (Josh, 20:24).
   - It refuses with a named reason: an unknown team, a missing or blank name for any slot, or two slots with
     the same name (case-insensitive).
   - `list(catalogue)` feeds the Team dropdown; `detail(key, catalogue)` feeds the confirm screen.
@@ -77,7 +80,7 @@ creates through the existing route.
   (measured: `that folder is already the project "Marketing"`), so the menu offers "Marketing 2" and says so.
 - **A failed row keeps its name editable.** Try again re-reads the specs with the current names (made members
   keep their made names), so a renamed lead's reports get the new machine name.
-- render-teamcreate-4557.js, 51 checks, chromium + webkit. The service worker is blocked there, because in
+- render-teamcreate-4557.js, 87 checks (43 per engine plus the created-count check), chromium + webkit. The service worker is blocked there, because in
   webkit it answered /api/agents before the intercept and those creates reached the real route (the sandboxed
   one; no launchd job leaked, checked). The check asserts the server's created count stays 0.
 
@@ -102,8 +105,12 @@ row's name be edited before retry.
 
 ## Checks
 - engine/teamseed.test.js, with a fixture catalogue in the agreed shape: every refusal, the lead's reportsTo is
-  null, the reports' reportsTo is the lead's ACTUAL name (renamed lead), and instructions are passed through
-  verbatim.
+  null, the reports' reportsTo is the lead's machine name (renamed lead), and the brief rides as
+  `teamInstructions` (never `instructions`).
+- teamcreate-structure-4557.test.js, through the real path: a member's file is the single-agent file of its
+  role apart from the team and reports blocks; the structure is in the record; the reports sweep writes it
+  and a second sweep changes nothing; the org chart draws the same tree; every teamInstructions refusal
+  (both fields, non-string or empty, over the COMPOSED cap); markers in a brief are neutralised.
 - server tests: the three read routes; a catalogue that is not installed answers 503 with a plain reason, never
   a crash; the specs, POSTed to the real `/api/agents` in order on a sandboxed server, make a lead and reports
   whose profiles carry reportsTo = the lead and the project membership.

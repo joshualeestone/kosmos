@@ -203,11 +203,20 @@ test('#4557 create: teamInstructions is refused alongside instructions, as a non
     assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(bad));
     assert.match(r.because, /brief has to be words/, JSON.stringify(bad));
   }
-  const huge = create.createAgent({ ...base, name: 'Huge', teamInstructions: 'x'.repeat(require('./engine/instructions').MAX_BYTES) });
-  assert.equal(huge.outcome, create.OUTCOME.REFUSED);
+  // Over the cap ONLY once the template and the block wrapper are counted (round 3): a check that measured
+  // the brief alone would let this through, so this pins the composed measurement.
+  const { MAX_BYTES } = require('./engine/instructions');
+  const template = Buffer.byteLength(require('./engine/roles').instructionsFor('copy', 'Huge'), 'utf8');
+  const wrapper = Buffer.byteLength(projects.spliceBlock('', '## Your team\n\n\n', projects.TEAM_START, projects.TEAM_END), 'utf8');
+  const room = MAX_BYTES - template - wrapper;
+  assert.ok(room > 1000, 'the template leaves room for a brief: ' + room);
+  const huge = create.createAgent({ ...base, name: 'Huge', teamInstructions: 'x'.repeat(room + 50) });
+  assert.equal(huge.outcome, create.OUTCOME.REFUSED, 'a brief that fits alone but not with the template was accepted');
   assert.match(huge.because, /too long to fit/);
-  // Nothing was made by any refusal.
-  for (const n of ['both', 'bad0', 'bad2', 'huge']) assert.equal(fs.existsSync(create.instructionFile(n)), false, n);
+  const fits = create.createAgent({ ...base, name: 'Fits', teamInstructions: 'x'.repeat(room - 200) });
+  assert.equal(fits.outcome, create.OUTCOME.CREATED, 'a brief that fits with the template was refused: ' + fits.because);
+  // Nothing was made by any refusal (every case above, null's "Bad4" included).
+  for (const n of ['both', 'bad0', 'bad2', 'bad4', 'huge']) assert.equal(fs.existsSync(create.instructionFile(n)), false, n);
 });
 
 test('#4557 create: a brief carrying kosmos markers is neutralised, so every other block still lands', () => {
