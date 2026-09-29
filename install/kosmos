@@ -1828,6 +1828,12 @@ cmd_report() {
         exit 2
       fi ;;
   esac
+  # #4466: an --auto report is the hook's, and a hook cannot wait 20 s. SessionStart runs this in the
+  # FOREGROUND under Claude Code's 15 s hook timeout, and a kill there prints nothing, so the "reporting
+  # is OFF" sentence never shows; every other hook event starts one in the background, and a busy
+  # board's CPU is the last thing to spend on 20 s of retries per event. So a 6 s busy budget (probes of
+  # 2 and 4 s) unless the caller set one. A person's or an agent's own report keeps the full wait.
+  if [ "$auto" = 1 ] && [ -z "${KOSMOS_BUSY_WAIT:-}" ]; then KOSMOS_BUSY_WAIT=6; fi
   if ! healthy; then
     say_not_up "this could not be recorded"
     exit 1

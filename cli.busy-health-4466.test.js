@@ -143,6 +143,21 @@ test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does
   assert.ok(ms < 8500, `one probe must not take its budget twice (took ${ms} ms, budget 6 s)`);
 }, 5000));
 
+test('#4466 an --auto report (the hook) gives up on a busy board inside the hook\'s 15 s timeout, saying busy', () => withBoard('hang', async (port) => {
+  const env = baseEnv(port, { TMUX_PANE: '%42' });
+  delete env.KOSMOS_BUSY_WAIT;   // the hook sets none: the default is what is under test
+  const out = await runCli(['report', 'started', '--auto'], env);
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /too busy to answer \(no reply in 6 s\)/);
+  assert.ok(out.ms < 12000, `SessionStart's foreground check must end well inside 15 s (took ${out.ms} ms)`);
+  // CONTROL: the same report WITHOUT --auto keeps the full default wait, so the arm above measures the
+  // --auto budget and not a board that fails fast.
+  const person = await runCli(['report', 'working', 'on it'], env);
+  assert.equal(person.code, 1, person.stdout + person.stderr);
+  assert.match(person.stdout, /no reply in 20 s/);
+  assert.ok(person.ms >= 15000, `a report that is not --auto waits the full budget (took ${person.ms} ms)`);
+}));
+
 test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {
   const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42', KOSMOS_BUSY_WAIT: '30' }));
   assert.equal(out.code, 0, out.stdout + out.stderr);

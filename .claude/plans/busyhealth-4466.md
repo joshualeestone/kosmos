@@ -94,6 +94,21 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Not changed: "no reply in 20 s" and "did not answer within 20 s" are true as written even when the real
   wait ran a little past 20 s.
 
+## Review round 9 decisions
+- An `--auto` report (every hook event) waits 6 s on a busy board, not 20, unless KOSMOS_BUSY_WAIT is set.
+  SessionStart's delivery check runs it in the foreground under Claude Code's 15 s hook timeout, and a kill
+  there prints nothing, so the "reporting is OFF" sentence would never show; the background reports would
+  spend a busy board's CPU on 20 s of retries per event. A person's or an agent's own report keeps 20 s.
+  Arm: "an --auto report (the hook) gives up ... inside the hook's 15 s timeout", with the not-auto control
+  (red without the change: it said "no reply in 20 s").
+- Deferred: each `--auto` report on a busy board still runs one lsof sweep (the ownership check). The
+  heartbeat is throttled to one a minute per pane, and caching the verdict across processes is a new
+  shared-state file for a best-effort report; #4468 is the load itself.
+- Deferred NITs: a board that dies between connect and reply reads busy for one `--once` probe (the full
+  loop corrects on the next probe, and the guard refusal it could cause is one "running" sentence); a
+  Windows connect that hangs is also called busy (Windows has no restart verbs for an agent to misuse);
+  "no reply in 0 s" when someone sets KOSMOS_BUSY_WAIT=0.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -121,14 +136,15 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   and the real server's route.
 
 ## Tests
-- `cli.busy-health-4466.test.js` (11 arms): slow status and post wait, say busy, succeed; the old
+- `cli.busy-health-4466.test.js` (22 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
   `healthy()` verbatim as the CONTROL (says "not running" to the same slow board); stopped = "not
   running" at once; never answers = busy, exit 4, no start advice; stranger; older board fallback;
   agent refusal; 10 rapid agent restarts of a down board go ahead once, a person 10 times, `--force`
   goes ahead; token-only and pane-claim agents (with an unclaimed control).
 - `server.health-4466.test.js` (4 arms): enforcing board, no token, tiny identity answer; a gated route
   still 403 (control); HEAD; the page premise.
-- `tools.windows-kosmos-cli-busy-4466.test.js` (2 arms): timeout says busy; refused keeps the old line.
+- `tools.windows-kosmos-cli-busy-4466.test.js` (3 arms): a timed-out read says busy; a timed-out write adds that
+  it may have happened; refused keeps the old line.
 - `tools/test-board-watchdog-2955.sh` arms 6e/6c/6d: busy 60 s no restart (red on the old watchdog), busy
   400 s recovered.
 - Red-capability measured: on main's `install/kosmos`, 6 of the 10 CLI arms fail and the 4 that should
@@ -136,4 +152,5 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 
 ## Status
 - [x] server route, CLI, watchdog, supervisor, Windows CLI, tests, red checks
-- [ ] full suite, challenge loop, PR, merge
+- [x] full suite (green at every iteration's commit)
+- [ ] challenge loop convergence, PR, merge
