@@ -44,7 +44,12 @@ const INDUSTRIES = Object.freeze([
   ['media-creative', 'a media or creative studio'],
   ['nonprofit', 'a nonprofit'],
   ['other', 'a business'],
-].map(([key, label]) => Object.freeze({ key, label })));
+].map(([key, label]) => Object.freeze({
+  key,
+  label,
+  // What the picker shows: the label as an option ("A law firm"), made here so the page dresses nothing itself.
+  display: label.charAt(0).toUpperCase() + label.slice(1),
+})));
 const KEYS = new Set(INDUSTRIES.map((i) => i.key));
 
 /**

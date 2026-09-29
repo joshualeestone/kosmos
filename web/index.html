@@ -28519,7 +28519,6 @@ let INDUSTRY_EPOCH = 0;
 let INDUSTRY_SAVING = false;
 const INDUSTRY_NONE_LABEL = 'None: profiles leave it out';
 const INDUSTRY_UNKNOWN_LABEL = 'Could not be read just now';
-function industryOptionText(label) { return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''; }
 function industryPaint(r, keepMsg) {
   const sel = document.getElementById('community-industry');
   const unread = !r || r.ok !== true || !Array.isArray(r.industries);
@@ -28529,7 +28528,7 @@ function industryPaint(r, keepMsg) {
   const opts = [];
   if (unread) opts.push({ value: '__unknown', text: INDUSTRY_UNKNOWN_LABEL, disabled: true });
   opts.push({ value: '', text: INDUSTRY_NONE_LABEL });
-  for (const i of list) opts.push({ value: i.key, text: industryOptionText(i.label) });
+  for (const i of list) opts.push({ value: i.key, text: String(i.display || i.label || '') });   // the board dresses the label
   sel.textContent = '';
   for (const o of opts) {
     const el = document.createElement('option');

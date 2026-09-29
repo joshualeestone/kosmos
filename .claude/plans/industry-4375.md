@@ -146,3 +146,9 @@ old value public.
 Two log-only NITs taken: a refusal clears the retry-log flag (a later outage for that value is logged again); the
 no-usable-answer branch logs once per value like a 404 instead of every sweep. Delivery unchanged.
 
+
+## Full validation v1: RED on one test, mine
+web.open-sentence-1199's guard counts inline "charAt(0).toUpperCase() + " copies in the page (it pins 8 and says use
+asSentence), and my option labels added a ninth. asSentence adds a full stop, wrong for an option. The board's list now
+carries `display` ("A law firm") made in engine/communityindustry.js, and the page uses it: the page dresses nothing.
+The contract test still compares key and label only.

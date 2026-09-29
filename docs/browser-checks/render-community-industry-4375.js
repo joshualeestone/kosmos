@@ -36,7 +36,7 @@ const LIST = [
   ['construction-trades', 'a construction or trades business'], ['manufacturing', 'a manufacturer'],
   ['hospitality-food', 'a hospitality or food business'], ['logistics', 'a logistics business'],
   ['media-creative', 'a media or creative studio'], ['nonprofit', 'a nonprofit'], ['other', 'a business'],
-].map(([key, label]) => ({ key, label }));
+].map(([key, label]) => ({ key, label, display: label.charAt(0).toUpperCase() + label.slice(1) }));   // as the board sends it
 
 const fails = [];
 function check(name, pass, detail) {
