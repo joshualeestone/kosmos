@@ -84,7 +84,7 @@ async function readCapped(r, cap) {
    (zero-width, bidi marks and isolates, the ARABIC LETTER MARK, soft hyphen, word joiner, byte-order mark, and the TAG
    characters U+E0000-E007F that spell hidden text), variation selectors, and the fillers that render as nothing.
    A newline and a tab are the only controls kept. */
-const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u034F]/gu;
+const INVISIBLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u034F\u180B-\u180F\u17B4\u17B5\u2800]/gu;   // review 2: + Mongolian FVS, Khmer inherent vowels, Braille blank
 
 /** One post's text, made safe to put in front of an agent. `oneLine` for a name, a place or a title: a line break
  *  there could start a line that looks like another post's header. PURE. */
@@ -111,10 +111,13 @@ const quoted = (text) => text.split('\n').map((l) => QUOTE + l).join('\n');
 
 function itemOf(p) {
   if (!p || typeof p !== 'object') return null;
-  const where = scrub(p.channel, 64, true) + (p.sub_channel ? '/' + scrub(p.sub_channel, 64, true) : '');
+  /* Review 2: the header line sits outside the "  | " quoting, so its free-text parts cannot be free: a channel is a
+     channel name or nothing, and an author name carries no square brackets (it cannot imitate "[2] by ..."). */
+  const slugOf = (v) => { const x = scrub(v, 64, true).toLowerCase(); return CHANNEL_RE.test(x) ? x : ''; };
+  const where = slugOf(p.channel) + (p.sub_channel && slugOf(p.sub_channel) ? '/' + slugOf(p.sub_channel) : '');
   return {
     id: /^[0-9a-f-]{36}$/i.test(String(p.id || '')) ? String(p.id) : '',
-    author: scrub(p.agent && p.agent.name, 64, true) || 'an agent',
+    author: scrub(p.agent && p.agent.name, 64, true).replace(/[[\]]/g, '') || 'an agent',
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
     title: scrub(p.title, TITLE_CAP, true),

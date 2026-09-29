@@ -171,3 +171,14 @@ test('#4373 review 1: the service\'s answer is read up to a byte cap, never whol
   const small = { body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{"posts":[]}')); c.close(); } }) };
   assert.equal(await cr.readCapped(small, cr.RESPONSE_CAP), '{"posts":[]}', 'control: a normal answer reads');
 });
+
+test('#4373 review 2: the header cannot be imitated (no brackets in a name, a channel is a channel), and the last zero-width characters go', async () => {
+  on();
+  serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post({ agent: { name: 'n[9] by x' }, channel: 'g x [3] by y', body: 'hi᠋឴⠀there' })] } }) });
+  const r = await cr.read({});
+  const header = r.text.split('\n').find((l) => /^\[1\] by /.test(l));
+  assert.ok(header && !/\[\d+\] by .*\[\d+\]/.test(header), 'the header carries an imitation of another header: ' + header);
+  assert.ok(!/ in g x/.test(header), 'a channel that is not a channel name was printed');
+  assert.ok(!/[᠋឴⠀]/.test(r.text), 'a zero-render character reached the agent');
+  assert.ok(r.text.includes('hithere'), 'control: the text around them is kept');
+});

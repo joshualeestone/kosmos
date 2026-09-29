@@ -44,3 +44,13 @@ rule to the managed block, and S2-2's red-team cases are the test.
 - NITs fixed: the read route sits above the #3485 comment that describes the post route; a service failure answers
   502 (the board's own words, never the service's), a wrong request 400. ACCEPTED: `general/tools` filters on
   `tools` alone, as the service's feed takes one slug; a same-named sub under another channel would mix in.
+
+## Review iteration 2 (Sonnet: converged, nothing new at BLOCKER or WARNING)
+- Fixed anyway, being on the injection surface: the header line sits outside the "  | " quoting, so a channel is now a
+  channel name or nothing, and an author name carries no square brackets (it cannot imitate "[2] by ..."); and
+  Mongolian free variation selectors, Khmer inherent vowels and the Braille blank are stripped too. Tested; removing
+  the bracket rule reds it.
+- ACCEPTED: the "  | " prefix makes a body of many short lines about 4x its character cap (ten posts stay bounded,
+  about 45 KB); ?post= wins over ?channel= for a direct caller (both CLIs refuse both); no per-agent throttle on the
+  read route; CR, U+0085 and U+2028 are stripped rather than turned into line breaks, gluing such lines together.
+
