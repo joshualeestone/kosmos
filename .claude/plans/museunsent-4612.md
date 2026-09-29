@@ -20,14 +20,14 @@ another turn, the block goes.
 - Muse only for now (the Muse front is the only reporter of `final`). Claude's Stop hook could do the same later.
 - Wording is first-cut, for Mona to change.
 
-## Known limit
-If more messages wait when the turn ends, the front does not report idle, so that turn's answer is not carried (the
-next turn's is, if it is the last).
+- Review round 1 (BLOCKER fixed): the answer carried is the one to the person's latest DIRECT message (the
+  "to answer, run: kosmos reply" envelope, alone or inside a stop note), kept across the room turns that run after it
+  until the next idle report. Before, it was the last turn's answer, usually a room post the DM went ahead of, which
+  could put a colleague's room text under the person's DM.
 
 ## Weakest premise
-That "the latest report is idle and its turn began after the message" means that turn answered it. A turn that began
-after the message but was about something else (a room post that ran first) would show its answer here. The person's
-messages run first (#4604), which makes that rare.
+That the DM envelope marks the turn that answered the person. A DM whose turn failed or had no words clears it, so
+an older answer is never shown for a newer message (the route also requires the turn to begin after the message).
 
 ## Tests
 engine/musefront.test.js (answer on idle, control failed turn; reporter payload; bridge Stop only, agy unchanged),

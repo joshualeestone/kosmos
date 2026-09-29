@@ -13879,7 +13879,7 @@ const server = http.createServer(async (req, res) => {
         const rep = selfreport.read(name);
         const heard = Date.parse(owes.lastHeardAt || '');
         if (rep && rep.found && rep.state === 'idle' && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
-          owes.unsent = { text: rep.final.text, at: rep.at || null };
+          owes.unsent = { text: rep.final.text };
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }

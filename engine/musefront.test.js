@@ -608,3 +608,28 @@ test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on
   assert.equal(bridge.reportFor('PreInvocation', { kosmosFinal: { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' } }).final, undefined, 'a working report carried an answer');
   assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' }, 'CONTROL: agy\'s own Stop is unchanged');
 });
+
+test('#4612 review round 1: the answer carried is the DM turn\'s, even when a room turn runs after it', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : /kosmos reply\]/.test(input.prompt) ? OK('Answer to Josh.') : OK('Nothing here needs me.')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  const fedAt = Date.now();
+  h.f.feed(OP('are you there') + '\r');    // runs next (the person first)
+  h.f.feed(BG(1) + '\r');                  // then the room post
+  await new Promise((r) => setTimeout(r, 5));
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  const idle = sent.filter(([s]) => s === 'idle');
+  assert.equal(idle.length, 1);
+  assert.equal(idle[0][1] && idle[0][1].text, 'Answer to Josh.', 'the room turn\'s answer was carried: ' + JSON.stringify(idle));
+  assert.ok(Date.parse(idle[0][1].startedAt) > fedAt, 'startedAt is when the DM was fed, not when its turn began');
+  // CONTROL: only room turns ran, so no answer is carried.
+  const c = []; const r = harness([OK('Nothing here needs me.')], { report: (s, w, final) => c.push(final || null) });
+  r.f.feed(BG(2) + '\r'); await r.f.drained();
+  assert.equal(c[c.length - 1], null, 'a room turn\'s answer was carried as a DM answer');
+  // A room post from the person (the room envelope) is not a DM either.
+  const d = []; const q = harness([OK('Room answer.')], { report: (s, w, final) => d.push(final || null) });
+  q.f.feed('[message from your operator · m7 · project p · to answer, run: kosmos post --in-reply-to m7 p] hi\r'); await q.f.drained();
+  assert.equal(d[d.length - 1], null, 'a room post from the person was carried as a DM answer');
+});

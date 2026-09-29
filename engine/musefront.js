@@ -125,6 +125,11 @@ const DIGEST_MAX = 40;
 const BUSY_RETRIES = 4;
 /* #4612: the most of a turn's final answer sent to the board (the DM shows it when no reply arrived). */
 const FINAL_MAX = 4000;
+/* #4612 review round 1: a turn that answers the person's DIRECT message (engine/messages.js operatorDirect's envelope,
+   "... to answer, run: kosmos reply]"), alone or inside a stop note. A room post from the person, a colleague's or a
+   background post is not: its answer belongs to the room, never under the person's DM. */
+const DM_ENVELOPE = /(^|\n)\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
+function answersTheDm(prompt) { return DM_ENVELOPE.test(prompt); }
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
 const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
@@ -147,6 +152,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   let running = false;
   const STOP_NOTES = new Set();   // #4569: stop notes waiting or running (a second stop leaves them alone)
   let stopNoteRunning = false;
+  let dmAnswer = null;   // #4612: the latest DM turn's answer, until an idle report carries it
   let stopTurn = null;   // ends the turn that is running now, when runTurn handed one over
   let waiters = [];
   const decoder = new StringDecoder('utf8');   // a character split across two reads stays one character
@@ -225,10 +231,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        /* #4612: the turn's answer rides with the idle report, so the DM can show it when the agent answered here
-           in its own window but never ran kosmos reply. Only a turn that finished with words. */
-        const final = r && r.ok && text ? { text: text.slice(0, FINAL_MAX), startedAt } : null;
-        if (!queue.length) { noteSent = null; report('idle', null, final); }
+        /* #4612: the answer to the person's latest DM rides with the next idle report, so the DM can show it when
+           the agent answered in its own window but never ran kosmos reply. Kept across the turns that run after it
+           (a room post the DM went ahead of), and only a DM turn that finished with words replaces it. */
+        if (answersTheDm(prompt)) dmAnswer = r && r.ok && text ? { text: text.slice(0, FINAL_MAX), startedAt } : null;
+        if (!queue.length) { noteSent = null; report('idle', null, dmAnswer); dmAnswer = null; }
         write(PROMPT);
       }
     } finally {
