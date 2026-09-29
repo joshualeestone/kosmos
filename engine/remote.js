@@ -1185,6 +1185,11 @@ function forgetPendingSnapshot() {
    never two at once. NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
 let selfAllowAt = 0;
 let selfAllowing = false;
+/* Blind review round 1: once the grant for an id succeeds it is not asked again (a tunnel whose poll keeps failing
+   keeps the old snapshot listing it, which re-spawned the grant every minute forever), and a grant that fails is
+   logged once per id rather than retried in silence. Both reset on a new identity (signinRegister). */
+let selfGrantedId = '';
+let selfFailLoggedId = '';
 const SELF_ALLOW_RETRY_MS = 60000;
 /* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
 function selfPendingInSnapshot() {
@@ -1197,12 +1202,19 @@ function selfPendingInSnapshot() {
 }
 function allowSelfQuietly() {
   const id = typeof read().device_id === 'string' ? read().device_id : '';
-  if (!id || selfAllowing || !enrolled()) return false;
+  if (!id || selfAllowing || !enrolled() || selfGrantedId === id) return false;
   if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
   selfAllowing = true;
   selfAllowAt = Date.now();
   Promise.resolve()
     .then(() => deviceAllow(id, thisComputerDeviceName()))
+    .then((r) => {
+      if (r && r.ok) { selfGrantedId = id; return; }
+      if (selfFailLoggedId !== id) {
+        selfFailLoggedId = id;
+        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
+      }
+    })
     .catch(() => null)
     .finally(() => { selfAllowing = false; });
   return true;
@@ -1533,6 +1545,7 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 function abandonChangedIdentity(before, addressBefore, startedAt) {
   if (macIdHere() === before) return;
   stopChild();
+  forgetPendingSnapshot();   // #4610 round 1: a failed register that kept a new mac_id is a new identity too
   // The certificate belongs to the ADDRESS (the tunnel keeps it across a register
   // at the same address: setup.rs certificate_survives), so it is dropped only when
   // the address changed; then it is for a name this key no longer holds. And only
@@ -1949,7 +1962,7 @@ async function signinRegister(name) {
   if (macIdHere() !== before) { stopChild(); forgetPendingSnapshot(); }   // #4610
   /* #4610 (Josh's ruling): grant this Mac's own sign-in now. After this call returns, so the register's in-flight
      flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
-  selfAllowAt = 0;
+  selfAllowAt = 0; selfGrantedId = ''; selfFailLoggedId = '';
   setImmediate(allowSelfQuietly);
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
@@ -2026,7 +2039,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); selfAllowAt = 0; selfAllowing = false; stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); selfAllowAt = 0; selfAllowing = false; selfGrantedId = ''; selfFailLoggedId = ''; stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

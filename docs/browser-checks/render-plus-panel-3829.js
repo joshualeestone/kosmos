@@ -269,7 +269,9 @@ const STATES = {
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
-      chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
+      /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the
+         board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */
+      chk(!v.listNames.includes('This computer (Kosmos app)'), `${t} #4610: no row is relabelled as this computer (the board grants it and never sends it)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();

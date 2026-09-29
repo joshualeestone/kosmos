@@ -7970,8 +7970,10 @@ const server = http.createServer(async (req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
-    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
+    /* #4610 (Josh's ruling 13:00, blind review round 1): this Mac's own sign-in is never shown, so its id is no longer
+       sent to the page (the engine leaves it out of pending, and grants it). Not sending it also keeps the one value
+       that picks the automatic grant off every read route. */
+    try { sendJson(res, 200, remote.pendingDevices()); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -7980,10 +7982,11 @@ const server = http.createServer(async (req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
-           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
+           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
         const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+        sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;

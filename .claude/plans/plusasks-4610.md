@@ -38,3 +38,16 @@ coordinator grant is per (account, device_id, Mac), so a device that could sign 
 Mac's device_id would inherit the grant. The id is a random UUID minted here and shown only to the page (which
 remote viewers see only once already allowed); whether the coordinator binds a device id to anything more is a
 kosmos-relay question, the same one that applies to every device the person has already allowed.
+
+## Blind review round 1 (a separate reviewer agent, 2026-09-29 13:22) and what changed
+The earlier "review round" on this branch was the loop's own; this is the first separate reviewer.
+- The stranger test could not fail (it never went through the one granting path, ensure()). New test drives the tick
+  with this Mac and a stranger in one snapshot; granting everything in the snapshot turns it red (measured).
+- A grant that succeeded is not re-spawned while a stale snapshot still lists it; a grant that fails is logged once per
+  id. Both reset on a new identity.
+- Josh: "never display". This Mac is also left out of the ALLOWED list (it carried a Remove the grant would undo), and
+  the board no longer sends its device id to the page at all (the page's #3829 relabel is removed with it).
+- abandonChangedIdentity (a failed register that kept a new mac_id) drops the stale snapshot too.
+Weakest premise, carried to #4616: at the coordinator a device id is whatever a signing-in client presents; a client
+with the account's credentials that presents this Mac's id would now be granted without a person's Allow. The id is
+never on a read route any more, which narrows who can learn it.

@@ -2820,6 +2820,9 @@ test('#4610 a Mac whose own sign-in was never granted (signed in before this cha
   assert.equal((await remote.signinRegister('tickmac')).ok, true);
   await until(() => remote.status().state === 'up', 'the tunnel to come up');
   const self = remote.read().device_id;
+  /* Let the sign-in's own grant finish first: it marks the id granted when it lands (round 1: no re-grant after a
+     success), and landing after the reset below would make this Mac look granted, which is not the case under test. */
+  await new Promise((r) => setTimeout(r, 300));
   /* As a Mac signed in before this change: the same-name shortcut, which grants nothing itself. */
   remote.resetForTests();
   await remote.signinStart('her@example.com');
@@ -2834,5 +2837,33 @@ test('#4610 a Mac whose own sign-in was never granted (signed in before this cha
   remote.ensure(4600);
   await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
   assert.deepEqual(allows().slice(before), [self]);
+  remote.setOn(false);
+});
+
+test('#4610 round 1: through the supervisor tick, ONLY this Mac\'s own id is granted, never a stranger in the same snapshot', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('strangermac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  await new Promise((r) => setTimeout(r, 300));   // the sign-in's own grant
+  remote.resetForTests();                          // clear the throttle and the granted mark, as a later tick would find it
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-stranger', name: 'This computer (Kosmos app)', first_seen: 1756000000, code: 'AA-11' },
+    { device_id: self, name: 'x', first_seen: 1756000100, code: 'W6-M4' },
+  ] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(allows().slice(before), [self], 'the tick granted something other than this Mac\'s own minted id');
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['dev-stranger'], 'the stranger was hidden');
   remote.setOn(false);
 });
