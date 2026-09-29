@@ -423,6 +423,18 @@ test('#4649 own-code: the screen gets a code for its own project that another co
   assert.equal(link.role, 'owner');
   assert.equal(link.ref, parsed.ref, 'the code names this project\'s room');
   assert.equal(link.selfShared, true);
+  // The owner's side is told its room now reaches the relay, once, not on every press.
+  assert.equal((await post('/api/federation/own-code', { project: id }, SCREEN)).status, 200);
+  const ownerRoom = await (await fetch(base + '/api/project/' + encodeURIComponent(id) + '/room?as=text')).text();
+  assert.equal((ownerRoom.match(/now shared with your other computers\. Messages in this room are not sealed end to end/g) || []).length, 1, ownerRoom);
+  // A failure reading this computer's records is ours: a 500 with a sentence, not a 400 with the raw error.
+  const realRefusal = federation.ownCodeRefusal;
+  federation.ownCodeRefusal = () => { throw new Error('EACCES: raw internals'); };
+  try {
+    const broken = await post('/api/federation/own-code', { project: id }, SCREEN);
+    assert.equal(broken.status, 500, JSON.stringify(broken.json));
+    assert.doesNotMatch(broken.json.error, /EACCES/);
+  } finally { federation.ownCodeRefusal = realRefusal; }
   // Not from a process, not for a project that is not here, not for someone else's project.
   assert.equal((await post('/api/federation/own-code', { project: id })).status, 403);
   assert.equal((await post('/api/federation/own-code', { project: 'no-such-project' }, SCREEN)).status, 404);

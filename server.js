@@ -15994,11 +15994,25 @@ const server = http.createServer(async (req, res) => {
         let proj = null;
         try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
-        const refusal = federation.ownCodeRefusal(proj.id);
-        if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
-        const code = refusal ? null : federation.ownCode(proj.id, proj.name);
-        if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+        // The engine reads and writes this computer's link and seal records; a failure there is
+        // ours, not the request's.
+        let refusal, code, wasShared;
+        try {
+          refusal = federation.ownCodeRefusal(proj.id);
+          if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+          if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          const before = federation.linkFor(proj.id);
+          wasShared = !!(before && before.selfShared === true);
+          code = federation.ownCode(proj.id, proj.name);
+        } catch {
+          sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
+          return;
+        }
         if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
+        // The first time: the owner's room now opens to the relay, so this side is told too.
+        if (!wasShared) {
+          try { messages.roomNote(proj.id, 'This project is now shared with your other computers. Messages in this room are not sealed end to end.'); } catch { /* the note is furniture */ }
+        }
         fedseats.ensure(proj.id).catch(() => {});
         sendJson(res, 200, { code });
       })
