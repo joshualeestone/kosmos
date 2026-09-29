@@ -72,3 +72,33 @@ test('#2029: both secret-bearing query params are redacted in the log -- token A
   assert.match(bootLine, /[?&]boot=REDACTED/, 'boot= must be redacted (#2029)');
   assert.match(bothLine, /token=REDACTED&boot=REDACTED/, 'both are redacted when they appear together');
 });
+
+test('#1307: a webhook call\'s secret rides in the PATH, and no spelling of it reaches the log', async (t) => {
+  await start(0);
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const secret = (tag) => (tag + 'x'.repeat(43)).slice(0, 43);   // the route's shape: 43 base64url characters
+  const id = '0123456789abcdef';
+  await fetch(`${base}/hooks/${id}/${secret('HOOKSENTINELA')}`, { method: 'POST', headers: { 'user-agent': 'redact-hook/1' } });
+  await fetch(`${base}/%68ooks/${id}/${secret('HOOKSENTINELB')}`, { method: 'POST', headers: { 'user-agent': 'redact-hook-enc/1' } });
+  await fetch(`${base}/HOOKS/${id}/${secret('HOOKSENTINELC')}`, { method: 'POST', headers: { 'user-agent': 'redact-hook-case/1' } });
+  await fetch(`${base}/api/status`, { headers: { 'user-agent': 'redact-hook-control/1' } });
+  await fetch(`${base}/api/project/p1/webhooks/${id}/name`, { method: 'POST', headers: { 'user-agent': 'redact-hook-settings/1' } });
+  const body = fs.readFileSync(LOG, 'utf8');
+  assert.doesNotMatch(body, /HOOKSENTINEL/, 'a webhook secret leaked into the gate log');
+  const lines = body.trim().split('\n');
+  const plain = lines.find((l) => l.includes('redact-hook/1'));
+  const enc = lines.find((l) => l.includes('redact-hook-enc/1'));
+  const caps = lines.find((l) => l.includes('redact-hook-case/1'));
+  const control = lines.find((l) => l.includes('redact-hook-control/1'));
+  assert.ok(plain && enc && caps && control, 'all four tagged requests must have been logged: ' + JSON.stringify(lines));
+  assert.match(plain, / \/hooks\/REDACTED /, 'the plain call logs as /hooks/REDACTED');
+  assert.match(caps, / \/HOOKS\/REDACTED /, 'any case is redacted');
+  assert.match(enc, / \/REDACTED /, 'a percent-encoded spelling is redacted whole: ' + enc);
+  // CONTROL: an ordinary path is logged as it is, so the redaction is not simply blanking everything.
+  assert.match(control, / \/api\/status /, 'an ordinary path is logged unchanged');
+  // The settings routes (.../webhooks/...) carry no secret: "hooks" inside "webhooks" is not the call route.
+  const settings = lines.find((l) => l.includes('redact-hook-settings/1'));
+  assert.ok(settings, 'the settings request was logged');
+  assert.match(settings, new RegExp(' /api/project/p1/webhooks/' + id + '/name '), 'a settings path is logged unchanged: ' + settings);
+});

@@ -166,6 +166,34 @@ test('only a task nobody is on is given: never an assigned one, never a closed o
   } finally { w.restore(); }
 });
 
+test('#1307: a task a webhook added is never handed out by the Assigner; the same task from the screen is (control)', () => {
+  const w = world([{ name: 'hookme' }]);
+  try {
+    tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
+    assert.equal(afterIdle(w).toAssign.length, 0, 'a webhook task was typed into an agent unseen');
+    addTask(w.pid, 'from the screen');
+    const out = afterIdle(w);
+    assert.equal(out.toAssign.length, 1);
+    assert.equal(tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), out.toAssign[0].n).sentence, 'from the screen');
+  } finally { w.restore(); }
+});
+
+test('#1307: webhook tasks waiting for a person do not switch off the goal ask; one given out does (control)', () => {
+  const w = world([{ name: 'goalhook' }]);
+  try {
+    const hook = tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
+    const p = () => projects.readAll().find((x) => x.id === w.pid);
+    const goals = new Map([[w.pid, 'Ship the thing']]);
+    const item = a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0);
+    assert.ok(item, 'a waiting webhook task blocked the goal ask');
+    const text = a.askText(item);
+    assert.match(text, /has no open tasks you can take \(1 added by a webhook wait for the person to give them out; leave them\)/, 'the ask must not claim the project has no open tasks: ' + text);
+    assert.equal(require('./chat').messageProblem(text), null, 'the pane would refuse this ask');
+    tasks.assignPart(w.pid, hook.number, 1, w.key.goalhook, { via: 'screen' });
+    assert.equal(a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0), null, 'control: once given out, it is open work');
+  } finally { w.restore(); }
+});
+
 test('order: soonest due date first, then the oldest; an undated task comes after dated ones', () => {
   const w = world([{ name: 'ord' }]);
   try {
