@@ -15914,7 +15914,9 @@ const server = http.createServer((req, res) => {
       /* Also the invisible formatting characters (Unicode Cf: direction overrides, zero-width
          marks): a person reads this text before giving it out, and an override can make what
          they see differ from what an agent would read. */
-      const unplain = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]|\p{Cf}/u;
+      /* A zero-width joiner between two emoji is how emoji sequences are spelled (a family, a
+         person with a skin tone at a laptop), so it is the one Cf character let through, and only there. */
+      const unplain = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]|(?!(?<=\p{Extended_Pictographic}[\u{FE0F}\u{1F3FB}-\u{1F3FF}]?)\u200d(?=\p{Extended_Pictographic}))\p{Cf}/u;
       if (unplain.test(rawTitle) || unplain.test(detail)) {
         sendJson(res, 400, { error: 'the title and detail are plain text, with no control or invisible characters' });
         return;

@@ -566,6 +566,10 @@ test('invisible formatting characters are refused in a title, a detail and a nam
   assert.equal((await call(made.json.url, { title: 'ok', detail: 'zero\u200Bwidth' })).status, 400);
   assert.equal((await api(P(), { method: 'POST', body: { name: 'Hi\u200Bdden' } })).status, 400);
   assert.equal((await call(made.json.url, { title: 'plain words, café and 日本' })).status, 201, 'control: ordinary non-ASCII text is fine');
+  // Emoji sequences joined by a zero-width joiner are ordinary text; a joiner anywhere else is not.
+  assert.equal((await call(made.json.url, { title: 'family \u{1F468}\u200D\u{1F469}\u200D\u{1F467}, coder \u{1F469}\u{1F3FD}\u200D\u{1F4BB}' })).status, 201);
+  assert.equal((await call(made.json.url, { title: 'join\u200Ded letters' })).status, 400);
+  assert.equal((await call(made.json.url, { title: 'loose \u200D\u{1F4BB}' })).status, 400);
 });
 
 test('a project can have at most 20 webhooks', async () => {
