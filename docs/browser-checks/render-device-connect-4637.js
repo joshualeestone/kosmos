@@ -1,8 +1,8 @@
 // Browser-check-surface: askcard ask-rows kp-modal kp-sheet kp-sheet-body plus-asks plus-ask-rows plus-devlist
 /**
  * #4637 (Mona Lisa's design; Josh 15:12, "not a developer screen"): "another device wants to connect".
- *  1. The notice on any view: navy Kosmos+ card, who wants to connect (from the name the device sends), when, a gold
- *     Review. Several: "N devices want to connect".
+ *  1. The notice on any view: navy Kosmos+ card, who wants to connect (from the name the device sends), when, a Kosmos+
+ *     blue Review. Several: "N devices want to connect".
  *  2. Review opens the approval sheet right there (not Settings): the code once as large text (no letter boxes), a gold
  *     Allow that is the only gold control, a quiet "Not me", the fine print. A bottom sheet at 390px. After Allow:
  *     "<who> is connected", Done, "See your devices". After Not me: "<who> was kept out". Several requests: Done moves
@@ -75,7 +75,8 @@ const sheet = (page) => page.evaluate(() => {
   const s = document.getElementById('kp-sheet');
   const r = s.getBoundingClientRect();
   const gold = [...s.querySelectorAll('button')].filter((b) => /gradient/.test(getComputedStyle(b).backgroundImage) && b.getBoundingClientRect().height > 0).map((b) => b.textContent.trim());
-  return { open: !m.hidden, head: (document.getElementById('kp-sheet-h') || {}).textContent || '', text: s.innerText.replace(/\s+/g, ' ').trim(),
+  const allowBtn = s.querySelector('[data-ask="allow"]');
+  return { allowBg: allowBtn ? getComputedStyle(allowBtn).backgroundImage : '', open: !m.hidden, head: (document.getElementById('kp-sheet-h') || {}).textContent || '', text: s.innerText.replace(/\s+/g, ' ').trim(),
     code: (s.querySelector('.kp-code') || {}).textContent || '', codePx: s.querySelector('.kp-code') ? parseFloat(getComputedStyle(s.querySelector('.kp-code')).fontSize) : 0,
     boxes: s.querySelectorAll('.devcode-cell').length, gold, focus: document.activeElement && (document.activeElement.getAttribute('data-ask') || ''),
     bottom: Math.round(innerHeight - r.bottom), left: Math.round(r.left), width: Math.round(r.width), vw: innerWidth, grab: getComputedStyle(s.querySelector('.kp-grab')).display };
@@ -94,7 +95,7 @@ let BASE = '';
       ['Windows PC · Edge', 'Your Windows PC wants to connect', /^Edge · /],
       ['iPhone · Safari', 'Your iPhone wants to connect', /^Safari · /],
       ['Browser', 'A browser wants to connect', /^(a moment ago|\d+ minutes? ago|just now)$/],
-      [undefined, 'A browser wants to connect', /^(a moment ago|\d+ minutes? ago|just now)$/],
+      [undefined, 'A device wants to connect', /^(a moment ago|\d+ minutes? ago|just now)$/],   // review round 1: no name is not necessarily a browser
     ]) {
       const { page } = await open(browser, { width: 1400, scheme: 'light', pending: [{ device_id: 'd1', name, code: 'K7-3M', first_seen: now() - 90 }] });
       const n = await notice(page);
@@ -110,7 +111,7 @@ let BASE = '';
       ] });
       // 1. the notice
       const n = await notice(page);
-      chk(n.shown && n.head === '2 devices want to connect' && n.review && n.mark && /radial-gradient/.test(n.bg) && n.w <= 640, `${t} the notice: navy Kosmos+ card, "2 devices want to connect", the mark, a gold Review`, JSON.stringify(n));
+      chk(n.shown && n.head === '2 devices want to connect' && n.review && n.mark && /radial-gradient/.test(n.bg) && n.w <= 640, `${t} the notice: navy Kosmos+ card, "2 devices want to connect", the mark, a blue Review`, JSON.stringify(n));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `4637-notice-${scheme}.png`), clip: { x: 0, y: 0, width: 1400, height: 260 } });
       // 2. Review opens the sheet right here
       await page.click('#askcard [data-ask="open"]');
@@ -118,20 +119,25 @@ let BASE = '';
       let s = await sheet(page);
       chk(s.open && s.head === 'Your Windows PC wants to connect' && s.focus === 'allow', `${t} Review opens the sheet here, on the first request, focus on Allow`, JSON.stringify(s));
       chk(s.code === 'VR-D6' && s.codePx >= 28 && s.boxes === 0, `${t} the code once as large text, no letter boxes`, JSON.stringify({ code: s.code, px: s.codePx, boxes: s.boxes }));
-      chk(JSON.stringify(s.gold) === '["Allow"]' && /Not me/.test(s.text) && /Make sure your Windows PC is showing this code/.test(s.text) && /Only allow a device you are signing in on right now\./.test(s.text), `${t} Allow is the only gold control; Not me and the fine print are there`, JSON.stringify(s));
+      chk(/rgb\(58, 104, 216\)/.test(s.allowBg) && !/227, 179, 65/.test(s.allowBg), `${t} Allow is Kosmos+ blue, not gold (Josh's 09-16 ruling)`, s.allowBg);
+      chk(JSON.stringify(s.gold) === '["Allow"]' && /Not me/.test(s.text) && /Make sure your Windows PC is showing this code/.test(s.text) && /Only allow a device you are signing in on right now\./.test(s.text), `${t} Allow is the only filled (Kosmos+ blue) control; Not me and the fine print are there`, JSON.stringify(s));
       chk(await page.evaluate(() => document.getElementById('panel-settings').hidden), `${t} Review did not send the person to Settings`);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `4637-sheet-${scheme}.png`) });
       // Allow -> connected
       await page.click('#kp-sheet [data-ask="allow"]');
       await page.waitForTimeout(500);
       s = await sheet(page);
-      chk(s.open && s.head === 'Your Windows PC is connected' && /It will open your Kosmos in a moment\./.test(s.text) && /See your devices/.test(s.text), `${t} after Allow: connected, Done, See your devices`, JSON.stringify(s));
+      chk(s.open && s.head === 'Your Windows PC is connected' && /It will open your Kosmos in a moment\./.test(s.text) && /See your devices/.test(s.text) && s.focus === 'gotit', `${t} after Allow: connected, Done (focused), See your devices`, JSON.stringify(s));
+      // Review round 1: the result stays until Done; a poll never swaps in the next device by itself.
+      await page.waitForTimeout(12000);   // past the 6-second clear on the SECOND poll (polls are 5s apart)
+      s = await sheet(page);
+      chk(s.open && s.head === 'Your Windows PC is connected', `${t} the result is still there after the 6-second clear (two polls)`, JSON.stringify(s));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `4637-allowed-${scheme}.png`) });
       // Done -> the next request, which asked again after a No
       await page.click('#kp-sheet [data-ask="gotit"]');
       await page.waitForTimeout(400);
       s = await sheet(page);
-      chk(s.open && s.head === 'Your iPhone wants to connect' && /Asked again\./.test(s.text), `${t} Done moves on to the next request; it says it asked again after a No`, JSON.stringify(s));
+      chk(s.open && s.head === 'Your iPhone wants to connect' && /Asked again\./.test(s.text) && s.focus === 'allow', `${t} Done moves on to the next request (focus on its Allow); it says it asked again after a No`, JSON.stringify(s));
       // Not me -> kept out
       await page.click('#kp-sheet [data-ask="deny"]');
       await page.waitForTimeout(500);
@@ -141,7 +147,9 @@ let BASE = '';
       await page.click('#kp-sheet [data-ask="gotit"]');
       await page.waitForTimeout(400);
       s = await sheet(page);
-      chk(!s.open, `${t} the sheet closes when no request is left`, JSON.stringify(s));
+      chk(!s.open && s.focus !== undefined, `${t} the sheet closes when no request is left`, JSON.stringify(s));
+      const after = await page.evaluate(() => document.activeElement && document.activeElement !== document.body);
+      chk(after, `${t} focus lands on the page, not nowhere, when the sheet closes with no request left`);
       // 3. Your devices
       await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
       await page.waitForTimeout(800);
@@ -149,6 +157,24 @@ let BASE = '';
       chk(devs.length >= 2 && devs.every((d) => d.icon && d.rm), `${t} Your devices: each row has its icon and a red-outlined Remove`, JSON.stringify(devs));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `4637-devices-${scheme}.png`) });
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+
+    // Review round 1: a request that stops waiting while the sheet shows it is said, never swapped for another one.
+    {
+      const { page, st } = await open(browser, { width: 1400, scheme: 'light', pending: [
+        { device_id: 'd-a', name: 'iPhone \u00b7 Safari', code: 'AB-CD', first_seen: now() - 30 },
+        { device_id: 'd-b', name: 'Windows PC \u00b7 Edge', code: 'EF-GH', first_seen: now() - 20 },
+      ] });
+      await page.click('#askcard [data-ask="open"]');
+      await page.waitForTimeout(300);
+      st.pending = st.pending.filter((d) => d.device_id !== 'd-a');   // answered elsewhere
+      await page.waitForTimeout(5800);
+      const g = await sheet(page);
+      chk(g.open && g.head === 'Your iPhone is no longer waiting' && !/EF-GH/.test(g.text), 'a request that stops waiting says so; the next device is not swapped in', JSON.stringify(g));
+      await page.click('#kp-sheet .kp-x');
+      await page.waitForTimeout(200);
+      chk(!(await sheet(page)).open, 'the Close button closes the sheet without deciding');
       await page.close();
     }
 

@@ -283,8 +283,8 @@ const STATES = {
       }
       if (key === 'two') {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour says its age`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
-        // #4637 (Mona's words table): a request with no name reads "A browser wants to connect", never a bare noun.
-        chk(/A browser wants to connect/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "A browser wants to connect"`, v.cardText);
+        // #4637 (review round 1): a request with no name at all reads "A device wants to connect", never a bare noun.
+        chk(/A device wants to connect/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "A device wants to connect"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the

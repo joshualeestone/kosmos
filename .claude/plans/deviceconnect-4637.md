@@ -20,3 +20,14 @@ Card: joshualeestone/kosmos#4637. Design and spec by Mona Lisa (card comment 589
 - Re-pinned to the new design, each keeping its protective intent: web.allow-card.test.js (no device id in text, the password sentence only where true, no browser confirm(), no left bar, 44px), render-plus-panel-3829 (95 pass), render-plus-asks-signin-4610.
 - Also pass: render-waiting-phone-718, render-dm-chatfirst-718, render-talk-fill-2622.
 - Found on #4610 while building this: render-waiting-phone-718 still pinned #3829's placement that #4610 reversed; fixed on #4610's branch (a4fe66126).
+
+## Colour correction (Mona Lisa, 15:5x): Josh's 09-16 ruling stands
+Kosmos+ blue, never gold: Review and Allow use the shipped Kosmos+ primary (#3a68d8 -> #2f57c4, white, 1px #2f57c4, a blue shadow); the device-icon circles and the just-allowed ring are blue (ring rgba(126,160,240,.45), fill rgba(65,113,227,.12), stroke #9cc0ff). The KOSMOS+ wordmark keeps its own dots. The check asserts Allow is the only filled control and that it is blue.
+
+## Blind review round 1 (Opus, separate reviewer)
+WARNINGs fixed, each with a check arm that fails its mutant:
+- The sheet moved to another device by itself (the allowed result cleared after 6s, or the shown request stopped waiting, and the next device's Allow took its place). Now it stays on the device Review or Done put there: a result stays until Done, a request that stops waiting says "... is no longer waiting" with Close, and only Done moves on (focus on the next Allow).
+- After Allow / Not me focus fell to the page: it goes to the result's button; Tab from outside re-enters the sheet in both directions.
+- Closing with no request left sent focus to a hidden Review: it goes to the current view's nav tab.
+- No way out without deciding for a screen reader on a phone: a visible Close button (an addition to the design, told to Mona Lisa).
+NIT taken: a request with no name at all reads "A device", not "A browser" (the web sign-in always sends a name). Accepted NIT: the sheet's headline may be read twice on open (dialog label plus the live region).
