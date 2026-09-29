@@ -51152,7 +51152,7 @@ function pjsHooksPaint() {
     const id = esc(h.id);
     const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
       ? '<div class="pjs-hook-reveal">'
-        + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
+        + '<p><b>' + (PJS_HOOKS.reveal.publicUrl ? 'Copy these links now.' : 'Copy this link now.') + '</b> For your safety Kosmos shows ' + (PJS_HOOKS.reveal.publicUrl ? 'them' : 'it') + ' only once.</p>'
         + (PJS_HOOKS.reveal.publicUrl ? '<p class="fhint" style="margin:0 0 4px;">On this computer:</p>' : '')
         + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + ' on this computer">'
         + '<button class="btn" type="button" data-hook-copy="pjs-hook-url" aria-label="Copy the link for this computer">Copy</button></div>'

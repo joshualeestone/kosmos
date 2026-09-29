@@ -181,9 +181,14 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
   const remote = require('./engine/remote');
   const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled, address: remote.address };
   const UP = { state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: true };
+  // Its own project: this test makes a dozen webhooks, and the shared one allows 20 in all.
+  const own = '/api/project/' + encodeURIComponent(projects.create({ name: 'Public link 4419' }).id) + '/webhooks';
   const make = async (st, { on = true, signedIn = true } = {}) => {
     remote.status = () => st; remote.read = () => ({ on, ok: true }); remote.enrolled = () => signedIn; remote.address = () => 'hers.kosmosplus.com';
-    try { return (await api(P(), { method: 'POST', body: {} })).json; } finally { Object.assign(remote, real); }
+    let r;
+    try { r = await api(own, { method: 'POST', body: {} }); } finally { Object.assign(remote, real); }
+    assert.equal(r.status, 201, 'making a webhook was refused: ' + JSON.stringify(r.json));
+    return r.json;
   };
   try {
     const on = await make({ ...UP, address: 'Hers.kosmosplus.com' });
@@ -212,7 +217,9 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
     assert.ok(!cases.some(([, r]) => /Kosmos Plus can also give/.test(r.publicWhy) && r !== cases[0][1]), 'only the switch being off is pointed at Kosmos Plus');
     // An unreadable settings file is its own cause, not "the switch is off".
     remote.status = () => ({ state: 'off', address: null, because: 'x' }); remote.read = () => ({ on: false, ok: false }); remote.enrolled = () => true; remote.address = () => 'hers.kosmosplus.com';
-    let bad; try { bad = (await api(P(), { method: 'POST', body: {} })).json; } finally { Object.assign(remote, real); }
+    let badRes; try { badRes = await api(own, { method: 'POST', body: {} }); } finally { Object.assign(remote, real); }
+    assert.equal(badRes.status, 201, JSON.stringify(badRes.json));
+    const bad = badRes.json;
     assert.equal(bad.publicUrl, null);
     assert.match(bad.publicWhy, /could not read the Kosmos Plus settings/);
   } finally { Object.assign(remote, real); }
