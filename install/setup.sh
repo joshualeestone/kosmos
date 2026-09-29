@@ -2695,7 +2695,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # board.stopped, which launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, and only a
   # person's `kosmos start` clears it; an update that died after this line (a download on a Mac that
   # has just woken, a full disk) left the board down until the app was reopened. So from here until
-  # the board is started again, any non-zero exit removes the marker and starts the board. A board
+  # the board is started again, any non-zero exit removes the marker and starts the board (two exceptions, in the
+  # handler below: a choice that now keeps the board off, and the port refusals, which only remove it). A board
   # the person had stopped on purpose before the update (the marker already there) is left stopped.
   _kosmos_stop_marker="$KOSMOS_HOME/board.stopped"   # the file install/kosmos calls STOP_MARKER
   if [ -f "$_kosmos_stop_marker" ]; then _kosmos_resume_on_fail=no; else _kosmos_resume_on_fail=yes; fi
@@ -2709,6 +2710,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     [ "$_kosmos_rc" -ne 0 ] && { [ "$_kosmos_undo" = yes ] || [ "$_kosmos_undo" = clear ]; } || return 0
     _kosmos_resume_on_fail=no
     trap '' HUP INT TERM   # a second Ctrl-C or hang-up must not cut the undo short (review iteration 5)
+    # (The board `kosmos start` launches inherits these as ignored. Harmless because node resets its signal handling at
+    # startup, measured: a node started with TERM ignored still dies on TERM. A shell wrapper would not be.)
     # #4356 (Liu Kang's ruling, m2647; this PR landed second): read this computer's choice again, as every other
     # decision about the board in this file does. If it now keeps the board off (the person picked "Connect to agents
     # on another computer" while this ran, or the choice cannot be read), nothing is undone: the marker our stop wrote
@@ -2820,12 +2823,14 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # protect: this install's board is not running and will not be started, and the other
         # board on the port is not ours to pause. Refusing would make the install line, a connect
         # computer's only way to update, fail every time on a shared Mac (review round 19).
+        # #4342 (review iterations 3 and 5; post-rebase round 1): the port answers as another install's Kosmos, so a start
+        # here is not ours to make, on either arm: `kosmos start` would find that board healthy and the handler would
+        # claim a restart it did not make (the choice can turn to run later in this run). Our board is not running, so
+        # the stop wrote no marker here and `clear` removes nothing today; it is the precaution that nothing latches.
+        [ "${_kosmos_resume_on_fail:-}" = yes ] && _kosmos_resume_on_fail=clear
         if _kosmos_mode_keeps_board_off; then
           info "another Kosmos is answering on port $PORT; it is not this install's, and this install does not start a board here now, so it is left alone"
         else
-          # #4342 (review iterations 3 and 5): the port answers as another install's Kosmos, so a start here is not
-          # ours to make; the marker our own stop wrote is still removed (clear), so nothing latches once that board goes.
-          [ "${_kosmos_resume_on_fail:-}" = yes ] && _kosmos_resume_on_fail=clear
           die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
       fi

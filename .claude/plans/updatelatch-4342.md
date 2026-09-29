@@ -82,12 +82,21 @@ reviews before merge, because this is `install/setup.sh` (Liu Kang m2402).
   port; the update refuses there, leaves no `board.stopped`, leaves the stand-in running and claims no restart.
 - **Measured with fresh local bundles (`KOSMOS_ALLOW_MINOS=1` builds in the worktree):**
   - this branch: all checks of the arm pass (first measured 9/9, then 13/13, 17/17 as arms were added; the
-    another-app and silent-holder arms added in review iteration 5 are re-measured once the 0.7.06 cut hold lifts);
+    another-app and silent-holder arms added in review iteration 5 were re-measured on 2026-09-29, see below);
   - main: the 3 core checks FAIL (the marker is left, the board is not back, nothing is said) and the control passes.
   - Both suites also show one unrelated FAIL, `VERSION record installed`: the local bundle build refuses to
     package a dirty tree, so it writes no `VERSION`.
 - `tools/test-install.sh` is not part of `yarn test` (only `bash -n` is). It runs as `yarn test:install` at
   release time.
+
+## After #4489 landed first (2026-09-29; Liu Kang's #4342 ruling m2647, Kano m3052)
+- Rebased onto main (one squashed commit, the same tree as the approved b30bcfcc9, then rebased).
+- **The handler reads the #4356 choice again** (`_kosmos_board_decide`) before undoing anything. If the choice now keeps the board off (connect, or unreadable), it undoes nothing: the marker our stop wrote is what keeps it off. It says "The update did not finish. Kosmos stays off <why>." instead.
+- **The disarm** sits before main's decide block, so it covers both the start branch and the stay-off branch.
+- **"Another Kosmos on the port"** sets `clear` on both arms: main's connect arm carries on instead of refusing, and a later failure must not claim to have started that other board (post-rebase review round 1). The refusals remove only our marker (`clear`); they do not disarm to "no".
+- **New test-install arm, "a failed update after the choice became connect":** the board is up and the choice reads connect, then a forced failure. The board stays down, the marker stays, and the log has the handler's own sentence. Main's connect pair comment is updated: with the board already stopped, the trap never arms.
+- **Measured on 634d308a1:** test-install 406 passed, 0 failed, rc 0. One block was SKIPPED (the download-path passes need packed tarballs in dist/; an environment gap here).
+- **Negative control:** with the handler's routing removed, the new arm goes red (402 passed, 4 failed), and setup.sh was restored byte for byte.
 
 ## Weakest part
 - If the app files are half-swapped when the failure hits, `kosmos start` may not bring the board up. Removing the

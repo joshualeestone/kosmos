@@ -996,6 +996,7 @@ while True:
     c, _ = s.accept(); threading.Thread(target=serve, args=(c,), daemon=True).start()
 ' "$1" "$PORT" > /dev/null 2>&1 &
   _standin_pid=$!
+  # Needs nc: without it this wait only runs out (5s) and the arm goes on, slower but never a false pass.
   for _i in $(seq 1 20); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.25; done
 }
 for _mode in http silent; do
