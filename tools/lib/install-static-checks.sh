@@ -52,10 +52,10 @@ install_static_port_checks() {
   chk "uid 501 is pinned to the literal, unchanged default" "[ \"\$(_kosmos_expected_port 501)\" = 16180 ]"
   chk "uid 1000 and uid 4999 wrap the same modulo to the identical port (1000 % 3999 = 4999 % 3999)" "[ \"\$(_kosmos_expected_port 1000)\" = \"\$(_kosmos_expected_port 4999)\" ]"
   chk "the derived alternate never lands back on the pinned primary port" "[ \"\$(_kosmos_expected_port 502)\" != 16180 ]"
-  chk "install/kosmos's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/kosmos")\" ]"
-  chk "install/setup.sh's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from "$HERE/install/setup.sh")\" ]"
+  chk "install/kosmos's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from \"$HERE/install/kosmos\")\" ]"
+  chk "install/setup.sh's derivation block was found (or this check is vacuous)" "[ -n \"\$(_kosmos_formula_from \"$SETUP\")\" ]"
   chk "install/kosmos and install/setup.sh carry the byte-identical derivation" \
-    "diff <(_kosmos_formula_from \"$HERE/install/kosmos\") <(_kosmos_formula_from \"$HERE/install/setup.sh\") >/dev/null"
+    "diff <(_kosmos_formula_from \"$HERE/install/kosmos\") <(_kosmos_formula_from \"$SETUP\") >/dev/null"
   chk "postinstall's KOSMOS_PORT guard block was found (or this check is vacuous)" "[ -n \"\$(_postinstall_port_block)\" ]"
   chk "a valid KOSMOS_PORT override is used as-is" "[ \"\$(_postinstall_page_port 502 8080)\" = 8080 ]"
   chk "the boundary value 65535 is accepted" "[ \"\$(_postinstall_page_port 502 65535)\" = 65535 ]"

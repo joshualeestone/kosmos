@@ -37,6 +37,6 @@ fi
 # called there exactly once, or the cut would quietly run fewer of them than this does.
 for g in install_static_port_checks install_static_update_checks install_static_board_off_checks install_static_open_checks; do
   n=$(grep -cE "^${g}([[:space:]]|$)" "$INSTALL_SH" || true)
-  if [ "$n" != 1 ]; then echo "install-static: tools/test-install.sh calls $g $n times, not once (the cut would not run its checks as before)" >&2; exit 1; fi
+  if [ "$n" != 1 ]; then echo "install-static: $INSTALL_SH calls $g $n times, not once (the cut would not run its checks as before)" >&2; exit 1; fi
 done
 [ "$FAIL" -eq 0 ]

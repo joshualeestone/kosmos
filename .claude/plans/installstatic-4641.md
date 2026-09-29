@@ -40,6 +40,9 @@ runs them; and a break of one of them goes red in the shell suite (a control pro
 - Shell-wiring guards (tools.every-test-runs, tools.shell-shard-4317, tools.all-node-tests-considered-1934): 18/18.
 
 ## Weakest premise
+The group-call guard counts calls at column 0 in test-install.sh; a call made dead (after an `exit`, inside a
+branch the cut never takes) would still count. It fails safe on an indented or renamed call.
+
 The classifier is a text rule, not a proof: a check whose expression reads a repo file through a variable other
 than SETUP or HERE would be missed and stay cut-only. The static set only grows by someone moving a check into the
 lib; the count guard makes that a deliberate edit, not a silent one.
