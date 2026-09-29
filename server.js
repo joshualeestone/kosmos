@@ -3701,6 +3701,34 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
+   token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
+   hold the person's credential for its everyday verbs, and a request carrying only an agent
+   token is that agent, never the person. Person-only routes (removing, restarting or
+   reconfiguring agents, settings, POST /api/agents) are not in this set and keep requiring the
+   board token. The header only, never `token` in the body: this gate runs before the body is
+   read, and the handlers resolve the header first (presentedAgentToken), so both see the same
+   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
+   does not see it: what stops an internet caller there is the tunnel itself, which forwards only
+   for an admitted device and then presents the person's board token anyway (read from
+   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). POST /api/react joins later (#4491).
+   ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
+   removal. If that best-effort revoke failed and the agent's process is still alive, its token
+   still passes here, exactly as it already does on the exempt report and reply routes.
+   ⚠️ And a token is only as private as its launch: the Mac supervisor passes it on tmux's command
+   line, which another macOS account can read with `ps`. That leak predates this, but it now
+   reaches these routes too; #4497 moves it off argv. */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami']);
+function agentTokenOk(req) {
+  const t = req && req.headers && req.headers['x-kosmos-agent-token'];
+  /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
+     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan:
+     any local process can make this single-threaded board read every token file per request by
+     sending random hex, with no rate valve. That is the same accepted cost the exempt report and
+     reply routes already carry, not a new class. */
+  return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
+}
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
@@ -3995,6 +4023,8 @@ const server = http.createServer(async (req, res) => {
     // board token, and re-enforces auth in the handler (agent token OR board
     // token; no-credential refused on an enforcing board). It stays OUT of
     // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
+    // #4491: AGENT_TOKEN_ROUTES are exempt too, but only with a valid agent token in the header
+    // (the `exemptAgentToken` term below), unlike the two sets above.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
       || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     // #3055: the names-only world list is exempt too (see PUBLIC_WORLD_ROUTES) -- it carries
@@ -4008,7 +4038,11 @@ const server = http.createServer(async (req, res) => {
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #4491: an agent route, reached with a valid agent token and no board token (see
+    // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
+    // token never pays for the token-store scan.
+    const exemptAgentToken = () => AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -12198,8 +12232,9 @@ const server = http.createServer(async (req, res) => {
            the failure this card exists to remove, reappearing at the timeout
            rather than at the reader.
 
-           ⚠️ `/api/whoami` is also unauthenticated on a single-threaded server,
-           so that is up to 15s of blocking from any local process.
+           ⚠️ `/api/whoami` is reachable by any local process on a non-enforcing board,
+           and on an enforcing one by any holding the board token or an agent token
+           (#4491), on a single-threaded server, so that is up to 15s of blocking.
 
            📌 NOT FIXED HERE, DELIBERATELY. The timeouts live in `runningas`'s
            default readers and belong to every caller of that module, so
@@ -12223,7 +12258,8 @@ const server = http.createServer(async (req, res) => {
            `source` above (that says which reader answered for the account/model).
            resolveAgentSender identifies by the presented launch token when there
            is one, and otherwise falls back to the tmux pane. A pane id is
-           enumerable and this route is unauthenticated, so a pane-identified
+           enumerable and, on a non-enforcing board, this route needs no
+           credential (#4491: an enforcing one wants the board or an agent token), so a pane-identified
            agent is the weak case the card cares about; naming it makes a possible
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share
