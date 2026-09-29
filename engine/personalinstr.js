@@ -3,11 +3,10 @@
 /* #4446: the PERSONAL instructions file an agent's own terminal agent loads at startup
    from OUTSIDE the agent's folder, so the Instructions panel can say so.
 
-   Kosmos does not add these. Each provider's CLI reads its user-level files itself; `filesFor`
-   lists them per runner.
+   Kosmos does not add these. Each provider's CLI reads its user-level files itself.
    The ruling on the card was to keep them and tell the person, so this only answers
-   whether such a file is there. It never reads the file's text and never returns its path:
-   the panel does not show paths (Josh 2026-08-17), and the answer is a tool name.
+   whether such a file is there. The answer is a tool name, never the path or the text:
+   the panel does not show paths (Josh 2026-08-17).
 
    Grok's import of the person's CLAUDE.md is a different thing, turned off at launch by
    #4426; this reports Grok's OWN files only.
@@ -27,7 +26,7 @@ const TOOL = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', grok
 function sourcesFor(runner, configDir, create) {
   if (runner === 'claude') {
     const dir = configDir || path.join(require('./accounts').homeDir(), '.claude');
-    return { files: [path.join(dir, 'CLAUDE.md')], rules: [{ dir: path.join(dir, 'rules'), deep: true }] };
+    return { files: [path.join(dir, 'CLAUDE.md')], rules: [{ dir: path.join(dir, 'rules'), deep: true, scoped: true }] };
   }
   if (runner === 'codex') {
     const home = configDir || create.defaultAgentCodexHome();
@@ -36,18 +35,16 @@ function sourcesFor(runner, configDir, create) {
   if (runner === 'gemini') return { files: [path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md')], rules: [] };
   if (runner === 'grok') {
     const home = configDir || create.defaultAgentGrokHome();
-    return { files: [path.join(home, 'AGENTS.md')], rules: [{ dir: path.join(home, 'rules'), deep: false }] };
+    return { files: [path.join(home, 'AGENTS.md')], rules: [{ dir: path.join(home, 'rules'), deep: false, scoped: false }] };
   }
   return { files: [], rules: [] };
 }
 
-/* This runs on every Instructions read, synchronously, so a rules folder is walked lazily and
-   bounded: it stops at the first `*.md` with content, never enters a symlinked folder (no loops),
-   and gives up after RULES_MAX_DEPTH levels or RULES_MAX_ENTRIES entries. Giving up answers false. */
+/* Runs synchronously on every Instructions read. Symlinked folders are not entered. */
 const RULES_MAX_DEPTH = 4;
 const RULES_MAX_ENTRIES = 500;
 
-function rulesHaveContent(dir, deep, has) {
+function rulesHaveContent(dir, deep, scoped, has) {
   let seen = 0;
   const walk = (d, depth) => {
     let ents;
@@ -58,21 +55,43 @@ function rulesHaveContent(dir, deep, has) {
       if (++seen > RULES_MAX_ENTRIES) return false;
       const p = path.join(d, e.name);
       if (e.isDirectory()) { if (deep && depth < RULES_MAX_DEPTH) sub.push(p); continue; }
-      if (e.name.endsWith('.md') && has(p)) return true;
+      if (e.name.endsWith('.md') && has(p) && !(scoped && pathScoped(p))) return true;
     }
     return sub.some((p) => walk(p, depth + 1));
   };
   return walk(dir, 0);
 }
 
-/* A regular file with something in it. statSync follows a symlink, which is the point:
-   on a multi-account Mac each account's CLAUDE.md is often a link to ~/.claude/CLAUDE.md,
-   and the CLI follows it too. An empty file loads nothing, so it is not reported. */
-function hasContent(file) {
+const HEAD_BYTES = 4096;
+
+/* The first HEAD_BYTES of a regular file, or null. statSync follows a symlink, as the CLIs do:
+   on a multi-account Mac each account's CLAUDE.md is often a link to ~/.claude/CLAUDE.md. */
+function headOf(file) {
+  let fd = null;
   try {
     const st = fs.statSync(file);
-    return st.isFile() && st.size > 0;
-  } catch { return false; }
+    if (!st.isFile() || st.size === 0) return null;
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(Math.min(st.size, HEAD_BYTES));
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return { text: buf.toString('utf8', 0, n), size: st.size };
+  } catch { return null; } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* nothing to do */ } }
+  }
+}
+
+/* Loads something: not empty and not only whitespace (a file longer than the head counts). */
+function hasContent(file) {
+  const h = headOf(file);
+  return !!h && (h.size > HEAD_BYTES || h.text.trim() !== '');
+}
+
+/* A Claude rule whose front matter carries `paths:` loads only when the agent touches matching
+   files, so it is not reported as always followed. */
+function pathScoped(file) {
+  const h = headOf(file);
+  const fm = h && /^---\r?\n([\s\S]*?)\r?\n---/.exec(h.text);
+  return !!fm && /^paths\s*:/m.test(fm[1]);
 }
 
 /* `{ tool }` when the agent's CLI will load a personal instructions file, else null.
@@ -89,7 +108,7 @@ function personalInstructions(name, deps = {}) {
   let src;
   try { src = sourcesFor(runner, job ? job.configDir : null, create); } catch { src = { files: [], rules: [] }; }
   const has = deps.hasContent || hasContent;
-  const found = src.files.some((f) => has(f)) || src.rules.some((r) => rulesHaveContent(r.dir, r.deep, has));
+  const found = src.files.some((f) => has(f)) || src.rules.some((r) => rulesHaveContent(r.dir, r.deep, r.scoped, has));
   return found ? { tool: TOOL[runner] } : null;
 }
 

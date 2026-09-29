@@ -200,3 +200,20 @@ test('Claude rules: a folder over the entry cap is given up on, not scanned in f
   assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' },
     'control: one entry fewer and it is found, so the null above is the cap');
 });
+
+test('whitespace-only files and path-scoped Claude rules are not reported', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  write(path.join(acct, 'CLAUDE.md'), '  \n\n\t\n');
+  write(path.join(acct, 'rules', 'api.md'), '---\npaths:\n  - "src/api/**"\n---\nUse REST.\n');
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'whitespace loads nothing; a path-scoped rule is not always on');
+  write(path.join(acct, 'rules', 'style.md'), '---\ndescription: tone\n---\nShort answers.\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' },
+    'control: front matter without paths is an always-on rule');
+  const grok = fakeCreate(s.root, { runner: 'grok', configDir: path.join(s.root, '.grok-work') });
+  write(path.join(s.root, '.grok-work', 'rules', 'api.md'), '---\npaths:\n  - "x"\n---\nx\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create: grok }), { tool: 'Grok' },
+    'only Claude rules are checked for paths: front matter');
+});

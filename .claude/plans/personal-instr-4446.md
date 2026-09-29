@@ -18,7 +18,7 @@ text; no sentence when there is none; the sentence never carries over to another
 
 ## Scope
 - engine/personalinstr.js: `personalInstructions(name)` -> `{ tool }` or null. Runner from the job
-  (readJob) else the profile (recordedRunner); config dir from the job. `filesFor` lists what each
+  (readJob) else the profile (recordedRunner); config dir from the job. `sourcesFor` lists what each
   CLI loads, read from its own code or bundled docs on this Mac (2026-09-28): Claude
   `<CLAUDE_CONFIG_DIR or home/.claude>/CLAUDE.md` and every `*.md` under its `rules/` (the binary
   names the folder; its docs say subfolders count); Codex `<CODEX_HOME>/AGENTS.override.md` or
@@ -39,6 +39,9 @@ text; no sentence when there is none; the sentence never carries over to another
 ## Weakest premises
 - A file renamed in the CLI's own settings (Gemini `contextFileName`, Codex
   `project_doc_fallback_filenames`) is not seen, so the panel says nothing in that case.
+- Whitespace-only files and Claude rules with `paths:` front matter (loaded only for matching
+  files) are not reported. Claude's `claudeMdExcludes` setting is not read, so a person who
+  excluded their own CLAUDE.md there still sees the sentence.
 - Gemini's `save_memory` tool appends to the same `GEMINI.md`, so a Gemini agent that saved a
   memory makes the sentence show about text the agent wrote, not the person.
 - Grok by default also reads `~/.cursor/rules/*.md` (`compat.cursor.rules`), which #4426 did not

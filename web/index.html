@@ -35063,6 +35063,7 @@ function setWritesOffered(a, tied) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
+    paintPersonalInstr(null);   // #4446: hidden AND emptied, so no other agent's sentence waits in it
     const msg = document.getElementById('d-instr-msg');
     if (msg) msg.textContent = '';
   }
@@ -35234,7 +35235,7 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
-  document.getElementById('d-instr-personal').hidden = true;   // #4446: the last agent's sentence is not this one's
+  paintPersonalInstr(null);   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
      hold the answer for a while). It says it is loading until the answer lands, whichever way. */

@@ -143,7 +143,7 @@ function readNote(page) {
     await openInstr(page, 'marlow');
     await page.waitForFunction(() => !document.getElementById('d-instr-retry-row').hidden, null, { timeout: 8000 });
     const other = await readNote(page);
-    chk(other.hidden === true, 'a failed read on the next agent does not keep the last agent\'s sentence', JSON.stringify(other));
+    chk(other.hidden === true && other.text === '', 'a failed read on the next agent does not keep the last agent\'s sentence', JSON.stringify(other));
 
     chk(errs.length === 0, 'no page errors', errs.slice(0, 4).join(' | '));
     await page.close();
