@@ -3328,6 +3328,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
 .hb-nudge:first-of-type { border-top: 0; }
 .hb-nudge b { font-size: .9375rem; }
+/* #4544: the name links to the agent, underlined so it reads as a link on a touch screen too. */
+.hb-nudge-go { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration-thickness: 2px; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -16277,7 +16280,7 @@ window.kosmosMeasureScrollbarWidth();
            delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
            (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
            and the #hb-nudges panel below polls it and renders one check-in per
-           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). Nothing leaves the Mac, so it is not the telemetry #2623
            removed. The copy no longer promises an undeliverable nudge because the
            nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
@@ -16295,7 +16298,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. When one has, it shows a check-in below so you know to look in on that agent. Everything stays on this computer. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -16307,7 +16310,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
            rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
-           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only who/from/to; the QUESTION is composed
            here (never a stored sentence), matching the removed payload's own rule and
            the heartbeat header. Self-contained (one container + paintPrompterNudges)
            so a more prominent placement later is a pure move (Mona's polish). Hidden
@@ -22564,7 +22567,7 @@ async function paintHeartbeat() {
 }
 /* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
    through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
-   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only { session, from, to }; the QUESTION is
    COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
    Best-effort: any failure hides the panel rather than showing error noise, because
    the board's own status surfaces still show the truth and a missed nudge is only a
@@ -22610,9 +22613,12 @@ async function paintPrompterNudges() {
   }
   const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
   if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  /* #4544 (Josh): each name is a link to that agent. A real link (the ?tab=detail&agent= deep link
+     a push tap uses), so it is keyboard-reachable and a modified click opens it in a new tab; a plain click opens it in
+     place (prompterNudgeOpen). */
   const rows = nudges.map((n) =>
     '<div class="hb-nudge" role="listitem">' +
-      '<b>' + esc(n.session) + '</b> ' +
+      '<a class="hb-nudge-go" href="?tab=detail&amp;agent=' + encodeURIComponent(n.session) + '" data-hb-agent="' + esc(n.session) + '"><b>' + esc(n.session) + '</b></a> ' +
       '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
     '</div>').join('');
   const html =
@@ -22621,6 +22627,20 @@ async function paintPrompterNudges() {
   if (box.innerHTML !== html) box.innerHTML = html;
   box.hidden = false;
 }
+/* #4544: a plain click on a check-in's name opens that agent in place, the openDetail path the room's
+   names use. A modified click (new tab or window), or an agent this page does not have on its board,
+   is left to the link. Returns true when it opened the agent itself. */
+function prompterNudgeOpen(e) {
+  const t = e && e.target && e.target.closest ? e.target.closest('a[data-hb-agent]') : null;
+  if (!t) return false;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const session = t.getAttribute('data-hb-agent');
+  if (!session || !(Array.isArray(LAST) && LAST.some((a) => a && a.sessionName === session))) return false;
+  e.preventDefault();
+  openDetail(session);
+  return true;
+}
+{ const hbBox = document.getElementById('hb-nudges'); if (hbBox) hbBox.addEventListener('click', prompterNudgeOpen); }
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a

@@ -891,6 +891,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -18219,6 +18220,8 @@ function start(port = PORT) {
          nudge sweep; a missed tick is a missed nudge and the status/room surfaces
          still show the truth. */
       let heartbeatPrev = new Map();
+      const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
+      const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -18233,7 +18236,7 @@ function start(port = PORT) {
           heartbeatPrev = outcome.next;
           /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
              seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
-             privacy"); this writes the current pending set to a LOCAL 0600 store
+             privacy"); this writes the current pending set (#4544: narrowed by agentnudge.realStalls) to a LOCAL 0600 store
              the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
              so it is not the telemetry Josh removed and needs no opt-out. The
              store REPLACES the set each tick, so a resolved stall clears itself.
@@ -18251,9 +18254,21 @@ function start(port = PORT) {
              (roster is null by choice, and [] correctly clears the store). Skip
              only the on-but-unreadable case -- policy single-sourced + unit-tested
              in engine/prompternudge.js shouldWrite(). */
-          if (prompternudge.shouldWrite(setting.on, roster)) {
-            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
-          }
+          /* #4544: the person's list (real stalls only, Josh) and the AGENT's nudge (an idle agent that
+             still holds an open task is sent one short nudge per stall). engine/agentnudge.js prompterTick
+             is the whole of it, gates included, so they are tested there. Inert before the live-execution
+             opt-in and under the brake AGENT_WORKFORCE_AGENT_NUDGE_OFF=1. */
+          agentnudge.prompterTick({
+            setting, roster, outcome,
+            readProjects: () => projects.readAll(),
+            shouldWrite: prompternudge.shouldWrite, write: (list) => prompternudge.write(list),
+            allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+            readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+            book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+          });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
