@@ -828,6 +828,13 @@ if [ -z "$adopt" ]; then
         catch (_) { process.exit(1); }
       ' "$_eng/codexruntime.js" "$SESSION" 2>/dev/null || true)"
     fi
+    if [ -z "$_codex_runtime_home" ]; then
+      # Measured with Codex 0.149.1: CODEX_HOME= is treated as unset and the
+      # runner falls back to ~/.codex, restoring every plugin and hook this
+      # isolation exists to keep out. Refuse before tmux instead of failing open.
+      say "$SESSION: could not resolve its private Codex home; the agent was not started"
+      exit 1
+    fi
     _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"
     _codex_runtime_auth="$_codex_runtime_home/auth.json"
 
