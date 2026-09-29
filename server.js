@@ -15998,6 +15998,9 @@ const server = http.createServer(async (req, res) => {
         // ours, not the request's.
         let refusal, code, wasShared;
         try {
+          // A link left by an earlier project with this id (#3851's stamp) is not this project's:
+          // forget it first, so the code names a room this project will actually sit in.
+          if (federation.linkFor(proj.id) && !fedseats.linkFor(proj.id)) federation.forgetLink(proj.id);
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
@@ -16013,6 +16016,8 @@ const server = http.createServer(async (req, res) => {
         if (!wasShared) {
           try { messages.roomNote(proj.id, 'This project is now shared with your other computers. Messages in this room are not sealed end to end.'); } catch { /* the note is furniture */ }
         }
+        // A press is an explicit ask: an own room refused earlier this session is tried again.
+        fedseats.retryOwn(proj.id);
         fedseats.ensure(proj.id).catch(() => {});
         sendJson(res, 200, { code });
       })

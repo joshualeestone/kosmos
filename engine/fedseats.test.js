@@ -151,6 +151,11 @@ test('#4649 an owner\'s OWN room refused for good stops seating it and says so o
   assert.strictEqual(fedseats.post('proj-or', { from: 'Josh', kind: 'person', text: 'hello' }), false);
   const last = h.notes.filter((n) => n.projectId === 'proj-or').pop();
   assert.match(last.text, /not connected to your other computers right now/);
+  // The person pressing "Add your other computer" again is an explicit ask: the own room is tried again.
+  fedseats.retryOwn('proj-or');
+  await fedseats.ensure('proj-or');
+  assert.strictEqual(h.spawned.length, 2, 'retried on an explicit ask');
+  assert.deepStrictEqual(h.spawned[1].edge, { own: 'ref-or' });
 });
 
 test('#4649 an owner\'s own room on a connector too old for it (exit 2) stops, and its guests are still seated', async () => {

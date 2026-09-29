@@ -740,6 +740,12 @@ function stop(projectId) {
   seats.delete(projectId);
 }
 
+/** Try an own room refused earlier this session again, on the person's explicit ask. */
+function retryOwn(projectId) {
+  const s = seats.get(projectId);
+  if (s && s.ownRefused) s.ownRefused = false;
+}
+
 /** Seat every linked project (called at boot and after a join or a link). */
 async function ensureAll() {
   if (!deps) return;
@@ -843,4 +849,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

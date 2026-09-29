@@ -449,6 +449,14 @@ test('#4649 own-code: the screen gets a code for its own project that another co
     assert.equal(broken.status, 500, JSON.stringify(broken.json));
     assert.doesNotMatch(broken.json.error, /EACCES/);
   } finally { federation.ownCodeRefusal = realRefusal; }
+  // A link left by an earlier project with the same id (another creation stamp) is not reused:
+  // the code names a fresh room for THIS project.
+  const st = await post('/api/projects', { name: 'Stale Id' }, SCREEN);
+  const stId = (st.json.project && st.json.project.id) || st.json.id;
+  federation.recordLink(stId, { role: 'owner', ref: 'ref-left-by-an-earlier-project', project_created: '1999-01-01T00:00:00.000Z' });
+  const fresh = await post('/api/federation/own-code', { project: stId }, SCREEN);
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.json));
+  assert.notEqual(federation.parseOwnCode(fresh.json.code).ref, 'ref-left-by-an-earlier-project');
   // Not from a process, not for a project that is not here, not for someone else's project.
   assert.equal((await post('/api/federation/own-code', { project: id })).status, 403);
   assert.equal((await post('/api/federation/own-code', { project: 'no-such-project' }, SCREEN)).status, 404);

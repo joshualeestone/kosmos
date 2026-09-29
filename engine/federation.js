@@ -10,8 +10,11 @@
  *
  * The link record lives in federation.json beside projects.json, keyed by the
  * local project id, so the projects schema is untouched:
- *   owner:  { role: 'owner',  ref }          ref = the project_ref invites were minted with
+ *   owner:  { role: 'owner',  ref, selfShared? }   ref = the project_ref invites were minted with;
+ *           selfShared = an own code was made, so the owner sits in its own room with no guest (#4649)
  *   member: { role: 'member', edge_id, owner_handle, project_name, project_desc }
+ *   self:   { role: 'self',   ref, project_name, project_created }   another computer of the same
+ *           account, joined by own code; its seat is `fed-room --own-project <ref>` (#4649)
  * The owner's ref is what lets the owner's board find the project's room later
  * (the coordinator derives the room from owner account + ref).
  */
