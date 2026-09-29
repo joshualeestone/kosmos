@@ -103,9 +103,52 @@ test('refresh: best-effort -- a throwing fetcher never escapes the poll', async 
   assert.equal(remote.federationLive(), true, 'and a throw leaves the last-known value untouched');
 });
 
-test('the shipped fetchFederationLive is a null STUB (pending ICK endpoint) -> default refresh is a safe no-op', async () => {
+/* kosmos#4649: the real fetch, against a real HTTP server standing in for the coordinator (the
+   app finds it through AGENT_WORKFORCE_TUNNEL_COORDINATOR, as every other coordinator call does). */
+const http = require('node:http');
+async function withMeta(answer, fn) {
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/v1/meta') { res.writeHead(404); res.end(); return; }
+    if (answer === 'hang') return;                          // never answers: the timeout arm
+    if (typeof answer === 'number') { res.writeHead(answer); res.end('{}'); return; }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(typeof answer === 'string' ? answer : JSON.stringify(answer));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + server.address().port + '/';
+  try { return await fn(); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    server.closeAllConnections(); await new Promise((r) => server.close(r));
+  }
+}
+
+test('#4649 fetchFederationLive reads federation_live off the coordinator\'s public /v1/meta', async () => {
+  const meta = { build: 'x', domain: 'kosmosplus.com' };
+  assert.equal(await withMeta({ ...meta, federation_live: true }, () => remote.fetchFederationLive()), true);
+  assert.equal(await withMeta({ ...meta, federation_live: false }, () => remote.fetchFederationLive()), false);
+});
+
+test('#4649 fetchFederationLive answers null (cannot tell) for every answer that is not a boolean flag', async () => {
+  // Today's coordinator: no field. Then a non-boolean, an error status, unreadable JSON, and silence.
+  assert.equal(await withMeta({ build: 'b77a85c', domain: 'kosmosplus.com' }, () => remote.fetchFederationLive()), null);
+  assert.equal(await withMeta({ federation_live: 'yes' }, () => remote.fetchFederationLive()), null);
+  assert.equal(await withMeta(503, () => remote.fetchFederationLive()), null);
+  assert.equal(await withMeta('not json', () => remote.fetchFederationLive()), null);
+  assert.equal(await withMeta('hang', () => remote.fetchFederationLive({ timeoutMs: 200 })), null);
+  // And with nothing listening at all.
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:9';
+  try { assert.equal(await remote.fetchFederationLive({ timeoutMs: 500 }), null); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+  }
+});
+
+test('#4649 end to end: the default refresh flips the flag from the coordinator, and a coordinator without the field changes nothing', async () => {
   writeSettings({ on: true, fedLive: false, fedLive_at: 1000 });
-  // no injected fetcher: exercises the real default fetchFederationLive(), which is the null stub
-  await remote.refreshFederationLiveIfStale({ now: 1000 + TTL + 1, ttlMs: TTL });
-  assert.equal(remote.federationLive(), false, 'until ICK endpoint is wired, the flag stays at its default (false) -- env-only behaviour preserved');
+  await withMeta({ federation_live: true }, () => remote.refreshFederationLiveIfStale({ now: 1000 + TTL + 1, ttlMs: TTL }));
+  assert.equal(remote.federationLive(), true, 'the coordinator said live, and the default refresh did not take it');
+  writeSettings({ on: true, fedLive: true, fedLive_at: 1000 });
+  await withMeta({ build: 'b77a85c' }, () => remote.refreshFederationLiveIfStale({ now: 1000 + TTL + 1, ttlMs: TTL }));
+  assert.equal(remote.federationLive(), true, 'a coordinator without the field must keep the last-known value');
 });

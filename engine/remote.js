@@ -385,19 +385,26 @@ function kosmosPlus() {
   return s.ok === true && s.standing === 'good';
 }
 /* The isolated coordinator read for the GLOBAL federation-live flag: true/false, or
-   null when it could not be determined (offline, or -- today -- the source is not wired
-   yet). A null NEVER changes the cache, so a transient failure keeps the last-known
-   value (no flicker) and the default stays FALSE (hidden).
-   🛑 PENDING ICK/Baron's coordinator field (routed after their wire-proof): the exact
-   endpoint/shape is theirs to confirm. Proposal: an unauthenticated global
-   `GET /v1/meta` carrying a `federation_live` bool (it already returns 200, and this is
-   a PUBLIC launch flag, so a per-account mac-signed path is wrong for it). Until that is
-   confirmed and wired here, this returns null -> refreshFederationLiveIfStale is a safe
-   no-op and federationLive() keeps the default false, so the producer behaves EXACTLY as
-   the merged #3353 env-only producer. Wiring the real fetch is then a one-function change.
-   This mirrors how fetchStanding() shipped a null stub pending ICK's standing mechanism. */
-async function fetchFederationLive() {
-  return null;
+   null when it could not be determined (offline, an error answer, or a coordinator that does
+   not publish the field yet). A null NEVER changes the cache, so a transient failure keeps the
+   last-known value (no flicker) and the default stays FALSE (hidden).
+   kosmos#4649: the source is the PUBLIC `GET /v1/meta`, field `federation_live` (a launch flag
+   for everyone, so neither signed nor per-account). A coordinator without the field answers
+   null here, which is exactly the old stub's behaviour, so this is safe to ship before it.
+   `opts.fetch` and `opts.timeoutMs` are the test seam. */
+const FED_LIVE_TIMEOUT_MS = 5000;
+async function fetchFederationLive(opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  try {
+    const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
+    const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS) });
+    if (!res || !res.ok) return null;
+    const body = await res.json();
+    return (body && typeof body.federation_live === 'boolean') ? body.federation_live : null;
+  } catch {
+    return null;
+  }
 }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
@@ -1929,7 +1936,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
