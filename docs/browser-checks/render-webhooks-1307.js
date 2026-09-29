@@ -212,7 +212,7 @@ function chk(ok, label, extra) {
         remote.address = () => 'hers.kosmosplus.com';   // the enrolled name the link's host must match
         try {
           // Restored as soon as the make answers, so the stub covers that one call and no poll after it.
-          const made = page.waitForResponse((r) => /\/webhooks$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST', { timeout: 8000 });
+          const made = page.waitForResponse((r) => r.url().split('?')[0].endsWith('/webhooks') && r.request().method() === 'POST', { timeout: 8000 });
           await page.click('#pjs-hook-add');
           await made;
         } finally { Object.assign(remote, real); }
