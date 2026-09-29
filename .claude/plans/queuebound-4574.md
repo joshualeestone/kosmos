@@ -232,3 +232,18 @@ first on PATH, which reports what it inherited. Control: without the unset it re
 The first attempt at the arm never reached node (the stray-file copy stops at the coverage gate; with no test files at
 all bash 3.2's set -u calls the empty list unbound), so a green there would have meant nothing. One more blind round
 follows because this is code after convergence.
+
+## Review iteration 17 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken (one class: the queue tests inheriting their own controls):
+- (W) run-tests.sh dropped two variables when the whole set leaks: KOSMOS_NO_WAIT reds 19 of test-cut-guard.sh's arms,
+  and KOSMOS_WAIT_*, KOSMOS_HARNESS_IGNORE_SUITE and KOSMOS_CUT_IGNORE_HARNESS reach tests the same way. run-tests.sh now
+  drops the whole set after its wait (nothing below reads them).
+- (W) that only helps under run-tests.sh; `yarn test:shell` runs the file directly. The file now unsets the whole set
+  at its top, so it starts from none of them however it is run.
+  Measured: plain, KOSMOS_NO_WAIT=1, and KOSMOS_WAIT_MAX_S=5 KOSMOS_WAIT_EVERY_S=1 all 0 failures. Control: without the
+  file's unset, KOSMOS_NO_WAIT=1 gives exactly the reviewer's 19 failures. NOT run by me: the direct run with
+  KOSMOS_TESTS_IGNORE_SUITE=1 (a permission rule refuses that command here); it is the same unset line, and the #4609
+  arm pins the run-tests.sh side of it.
+- (N, taken) the give-up line says "since this run joined the queue or a waiter ahead last left it" (true for the
+  front waiter); an empty LOCAL start time also reads as stale; the clock seam's comment says it must answer for the
+  whole wait; RT2 is in the EXIT trap.
