@@ -176,6 +176,21 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
   } },
+  /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
+     that box. Turning it on is stored on this run's throwaway board (so asking twice is fine),
+     and no other screen here opens Automation. */
+  { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#rec-guards-row', { state: 'visible', timeout: 5000 });
+    // The one-time community notice can open over Settings on a desktop; this screen is the block.
+    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
+    await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
   { name: 'org-chart', owner: 'unowned', go: async (page) => {

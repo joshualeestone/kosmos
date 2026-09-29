@@ -3306,6 +3306,19 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .setrow b { font-size: .9375rem; }
 .setrow.off { opacity: .6; }
 .setrow.off .toggle { pointer-events: none; }
+/* #4545: the Recommender's guards. A left-aligned list in one hairline group under the switch
+   row, each guard a full-width row (the whole row ticks it), the box on the first line's centre
+   whatever the label's length, and the box in the switch's green so the block reads as one control.
+   (It carried .frow, whose centring laid a column of different-width labels out staggered.) */
+.rec-guards { margin: 18px 0 0; padding: 0; border: 0; min-width: 0; }
+.rec-guards > legend { padding: 0; margin: 0 0 8px; font-size: .875rem; font-weight: 600; color: var(--k-ink-2); }
+.rec-guard-list { border: 1px solid var(--k-rule); border-radius: 12px; overflow: hidden; }
+.rec-guard { display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 11px 14px; cursor: pointer;
+             font-size: .9375rem; line-height: 1.4; color: var(--k-ink); }
+.rec-guard + .rec-guard { border-top: 1px solid var(--k-rule); }
+.rec-guard:hover { background: var(--k-sunk); }
+.rec-guard input { flex: none; width: 16px; height: 16px; margin: calc((.9375rem * 1.4 - 16px) / 2) 0 0; accent-color: #2f7d5a; cursor: pointer; }
+.rec-guards-note { margin: 10px 0 0; font-size: .875rem; }
 /* #4405 (Josh): his small round picture beside the Kosmos Guide switch, so the row stands out. */
 .setrow .asb-row-who { display: inline-flex; align-items: center; gap: 8px; }
 .setrow .asb-row-pic { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: none; }
@@ -16376,15 +16389,17 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Recommender</h3>
       <div class="setrow" id="rec-row" style="margin-top:14px;">
         <div><b>Let blocked agents recommend and act</b>
-          <p class="dhint" style="margin:2px 0 0;">When an agent reports it needs a decision, Kosmos asks up to two of its teammates for their view. The agent then decides, writes down why, and carries it out - within the guards below.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">When an agent reports it needs a decision, Kosmos asks up to two of its teammates for their view. The agent then decides, writes down why, and carries it out, within the guards below.</p></div>
         <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" hidden><i></i></button>
       </div>
-      <fieldset class="frow" id="rec-guards-row" hidden style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
-        <legend class="dhint" style="margin:0 0 2px;">Never let a recommendation:</legend>
-        <label class="dhint" for="rec-guard-money" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-money" data-guard="money" checked> <span>Act on anything that spends money</span></label>
-        <label class="dhint" for="rec-guard-public" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-public" data-guard="public" checked> <span>Post anything publicly under my name</span></label>
-        <label class="dhint" for="rec-guard-delete" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-delete" data-guard="delete" checked> <span>Delete anything that has no other copy</span></label>
-        <p class="dhint" style="margin:2px 0 0;">Your agents are given these as instructions. Kosmos cannot yet stop these actions on its own.</p>
+      <fieldset class="rec-guards" id="rec-guards-row" hidden>
+        <legend>Never let a recommendation:</legend>
+        <div class="rec-guard-list">
+          <label class="rec-guard" for="rec-guard-money"><input type="checkbox" id="rec-guard-money" data-guard="money" checked><span>Act on anything that spends money</span></label>
+          <label class="rec-guard" for="rec-guard-public"><input type="checkbox" id="rec-guard-public" data-guard="public" checked><span>Post anything publicly under my name</span></label>
+          <label class="rec-guard" for="rec-guard-delete"><input type="checkbox" id="rec-guard-delete" data-guard="delete" checked><span>Delete anything that has no other copy</span></label>
+        </div>
+        <p class="dhint rec-guards-note">Your agents are given these as instructions. Kosmos cannot yet stop these actions on its own.</p>
       </fieldset>
       <p class="dhint" id="rec-off-note" hidden style="margin:8px 0 0;">Off by default. Your agents will still tell you when they are stuck; they just will not act on it themselves.</p>
       <p class="dhint" id="rec-msg" role="status" style="margin:8px 0 0;"></p>
