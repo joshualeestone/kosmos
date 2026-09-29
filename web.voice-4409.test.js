@@ -14,7 +14,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+
+/* The page's CURRENT is a board card, so the harness gets REAL cards from test-support/fleet (the fixture-discipline
+   rule: a hand-built card is free to carry fields the producer never emits). Sandboxed data root first. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'voice-4409-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('april'), fleet.agent('casey')]);
+test.after(() => BOARD.restore());
+const CARD = (name) => {
+  const c = BOARD.agents.find((a) => a.sessionName === name);
+  assert.ok(c && c.sessionName, 'the fixture produced no card for ' + name);
+  return c;
+};
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SWIFT = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
@@ -125,7 +140,7 @@ function voiceHarness() {
     'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {};\n'
     + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
     + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
-    + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
+    + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
   const h = make(win, doc, posted, (f) => { timers.push(f); return timers.length; }, (n) => { timers[n - 1] = null; });
@@ -136,14 +151,14 @@ function voiceHarness() {
 test('#4409 review 1: a word heard after switching to another agent goes nowhere and stops the mic', () => {
   const { h, posted, mkBtn, mkBox } = voiceHarness();
   const box = mkBox('d-say');
-  h.set('april', null);
+  h.set(CARD('april'), null);
   box.value = 'Please check';
   Object.assign(h.VOICE, { btn: mkBtn(), box, before: 'Please check', after: '', where: h.voiceWhere(box), last: 'Please check' });
   h.voiceOnEvent({ kind: 'partial', text: 'the build' });
   assert.equal(box.value, 'Please check the build', 'control: the same agent gets the words');
   /* Opened Casey: no hashchange, the same #d-say box. The box value is left EXACTLY as dictation left it, so the
      review-6 "box changed" guard cannot be what stops this: only the view check can. */
-  h.set('casey', null);
+  h.set(CARD('casey'), null);
   h.voiceOnEvent({ kind: 'final', text: 'the build now' });
   assert.equal(box.value, 'Please check the build', 'April\'s words kept landing after the switch to Casey');
   assert.equal(h.VOICE.btn, null, 'still listening after the switch');
@@ -192,12 +207,12 @@ test('#4409 review 2: the watch stops the mic after a switch with nothing heard,
   const { h, posted, mkBtn, mkBox, doc, tick, timers } = voiceHarness();
   doc.boxes['d-say'] = mkBox('d-say');
   const dm = mkBtn(); dm.attrs['data-voice-for'] = 'd-say';
-  h.set('april', null);
+  h.set(CARD('april'), null);
   h.voiceToggle(dm);
   assert.ok(h.watching(), 'no watch while listening');
   tick();
   assert.equal(h.VOICE.btn, dm, 'control: the watch cancelled with nothing moved');
-  h.set('casey', null);
+  h.set(CARD('casey'), null);
   tick();
   assert.equal(h.VOICE.btn, null, 'the mic listened on after a silent switch');
   assert.equal(posted.at(-1).op, 'cancel');
@@ -266,12 +281,12 @@ test('#4409 review 1: read-aloud follows its message through a repaint, and stop
   const oldBtn = Object.assign(mkBtn(), { isConnected: false, closest: () => row });
   const newBtn = Object.assign(mkBtn(), { isConnected: true, closest: () => row });
   doc.querySelectorAll = () => [newBtn];
-  h.set('april', null);
+  h.set(CARD('april'), null);
   Object.assign(h.SPEAK, { btn: oldBtn, text: 'Hello there.', where: h.viewKey() });
   h.speakFollow();
   assert.equal(h.SPEAK.btn, newBtn, 'the repainted button lost the reading');
   assert.equal(newBtn.attrs['aria-pressed'], 'true', 'the repainted button says it is not reading');
-  h.set('casey', null);
+  h.set(CARD('casey'), null);
   h.speakFollow();
   assert.equal(h.SPEAK.btn, null, 'reading went on after switching agent');
 });
@@ -283,7 +298,7 @@ test('#4409 review 2: two messages with the same words: read-aloud stays on the 
   const a = Object.assign(mkBtn(), { isConnected: true, closest: () => r1 });
   const b = Object.assign(mkBtn(), { isConnected: true, closest: () => r2 });
   doc.querySelectorAll = () => [a, b];
-  h.set('april', null);
+  h.set(CARD('april'), null);
   Object.assign(h.SPEAK, { btn: Object.assign(mkBtn(), { isConnected: false, closest: () => r2 }), text: 'Done.', where: h.viewKey(), nth: 1 });
   h.speakFollow();
   assert.equal(h.SPEAK.btn, b, 'the pressed state jumped to the other "Done."');

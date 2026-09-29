@@ -74,6 +74,9 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   empty or no-room result keeps its text but the highlight collapses to a caret; at the cap the heard words are cut
   or dropped with no line saying why (safe direction); a multi-part emoji (a flag, a family) can still be cut between
   its parts at the cap, leaving valid text.
+- Full validation v0 (after convergence) was red on ONE test, mine: fixture-discipline forbids a hand-built agent card,
+  and the voice harness set CURRENT to { sessionName }. The harness now takes REAL cards from test-support/fleet
+  (sandboxed data root). The view-check mutation still reds 3 tests with real cards.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
