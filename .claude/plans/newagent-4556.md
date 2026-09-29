@@ -26,7 +26,9 @@ and at phone width.
   is the swarm's live preview (its circles follow the helpers slider and carry the name's mark, #3946); on the
   Single path neither card shows. Rejected: deleting the cards, which silently removes that preview.
 - Swarm roles: NONE exist (engine/roles.js defines no swarm roles). The Swarm path offers the ready-made roles
-  minus Project Manager, plus describe your own. This is the weakest premise; defining swarm roles belongs to
+  minus the two that direct other agents or projects (Project Manager, Project Director; Mona's review, agreed by
+  her), plus describe your own, opening on the first that remains. Operations Manager stays: it keeps recurring work
+  moving and does not direct agents. This is the weakest premise; defining swarm roles belongs to
   #4554 part 2 (roles research).
 - The org chart moves from the Single screen to the Team screen (Josh: org chart is a Team option). It is a paste
   box, as #1280 built it; the button keeps the old option's words, "Upload an org chart".
@@ -35,6 +37,18 @@ and at phone width.
   on the first step so the three cards fit in one row; at phone width they stack as compact rows.
 - The roles still load when New Agent opens (so Single and Swarm open at once); the chosen path re-applies its
   default. The first-run "look in my folders" link still goes straight to Single's import panel.
+
+## Design review (Mona Lisa, 2026-09-29, approved)
+- One back link on a second screen, "Choose another kind" (All agents hidden there; it stays on the first screen).
+- Team with no seeded teams: no dropdown or disabled Create; "Ready-made teams are coming soon." once; Upload an org
+  chart is the gold action, with no label repeating it and no divider. With teams, the dropdown returns and the org
+  chart is the plain second choice. Nothing of the dropdown shows until the catalogue answers; an empty catalogue is
+  asked again next visit, like a 404.
+- Phone: line art about 40px tall beside each title (which wraps); the role menu 16px (no iOS zoom), on the same
+  40rem breakpoint as the layout. Swarm reads "Pick a role".
+- Validation fixes: server.test.js's default-mode pin reads the Swarm path's 'list' pass-through and still pins pm;
+  /api/teams/seeded is in web.api-routes-3957's SERVED_ELSEWHERE until #4555 adds the route, and a new test there
+  fails once the board serves any listed path, so the entry cannot outlive the route.
 
 ## Tests
 - Node: web.role-picker updated (heading id, import hidden for a swarm, org chart gone from pickMode).

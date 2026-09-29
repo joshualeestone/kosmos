@@ -477,6 +477,14 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
 });
 
+test('#4556 review round 3: no SERVED_ELSEWHERE entry is a route the board serves now (so an entry cannot outlive its route)', () => {
+  const board = baseBoard();
+  const nowServed = Object.keys(SERVED_ELSEWHERE).filter((p) => served(p, board));
+  assert.deepEqual(nowServed, [], 'the board serves these now: remove their SERVED_ELSEWHERE entries');
+  // CONTROL: the check can see a served path (a route every board has).
+  assert.equal(served('/api/accounts', board), true, 'CONTROL: /api/accounts read as not served, so this test could never fail');
+});
+
 test('#3957: every SERVED_ELSEWHERE entry is still called by the page, so the list cannot rot', () => {
   const { paths } = basePage();
   const stale = Object.keys(SERVED_ELSEWHERE).filter((p) => !paths.includes(p));

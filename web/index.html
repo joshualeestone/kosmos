@@ -6791,7 +6791,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm.mine .dm-w { text-align: right; }
 /* #4556 design shots: the role menu at 16px on a phone, so iOS does not zoom when it is tapped (the Swarm screen
    opens on it). */
-@media (max-width: 600px) { #rolesel { font-size: 16px; } }
+@media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
@@ -8694,6 +8694,7 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
 .nak-btn[hidden] { display: none; }
 .nak-team-opt { padding: 16px 0; border-top: 1px solid var(--separator); }
 .nak-team-opt:first-of-type { border-top: 0; }
+.nak-team-opt.nak-team-only { border-top: 0; padding-top: 0; }   /* #4556: the org chart alone, no divider above it */
 .nak-team-opt select { width: 100%; max-width: 100%; }
 @media (max-width: 40rem) {
   .nak-btn { flex-basis: 100%; max-width: none; min-height: 0; flex-direction: row; text-align: left;
@@ -46327,14 +46328,18 @@ async function loadSeededTeams() {
   sel.disabled = true;
   document.getElementById('team-seeded-go').disabled = true;
   teamSaySeeded('');
+  /* Round 3: nothing of the dropdown until the answer is in, so a slow first load does not flash a control the
+     no-teams layout then removes. */
+  if (!SEEDED_TEAMS) document.getElementById('team-seeded-pick').hidden = true;
   if (!SEEDED_TEAMS) {
     try {
       const res = await fetch('/api/teams/seeded', { cache: 'no-store' });
       if (!res.ok) throw new Error('status ' + res.status);
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
-      SEEDED_TEAMS = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
+      const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
         .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
+      SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
     } catch { SEEDED_TEAMS = null; }
   }
   if (gen !== SEEDED_GEN) return;
@@ -46343,7 +46348,9 @@ async function loadSeededTeams() {
      the screen's main (gold) action; the dropdown and Create come back once #4555 seeds teams. */
   document.getElementById('team-seeded-pick').hidden = none;
   document.getElementById('team-orgchart-open').classList.toggle('uprime', none);
-  document.getElementById('team-orgchart-label').textContent = none ? 'Upload an org chart' : 'Or upload an org chart';
+  /* Mona's second look: with no teams the gold button says it all, so no label repeating it and no divider above. */
+  document.getElementById('team-orgchart-label').hidden = none;
+  document.getElementById('team-orgchart-opt').classList.toggle('nak-team-only', none);
   if (none) {
     sel.innerHTML = '';
     document.getElementById('team-seeded-desc').textContent = '';
@@ -46501,7 +46508,8 @@ function paintRoleMenu() {
     g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
     '</optgroup>').join('');
   const sel = document.getElementById('rolesel');
-  if (sel.dataset.menu !== html) { sel.innerHTML = html; sel.dataset.menu = html; }
+  const sig = rest.map((r) => r.key).join(',');   // round 3: the keys, not the whole menu, mark what is drawn
+  if (sel.dataset.menu !== sig) { sel.innerHTML = html; sel.dataset.menu = sig; }
 }
 function paintPathOptions() {
   const swarmPath = CREATE_PATH === 'swarm';

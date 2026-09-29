@@ -5,17 +5,23 @@
  * kosmos#4556 (Josh, #4554, 2026-09-29): New Agent opens on three large side-by-side choices with line art
  * (Single / Team / Swarm), each with its own second screen, and the step-2 Agent/Swarm selector is gone.
  *
- * Harness: a tiny static server serving web/index.html, with /api/roles (a recommended Project Manager and one
- * other role, plus the define-your-own entry), /api/status (a board that can run swarms), and /api/teams/seeded
+ * Harness: a tiny static server serving web/index.html, with /api/roles (a recommended Project Manager, Project
+ * Director and Operations Manager in the catalogue's order, one other role, and the define-your-own entry), /api/status (a board that can run swarms), and /api/teams/seeded
  * either absent (404, before #4555 lands) or serving two teams.
  *
  * Arms, light and dark, desktop (1280) and phone (390):
- *   K1 the first screen: three cards, one row on desktop, stacked on a phone with no sideways scroll;
- *   K2 Single: Project Manager and import offered, and step 2 shows no Agent / Swarm card;
+ *   K1 the first screen: three cards, one row on desktop, stacked on a phone with no sideways scroll; on a phone
+ *      the art is about 40px tall with each title beside it (Mona's design review);
+ *   K2 Single: Project Manager and import offered, one back link (Choose another kind), the role menu still offers
+ *      Project Director, and step 2 shows no Agent / Swarm card;
  *   K3 Back returns to the three-way choice;
- *   K4 Swarm: no Project Manager and no import; step 2 shows the Swarm card alone and the swarm settings;
- *   K5 Team with no catalogue: says coming soon, the dropdown is off, and Upload an org chart opens its panel;
- *   K6 Team with a catalogue: the teams are listed, and Create hands the chosen key to openTeamCreate;
+ *   K4 Swarm: no Project Manager and no import; "Pick a role"; the role menu leaves out the roles that direct agents
+ *      (Project Manager, Project Director) and opens on the first that remains; 16px on a phone; step 2 shows the
+ *      Swarm card alone and the swarm settings;
+ *   K5 Team with no catalogue: no dropdown or Create, "coming soon" said once, Upload an org chart is the gold action
+ *      with no repeated label or divider, and it opens its panel;
+ *   K6 Team with a catalogue: the dropdown is back and the org chart is the plain second choice; the teams are
+ *      listed, and Create hands the chosen key to openTeamCreate;
  *   K7 focus: a path's heading takes the keyboard, and Back returns it to the card the person came from;
  *   K8 the race: openCreate's roles load answers AFTER the Swarm path's, and the Swarm screen still opens on the
  *      role menu with no Project Manager picked (ROLES_GEN);
@@ -182,10 +188,11 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         msg: document.getElementById('team-seeded-msg').textContent,
         soon: (document.getElementById('cstep-team').innerText.match(/coming soon/gi) || []).length,
         gold: document.getElementById('team-orgchart-open').classList.contains('uprime'),
-        label: document.getElementById('team-orgchart-label').textContent,
+        labelShown: !document.getElementById('team-orgchart-label').hidden,
+        divider: getComputedStyle(document.getElementById('team-orgchart-opt')).borderTopWidth,
         allAgents: !document.getElementById('create-back').hidden }));
       ok(t + ' K5 Team with no catalogue: no dropdown or Create, "coming soon" said once, Upload an org chart is the gold action (Mona\'s review)',
-        k5.onTeam && !k5.pick && k5.msg === 'Ready-made teams are coming soon.' && k5.soon === 1 && k5.gold && k5.label === 'Upload an org chart' && !k5.allAgents, JSON.stringify(k5));
+        k5.onTeam && !k5.pick && k5.msg === 'Ready-made teams are coming soon.' && k5.soon === 1 && k5.gold && !k5.labelShown && k5.divider === '0px' && !k5.allAgents, JSON.stringify(k5));
       await page.click('#team-orgchart-open');
       ok(t + ' K5 Upload an org chart opens its panel on the Team screen', await visible(page, '#orgchart-text'));
 
@@ -200,7 +207,7 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       const k6 = await page.evaluate(() => ({ opts: [...document.getElementById('team-seeded').options].map((o) => o.value),
         desc: document.getElementById('team-seeded-desc').textContent, go: document.getElementById('team-seeded-go').disabled,
         pick: !document.getElementById('team-seeded-pick').hidden, gold: document.getElementById('team-orgchart-open').classList.contains('uprime'),
-        label: document.getElementById('team-orgchart-label').textContent }));
+        label: document.getElementById('team-orgchart-label').hidden ? '' : document.getElementById('team-orgchart-label').textContent }));
       ok(t + ' K6 with teams: the dropdown is back and the org chart is the second, plain choice (CONTROL for K5)',
         k6.pick && !k6.gold && k6.label === 'Or upload an org chart', JSON.stringify(k6));
       ok(t + ' K6 the seeded teams are listed, and choosing one describes it and enables Create',
