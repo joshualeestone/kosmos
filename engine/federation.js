@@ -285,7 +285,7 @@ async function verify(remote, body) {
   if (own) {
     // The coordinator seats an own room only for a Kosmos Plus account.
     let plus = false;
-    try { plus = typeof remote.kosmosPlus !== 'function' || remote.kosmosPlus() === true; } catch { plus = false; }
+    try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
     if (!plus) {
       return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer.' } };
     }

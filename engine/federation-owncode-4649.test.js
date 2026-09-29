@@ -115,3 +115,10 @@ test('an own code made while an invite waits on the coordinator stops that invit
   assert.equal(out.status, 409, JSON.stringify(out.body));
   assert.equal(require('./fedseal').isSealedRef('ref-race'), false, 'the room was not sealed under the other computers');
 });
+
+test('an own-code verify with no way to ask about Kosmos Plus is refused (fails closed, like the own-code route)', async () => {
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-noplus', name: 'N' })).toString('base64url');
+  const out = await federation.verify({ macRequest: async () => ({ ok: false }) }, { code });
+  assert.equal(out.status, 403, JSON.stringify(out.body));
+  assert.equal(out.body.reason, 'not-plus');
+});
