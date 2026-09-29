@@ -22,6 +22,9 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* The test reaches POST /api/agents (to prove an agent token cannot), so Claude Code's config is
+   sandboxed too, as every agent-creating suite must (fixture-discipline.test.js). */
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
