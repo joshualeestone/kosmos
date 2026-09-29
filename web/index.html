@@ -13946,7 +13946,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="importrow orgchart-filerow">
           <button class="btn" type="button" id="orgchart-file-btn">Choose a file</button>
           <input type="file" id="orgchart-file" hidden accept=".csv,.tsv,.xlsx,.xls,.numbers,.png,.jpg,.jpeg,.webp,.gif,.pdf,.pptx,.key">
-          <span class="rolehelp" id="orgchart-file-note">Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.</span>
+          <span class="rolehelp" id="orgchart-file-note" data-idle="Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.">Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.</span>
         </div>
         <button class="btn" type="button" id="orgchart-read-stop" hidden>Stop reading</button>
         <div class="orgchart-consent" id="orgchart-consent" role="group" aria-labelledby="orgchart-consent-say" hidden>
@@ -46508,6 +46508,14 @@ let ORGCHART_CREATED = [];
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
 let ORGCHART_CREATING = false;
+// #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
+let ORGCHART_UNDO_BUSY = false;
+/* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
+   declaration runs throws, and typeof does not guard that). The rows a file produced before names are derived (so
+   the names toggle re-derives from the file), a picture waiting for Read it, and the read in flight. */
+let ORGCHART_FILE_PEOPLE = null;
+let ORGCHART_FILE_PENDING = null;
+let ORGCHART_READ_CTL = null;
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -46533,6 +46541,16 @@ function resetOrgchartPreview() {
   const undo = document.getElementById('orgchart-undo');
   if (undo) { undo.hidden = true; undo.disabled = false; }
   orgchartUndoAsking(false);
+  /* #4559: leaving or reopening the panel also ends the file flow: no consent box armed for a file the person has
+     moved past, and a picture being read is stopped (the board then stops the model call, which would otherwise
+     run on the person's plan with nobody to see its answer). */
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
+  const consent = document.getElementById('orgchart-consent');
+  if (consent) consent.hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_PEOPLE = null;
+  const note = document.getElementById('orgchart-file-note');
+  if (note && note.dataset.idle) note.textContent = note.dataset.idle;
 }
 
 /* A title (or a person's name, when opted in) into a machine name the engine
@@ -46630,9 +46648,6 @@ function orgchartRows(people, useNames, source) {
   return rows;
 }
 
-/* #4559: the rows a file produced, before names are derived, so turning "Name the agents after the people"
-   on or off re-derives from the file rather than from the paste box. Null when the preview came from text. */
-let ORGCHART_FILE_PEOPLE = null;
 
 /* A reporting loop (A under B under A) among the rows, as the set of row indexes on one. Create is blocked
    while there is one: the profile route refuses a loop too, but only after agents already exist. */
@@ -46718,11 +46733,9 @@ function orgchartPaint() {
 /* A chosen or dropped file into the preview. A CSV or Excel file is read on this computer; a picture or a
    PDF is read by the person's own AI provider, so the board first answers who that is and nothing is sent
    until the person presses Read it (#orgchart-consent). */
-let ORGCHART_FILE_PENDING = null;
 /* Each chosen or dropped file takes a number; an answer for an older one is dropped, so two quick uploads cannot
    paint the first one's rows over the second. */
 let ORGCHART_FILE_SEQ = 0;
-let ORGCHART_READ_CTL = null;   // the read in flight, while Stop reading is shown
 /* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
    the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
@@ -46787,6 +46800,7 @@ async function orgchartSendFile(file, consent, seq) {
 const ORGCHART_MAX_BYTES = 10 * 1024 * 1024;
 function orgchartTakeFile(file) {
   if (!file || ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();   // a new file ends the read in progress (and its model call)
   if (file.size > ORGCHART_MAX_BYTES) {
     const msg = document.getElementById('orgchart-msg');
     msg.hidden = false;
@@ -47050,7 +47064,6 @@ function orgchartUndoAsking(on) {
   const fileBtn = document.getElementById('orgchart-file-btn');
   if (fileBtn) fileBtn.disabled = on;
 }
-let ORGCHART_UNDO_BUSY = false;
 
 // Each agent's removal plan from the engine (GET /api/agent/:name/removal), keyed by name.
 let ORGCHART_UNDO_PLANS = {};

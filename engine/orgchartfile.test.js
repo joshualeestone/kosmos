@@ -366,3 +366,38 @@ test('the real runner reads a stream-json result from claude (a fake binary, no 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('with no Claude Code here, a picture is not offered (the real availability check, not a fake)', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-noclaude-'));
+  const saved = { home: process.env.AGENT_WORKFORCE_HOME, bin: process.env.AGENT_WORKFORCE_CLAUDE_BIN, cfg: process.env.CLAUDE_CONFIG_DIR };
+  process.env.AGENT_WORKFORCE_HOME = home;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  o.setModelAvailable(null);   // the real check
+  o.setModelRunner(null);      // the real runner
+  try {
+    assert.equal(o.modelAvailable(), false, 'an empty home has no claude and no account');
+    const r = await o.readWithModel('chart.png', Buffer.from([1]));
+    assert.equal(r.unavailable, true, 'the real runner reports unavailable, not a failed read: ' + JSON.stringify(r));
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_HOME', saved.home], ['AGENT_WORKFORCE_CLAUDE_BIN', saved.bin], ['CLAUDE_CONFIG_DIR', saved.cfg]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('an export with two id columns resolves a manager named by either', () => {
+  const r = csv('Employee ID,Work Email,Name,Title,Manager Email\nE1,aq@x.test,Avery Quill,CEO,\nE2,bl@x.test,Bo Linden,VP,aq@x.test\n');
+  assert.equal(r.rows[1].reportsTo, 0, JSON.stringify(r));
+  const s2 = csv('Employee ID,Work Email,Name,Title,Manager ID\nE1,aq@x.test,Avery Quill,CEO,\nE2,bl@x.test,Bo Linden,VP,E1\n');
+  assert.equal(s2.rows[1].reportsTo, 0);
+});
+
+test('blank CSV lines do not count toward the row limit', () => {
+  const r = csv('\n'.repeat(o.MAX_ROWS + 10) + 'Name,Title\nAvery Quill,CEO\n');
+  assert.equal(r.rows.length, 1, JSON.stringify(r).slice(0, 200));
+});

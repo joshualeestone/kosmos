@@ -6540,8 +6540,7 @@ const server = http.createServer(async (req, res) => {
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
       })
-      /* readBody rejects only for a body over the cap; any other failure gets the same plain sentence. */
-      .catch(() => sendJson(res, 400, { error: 'We could not read that file. An org chart export is usually well under 10 MB.' }));
+      .catch(() => sendJson(res, 400, { error: 'We could not read that file. Try again, or export it as CSV.' }));
     return;
   }
 
