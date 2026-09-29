@@ -919,9 +919,11 @@ async function main(argv, io) {
   // Read only by ctx.unreachable, which every verb calls straight after the failing call, before any
   // other request: the invariant this relies on.
   let lastTimedOut = false;
+  let lastWasRead = false;   // a GET changes nothing, so its timeout needs no "it may have happened"
   async function call(method, route, body, opts) {
     const c = opts || {};
     lastTimedOut = false;
+    lastWasRead = String(method).toUpperCase() === 'GET';
     try {
       const res = await doFetch(url + route, {
         method,
@@ -958,7 +960,7 @@ async function main(argv, io) {
          time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
-      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '. If that was a change, it may still have happened: check before doing it again. It does not need a restart.');
+      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
       return 1;
     },

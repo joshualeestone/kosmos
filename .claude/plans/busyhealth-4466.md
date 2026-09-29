@@ -78,6 +78,22 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Deferred: with no lsof at all a reclaim-flagged start finds no listener to reclaim and its own start fails on
   the held port. macOS always has /usr/sbin/lsof, and the failure is a refused start, not a second board.
 
+## Review round 8 decisions
+- The board is started with the reclaim flag removed from its env too (`env -u KOSMOS_RECLAIM_BUSY`), and
+  `engine/boardrestart.js` deletes it: it is for the one start that set it, and a board that carried it would
+  pass leave to kill a busy board to every `kosmos start` it runs. Arm in `engine/boardrestart-2238.test.js`.
+- One probe keeps to one budget: when `/api/health` answers but not as ours, the page request gets what is
+  left of the probe's time (at least half a second), not a fresh one. Arm "one probe keeps to ONE budget",
+  red on the old fallback (11.3 s against a 6 s budget).
+- The Windows busy sentence says "it may still have happened" only after a write; a timed-out read says only
+  busy and no restart.
+- Deferred (again, first raised round 7): a busy board run from a source checkout whose path lacks "kosmos"
+  reads as a stranger, because the ownership test is #3079's `is_kosmos`. Installed boards run from
+  ~/.local/share/kosmos/app/server.js (measured on Mortals), so this is development only; widening
+  `is_kosmos` changes #3079's reclaim rule and belongs in its own card.
+- Not changed: "no reply in 20 s" and "did not answer within 20 s" are true as written even when the real
+  wait ran a little past 20 s.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -95,6 +111,8 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - **The watchdog's `kosmos status` can now take up to 20 s** on a busy board. It is a launchd job with
   StartInterval 30, and launchd never starts a second instance of a job while one runs, so ticks cannot
   stack on a busy board.
+- **A slow dev board reads as a stranger** (round 8): the busy verdict needs "kosmos" in the listener's
+  command line, which an installed board always has.
 - **Agent detection is by environment.** An agent run by some other harness, with none of the three
   markers, is treated as a person. Every Kosmos-launched agent has at least the claim.
 - **300 s busy grace** is a judgement: long enough that a busy board is not restarted by the watchdog,

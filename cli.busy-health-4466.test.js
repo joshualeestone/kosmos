@@ -65,6 +65,8 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.url.startsWith('/api/health')) {
+      // An older board under load: its 404 for the unknown route comes back slowly, and its page never does.
+      if (health === 'oldslow') { setTimeout(() => { res.writeHead(404); res.end('not found'); }, delayMs); return; }
       if (health === '404' || health === 'page500') { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return;
     }
@@ -73,6 +75,7 @@ const server = http.createServer((req, res) => {
   };
   // A busy board is slow at EVERYTHING it serves, the page included (the event loop is shared).
   if (health === 'hang' && req.method === 'GET') return;
+  if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
 });
@@ -108,8 +111,16 @@ function baseEnv(port, extra = {}) {
   // The runner's own agent markers are removed FIRST, so a test is a person unless it says otherwise.
   const env = { ...process.env };
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
-  // A throwaway KOSMOS_HOME by default, so no arm reads this machine's pidfile or board token.
-  return { ...env, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: SCRATCH_HOME, ...extra };
+  // A throwaway KOSMOS_HOME and store roots by default, so no arm reads this machine's pidfile or board
+  // token (board_token asks node for store.ROOT, which follows AGENT_WORKFORCE_DATA), even run outside
+  // tools/run-tests.sh's sandbox.
+  return {
+    ...env,
+    KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: SCRATCH_HOME,
+    AGENT_WORKFORCE_DATA: path.join(SCRATCH_HOME, 'data'), AGENT_WORKFORCE_WORKERS: path.join(SCRATCH_HOME, 'workers'),
+    AGENT_WORKFORCE_LAUNCH: path.join(SCRATCH_HOME, 'launch'), AGENT_WORKFORCE_PROJECTS: path.join(SCRATCH_HOME, 'projects'),
+    ...extra,
+  };
 }
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
@@ -120,6 +131,17 @@ test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports 
   assert.match(out.stderr, /Kosmos is busy, retrying/);
   assert.ok(out.ms >= 4000, `it must actually have waited for the slow answer (took ${out.ms} ms)`);
 }));
+
+test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', () => withBoard('oldslow', async (port) => {
+  // Health 404s after 5 s, the page never answers, the probe's budget is 6 s. The page gets what is left
+  // (about 1 s), so the probe ends near 6 s and says busy; with a fresh 6 s for the page it took ~11 s.
+  const t0 = Date.now();
+  const out = await bash(`source "${CLI}"; _health_probe 6; echo "state=$HEALTH_STATE"`, baseEnv(port));
+  const ms = Date.now() - t0;
+  assert.match(out.stdout, /state=busy/, out.stdout + out.stderr);
+  assert.ok(ms >= 5000, `the slow 404 must actually have been waited for (took ${ms} ms)`);
+  assert.ok(ms < 8500, `one probe must not take its budget twice (took ${ms} ms, budget 6 s)`);
+}, 5000));
 
 test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {
   const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42', KOSMOS_BUSY_WAIT: '30' }));

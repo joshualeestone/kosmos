@@ -286,10 +286,10 @@ die() { printf '  %s\n' "$*" >&2; exit 1; }
 HEALTH_STATE=down
 _HEALTH_OWNER=""
 _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
-  local _out _rc _code _body
+  local _out _rc _code _body _took _left_s
   # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
   # would end the script whenever a caller is outside an if/&&/|| (errexit is only off inside those).
-  _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
+  _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
   case "$_rc" in
     0) ;;
     7) HEALTH_STATE=down; return ;;                 # refused: nothing is listening
@@ -297,11 +297,16 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
     *) HEALTH_STATE=stranger; return ;;             # an answer that is not HTTP: not our board
   esac
   _code="${_out##*$'\n'}"; _body="${_out%$'\n'*}"
+  _took="${_body##*$'\n'}"; _body="${_body%$'\n'*}"
   case "$_code:$_body" in
     200:*'"app":"kosmos"'*) HEALTH_STATE=up; return ;;
   esac
   # Not our health answer: an older board (no route), or a stranger. The page decides, as before.
-  _body="$(/usr/bin/curl -fsS -m "$1" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
+  # The page gets what is LEFT of this probe's budget, not a second one, so one probe never takes twice
+  # its time (the start loops count on it). At least half a second, so a slow first answer still
+  # leaves the page a real chance rather than a timeout that reads as busy.
+  _left_s="$(/usr/bin/awk -v m="$1" -v t="${_took:-0}" 'BEGIN { r = m - t; if (r < 0.5) r = 0.5; printf "%.2f", r }')"
+  _body="$(/usr/bin/curl -fsS -m "$_left_s" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
   case "$_rc" in
     0) case "$_body" in
          *"Agent Workforce"*|*Kosmos*) HEALTH_STATE=up ;;
@@ -898,13 +903,17 @@ cmd_start() {
   # any CALLER might: the server needs no terminal and no caller's plumbing,
   # so it gets neither, whoever launched it.
   # #4466: env -u, so a board started from an agent's pane does not carry that agent's markers into
-  # every `kosmos` it runs later (its own Restart button would then read as an agent).
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  # every `kosmos` it runs later (its own Restart button would then read as an agent). And not the
+  # reclaim flag either: it is meant for this one start (setup.sh, the watchdog), and a board that
+  # carried it would hand every later `kosmos start` it runs leave to kill a busy board.
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
   # crashes half a second in still had a pid. Thirty half-second tries is
-  # fifteen seconds, which covers a slow first boot with headroom; the log is
-  # named on failure because it is the only witness.
+  # fifteen seconds against a board that refuses the connection; one that takes
+  # it and does not answer costs up to a 2 s probe per try on top (#4466), so up
+  # to 75 s before the verdict. The log is named on failure because it is the
+  # only witness.
   local i
   for i in $(seq 1 30); do
     healthy --once && { say "Kosmos is running at $URL"; return 0; }

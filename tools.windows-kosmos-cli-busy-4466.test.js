@@ -29,7 +29,14 @@ function harness(throws) {
 test('#4466 Windows: a board that times out is BUSY, with no hint that it is off or needs a restart', async () => {
   const h = harness(Object.assign(new Error('aborted'), { name: 'TimeoutError' }));
   assert.equal(await cli.main(['room', 'proj'], h.io), 1);
-  assert.match(h.err(), /^Kosmos is running but too busy to answer, so we could not read that room\. If that was a change, it may still have happened: check before doing it again\. It does not need a restart\.$/);
+  assert.match(h.err(), /^Kosmos is running but too busy to answer, so we could not read that room\. It does not need a restart\.$/);
+  assert.doesNotMatch(h.err(), /Is it running|kosmos start|restart it|try again|may still have happened/, 'a read changes nothing: no "it may have happened"');
+});
+
+test('#4466 Windows: a WRITE that times out says it may still have happened, and still no retry advice', async () => {
+  const h = harness(Object.assign(new Error('aborted'), { name: 'TimeoutError' }));
+  assert.equal(await cli.main(['report', 'working', 'on it'], h.io), 1);
+  assert.match(h.err(), /^Kosmos is running but too busy to answer, so we could not .+\. It may still have happened: check before doing it again\. It does not need a restart\.$/);
   assert.doesNotMatch(h.err(), /Is it running|kosmos start|restart it|try again/, 'no retry advice: after a timeout a write may already have landed');
 });
 

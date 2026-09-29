@@ -285,6 +285,9 @@ function kosmosRestart(cli) {
   delete env.KOSMOS_AGENT_SESSION;
   delete env.KOSMOS_AGENT_TOKEN;
   delete env.TMUX_PANE;
+  /* The reclaim flag is for the one start that set it (setup.sh, the watchdog); a board that inherited
+     it must not pass it on to its own restart. */
+  delete env.KOSMOS_RECLAIM_BUSY;
   let child;
   try {
     child = spawner(cli, ['restart', '--force'], { detached: true, stdio: 'ignore', env });
