@@ -157,3 +157,16 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   last left (the ceiling has its own line).
 - (N, taken) `local over` is declared with the other locals; the time-zone arm explains why the writer is in Tokyo.
 - (N, left) ts (queue position) uses the real clock, not the wait seam: it is a position, never a duration.
+
+## Review iteration 11 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) an empty start time from ps compared equal to an empty line 4 (an older 3-line marker), so the marker read as
+  LIVE: the unsafe side, where main read it as stale. An empty start time is now stale before any comparison (a test
+  stubs both helpers to print nothing; removing the check reds it).
+- (W) the reviewer saw one failure in eight runs of the file and lost its output. Likely cause: the stand-in readiness
+  loop gave up silently after 1 s and wrote a marker known to be stale, shifting the exact call counts. It now waits up
+  to 3 s and FAILS BY NAME ("FIXTURE: stand-in waiter never showed as sleep") if the stand-in never execs. Not proven to
+  be that failure: three consecutive clean runs after the change, and the next flake will name itself.
+- (N, taken) run-tests.sh names the 3-hour ceiling; an arm pins the default ceiling at four bounds (x5 reds it); the
+  time-zone arm's writer also uses fr_FR, so the locale half of the pin is guarded (dropping LC_ALL=C reds it); the
+  refusal's comment says it walks every marker.
