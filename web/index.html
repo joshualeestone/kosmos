@@ -6427,6 +6427,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
+  /* #4409: at its natural width, and it wraps only when pjRxnFitWidth caps it at a thread narrower
+     than the bar (without max-content an absolute bar would shrink to its short bubble and wrap there). */
+  #pj-room .rxn-quick, #d-dmthread .rxn-quick { width: max-content; flex-wrap: wrap; }
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
      buttons in it keep a tap flash of their own. */
   /* touch-action: no double-tap zoom, since open then close is two quick taps. */
@@ -53714,6 +53717,20 @@ function pjRxnResetRow(messageRow) {
   messageRow.classList.remove('rxn-show', 'rxn-below');
   const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
+/* #4409: keep the bar inside the thread across its width too. Read aloud made an agent's bar one
+   button wider, and at 375px its last button (Reply) ran past the thread's right edge, where no tap
+   reaches it (main had fit by about a pixel). Cap it at the thread's width (the touch CSS lets it wrap
+   onto a second line only when the thread is narrower than the bar), then slide it back inside.
+   Placed before the vertical checks, so they measure the bar's final shape. */
+function pjRxnFitWidth(quickBar, room) {
+  const R = room.getBoundingClientRect();
+  quickBar.style.maxWidth = Math.floor(R.width) + 'px';
+  const B = quickBar.getBoundingClientRect();
+  let shift = B.right > R.right ? R.right - B.right : 0;
+  if (B.left + shift < R.left) shift = R.left - B.left;
+  if (Math.abs(shift) < 0.5) return;
+  quickBar.style.left = Math.round(quickBar.offsetLeft + shift) + 'px'; quickBar.style.right = 'auto';
+}
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row, fromTap) {
@@ -53721,6 +53738,7 @@ function pjRxnPlace(row, fromTap) {
   const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
   if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   quickBar.removeAttribute('style');
+  pjRxnFitWidth(quickBar, room);
   const band = pjRxnVisibleBand(room);
   const rowRect = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
@@ -53856,12 +53874,13 @@ for (const id of rxnHosts()) document.getElementById(id).addEventListener('focus
   if (!quickBar || !(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
   row.classList.remove('rxn-below');
+  pjRxnFitWidth(quickBar, event.currentTarget);   // #4409: inside the thread across its width, as a tapped bar is
   if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
 });
 for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusout', (event) => {
   const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || quickBar.contains(event.relatedTarget)) return;
-  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) { row.classList.remove('rxn-below'); quickBar.removeAttribute('style'); }
 });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
