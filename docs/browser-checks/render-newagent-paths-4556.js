@@ -15,7 +15,11 @@
  *   K3 Back returns to the three-way choice;
  *   K4 Swarm: no Project Manager and no import; step 2 shows the Swarm card alone and the swarm settings;
  *   K5 Team with no catalogue: says coming soon, the dropdown is off, and Upload an org chart opens its panel;
- *   K6 Team with a catalogue: the teams are listed, and Create hands the chosen key to openTeamCreate.
+ *   K6 Team with a catalogue: the teams are listed, and Create hands the chosen key to openTeamCreate;
+ *   K7 focus: a path's heading takes the keyboard, and Back returns it to the card the person came from;
+ *   K8 the race: openCreate's roles load answers AFTER the Swarm path's, and the Swarm screen still opens on the
+ *      role menu with no Project Manager picked (ROLES_GEN);
+ *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-newagent-paths-4556.js
  */
@@ -40,6 +44,8 @@ let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
 
 let SEEDED = null;   // null: 404, as before #4555
+let ROLES_DELAY_ONCE = 0;   // K8: hold the next /api/roles this many ms
+let NO_OWN = false;          // K9: serve no define-your-own role
 const ROLES = {
   roles: [
     { key: 'pm', label: 'Project Manager', blurb: 'Runs the work.', group: 'Running the work' },
@@ -51,7 +57,12 @@ const ROLES = {
 const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0];
-  if (u === '/api/roles') return json(res, ROLES);
+  if (u === '/api/roles') {
+    const body = NO_OWN ? { ...ROLES, own: null } : ROLES;
+    const wait = ROLES_DELAY_ONCE; ROLES_DELAY_ONCE = 0;
+    if (wait) { setTimeout(() => json(res, body), wait); return; }
+    return json(res, body);
+  }
   if (u === '/api/status') return json(res, { agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, swarms: true, checkedAt: new Date().toISOString() });
   if (u === '/api/first-run') return json(res, { done: true });
   if (u === '/api/teams/seeded') {
@@ -163,6 +174,42 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         JSON.stringify(k6.opts) === JSON.stringify(['', 'marketing', 'home']) && /A CMO and four reports\. 5 agents\./.test(k6.desc) && !k6.go, JSON.stringify(k6));
       await page.click('#team-seeded-go');
       ok(t + ' K6 Create hands the chosen team to openTeamCreate (#4557)', await page.evaluate(() => window.__opened === 'marketing'));
+
+      // K7: focus follows the step, and Back returns it to the card the person came from.
+      const focusId = () => page.evaluate(() => { const a = document.activeElement; return a ? (a.id || (a.dataset && a.dataset.path) || a.tagName) : ''; });
+      await page.evaluate(() => openCreate());
+      await page.click('#cstep-kind [data-path="single"]');
+      const f1 = await focusId();
+      await page.click('#create-path-back');
+      const f2 = await focusId();
+      await page.click('#cstep-kind [data-path="team"]');
+      const f3 = await focusId();
+      await page.click('#create-path-back');
+      const f4 = await focusId();
+      ok(t + ' K7 a path\'s heading takes the keyboard, and Back returns it to the card chosen',
+        f1 === 'cstep-role-title' && f2 === 'single' && f3 === 'cstep-team-title' && f4 === 'team', JSON.stringify([f1, f2, f3, f4]));
+
+      // K8: the race. openCreate's roles load ('pm') is held until after the Swarm path's ('list') has answered.
+      ROLES_DELAY_ONCE = 900;
+      await page.evaluate(() => { ROLES = null; openCreate(); });   // loadRoles caches; a fresh load is the race
+      await page.click('#cstep-kind [data-path="swarm"]');
+      await page.waitForTimeout(1300);
+      const k8 = await page.evaluate(() => ({ list: !!document.querySelector('input[name="rmode"][value="list"]:checked'),
+        pm: !!document.querySelector('input[name="rmode"][value="pm"]:checked'), menu: !document.getElementById('rolepick').hidden }));
+      ok(t + ' K8 a late first roles load does not pick the Project Manager on the Swarm path', k8.list && !k8.pm && k8.menu && ROLES_DELAY_ONCE === 0, JSON.stringify(k8));
+
+      // K9: no define-your-own role, so no org chart on the Team screen (and the control: it shows when there is one).
+      NO_OWN = true;
+      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(400);
+      const k9 = await page.evaluate(() => document.getElementById('team-orgchart-opt').hidden);
+      NO_OWN = false;
+      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(400);
+      const k9c = await page.evaluate(() => document.getElementById('team-orgchart-opt').hidden);
+      ok(t + ' K9 the org chart is offered only when the board serves a define-your-own role', k9 === true && k9c === false, JSON.stringify([k9, k9c]));
       await ctx.close();
     }
   }
@@ -174,6 +221,6 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-newagent-paths-4556: ' + pass + ' passed (New Agent opens on Single / Team / Swarm with line art, one row on desktop and stacked on a phone; each path\'s second screen offers only its own options; no Agent / Swarm selector on step 2, the Swarm card alone on the Swarm path; Team says coming soon without a catalogue and hands a chosen team to openTeamCreate; Back returns to the choice). problems: none');
+  console.log('render-newagent-paths-4556: ' + pass + ' passed (New Agent opens on Single / Team / Swarm with line art, one row on desktop and stacked on a phone; each path\'s second screen offers only its own options; no Agent / Swarm selector on step 2, the Swarm card alone on the Swarm path; Team says coming soon without a catalogue and hands a chosen team to openTeamCreate; Back returns to the choice and focus to the card; a late roles load cannot pick the Project Manager on the Swarm path; no org chart without a define-your-own role). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-newagent-paths-4556: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });
