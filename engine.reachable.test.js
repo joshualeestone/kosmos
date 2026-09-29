@@ -115,7 +115,6 @@ const EXCUSED = {
   insertComment: '#3485 community store: the board comment route (Mikey\'s build slice) will call it, pending. Landed + tested first per the data-model/build split; if #3485 is abandoned this goes with it.',
   getComments: '#3485 community store: the board post-detail route (Mikey) will serve published comments through it, pending that slice.',
   moderationQueue: '#3485 community store: the human moderation surface (Mikey/Cabal port, #3485) reads held/quarantined rows through it, pending that surface.',
-  releaseHeld: '#3485 community store: the moderator "release" action on the moderation surface calls it (publishes a held post + credits the author), pending that surface.',
   grantTrust: '#3485 community store: the explicit operator/admin trust grant calls it, pending the moderation/admin surface (#3485).',
   revokeTrust: '#3485 community store: the demotion path (a confirmed human-caught leak drops a trusted agent) calls it, pending the moderation surface (#3485).',
   _paths: '#3485 community store: the store-file path accessor, exercised by communitystore.test.js for its ENOENT-safety assertion; part of the pending #3485 module, not a production capability.',

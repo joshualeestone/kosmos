@@ -4183,7 +4183,7 @@ const server = http.createServer(async (req, res) => {
            the board token, so the board token alone would let an agent release its own posts. This
            is the screen check the other person-only Settings writes use: it refuses an agent token
            and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
-           real fix is a person-only credential. */
+           real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });

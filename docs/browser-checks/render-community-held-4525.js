@@ -252,12 +252,12 @@ async function run() {
     check('FAIL: the board\'s message shows in the row and the buttons are usable again', f.msg === 'only a held post can be released' && JSON.stringify(f.disabled) === '[false,false]', JSON.stringify(f));
     await p3.close();
 
-    // FULL: a full page (the route's ceiling) says more are waiting, rather than implying this is all.
+    // FULL: a full page (the route's ceiling) says there may be more, rather than implying this is all.
     const pf = await page();
     await pf.route(MOD, answer({ queue: Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i })) }));
     await openAutomation(pf);
     const fl = await readList(pf);
-    check('FULL: 200 rows say they are the oldest and more are waiting', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200\. More are waiting/.test(fl.empty), fl.empty);
+    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200\. There may be more/.test(fl.empty), fl.empty);
     await pf.close();
 
     // EMPTY

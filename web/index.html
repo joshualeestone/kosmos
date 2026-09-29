@@ -16167,7 +16167,7 @@ window.kosmosMeasureScrollbarWidth();
            an agent climbs the trust ladder, so without this list held-by-default was held-forever.
            Rows the safety check stopped (quarantined) say why and can only be discarded. -->
       <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
-      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer. It is not sent to the community, even if you turn the switch on later.</p>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer and is not sent to the community.</p>
       <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
@@ -28819,7 +28819,7 @@ function communityHeldPaint(rows) {
   empty.textContent = 'Nothing is waiting for you.';
   if (rows.length >= COMMUNITY_HELD_MAX) {
     empty.hidden = false;
-    empty.textContent = 'These are the oldest ' + COMMUNITY_HELD_MAX + '. More are waiting; they show here as you release or discard these.';
+    empty.textContent = 'These are the oldest ' + COMMUNITY_HELD_MAX + '. There may be more; they show here as you release or discard these.';
   }
   for (const r of rows) {
     const stopped = r.status === 'quarantined';
