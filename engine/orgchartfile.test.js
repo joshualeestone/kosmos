@@ -444,3 +444,23 @@ test('#4559: common HR headers for the manager column are recognised (Supervisor
   const byId = o.tableToPeople([['Employee ID', 'Name', 'Title', 'Manager Employee ID'], ['E1', 'Avery Quill', 'Chief Executive', ''], ['E2', 'Bo Linden', 'Head of Sales', 'E1']]);
   assert.equal(byId.rows[1].reportsTo, 0, JSON.stringify(byId));
 });
+
+test('#4559: a row on a loop that also shares its name keeps both notes', () => {
+  // Managers by id, so the loop E1 <-> E2 resolves even though two rows are called Bo Linden.
+  const r = o.tableToPeople([['Employee ID', 'Name', 'Title', 'Manager ID'], ['E1', 'Avery Quill', 'Chief Executive', 'E2'], ['E2', 'Bo Linden', 'Head of Sales', 'E1'], ['E3', 'Bo Linden', 'Head of Product', '']]);
+  assert.equal(r.rows[1].reportsTo, 0, 'CONTROL: the loop resolved');
+  assert.match(r.rows[1].why || '', /also called Bo Linden.*reporting loop/, r.rows[1].why);
+});
+
+test('#4559: the heaviest workbook under the caps is read on the board thread in bounded time', () => {
+  // Every part just under MAX_PART_BYTES, all read: this is the longest a CSV/XLSX read can hold the event loop.
+  const pad = (head, tail) => Buffer.concat([Buffer.from(head), Buffer.alloc(o.MAX_PART_BYTES - head.length - tail.length - 16, 0x20), Buffer.from(tail)]);
+  const sheet = pad('<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Title</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Avery Quill</t></is></c><c r="B2" t="inlineStr"><is><t>Chief Executive</t></is></c></row>', '</sheetData></worksheet>');
+  const sst = pad('<sst>', '</sst>');
+  const buf = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/sharedStrings.xml', sst], ['xl/worksheets/sheet1.xml', sheet]]);
+  const t = process.hrtime.bigint();
+  const r = o.readLocal('heavy.xlsx', buf);
+  const ms = Number(process.hrtime.bigint() - t) / 1e6;
+  assert.equal(r.rows.length, 1, JSON.stringify(r).slice(0, 300));
+  assert.ok(ms < 1500, `the read held the board's thread for ${Math.round(ms)}ms`);
+});
