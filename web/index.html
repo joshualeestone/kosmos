@@ -10050,6 +10050,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    below (#plus-flow); the wizard's dark field keeps typed text light on dark, which is what #3596
    fixed (white-on-white), just the other way up. */
 #s-sec-plus:has(> #plus-state2:not([hidden])) { min-height: var(--plus-avail, auto); justify-content: center; }
+/* Josh, 2026-09-29 ("center that login vertically between the pill buttons"): with the nav BESIDE the section,
+   the card is centred against the pill column, not against the room down to the window's foot (on a tall window
+   that hung it below the last pill). The section's wrapper stretches to the grid row, whose height is the taller
+   of the pill column and the card, and the section fills it, so the card's middle meets the column's middle.
+   A card taller than the column makes the row the card's height: it starts at the column's top and the page
+   scrolls as before, never clipped. The star field keeps its old reach (the section's top to the window's foot,
+   --plus-avail) so the backdrop does not shrink to the band. Below 56rem the nav stacks above and the rule above holds. */
+@media (min-width: 56.01rem) {
+  #panel-settings .dsecs:has(> #s-sec-plus > #plus-state2:not([hidden])) { align-self: stretch; display: flex; flex-direction: column; }
+  #s-sec-plus:has(> #plus-state2:not([hidden])) { min-height: 0; flex: 1 0 auto; }
+  #s-sec-plus:has(> #plus-state2:not([hidden])) > #plus-stars { height: max(100%, var(--plus-avail, 0px)); }
+}
 body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3829 addendum: the requests above the connected panel, at the panel's width. */
 #s-sec-plus .plus-asks { max-width: 620px; }
@@ -42615,7 +42627,9 @@ function plusSiShow(step) {
    every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
    this measures the room from the section's top to the bottom of the window into --plus-avail,
    and the CSS applies it (as a min-height, centred) ONLY while state 2 is on screen (:has), so
-   whichever code hides the wizard, the centring goes with it. */
+   whichever code hides the wizard, the centring goes with it. Since 2026-09-29 (Josh) that
+   applies with the nav stacked above (narrow); with the nav beside it the card centres on the
+   pill column in CSS alone, and this value only keeps the star field's reach. */
 function plusSiMeasure() {
   const sec = document.getElementById('s-sec-plus');
   if (!sec || sec.hidden) return;
