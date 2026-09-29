@@ -177,36 +177,39 @@ test('a deleted webhook stops verifying even when the store file\'s stat does no
   } finally { fs.statSync = realStat; }
 });
 
-test('#4419: the internet link is given only when Kosmos Plus is up and the running connector admits webhooks', async () => {
+test('#4419: the internet link is given only when Kosmos Plus is up and the running connector admits webhooks; otherwise one true reason', async () => {
   const remote = require('./engine/remote');
-  const real = remote.status;
-  const make = async (st) => { remote.status = () => st; try { return (await api(P(), { method: 'POST', body: {} })).json; } finally { remote.status = real; } };
+  const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled };
+  const UP = { state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: true };
+  const make = async (st, { on = true, signedIn = true } = {}) => {
+    remote.status = () => st; remote.read = () => ({ on, ok: true }); remote.enrolled = () => signedIn;
+    try { return (await api(P(), { method: 'POST', body: {} })).json; } finally { Object.assign(remote, real); }
+  };
   try {
-    const on = await make({ state: 'up', address: 'Hers.kosmosplus.com', because: null, admitsHooks: true });
+    const on = await make({ ...UP, address: 'Hers.kosmosplus.com' });
     const tail = on.url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
     assert.equal(on.publicUrl, 'https://hers.kosmosplus.com' + tail, 'the same id and secret, on this computer\'s public name');
     assert.equal(on.publicWhy, null);
-    const old = await make({ state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: false });
-    assert.equal(old.publicUrl, null, 'an older connector refuses /hooks/, so no link it would refuse');
-    assert.match(old.publicWhy, /next Kosmos Plus update/);
-    const off = await make({ state: 'off', address: null, because: 'the switch is off' });
-    assert.equal(off.publicUrl, null);
-    assert.match(off.publicWhy, /With Kosmos Plus on/);
-    const odd = await make({ state: 'up', address: 'hers.kosmosplus.com/evil?', because: null, admitsHooks: true });
-    assert.equal(odd.publicUrl, null, 'an address that is not a plain host name is never put in a link');
-    assert.match(odd.publicWhy, /could not read this computer's internet address/, 'a bad address is not promised an update');
-    const ip = await make({ state: 'up', address: '1.2.3.4', because: null, admitsHooks: true });
-    assert.equal(ip.publicUrl, null, 'an IP literal is not a Kosmos Plus name');
-    const absent = await make({ state: 'up', address: 'hers.kosmosplus.com', because: null });
-    assert.equal(absent.publicUrl, null, 'no admitsHooks at all reads as no');
-    for (const state of ['connecting', 'restarting']) {
-      const r = await make({ state, address: null, because: 'x' });
-      assert.equal(r.publicUrl, null);
-      assert.match(r.publicWhy, /still connecting/, state + ' is not told to turn Kosmos Plus on');
+    const cases = [
+      ['the switch is off', await make({ state: 'off', address: null, because: 'the switch is off' }, { on: false }), /With Kosmos Plus on/],
+      ['not signed in yet', await make({ state: 'connecting', address: null, because: 'waiting for the sign-in in Settings' }, { signedIn: false }), /Finish signing in to Kosmos Plus/],
+      ['connecting', await make({ state: 'connecting', address: null, because: 'x' }), /still connecting/],
+      ['restarting', await make({ state: 'restarting', address: null, because: 'x' }), /still connecting/],
+      ['on but not started', await make({ state: 'off', address: null, because: 'the board has not started the tunnel' }), /not connected right now/],
+      ['an older connector', await make({ ...UP, admitsHooks: false }), /does not take webhooks from the internet yet/],
+      ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet yet/],
+      ['an address with a path', await make({ ...UP, address: 'hers.kosmosplus.com/evil?' }), /could not read this computer's internet address/],
+      ['an IP literal', await make({ ...UP, address: '1.2.3.4' }), /could not read this computer's internet address/],
+    ];
+    for (const [label, r, why] of cases) {
+      assert.equal(r.publicUrl, null, label + ': no internet link');
+      assert.match(r.publicWhy, why, label + ': the reason matches the cause');
+      assert.doesNotMatch(r.publicWhy, /update/i, label + ': no promise of an update nothing can check');
+      // CONTROL: the local link is there in every case.
+      assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/, label);
     }
-    // CONTROL: the local link is there in every case.
-    for (const r of [on, old, off, odd, ip, absent]) assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/);
-  } finally { remote.status = real; }
+    assert.ok(!cases.some(([, r]) => /With Kosmos Plus on/.test(r.publicWhy) && r !== cases[0][1]), 'only the switch being off is told to turn it on');
+  } finally { Object.assign(remote, real); }
 });
 
 test('bad input is refused with a sentence and adds nothing', async () => {

@@ -128,6 +128,11 @@ test('#4419: each Copy copies its own link and says which one it copied', async 
   await pjsHookCopy('pjs-hook-url');
   assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL', 'CONTROL: the local Copy still copies the local link');
   assert.equal(fields['pjs-hook-copied'].textContent, 'Copied the link for this computer.');
+  // With Kosmos Plus off there is only the one link, so it just says Copied.
+  delete fields['pjs-hook-public'];
+  await pjsHookCopy('pjs-hook-url');
+  assert.equal(wrote.pop(), 'http://127.0.0.1:1/hooks/x/LOCAL');
+  assert.equal(fields['pjs-hook-copied'].textContent, 'Copied.');
 });
 
 test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row shows the stored name', () => {

@@ -1,4 +1,4 @@
-// Browser-check-surface: pjs-hooks pjs-hook-add pjs-hooks-msg tsk-from tkcard-from
+// Browser-check-surface: pjs-hooks pjs-hook-add pjs-hooks-msg tsk-from tkcard-from pjs-hook-public
 'use strict';
 /**
  * A project's webhooks in its settings (#1307, Josh 2026-08-28), on a real board in a real browser.
@@ -13,6 +13,9 @@
  *  - Delete asks first (Keep it cancels), then the link stops working,
  *  - a webhook task says "From <name> (a webhook)" in the Tasks view, and a name carrying HTML is
  *    shown as text, never as markup,
+ *  - #4419: with Kosmos Plus off the reveal says the link works for programs on this computer and
+ *    shows no internet link; with the connector up and admitting webhooks (remote stubbed in this
+ *    process) it shows both links, each labelled, each with its own Copy and accessible name,
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -95,6 +98,11 @@ function chk(ok, label, extra) {
         chk(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/.test(made.url), '[make] its full link is shown', made.url);
         chk(made.copy && made.once && made.json, '[make] with a Copy button, "shows it only once", and the JSON hint', JSON.stringify(made));
         chk(made.focused === 'pjs-hook-url', '[make] focus lands on the link, ready to copy', String(made.focused));
+        const offWhy = await page.evaluate(() => ({
+          net: !!document.getElementById('pjs-hook-public'),
+          said: /works for programs on this computer/.test(document.querySelector('.pjs-hook-reveal').textContent),
+        }));
+        chk(!offWhy.net && offWhy.said, '[#4419 off] no internet link, and the reveal says why', JSON.stringify(offWhy));
         if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'webhooks-made-light.png'), fullPage: false }); }
 
         // The link works: a program POSTing JSON to it adds a task.
@@ -193,9 +201,38 @@ function chk(ok, label, extra) {
         });
         chk(esc2.status === 201 && esc2.all.includes('From <i id="inj2">Zap</i> (a webhook)') && !esc2.injected, '[project] on a task card too, a webhook name with HTML in it is shown as text', JSON.stringify(esc2));
       } else {
-        // The other passes: a made webhook as the person sees it.
-        await page.click('#pjs-hook-add');
-        await page.waitForSelector('#pjs-hook-url', { timeout: 8000 });
+        // The other passes: a made webhook as the person sees it, with Kosmos Plus up and a connector
+        // that admits webhooks (#4419), so both links show. remote is stubbed in THIS process, which
+        // is the board the page talks to; restored right after the make.
+        const remote = require('../../engine/remote');
+        const real = { status: remote.status, read: remote.read, enrolled: remote.enrolled };
+        remote.status = () => ({ state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: true });
+        remote.read = () => ({ on: true, ok: true });
+        remote.enrolled = () => true;
+        try {
+          await page.click('#pjs-hook-add');
+          await page.waitForSelector('#pjs-hook-public', { timeout: 8000 });
+        } finally { Object.assign(remote, real); }
+        const both = await page.evaluate(() => {
+          const net = document.getElementById('pjs-hook-public');
+          const loc = document.getElementById('pjs-hook-url');
+          const copyNet = document.querySelector('[data-hook-copy="pjs-hook-public"]');
+          const copyLoc = document.querySelector('[data-hook-copy="pjs-hook-url"]');
+          const box = document.querySelector('.pjs-hook-reveal').textContent;
+          const tail = (u) => u.replace(/^[a-z]+:\/\/[^/]+/, '');
+          return {
+            net: net && net.value, same: !!(net && loc && tail(net.value) === tail(loc.value)),
+            names: [copyNet && copyNet.getAttribute('aria-label'), copyLoc && copyLoc.getAttribute('aria-label')],
+            labels: /On this computer:/.test(box) && /From the internet/.test(box),
+            fits: net ? net.getBoundingClientRect().right <= window.innerWidth : false,
+          };
+        });
+        chk(/^https:\/\/hers\.kosmosplus\.com\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/.test(both.net || '') && both.same,
+          `${tag} [#4419 up] the internet link shows, with the same id and secret as the local one`, JSON.stringify(both));
+        chk(both.names[0] === 'Copy the internet link' && both.names[1] === 'Copy the link for this computer',
+          `${tag} [#4419 up] each Copy has its own name`, JSON.stringify(both.names));
+        chk(both.labels, `${tag} [#4419 up] both links are labelled`);
+        chk(both.fits, `${tag} [#4419 up] the internet link field fits the width`);
         if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `webhooks-made-${theme}-${width}.png`), fullPage: false }); }
       }
       const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

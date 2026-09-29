@@ -17,12 +17,15 @@
   running connector, not an installed one.
 
 ## Server
-- `hookPublicLink(id, secret)` in server.js beside the webhook rate code: public link only when
-  `status().state === 'up'`, `admitsHooks === true`, and the address is a dotted host name whose
-  last label is letters (HOOK_HOST_RE: no IP literal, no path); lowercased. Otherwise `publicWhy`,
-  one sentence per cause: Kosmos Plus off; still connecting or restarting (make a new one once
-  connected); an older connector (the next update); an address we could not read (no promise).
-  The make route returns `{ webhook, url, publicUrl, publicWhy }`.
+- `hookPublicLink(id, secret)` in server.js, above the webhook rate-limit notes: public link only
+  when Kosmos Plus is on, signed in, `status().state === 'up'`, `admitsHooks === true`, and the
+  address is a dotted host name whose last label is letters (HOOK_HOST_RE: no IP literal, no path);
+  lowercased. Otherwise `publicWhy`, one true sentence per cause, keyed on the setting and the
+  sign-in, not on the tunnel's state alone: the switch off (turn it on); on but not signed in
+  (finish signing in); connecting or restarting (make a new one once connected); on but not
+  running for any other reason (not connected right now); an older connector (does not take
+  webhooks from the internet yet: no promise of an update, which nothing here can check); an
+  address we could not read. The make route returns `{ webhook, url, publicUrl, publicWhy }`.
 - Page: when both links show, each has a label ("On this computer", "From the internet"), its own
   Copy with its own accessible name, and the copied line says which link was copied.
 
@@ -35,11 +38,14 @@
 - engine/remote.test.js: the fake connector writes admits_hooks true / absent / "true"; only true reads true.
 - server.webhooks-1307.test.js: up+admits gives the https link with the same id and secret; an old
   connector, Kosmos+ off, and a non-host address give none and say why; the local link is there in every case.
-- web.webhooks-1307.test.js: the revealed row shows the internet link (escaped) with its own Copy, else the reason.
+- web.webhooks-1307.test.js: the revealed row shows the internet link (escaped) with its own Copy, else the reason;
+  each Copy copies its own link and says which (and just "Copied." when there is one link).
+- docs/browser-checks/render-webhooks-1307.js: off shows the reason and no internet link; up (remote stubbed in
+  the check's own process) shows both links, labelled, with their own Copy names, fitting at 390 wide.
 
 ## Weakest premise
 That relay#195 ships the field exactly as agreed (`admits_hooks`, boolean). If it lands under another
 name, this shows no public link anywhere (the safe direction) until the one line in remote.js changes.
 
 ## Merge order
-Stacked on webhooks-1307. PR after #1307 (PR #4453) merges; rebase onto main then.
+#1307 merged (PR #4453, 0e88cfd); this branch is its own two commits on main.
