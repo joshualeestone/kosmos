@@ -17602,11 +17602,16 @@ function kplusBar() {
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
-  /* #4506: the header's BORDER box. When the scrollbar gutter comes or goes (the boot cover drops it while it is up,
-     Talk drops it), the header's padding moves with it by design (#3497), so its CONTENT box stays the same size
-     and a content-box observer never fires: the bar kept the margins it was fitted with under the cover and hung
-     15px past the page once the gutter came back (CI, render-plus-bar-3837 P2, on a real 15px scrollbar). */
-  if (typeof ResizeObserver === 'function') new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
+  /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
+     cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
+     scrollbar gutter comes or goes (the boot cover and Talk drop it), the padding moves with it by design (#3497):
+     the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
+     kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
+     changes and the border box does not. render-plus-bar-3837 P8 drives both. */
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
+    new ResizeObserver(kplusBarFit).observe(head);
+  }
   const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
   out.addEventListener('click', async () => {
     out.disabled = true; msg.textContent = '';
@@ -64421,7 +64426,13 @@ document.addEventListener('focusin', (e) => {
    timeout fallback at the boot call both call it, and calling it twice is a no-op. */
 function revealBoot() {
   const c = document.getElementById('boot-cover');
-  if (c) c.hidden = true;
+  if (!c || c.hidden) return;
+  c.hidden = true;
+  /* #4506: the cover drops the scrollbar gutter while it is up, so lifting it gives the page 15px back on a
+     classic-scrollbar machine, and no window resize says so. The org chart fits itself to its width and repaints on
+     resize only, so a chart first painted under the cover would stay fitted to the wider box until the next poll.
+     orgResizeRepaint repaints only when the width really changed, so this costs nothing otherwise. */
+  if (typeof orgResizeRepaint === 'function') orgResizeRepaint();
 }
 
 /* ---- #3574 (Josh, 2026-09-24, for 0.6.93): first-run help and first-visit tips ----

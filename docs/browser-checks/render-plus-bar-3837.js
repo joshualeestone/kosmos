@@ -156,7 +156,10 @@ const bar = (page) => page.evaluate(() => {
     // size, and a content-box observer left the bar with the margins it was fitted with under the cover: 15px past the
     // page once the gutter returned (CI P2 on a real scrollbar). Its own browser, so the arms above run exactly as CI
     // runs them: a real, space-taking 15px scrollbar here (--hide-scrollbars dropped, a ::-webkit-scrollbar width, a
-    // page tall enough to scroll), the way render-dialog-gutter-4506 gets one.
+    // page tall enough to scroll), the way render-dialog-gutter-4506 gets one. kosmosMeasureScrollbarWidth reads 0 here
+    // (it measures with overflow hidden, where a custom scrollbar takes no width), so the header's padding runs the
+    // #3497 formula with --scrollbar-width 0: 9 -> 24 -> 9px, where a real Mac goes 24 -> 39 -> 24. The 15px swing is
+    // the same, and against the old content-box observer the last arm reads right -15, CI's number.
     const b8 = await chromium.launch({ headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'], ignoreDefaultArgs: ['--hide-scrollbars'] });
     try {
       const p8 = await b8.newPage({ viewport: { width: 1280, height: 800 } });
@@ -187,6 +190,15 @@ const bar = (page) => page.evaluate(() => {
       await p8.waitForTimeout(300);
       const after = await fit();
       chk(after.gutter === 15 && after.right === 0 && after.left === 0, 'P8 once the cover lifts and the gutter is back, the bar re-fits: edge to edge of the page, not 15px past it', JSON.stringify(after));
+      // The other way the header's padding moves: kosmosMeasureScrollbarWidth sets --scrollbar-width (on a press, a
+      // focus, a return to the tab) and the padding follows while the header's border box stays put. Against a
+      // border-box-only observer this arm reads right -30 until the next window resize.
+      await p8.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '30px'));
+      await p8.waitForTimeout(300);
+      const padOnly = await p8.evaluate(() => { const h = document.querySelector('.apphead'), root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
+        return { pad: parseFloat(getComputedStyle(h).paddingRight), headW: Math.round(h.getBoundingClientRect().width), right: Math.round(root.right - b.right) }; });
+      chk(padOnly.pad >= 30 && padOnly.right === 0, 'P8 when only the header\'s padding changes (a new scrollbar measurement, same width), the bar re-fits too', JSON.stringify(padOnly));
+      await p8.evaluate(() => document.documentElement.style.removeProperty('--scrollbar-width'));
     } finally { await b8.close(); }
   } finally {
     await browser.close();
