@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: newrole-4474
-diff_hash: 77fc02bdb4ef41361ed69d9983141f85bf18dc8a8cde27c34c027e72989ae009
+diff_hash: 1a39c181c9aa490764828bcaa22b682686118e40d26041984285ae45d54bc6ff
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T05:19:55Z
+timestamp: 2026-09-29T06:50:52Z
 iterations: 13
 converged: true
 ---
@@ -16,6 +16,7 @@ converged: true
 **Converged:** Yes (iteration 13: no BLOCKER, WARNING or CONVENTION; NITs only)
 **Design changes during the loop:** iteration 7 took the setup guide out (only the Project Manager writes roles; the server refuses a role the guide writes), which removed the guide-refresh swap (iteration 3) and the label/text masking (iteration 6). Iteration 9 added `role-draft --to` (a shell redirect re-encodes the file on Windows).
 **Deferred:** 0. **Asked:** 0.
+**Rebased onto main after convergence** (PR #4492 conflicted with #4479's merge): one conflict, both branches adding an export at the same line of engine/create.js (spokenName from #4479, roleKeyOf here), resolved by keeping both. No code of this branch changed. Re-validated on the rebased tree (11686 tests, 0 fail) and re-hashed.
 
 ### Per-Iteration Breakdown
 
