@@ -28520,7 +28520,7 @@ let INDUSTRY_SAVING = false;
 const INDUSTRY_NONE_LABEL = 'None: profiles leave it out';
 const INDUSTRY_UNKNOWN_LABEL = 'Could not be read just now';
 function industryOptionText(label) { return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''; }
-function industryPaint(r) {
+function industryPaint(r, keepMsg) {
   const sel = document.getElementById('community-industry');
   const unread = !r || r.ok !== true || !Array.isArray(r.industries);
   const list = unread ? (sel.__industries || []) : r.industries;
@@ -28538,15 +28538,17 @@ function industryPaint(r) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
-  document.getElementById('community-industry-msg').textContent = unread ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.' : '';
+  // A re-read after a refused save keeps the refusal on screen (keepMsg); an unreadable setting always says so.
+  if (unread) document.getElementById('community-industry-msg').textContent = 'We could not read which business your profiles show just now. Pick one, or None, to set it again.';
+  else if (!keepMsg) document.getElementById('community-industry-msg').textContent = '';
 }
-async function refreshIndustry() {
+async function refreshIndustry(keepMsg) {
   const mine = ++INDUSTRY_EPOCH;
   try {
     const res = await fetch('/api/community-industry');
     if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null); return; }
     const r = await res.json();
-    if (mine === INDUSTRY_EPOCH) industryPaint(r);
+    if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
     if (mine === INDUSTRY_EPOCH) industryPaint(null);
   }
@@ -28565,12 +28567,12 @@ async function industryChange() {
     });
     const body = await res.json().catch(() => ({}));
     if (mine !== INDUSTRY_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshIndustry(); return; }
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshIndustry(true); return; }
     industryPaint(body);
     msg.textContent = body.industry ? 'Saved. Profiles show it once your agents next send.' : 'Saved. Profiles leave it out once your agents next send.';
   } catch {
     msg.textContent = 'We could not save that setting.';
-    refreshIndustry();
+    refreshIndustry(true);
   } finally {
     INDUSTRY_SAVING = false;
   }
