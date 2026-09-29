@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: voice-4409
-diff_hash: 4147e7e900ecb805f2b64b439695217255c36b097f0e221017ec8686133315bc
+diff_hash: dd33f7c913ce8f213844a2b5506998efb5584124f9279bbc4c1d4af78432b23d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T11:43:24Z
+timestamp: 2026-09-29T12:50:10Z
 iterations: 10
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 34 (1 BLOCKER, 8 WARNINGs incl. the surface-gate defect, 0 CONVENTIONs, 18 NITs, plus 6 behaviours ACCEPTED as stated and 1 deferred)
 **Fixed:** 24 | **Deferred:** 1 | **Asked (awaiting user):** 0 | **Accepted as stated:** 9
 
-**Final gate:** validation PASSED on 2e178ef6b (validation log 2026-09-29T11:43:24Z, status clean, hash 4147e7e900ec). v2 (44ee3f1f9) was red on the surface gate only (render-phone-offline-718, trailer added); earlier: The v0 run after convergence was RED on one test, mine:
+**Final gate:** validation PASSED on d74f091a1 (validation log 2026-09-29T12:50:10Z, status clean, hash dd33f7c913ce), after merging origin/main (196 commits) so the PR could run CI: the two conflicting files (native-app/main.swift, tools/build-kosmos-bundle.sh) were resolved as main's file with this branch's patch re-applied, reviewed blind (no BLOCKER or WARNING), type-checked at the macOS floor, and the gate's new check (render-rename-4421) plus the bar and voice checks ran clean on the merge. Before that: validation passed on 2e178ef6b (log 2026-09-29T11:43:24Z). v2 (44ee3f1f9) was red on the surface gate only (render-phone-offline-718, trailer added); earlier: The v0 run after convergence was RED on one test, mine:
 fixture-discipline forbids a hand-built agent card and the voice harness set CURRENT to { sessionName }. Fixed in
 cc52c7bdf with real cards from test-support/fleet; the view-check mutation still reds 3 tests with real cards.
 
