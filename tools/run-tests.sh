@@ -198,9 +198,9 @@ BEFORE="$(seen_before)"
 # (release.sh sources the same lib UNguarded and under set -e, deliberately: there,
 # a lib it cannot load SHOULD abort the cut. Here the safe direction is to run.)
 . "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
-if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
-  kosmos_refuse_if_machine_claimed "this test run" || exit 1
-fi
+# #4498 (Kano's review, Liu Kang m3015): the claim is asked INSIDE _rt_box_clear below, on every poll, not once
+# here. Asked once, a suite already waiting when a cut claimed the box could start inside the cut. Now a claim is a
+# reason to wait, and the wait names the release; at the 20-minute bound the run refuses with that message.
 # #4410: nor beside a live install harness (tools/test-install.sh). It boots real boards on test
 # ports and checks that they let go of them; a suite started 3 minutes into one, both behind a
 # clear heavy-gate, reddened its port checks (Kano, 2026-09-28). Fail-open on the library load,
@@ -219,6 +219,7 @@ fi
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
+  kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" || return 1
   fi

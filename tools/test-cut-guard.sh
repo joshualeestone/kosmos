@@ -589,7 +589,9 @@ mv "$W/markers/suitewait.$wp" "$W/held"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && pass "#4498 CONTROL: the same process with no waiting marker is a running suite" \
   || fail "#4498 CONTROL: an unmarked suite did not refuse (rc=$rc, $out)"
-printf '100 %s\nnot its command\n' "$wp" > "$W/markers/suitewait.$wp"
+# The right start time with the wrong command, so ONLY the command check can call it stale (Kano's review: with no
+# start time the start-time check caught it first, and removing the command check left this green).
+printf '100 %s\nnot its command\n%s\n' "$wp" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker whose pid now runs another command is stale: counted as running and removed" \
   || fail "#4498 a recycled-pid waiting marker was trusted (rc=$rc, $out)"
@@ -692,6 +694,31 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
   || fail "#4498 a run-tests.sh fixture queued ($(printf '%s' "$out" | tail -2))"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"
+
+# A cut that claims the box while a suite waits holds it (Kano's review, Liu Kang m3015): the stand-in suite is live
+# on the first ask, and that ask also writes a foreign, live, unexpired claim; after it the suite is gone. A run that
+# asked the claim only once, before waiting, would now start inside the cut (COVERAGE MISMATCH); this one keeps
+# waiting, names the release, and refuses at its short bound.
+sleep 60 & holder=$!
+cat > "$T/sprobe-then-cut" <<SH
+#!/bin/sh
+n=\$(cat "$W/cutcalls" 2>/dev/null || echo 0); n=\$((n + 1)); echo "\$n" > "$W/cutcalls"
+if [ "\$n" -eq 1 ]; then
+  printf 'OTHER %s %s mortals release 0.9.99\\n' "$holder" "\$((\$(date +%s) + 600))" > "$W/markers/machine-claim"
+  printf '%s bash tools/run-tests.sh\\n' "$DEAD"; exit 0
+fi
+exit 1
+SH
+chmod +x "$T/sprobe-then-cut"; rm -f "$W/cutcalls" "$W/markers/machine-claim"
+out="$(cd "$RT" && env KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" \
+  KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all bash tools/run-tests.sh 2>&1)"; rc=$?
+# It began waiting on the suite (the first ask), then the claim held it to the bound. After the claim appears the claim
+# is asked first and refuses, so the suite probe is asked only once.
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "release 0.9.99" \
+  && has "$out" "gave up after waiting" && ! has "$out" "COVERAGE MISMATCH"; } \
+  && pass "#4498 a cut that claims the box while a suite waits holds the suite, and the wait names the release" \
+  || fail "#4498 a waiting suite started inside a cut (rc=$rc, asks=$(cat "$W/cutcalls" 2>/dev/null), $(printf '%s' "$out" | tail -2))"
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$W/markers/machine-claim" "$W/cutcalls"
 
 # The wiring, end to end: a real run-tests.sh beside a stand-in suite refuses at once under
 # KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole
