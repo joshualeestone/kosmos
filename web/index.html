@@ -46561,6 +46561,7 @@ function resetOrgchartPreview() {
   const consent = document.getElementById('orgchart-consent');
   if (consent) consent.hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   ORGCHART_FILE_PEOPLE = null;
   const note = document.getElementById('orgchart-file-note');
   if (note && note.dataset.idle) note.textContent = note.dataset.idle;
@@ -46767,13 +46768,13 @@ let ORGCHART_FILE_SEQ = 0;
 /* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
    the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
-async function orgchartSendFile(file, consent, seq) {
+async function orgchartSendFile(file, consent, seq, reader) {   // reader: the id the consent box named (#4560)
   const msg = document.getElementById('orgchart-msg');
   const note = document.getElementById('orgchart-file-note');
   const gen = ORGCHART_GEN;
   const current = () => gen === ORGCHART_GEN && seq === ORGCHART_FILE_SEQ;
   msg.hidden = false;
-  msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
+  msg.textContent = consent ? 'Reading your chart. This can take a minute.' : 'Reading ' + file.name + '…';
   let out = null;
   /* While a picture or PDF is being read, Stop reading ends it: the page drops the request, and the board stops
      the model call when the request closes (Liu Kang's condition 1: cancel holds after sending too). */
@@ -46781,7 +46782,7 @@ async function orgchartSendFile(file, consent, seq) {
   const ctl = consent ? new AbortController() : null;
   if (ctl) { ORGCHART_READ_CTL = ctl; stopBtn.hidden = false; }
   try {
-    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1&reader=' + encodeURIComponent(ORGCHART_FILE_READER || '') : ''), {
+    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1&reader=' + encodeURIComponent(reader || '') : ''), {
       signal: ctl ? ctl.signal : undefined,
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
@@ -46853,6 +46854,7 @@ function orgchartTakeFile(file) {
   }
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
 }
 document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
@@ -46865,9 +46867,11 @@ document.getElementById('orgchart-file').addEventListener('change', (e) => {
 document.getElementById('orgchart-consent-go').addEventListener('click', () => {
   if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) return;   // as orgchartTakeFile: a read must not paint over a create or an Undo
   const f = ORGCHART_FILE_PENDING;
+  const who = ORGCHART_FILE_READER;   // taken before it is cleared: the send carries the reader the box named
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
-  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ);
+  ORGCHART_FILE_READER = null;
+  if (f) orgchartSendFile(f, true, ++ORGCHART_FILE_SEQ, who);
 });
 document.getElementById('orgchart-many-go').addEventListener('click', () => {
   document.getElementById('orgchart-many').hidden = true;
@@ -46890,6 +46894,7 @@ document.getElementById('orgchart-many-no').addEventListener('click', () => {
 document.getElementById('orgchart-consent-no').addEventListener('click', () => {
   document.getElementById('orgchart-consent').hidden = true;
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const msg = document.getElementById('orgchart-msg');
   msg.textContent = 'Nothing was sent. You can upload a CSV or Excel export instead, or type the list.';
   msg.hidden = false;
@@ -46925,6 +46930,7 @@ document.getElementById('orgchart-preview').addEventListener('click', () => {
   ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
   document.getElementById('orgchart-consent').hidden = true;   // and a picture still asking to be read is moved past
   ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_READER = null;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,

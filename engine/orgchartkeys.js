@@ -34,11 +34,14 @@ function urlFrom(envName, fallback) {
   if (!v) return fallback;
   try {
     const u = new URL(v);
-    if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost'))) return v;
+    // An address, not the name `localhost`, which a hosts file can point elsewhere.
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === '[::1]'))) return v;
   } catch { /* not a URL */ }
   return fallback;
 }
-const TIMEOUT_MS = 120 * 1000;      // as the Claude read (orgchartfile MODEL_TIMEOUT_MS)
+/* Longer than the Claude read's 120 s: a reasoning model through a key can take minutes on a dense chart, and a read
+   cut off at the timeout may still be billed while Kosmos throws its answer away. */
+const TIMEOUT_MS = 300 * 1000;
 let timeoutMs = TIMEOUT_MS;
 /** Tests only: a shorter timeout; null restores the real one. */
 function setTimeoutMs(ms) { timeoutMs = Number.isFinite(ms) && ms > 0 ? ms : TIMEOUT_MS; }
@@ -202,20 +205,18 @@ let accountsFn = defaultAccounts;
 function setAccounts(fn) { accountsFn = typeof fn === 'function' ? fn : defaultAccounts; }
 
 /* The key reader this computer would use, or null. */
-function chooseReader() {
+/* The reader, and when there is none, why (a switched-off provider IS connected, Gemini alone say), from ONE look
+   at the accounts, so the refusal is about the same list the choice was. */
+function pick() {
   let list = [];
   try { list = accountsFn() || []; } catch { list = []; }
   const r = list.find((a) => a && PROVIDERS[a.provider] && enabled[a.provider]);
-  return r ? { provider: r.provider, dir: r.dir, account: r.account || null } : null;
-}
-
-/* When nobody can read it but a switched-off provider IS connected (Gemini alone, say): why, in plain words. */
-function offReason() {
-  let list = [];
-  try { list = accountsFn() || []; } catch { list = []; }
+  if (r) return { reader: { provider: r.provider, dir: r.dir, account: r.account || null }, offWhy: null };
   const off = list.find((a) => a && PROVIDERS[a.provider] && !enabled[a.provider] && OFF_WHY[a.provider]);
-  return off ? OFF_WHY[off.provider] : null;
+  return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null };
 }
+function chooseReader() { return pick().reader; }
+function offReason() { return pick().offWhy; }
 
 /* The consent line's words for a reader: the provider, and the account when it has a name. */
 function label(reader) {
@@ -232,11 +233,20 @@ let keyFor = defaultKeyFor;
 /** Tests only: replace the key lookup (reader -> key); null restores the real one. */
 function setKeyFor(fn) { keyFor = typeof fn === 'function' ? fn : defaultKeyFor; }
 
-/* A refusal as a sentence the person can act on. Built from the status and the provider's error code only. */
+/* The provider error codes a refusal may name. Anything else is left out of the sentence: a code is text from the
+   answer, and only a known one is shown (a proxy could put anything, a key included, in that field). */
+const KNOWN_CODES = new Set([
+  'invalid_api_key', 'unauthenticated', 'api_key_invalid', 'permission_denied', 'model_not_found', 'not_found',
+  'rate_limit_exceeded', 'insufficient_quota', 'resource_exhausted', 'invalid_image', 'invalid_image_format',
+  'invalid_base64_image', 'image_too_large', 'unsupported_image_media_type', 'image_parse_error', 'server_error',
+  'bad_gateway', 'unavailable', 'internal', 'deadline_exceeded', 'invalid_argument', 'invalid_request_error',
+]);
+/* A refusal as a sentence the person can act on. Built from the status and a KNOWN provider error code only. */
 function refusal(p, status, body) {
   const err = body && typeof body === 'object' ? (body.error || body) : {};
-  // The provider's own code (or Google's status); not the generic `type` (invalid_request_error), which reads as jargon.
-  const code = String((err && (err.code || err.status)) || '').toLowerCase().slice(0, 60);
+  // The provider's own code (or Google's status); not the generic `type`, which reads as jargon.
+  const raw = String((err && (err.code || err.status)) || '').toLowerCase().slice(0, 60);
+  const code = KNOWN_CODES.has(raw) ? raw : '';
   if (status === 401 || /invalid_api_key|unauthenticated|api_key_invalid/.test(code)) {
     return p.name + ' did not accept this key. Check it in Settings, AI Models, or use a CSV or Excel export.';
   }
@@ -246,7 +256,7 @@ function refusal(p, status, body) {
   }
   if (/image|unsupported|invalid_base64/.test(code)) return p.name + ' could not read this file. Try a PNG or JPG picture, or a CSV or Excel export.';
   if (status === 429) return p.name + ' is busy or this key has reached its limit. Try again in a minute, or use a CSV or Excel export.';
-  return p.name + ' could not read the chart (' + (status || 'no answer') + (code ? ', ' + code.replace(/[^a-z0-9_.-]/g, '') : '') + '). Try again, or use a CSV or Excel export.';
+  return p.name + ' could not read the chart (' + (status || 'no answer') + (code ? ', ' + code : '') + '). Try again, or use a CSV or Excel export.';
 }
 
 /**
@@ -274,7 +284,8 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   const key = keyFor(reader);
   if (!key) return { ok: false, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
   /* The person's Stop and the timeout hold until the WHOLE answer is read, not only its headers: a provider that
-     stalls mid-answer is cut off, and the one-read-at-a-time lock is not held past the timeout. */
+     stalls mid-answer is cut off, and the one-read-at-a-time lock is not held past the timeout. Dropping the request
+     is Kosmos no longer waiting; it cannot promise the provider stops work it has already started. */
   const ctl = new AbortController();
   const stop = () => ctl.abort();
   if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
@@ -334,4 +345,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

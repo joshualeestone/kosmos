@@ -593,12 +593,19 @@ let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
 function currentReader() {
+  lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
   if (readerOverride) return readerOverride();
   if (claudeHere()) return { kind: 'claude' };
-  let r = null;
-  try { r = require('./orgchartkeys').chooseReader(); } catch { r = null; }
-  return r ? { kind: 'key', ...r } : null;
+  let got = { reader: null, offWhy: null };
+  try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
+  // No reader: the reason (a switched-off provider) travels on a null-shaped answer the caller can read, from the
+  // same look at the accounts (see whyNoReader).
+  lastWhy = got.offWhy;
+  return got.reader ? { kind: 'key', ...got.reader } : null;
 }
+let lastWhy = null;
+/* Why the reader just worked out is null, from that same derivation (no second look), or null. */
+function whyNoReader() { return lastWhy; }
 const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
 /* The reader as an opaque id the page hands back with its consent (Claude, or a provider and a hash of the account
    folder, so no path reaches the page). A send whose reader no longer matches is refused: the person agreed to one
@@ -689,4 +696,4 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = {
-  readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

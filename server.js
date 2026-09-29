@@ -6527,7 +6527,7 @@ const server = http.createServer(async (req, res) => {
         const reader = orgchartfile.currentReader();
         if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
-          sendJson(res, 200, { unavailable: true, problems: [require('./engine/orgchartkeys').offReason() || orgchartfile.NO_MODEL] });
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.whyNoReader() || orgchartfile.NO_MODEL] });
           return;
         }
         // #4560: a kind of file the reader here cannot take (a PDF with Grok, say) is said before the consent.
@@ -6547,7 +6547,8 @@ const server = http.createServer(async (req, res) => {
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
-           (Claude's run, or the key provider's HTTP request), so it stops being paid for instead of running on. */
+           (Claude's run is killed; a key provider's HTTP request is dropped, so Kosmos stops waiting, though a provider
+           may finish work it had already started). */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read

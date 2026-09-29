@@ -205,7 +205,7 @@ test('#4560: refusals are plain sentences; the key never appears in anything ret
   assert.ok(results.length >= 25, 'CONTROL: the cases ran (' + results.length + ')');
 });
 
-test('#4560: a stopped read aborts the request (the plan stops being used)', { timeout: 10000 }, async () => {
+test('#4560: a stopped read drops the request (Kosmos stops waiting)', { timeout: 10000 }, async () => {
   only('openai');
   reply = () => ({ status: 200, body: ANSWER.openai(), delay: 3000 });
   const ctl = new AbortController();
@@ -349,4 +349,44 @@ test('#4560: a failed read leaves one key-free line in the board log, as the Cla
   assert.equal(lines.length, 1, JSON.stringify(lines));
   assert.match(lines[0], /^\[orgchart\] xAI Grok read failed: xAI Grok did not accept this key/);
   assert.ok(!lines[0].includes(KEY));
+});
+
+test('#4560: a refusal names only a KNOWN provider error code; anything else in that field is left out', async () => {
+  only('openai');
+  reply = () => ({ status: 400, body: { error: { code: 'sk-proxy-put-this-here-12345' } } });
+  const odd = await o.readWithModel('chart.png', PNG);
+  assert.equal(odd.problems[0], 'OpenAI could not read the chart (400). Try again, or use a CSV or Excel export.');
+  reply = () => ({ status: 400, body: { error: { code: 'invalid_image_format' } } });
+  const known = await o.readWithModel('chart.png', PNG);
+  assert.match(known.problems[0], /could not read this file/, 'CONTROL: a known image code still maps to its sentence');
+  reply = () => ({ status: 503, body: { error: { code: 'unavailable' } } });
+  const svc = await o.readWithModel('chart.png', PNG);
+  assert.equal(svc.problems[0], 'OpenAI could not read the chart (503, unavailable). Try again, or use a CSV or Excel export.');
+});
+
+test('#4560: plain http is trusted only to an address on this computer, not the name localhost', () => {
+  const name = 'AGENT_WORKFORCE_ORGCHART_TEST_URL2';
+  const def = 'https://api.example.com/v1';
+  process.env[name] = 'http://localhost:9/v1'; assert.equal(keys.urlFrom(name, def), def);
+  process.env[name] = 'http://[::1]:9/v1'; assert.equal(keys.urlFrom(name, def), 'http://[::1]:9/v1');
+  delete process.env[name];
+});
+
+test('#4560: why there is no reader comes from the same look at the accounts as the choice', () => {
+  o.setModelAvailable(null);
+  keys.setEnabled(null);
+  try {
+    keys.setAccounts(() => [{ provider: 'google', dir: '/g' }]);
+    assert.equal(o.currentReader(), null);
+    assert.match(o.whyNoReader(), /does not send an org chart to Gemini/);
+    keys.setAccounts(() => [{ provider: 'xai', dir: '/x' }]);
+    assert.equal(o.currentReader().provider, 'xai');
+    assert.equal(o.whyNoReader(), null, 'a reason from an earlier look must not survive');
+    // The early return (Claude, or a set reader) must clear it too.
+    keys.setAccounts(() => [{ provider: 'google', dir: '/g' }]);
+    o.currentReader();
+    o.setReaderForTest(() => ({ kind: 'claude' }));
+    assert.equal(o.currentReader().kind, 'claude');
+    assert.equal(o.whyNoReader(), null, 'Claude reads it: no Gemini reason may be left over');
+  } finally { o.setReaderForTest(null); keys.setEnabled({ openai: true, google: true, xai: true }); }
 });
