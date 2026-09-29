@@ -780,8 +780,9 @@ chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# 
 
 echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
 # The installer also writes board.stopped itself when it declines to start (a run that did not pause
-# first would otherwise leave launchd free to start it); checked by a grep below, since every run here
-# is an update whose pause already wrote the marker.
+# first would otherwise leave launchd free to start it); checked by a grep in install_static_board_off_checks
+# (tools/lib/install-static-checks.sh), called below, since every run here is an update whose pause
+# already wrote the marker.
 # The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
 # on another computer". An install or update must not start that board again, whether it finishes
 # or fails, and an unreadable choice must not become "run" either. The controls: the same update with
