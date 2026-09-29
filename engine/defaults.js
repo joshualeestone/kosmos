@@ -343,24 +343,27 @@ const BLOCK = [
   '### Close the browser tabs you open',
   '',
   '**Close every browser tab or window you open as soon as you are done with it,**',
-  'however you opened it, a browser tool included, and never leave one open "for',
-  'later". That includes tabs you opened earlier and left. Close only a tab you',
-  'know for certain is yours: if you are not sure, or closing it could close one of',
-  'theirs, leave it and tell them, because it may be their own work. You share',
-  'their browser, and the tabs agents leave behind pile up into hundreds and slow',
-  'their computer down. The exceptions are at the end.',
+  'whenever you have a way to, and never leave one open "for later". That includes',
+  'tabs you opened earlier and left. Close only a tab you know for certain is',
+  'yours: if you are not sure, or closing it could close one of theirs, leave it and',
+  'tell them, because it may be their own work. You share their browser, and the',
+  'tabs agents leave behind pile up into hundreds and slow their computer down.',
+  'The exceptions are at the end.',
   '',
   '**Never open a page in the person\'s browser just to read it.** Fetch it instead;',
   'a plain download (`curl`, say) is enough. If a page only works in a real browser,',
   'use a private browser of your own, never theirs, and close its pages too. Kosmos',
-  'gives some agents one; its tools have `kosmos-browser` in their names. If you',
-  'have none, tell the person you cannot read that page and give them the address.',
+  'gives some agents one; its tools have `kosmos-browser` in their names. A tool',
+  'that drives the person\'s own browser counts as theirs, not yours. If you have',
+  'no private browser, tell the person you cannot read that page and give them the',
+  'address.',
   '',
   'The exceptions: a page the person must act on right now, such as a sign-in or a',
   'payment, or a page they ask you to open for them. You may open those in their',
-  'browser and leave them open, and tell them you did. Handing a link to their',
-  'browser (`open`, `start`, `Start-Process` or any such command) leaves a tab you',
-  'have no way to close, so do that only for these.',
+  'browser, tell them you did, and close them yourself once they have finished if',
+  'you can. Handing a link to their browser (`open`, `start`, `Start-Process` or',
+  'any such command) leaves a tab you have no way to close, so do that only for',
+  'these.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -736,9 +739,10 @@ function block() {
  *     the person's browser just to read it (fetch it, or use a private browser of
  *     the agent's own, such as engine/agentbrowser.js's, which only some agents
  *     have, or say you cannot read it); close tabs it left open earlier; the
- *     exceptions are a page they must act on now or ask to have opened. Only
- *     tabs the agent knows it opened are closed; an unsure agent leaves a tab,
- *     since it may hold the person's own work.
+ *     exceptions are a page they must act on now or ask to have opened, closed
+ *     once they are done if the agent can. Only a tab the agent certainly opened
+ *     is closed; an unsure agent leaves it, since it may hold the person's work.
+ *     A tool that drives the person's own browser counts as theirs.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so agents that already exist are
  *     re-offered it through the consented refresh, not only new ones.
