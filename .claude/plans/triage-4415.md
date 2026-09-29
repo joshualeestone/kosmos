@@ -37,7 +37,9 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   release it would post the noisy version to #admin. Install it (a launchd job, once a day) after the release.
 
 ## Weakest premise
-That a report's generated_at is close to when it arrived. It is when the app wrote it, so a report written
-before the last digest but delivered after it is MISSED by the digest (its generated_at is older than the
-watermark). It is still in the /admin Reports inbox, which lists every report; only the #admin summary skips it.
-Using the store's upload time instead would close that; the pull does not carry it today.
+That a report's generated_at is close to when it arrived. It is not always: it is when the app wrote it, so a
+report written before the last digest but delivered after it is DROPPED by the digest for good (its generated_at
+is older than the watermark), and an install that was offline is exactly the one likely to have problems. The
+digest's "new since the last digest" is therefore not complete, and the #admin post says so ("one delivered late
+is only in the inbox"). The /admin Reports inbox lists every report. Using the store's upload time would close
+this; the pull does not carry it today.

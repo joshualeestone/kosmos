@@ -255,3 +255,16 @@ test('#4415: adminSummary is empty with nothing new, and shows five candidates t
   assert.match(out, new RegExp('\\.\\.\\.and ' + (res.candidates.length - 5) + ' more\\.'));
   assert.match(out, /https:\/\/x\/admin \(Reports\)\. No card was opened\.$/);
 });
+
+test('#4415: a clean clause does not clean a report, and an idiom about the reporter negates nothing', () => {
+  const t = require('./feedback-triage');
+  const why = (s) => t.classify(s).reasons.join(' | ');
+  for (const s of ['It works as expected but scroll jumps', 'Could not find the button but it works fine']) {
+    assert.doesNotMatch(why(s), /reports that nothing was wrong/, s + ': one clean clause cleaned a report');
+  }
+  assert.match(why('Not sure why export crashed'), /\(crashed/, '"not sure" negated the crash');
+  assert.match(why("wasn't able to save the draft"), /no clear action word|\(save/, 'control: runs');
+  assert.match(why('wasnt able to save, the board hung'), /\(hung/, '"wasn\'t able" plus a clause break still counts the hang');
+  assert.equal(t.classify('The queue is completely idle and ready for work rather than stuck or blocked.').score, 0,
+    'control: a neutral clause beside a clean one is still clean');
+});

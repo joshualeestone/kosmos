@@ -19,7 +19,8 @@ mkdir -p "$T/reports" "$T/state"
 export KOSMOS_ENGINE="$REPO/engine" KOSMOS_NODE="$NODE_BIN" FEEDBACK_DIGEST_STATE="$T/state"
 export FEEDBACK_DIGEST_PULL_DIR="$T/reports" FEEDBACK_DIGEST_ADMIN_URL="https://example.test/admin"
 printf '#1 An unrelated open card\n' > "$T/cards.txt"
-export FEEDBACK_DIGEST_CARDS_CMD="cat $T/cards.txt"
+printf '#!/bin/bash\ncat "%s/cards.txt"\n' "$T" > "$T/cards.sh"; chmod +x "$T/cards.sh"
+export FEEDBACK_DIGEST_CARDS_CMD="$T/cards.sh"
 # The post stub records what it was handed and answers with the code in $T/code.
 cat > "$T/post.sh" <<EOF
 #!/bin/bash
@@ -30,7 +31,7 @@ export FEEDBACK_DIGEST_POST_CMD="$T/post.sh"
 run() { bash "$REPO/tools/feedback-digest-daily.sh"; }
 
 now=$(date +%s)
-iso() { date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'; }
+iso() { date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'; }   # BSD date (macOS, where the suite runs)
 report() {   # <file> <epoch> <line>
   printf -- '---\ndate: %s\ninstall: x\ngenerated_at: %s\n---\n- %s\n' "${1:0:10}" "$(iso "$2")" "$3" > "$T/reports/$1"
 }
@@ -72,4 +73,10 @@ printf '%s' "$out" | grep -q 'DRY RUN, would post' || fail "dry run did not say 
 if FEEDBACK_DIGEST_CARDS_CMD="false" run >/dev/null 2>&1; then fail "an unreadable card list exited zero"; fi
 [ ! -f "$T/posted.json" ] || fail "posted without the card list"
 
-echo "PASS: feedback-digest-daily (nothing new, posted, failed post, dry run, no cards)"
+# 6. A card list as long as its limit is a ceiling, not a total: refused before anything is posted.
+rm -f "$T/posted.json"; echo 200 > "$T/code"
+printf '#!/bin/bash\nfor i in $(seq 1 2000); do echo "#$i card $i"; done\n' > "$T/cards2000.sh"; chmod +x "$T/cards2000.sh"
+if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a card list at its limit was trusted"; fi
+[ ! -f "$T/posted.json" ] || fail "posted with a truncated card list"
+
+echo "PASS: feedback-digest-daily (nothing new, posted, failed post, dry run, no cards, card list at its limit)"

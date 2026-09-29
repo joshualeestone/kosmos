@@ -45,7 +45,7 @@ const ACTION = new Set([
   'crashes', 'broke', 'broken', 'bug', 'wrong', 'incorrect', 'missing', 'cannot',
   'cant', 'couldnt', 'doesnt', 'wont', 'should', 'add', 'adds',
   'added', 'allow', 'support', 'confusing', 'confused', 'unclear', 'slow', 'hang',
-  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'instead',
+  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'instead', 'jump', 'jumps', 'jumping',
   // kosmos#4415: 'but', 'because', 'when', 'if', 'would', 'could' and 'expected' are gone: they are in nearly every
   // sentence (measured on the 39 live reports, 2026-09-28: 158 of 177 items cleared the bar), and 'expected' mostly
   // arrives as "worked as expected".
@@ -69,6 +69,9 @@ const ACTION = new Set([
 const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
   'werent', 'nor', 'neither', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
 const NEGATION_REACH = 4;   // 4, not 3: "rather than stuck or blocked" puts `blocked` four words after `rather`
+/** A negator directly followed by one of these is an idiom about the reporter, not about the problem: "not sure why
+ *  export crashed", "wasn't able to save", "not clear why it fails". It negates nothing. */
+const NOT_NEGATING_NEXT = new Set(['sure', 'clear', 'certain', 'obvious', 'able', 'why', 'how', 'possible', 'only']);
 const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
 
 /** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
@@ -174,14 +177,6 @@ function parseItems(body) {
   return items;
 }
 
-/**
- * Advisory signal/noise score for one item. Returns { score, reasons }.
- *
- * The bar (stated in docs/feedback-triage.md): an item is worth a reviewer's
- * attention when it is actionable (names something concrete to change or fix),
- * is more than a fragment, and is not pure sentiment. Scores are advisory and
- * carry their reasons so a reviewer can override; nothing is dropped silently.
- */
 /** kosmos#4415: an item that is one of the report form's questions, or the start of one (a question wrapped over two
  *  lines arrives as two items). A question followed by an answer is NOT one. */
 function isFormQuestion(item) {
@@ -190,6 +185,14 @@ function isFormQuestion(item) {
   return FORM_QUESTIONS.some((q) => { const qn = normalize(q); return qn === n || (qn.startsWith(n) && n.split(' ').length >= 3); });
 }
 
+/**
+ * Advisory signal/noise score for one item. Returns { score, reasons }.
+ *
+ * The bar (stated in docs/feedback-triage.md): an item is worth a reviewer's
+ * attention when it is actionable (names something concrete to change or fix),
+ * is more than a fragment, and is not pure sentiment. Scores are advisory and
+ * carry their reasons so a reviewer can override; nothing is dropped silently.
+ */
 function classify(item) {
   const norm = normalize(item);
   const words = norm ? norm.split(' ') : [];
@@ -210,8 +213,12 @@ function classify(item) {
   const actionHits = [];
   for (const clause of String(item).split(CLAUSE_BREAK)) {
     const cw = normalize(clause).split(' ').filter(Boolean);
+    const negates = (j) => NEGATORS.has(cw[j]) && !NOT_NEGATING_NEXT.has(cw[j + 1]);
     cw.forEach((w, i) => {
-      if (ACTION.has(w) && !cw.slice(Math.max(0, i - NEGATION_REACH), i).some((x) => NEGATORS.has(x))) actionHits.push(w);
+      if (!ACTION.has(w)) return;
+      let negated = false;
+      for (let j = Math.max(0, i - NEGATION_REACH); j < i; j++) if (negates(j)) negated = true;
+      if (!negated) actionHits.push(w);
     });
   }
   /* A short line ending in ":" that starts like a question is an agent's own heading ("What would make it better:"),
@@ -222,7 +229,13 @@ function classify(item) {
     reasons.push('a heading, not a report');
     return { score: 0, reasons };
   }
-  if (!actionHits.length && CLEAN.test(norm)) {
+  /* Clean when a clause is a clean phrase and no OTHER clause carries a negation: "could not find the button but it
+     works fine" has a problem in its other clause and is a report; "the queue is idle and ready rather than stuck" is
+     clean. (A problem WORD anywhere already made actionHits non-empty.) */
+  const clauses = String(item).split(CLAUSE_BREAK).map((c) => normalize(c)).filter(Boolean);
+  const cleanAt = clauses.findIndex((c) => CLEAN.test(c));
+  if (!actionHits.length && cleanAt !== -1
+    && clauses.every((c, k) => k === cleanAt || CLEAN.test(c) || !c.split(' ').some((x) => NEGATORS.has(x)))) {
     reasons.push('reports that nothing was wrong');
     return { score: 0, reasons };
   }
@@ -348,8 +361,7 @@ function triage(reports, opts) {
   // Flatten every report into dated entries.
   const entries = [];
   for (const r of reports || []) {
-    const body = String((r && r.body) || '');
-    for (const text of parseItems(body)) {
+    for (const text of parseItems(r && r.body)) {
       entries.push({ text, date: (r && r.date) || null });
     }
   }
@@ -517,7 +529,8 @@ function adminSummary(reports, cardsText, adminUrl) {
      bot's own words. */
   for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- `' + String(c.text).replace(/\s+/g, ' ').replace(/`/g, "'").slice(0, 220) + '`');
   if (res.candidates.length > ADMIN_TOP) lines.push('...and ' + (res.candidates.length - ADMIN_TOP) + ' more.');
-  lines.push('Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
+  lines.push('This counts reports that arrived since the last digest; one delivered late is only in the inbox. '
+    + 'Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
   return lines.join('\n').slice(0, 1900);   // one Discord message
 }
 

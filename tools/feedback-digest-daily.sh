@@ -52,6 +52,10 @@ else
     -q '.[]|"#\(.number) \(.title)"' > "$WORK/cards" 2>/dev/null || { log "FAILED: could not read the open cards"; exit 2; }
 fi
 
+# A list as long as gh's limit is a ceiling, not a total: cards past it would not match, and reports about them would
+# be posted as new. Refuse rather than post a digest that under-matches. (Checked on either source of the list.)
+[ "$(wc -l < "$WORK/cards" | tr -d ' ')" -ge 2000 ] && { log "FAILED: the open card list hit its 2000 limit; raise it"; exit 2; }
+
 cat > "$WORK/digest.js" <<'JS'
 const [engine, pullDir, dir, since, adminUrl, cardsFile, runStart] = process.argv.slice(2);
 const fs = require('fs'), path = require('path');
@@ -72,6 +76,7 @@ mkdir -p "$WORK/pulled"
 summary="$("$NODE" "$WORK/digest.js" "$ENGINE" "${FEEDBACK_DIGEST_PULL_DIR:-}" "$WORK/pulled" "$since" "$ADMIN_URL" "$WORK/cards" "$RUN_START")" \
   || { log "FAILED: pull or triage (see above)"; exit 2; }
 
+# date -r <epoch> is macOS (BSD) date; this job runs on the fleet's Macs.
 if [ -z "$summary" ]; then log "no new reports since $(date -r "$since" '+%Y-%m-%d %H:%M'); nothing posted"; exit 0; fi
 if [ -n "$DRY" ]; then log "DRY RUN, would post:"; printf '%s\n' "$summary"; exit 0; fi
 
@@ -80,6 +85,8 @@ printf '%s' "$summary" | jq -Rs '{content: ., allowed_mentions: {parse: []}}' > 
 if [ -n "${FEEDBACK_DIGEST_POST_CMD:-}" ]; then
   code=$($FEEDBACK_DIGEST_POST_CMD "$WORK/payload")
 else
+  # ⚠️ The bot token is read from the Discord plugin's own .env (the main bot's), not through secrets-map.sh: it is that
+  # plugin's file and there is no mapped target for it. A second reader of it, stated here so it is not a surprise.
   tok=$(sed -n 's/^DISCORD_BOT_TOKEN=//p' "$BOT_ENV" 2>/dev/null | head -1 | tr -d '"'"'"'\r')
   [ -n "$tok" ] || { log "FAILED: no bot token at $BOT_ENV"; exit 2; }
   hdr="$WORK/hdr"; ( umask 077; printf 'Authorization: Bot %s\n' "$tok" > "$hdr" ); tok=""
