@@ -111,7 +111,7 @@ function voiceHarness() {
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
     'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {};\n'
     + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
@@ -125,13 +125,14 @@ test('#4409 review 1: a word heard after switching to another agent goes nowhere
   const box = mkBox('d-say');
   h.set('april', null);
   box.value = 'Please check';
-  Object.assign(h.VOICE, { btn: mkBtn(), box, before: 'Please check', after: '', where: h.voiceWhere(box) });
+  Object.assign(h.VOICE, { btn: mkBtn(), box, before: 'Please check', after: '', where: h.voiceWhere(box), last: 'Please check' });
   h.voiceOnEvent({ kind: 'partial', text: 'the build' });
   assert.equal(box.value, 'Please check the build', 'control: the same agent gets the words');
-  h.set('casey', null);   // opened Casey: no hashchange, the same #d-say box
-  box.value = 'Casey draft';
+  /* Opened Casey: no hashchange, the same #d-say box. The box value is left EXACTLY as dictation left it, so the
+     review-6 "box changed" guard cannot be what stops this: only the view check can. */
+  h.set('casey', null);
   h.voiceOnEvent({ kind: 'final', text: 'the build now' });
-  assert.equal(box.value, 'Casey draft', 'April\'s words landed in Casey\'s box');
+  assert.equal(box.value, 'Please check the build', 'April\'s words kept landing after the switch to Casey');
   assert.equal(h.VOICE.btn, null, 'still listening after the switch');
   assert.deepEqual(posted.at(-1), { op: 'cancel' }, 'the mic was not told to stop');
 });
@@ -208,6 +209,30 @@ test('#4409 review 5: a read-only or closed box takes no spoken words', () => {
   h.voiceOnEvent({ kind: 'partial', text: 'one two', id });
   assert.equal(dm.value, 'one', 'words landed in a box the person can no longer type in');
   assert.equal(h.VOICE.btn, null, 'still listening into a closed box');
+});
+
+test('#4409 review 6: anything else writing the box while listening (an emoji, a Reply mention, undo) stops dictation instead of being wiped', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const box = mkBox('pj-post'); box.value = 'hi'; doc.boxes['pj-post'] = box;
+  const b = mkBtn(); b.attrs['data-voice-for'] = 'pj-post';
+  h.voiceToggle(b);
+  const id = posted.at(-1).id;
+  h.voiceOnEvent({ kind: 'partial', text: 'there', id });
+  assert.equal(box.value, 'hi there', 'control: words land');
+  box.value = '@april hi there';   // Reply added the mention (no key, no paste)
+  h.voiceOnEvent({ kind: 'partial', text: 'there friend', id });
+  assert.equal(box.value, '@april hi there', 'the next word wiped what the page wrote');
+  assert.equal(h.VOICE.btn, null, 'still listening after the box changed under it');
+});
+
+test('#4409 review 6: starting the mic keeps another message\'s line; the listening line waits for an empty one', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const msg = { textContent: 'Still sending your last message.' };
+  doc.boxes['d-say'] = mkBox('d-say'); doc.boxes['d-say-msg'] = msg;
+  const b = mkBtn(); b.attrs['data-voice-for'] = 'd-say'; b.attrs['data-voice-msg'] = 'd-say-msg';
+  h.voiceToggle(b);
+  h.voiceOnEvent({ kind: 'listening', id: posted.at(-1).id });
+  assert.equal(msg.textContent, 'Still sending your last message.', 'the mic wiped or overwrote another message');
 });
 
 test('#4409 review 5: listening is said in the box\'s message line, and cleared when it ends', () => {

@@ -55,6 +55,13 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   that closes mid-dictation (read-only, or #d-say disabled when an agent goes offline) counts as a move and stops it.
   NIT: with focus in the box, a screen reader heard nothing about listening; the box's message line now says
   "Listening. Press Escape to stop." (cleared when it ends), and #pj-room-msg became a live region (role=status).
+- Review iteration 6: (WARNING) the box is rebuilt from the before/after read at the start, so any other write while
+  listening (an emoji from the picker, Reply's @mention, undo, autocorrect) was wiped by the next word. Dictation now
+  remembers what it last left in the box; if the box holds anything else, the person changed it, and dictation stops
+  and keeps their text. NIT: starting the mic no longer clears another message's line (only the mic's own), and the
+  listening line is written only into an empty line. ACCEPTED: #d-say-msg is role=alert (assertive), so "Listening"
+  interrupts a screen reader; #pj-room-msg is display:none while empty, and a live region shown with its text in one
+  step can be announced unreliably by VoiceOver. Both are existing elements' semantics, not changed here.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
