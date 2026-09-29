@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: sendsafe-4466
-diff_hash: 2b832f842c299ef97145cd2a74a65bc7cbd9b4582ebb47c51d88d3dbe18ae660
-validation: not run locally (the local one-suite queue is deadlocked until #4574, Splinter 12:50 CDT; PR CI runs the full suite). Focused on the rebased tree (86d625c0f on origin/main f80887e31): engine/messages, server.fedmsg-3311, cli.busy-health-4466, cli.msg-stdin-2909, tools.windows-kosmos-cli-busy-4466, engine/agentnudge 234/234; every cli.*.test.js + tools.windows-kosmos-cli*.test.js (41 files) 327/327
+diff_hash: a271c53ce68855fe9624122d2eacf5cd732af5c52ee59c8b9887c97a6c9ddd72
+validation: passed (full tools/run-tests.sh through validation_log_run_or_skip, run on MORTALS via ~/.cache/claude-handoffs/mortals-validate.sh at d514cac4c, 2026-09-29 17:38-18:36 CDT: EXIT=0, node 12181 tests 0 fail, shell half clean; the Mortals validation-log entry status=clean with hash equal to this diff_hash)
 subdir_audit: passed
-timestamp: 2026-09-29T18:37:39Z
-iterations: 10
+timestamp: 2026-09-29T23:37:09Z
+iterations: 13
 converged: true
 ---
 
@@ -16,7 +16,7 @@ This PR carries TWO stacked #4466 follow-ups, each put through its own blind loo
 - **noproxy-4466** (a proxy-only sandbox hid the board): 2 iterations, converged at iteration 2 (sonnet).
 - **sendsafe-4466** (#4580 item 1): 8 iterations, converged at iteration 8 (sonnet).
 
-**Iterations:** 10 (2 + 8)
+**Iterations:** 13 (noproxy 2 + sendsafe 11)
 **Converged:** Yes, both loops: zero NEW findings after dedup at their last iteration.
 **Total findings:** 1 BLOCKER, 25 WARNINGs, 3 CONVENTIONs, many NITs.
 **Fixed:** the BLOCKER, every WARNING judged real, all CONVENTIONs | **Written down:** 3 (below) | **Deferred:** as listed | **Asked:** 0
@@ -96,3 +96,14 @@ This PR carries TWO stacked #4466 follow-ups, each put through its own blind loo
 - noproxy: only curl honours NO_PROXY here; a future non-curl loopback client in install/kosmos would need the same.
 - sendsafe: an agent that MEANS to send identical text twice within five minutes, same place, same answered message, with nothing said in between by anyone, gets one copy.
 - One PR: a revert takes both follow-ups together.
+
+### After CI (sendsafe iterations 9 to 11)
+PR #4622's macOS node suite ran RED on two repo meta-guards my focused runs never included (engine.reachable:
+two unexcused test seams; fixture-discipline: four tests hand-built a sender card). Fixed (e09c23cf0), then:
+- Iteration 9 (opus): 2 WARNINGs fixed (the FAILED-in-flight test could pass with the sender never resolved; the
+  excuse named post/postAsync instead of sendPost/sendPostAsync), 1 NIT noted.
+- Iteration 10 (fable): 1 WARNING fixed (tries >= 1 could not see the in-flight fold removed; now exactly 1),
+  1 NIT fixed.
+- Iteration 11 (sonnet): zero findings (tries === 1 is deterministic: 30/30 runs; red with the fold off). CONVERGED.
+Rebased onto origin/main after #4574; validated in full on Mortals (the Agent1s queue was ~3 h and its waiter died
+at 17:37 with every session's background jobs).
