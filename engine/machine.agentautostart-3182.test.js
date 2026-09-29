@@ -48,6 +48,7 @@ test('#3182 one disabled live agent -> ATTENTION, named, singular wording', () =
     ...DARWIN,
     disabled: { ok: true, jobs: ['casey'] },
     removed: { ok: true, names: [] },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.title, /^An agent is/);
@@ -61,6 +62,7 @@ test('#3182 several disabled live agents -> ATTENTION, plural, count in the titl
     ...DARWIN,
     disabled: { ok: true, jobs: ['charlie', 'alice', 'bob'] },
     removed: { ok: true, names: [] },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.title, /^3 agents are/);
@@ -74,6 +76,7 @@ test('#3182 a disabled agent that has been REMOVED is not flagged (it is not exp
     ...DARWIN,
     disabled: { ok: true, jobs: ['gone'] },
     removed: { ok: true, names: ['gone'] },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.OK);
 });
@@ -83,6 +86,7 @@ test('#3182 mix: a live disabled agent surfaces, a removed disabled one does not
     ...DARWIN,
     disabled: { ok: true, jobs: ['live', 'removedone'] },
     removed: { ok: true, names: ['removedone'] },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.title, /^An agent is/);   // only the one live agent
@@ -95,6 +99,7 @@ test('#3182 more than three concerning -> first three named plus an "and N more"
     ...DARWIN,
     disabled: { ok: true, jobs: ['e', 'd', 'c', 'b', 'a'] },
     removed: { ok: true, names: [] },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.title, /^5 agents are/);
@@ -106,6 +111,7 @@ test('#3182 an unreadable removed list falls back to none-removed (surfaces the 
     ...DARWIN,
     disabled: { ok: true, jobs: ['x'] },
     removed: { ok: false },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.detail, /x/);
@@ -120,6 +126,7 @@ test('#3182 a THROWING removed read (the catch branch) also falls back to none-r
     ...DARWIN,
     disabled: { ok: true, jobs: ['y'] },
     removed: { get ok() { throw new Error('removed read blew up'); } },
+    live: () => true,   // #4479: these arms test the aggregation for agents that exist
   });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.detail, /y/);
@@ -135,7 +142,7 @@ test('#3182 integration: a fake launchctl print-disabled threads through create.
     }
     return { ok: true, stdout: '' };
   };
-  const got = machine.agentAutostartCheck(runner, { ...DARWIN, removed: { ok: true, names: [] } });
+  const got = machine.agentAutostartCheck(runner, { ...DARWIN, removed: { ok: true, names: [] }, live: () => true });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.match(got.detail, /zeta/);
   // the board's own label is NOT an agent -> never counted here.

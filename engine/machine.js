@@ -1691,7 +1691,16 @@ function win32BoardAutostartCheck(opts) {
    regrown. Removed agents are excluded (they are not expected to come back),
    keyed by create.cleanName the way remove.js keys its own record. Both reads are
    injectable via opts (opts.disabled / opts.removed) for tests, the same seam
-   style as boardAutostartCheck's opts.installedRoot. */
+   style as boardAutostartCheck's opts.installedRoot.
+
+   #4479 (an external tester, 2026-09-28: "11 agents ... alexis, eric, larry, and 8 more", none of them his agents'
+   names): launchd's disabled-overrides list KEEPS an entry after its plist is gone, so an agent deleted any way
+   but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
+   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent exists now (its
+   plist is present: the board's roster is built from the same files, createdroster.js), and it is named by the
+   name the person sees (its profile's displayName). A stale override is left out and NOT cleaned: this is a read,
+   and `launchctl enable` on a label with no plist is harmless to leave. opts.live(name) and opts.shownName(name)
+   are the seams. */
 function agentAutostartCheck(runner, opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
@@ -1736,10 +1745,23 @@ function agentAutostartCheck(runner, opts) {
   } catch { /* unreadable -> treat none as removed (safe direction, above) */ }
   const removedSet = new Set(removedNames.map((n) => create.cleanName(n)));
 
-  const concerning = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)));
-  if (concerning.length === 0) return okRow;   // every disabled agent is a removed one
+  const live = typeof o.live === 'function' ? o.live
+    : (n) => { try { return fs.existsSync(create.plistPath(n)); } catch { return true; } };
+  const shownName = typeof o.shownName === 'function' ? o.shownName
+    : (n) => {
+      try {
+        const p = require('./store').readProfile(n);
+        const d = p && typeof p.displayName === 'string' ? p.displayName.trim() : '';
+        return d || n;
+      } catch { return n; }
+    };
+  /* An unreadable plist check counts the agent as live (the safe direction, as for the removed list above). */
+  const concerning = disabledNames
+    .filter((n) => !removedSet.has(create.cleanName(n)) && live(n))
+    .map((n) => shownName(n));
+  if (concerning.length === 0) return okRow;   // every disabled job is a removed agent's, or a leftover with no agent
 
-  concerning.sort();
+  concerning.sort((a, b) => a.localeCompare(b));
   const shown = concerning.slice(0, 3);
   const list = shown.join(', ') + (concerning.length > shown.length
     ? ', and ' + (concerning.length - shown.length) + ' more' : '');
