@@ -228,7 +228,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   function stop() {
     const dropped = queue.length;
     queue.length = 0;
-    STOP_NOTES.clear();        // a stop note Escape drops is no longer waiting (review round 2)
+    STOP_NOTES.clear();        // housekeeping: a stop note Escape drops is no longer waiting (nothing reads a stale one)
     stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
