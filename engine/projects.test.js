@@ -1915,8 +1915,14 @@ test('the map is checked in BOTH directions: a new engine sentence cannot skip i
   const REPO = path.join(__dirname, '..');
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.claude']);
   const jsFiles = [];
+  /* #4478: other test files make and remove throwaway folders in the tree while this runs (server.test.js's
+     .probe-freshness-<pid>, server.engine-restart-4408.test.js's .probe-restart-<pid>), so a listed folder or
+     file can be gone by its read. Gone (ENOENT) is skipped; any other error still fails. */
+  const gone = (e) => Boolean(e && e.code === 'ENOENT');
+  const listIfThere = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (gone(e)) return []; throw e; } };
+  const readIfThere = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch (e) { if (gone(e)) return ''; throw e; } };
   (function walk(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const e of listIfThere(dir)) {
       if (SKIP.has(e.name)) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory() && !e.isSymbolicLink()) walk(full);
@@ -1924,7 +1930,7 @@ test('the map is checked in BOTH directions: a new engine sentence cannot skip i
     }
   }(REPO));
   assert.ok(jsFiles.some((f) => f.endsWith(path.join('engine', 'you.js'))), 'CONTROL: the walk did not reach engine/you.js');
-  const callers = jsFiles.filter((f) => /addOnly:\s*true/.test(fs.readFileSync(f, 'utf8')));
+  const callers = jsFiles.filter((f) => /addOnly:\s*true/.test(readIfThere(f)));
   assert.deepEqual(callers.map((f) => path.relative(REPO, f)), ['server.js'],
     'addOnly has a caller outside the board-start pass; its refusal may now reach a group line and needs a plural row');
   const serverSrc = fs.readFileSync(path.join(REPO, 'server.js'), 'utf8');

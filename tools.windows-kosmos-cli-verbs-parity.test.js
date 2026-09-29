@@ -199,7 +199,8 @@ test('#1674: --help and -h on every verb and subcommand print that verb\'s usage
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.claude', 'test-support']);
 /* #4478: other test files run BESIDE this one and make throwaway files in the tree (server.test.js's
-   `.probe-freshness-<pid>/x.js`, #4408), so a folder or file listed here can be gone by the time it is
+   `.probe-freshness-<pid>/x.js` and server.engine-restart-4408.test.js's `.probe-restart-<pid>/x.js`, #4408),
+   so a folder or file listed here can be gone by the time it is
    read. Gone is skipped: a file that no longer exists teaches nobody a verb (a symlink whose target is
    missing reads as gone too, for the same reason). Only ENOENT; anything else (a permission error, an
    EISDIR from reading a folder as a file) still fails the test. */
@@ -286,6 +287,7 @@ test('#4478: a folder or file removed between the listing and the read is skippe
   assert.deepEqual(sourceFiles(path.join(tmp, 'sub'), []), [], 'a folder gone before its walk must be skipped, not throw');
   /* Not every error is "gone": reading a folder as a file is EISDIR, and that still fails. */
   assert.throws(() => readIfThere(tmp), (e) => e.code === 'EISDIR');
+  assert.throws(() => sourceFiles(kept, []), (e) => e.code === 'ENOTDIR');   // and the walk: a file walked as a folder still fails
 });
 
 test('the texts agents are actually given name only verbs the Windows command has: no person-only verb, no missing subcommand', () => {

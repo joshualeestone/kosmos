@@ -541,8 +541,9 @@ test('the board reports when its own engine is behind the disk, and says nothing
      is, and the changed file is named. A throwaway module at the app root (never a real source file:
      another test file runs beside this one), loaded, remembered by a sweep, then touched and edited. */
   /* At the app folder's root (still under the checked root), in its own folder. It is NOT a folder no suite walks:
-     tools.windows-kosmos-cli-verbs-parity.test.js reads every source file in the tree and can list this one while
-     it exists (#4478). That scan skips a file gone before its read, so this folder may come and go beside it. */
+     tools.windows-kosmos-cli-verbs-parity.test.js, engine/projects.test.js and tools.all-node-tests-considered-1934
+     .test.js list the tree and can meet this one while it exists (#4478). Each skips a path gone before it is read,
+     so this folder may come and go beside them. */
   const dir = nodePath.join(__dirname, `.probe-freshness-${process.pid}`);
   const probe = nodePath.join(dir, 'x.js');
   const rel = nodePath.basename(dir) + '/x.js';

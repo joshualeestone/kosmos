@@ -30,7 +30,12 @@ const path = require('node:path');
 
 /* Every *.test.js in the tree, node_modules pruned, as repo-relative POSIX paths. */
 function allNodeTests(dir = '.', out = []) {
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+  /* #4478: a throwaway folder another test file makes at the repo root (.probe-freshness-<pid>,
+     .probe-restart-<pid>) can be gone between being listed and being walked. Gone is skipped; any other
+     error still fails. */
+  let ents;
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (e && e.code === 'ENOENT') return out; throw e; }
+  for (const ent of ents) {
     if (ent.name === 'node_modules' || ent.name === '.git') continue;
     const p = path.join(dir, ent.name);
     if (ent.isDirectory()) allNodeTests(p, out);

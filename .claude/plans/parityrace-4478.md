@@ -27,3 +27,11 @@ That skipping a vanished file can never hide a real teaching. It can only be ski
 - **NIT** EISDIR/ENOTDIR from a path replaced by another type are not skipped. KEPT deliberately: only "gone" is skipped.
 - **NIT** "a read of the wrong thing" was vague. It now names EISDIR.
 - Confirmed: `e.isDirectory()` reads the listing's d_type and makes no new call, so the walk has no third vanish point. The coverage asserts still prove the scan reads real content.
+
+## Review round 2 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- **WARNING** engine/projects.test.js walks the repo root and reads every non-test .js file with a plain read, and it does not skip dot-folders. So it has the same race with both probe folders. Fixed in the same way (listIfThere / readIfThere, ENOENT only), because the card is the class, not the one file. Also guarded: tools.all-node-tests-considered-1934.test.js, which lists folders (a narrower window: a probe folder gone between being listed and walked).
+- **WARNING** server.engine-restart-4408.test.js carried the same false comment ("no other suite walks") for its `.probe-restart-<pid>` folder. Corrected. Both probe comments now name the three walkers.
+- **NIT** The parity comment named only one probe. It now names both.
+- **NIT** Nothing checked that the walk (not only the read) still fails on errors other than ENOENT. Added: walking a file as a folder throws ENOTDIR. Mutant (the walk alone swallows every error): red.
+- Confirmed by the reviewer: fixture-discipline and engine.runnable-not-directory skip dot-folders; one-derivation walks only engine/; communitysend and setprovider-writes walk sandboxes.
+- Weakest premise: the two sibling guards are the same pattern as the parity helpers, but only the parity helpers have a deterministic race test. The siblings are inline walks inside larger tests; they are checked by reasoning and by their tests passing (167 across the three files), not by a race test of their own.
