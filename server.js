@@ -824,6 +824,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -6555,6 +6556,47 @@ const server = http.createServer(async (req, res) => {
    *     an agent may send, never the setup role, a made-up role only as `own` with its
    *     label and text, and none at all from the setup guide.
    */
+  /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
+     rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
+     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
+     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     is stored. Board-token gated like every /api route, and the consent send also wants the screen
+     (isViaScreen), so an agent cannot spend the person's plan on a file. */
+  if (pathname === '/api/orgchart/read' && req.method === 'POST') {
+    readBody(req, orgchartfile.MAX_BYTES + 1)
+      .then(async (bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-orgchart-name'] || '')); } catch { name = String(req.headers['x-orgchart-name'] || ''); }
+        name = name.slice(0, 200);
+        if (!name) { sendJson(res, 400, { error: 'name the file (x-orgchart-name)' }); return; }
+        if (!orgchartfile.forModel(name)) {
+          const got = orgchartfile.readLocal(name, bytes);
+          if (got.problems[0] === 'unsupported') {
+            sendJson(res, 400, { error: 'That kind of file is not one we can read. Upload a picture (PNG or JPG), a PDF, a CSV or an Excel file (.xlsx).' });
+            return;
+          }
+          sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
+          return;
+        }
+        if (!orgchartfile.modelAvailable()) {
+          sendJson(res, 200, { unavailable: true, problems: ['Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.'] });
+          return;
+        }
+        const q = new URL(req.url, ROUTING_BASE).searchParams;
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.PROVIDER }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        const got = await orgchartfile.readWithModel(name, bytes);
+        if (got.unavailable) {
+          sendJson(res, 200, { unavailable: true, problems: ['Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.'] });
+          return;
+        }
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.PROVIDER, rows: got.rows, problems: got.problems });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that file') }));
+    return;
+  }
+
   if (pathname === '/api/team' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
