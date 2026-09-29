@@ -16599,13 +16599,17 @@ const server = http.createServer(async (req, res) => {
            delivered or valved (so it hears why, not the breaker), as task built refuses it. ⚠️ Advisory, not a
            boundary: it applies only to a caller that identifies itself (a token, or a pane tied to an agent); a
            tokenless, paneless process holding the board token is not refused and is recorded as "An agent". */
+        /* The stored record, read once for membership here and for the departed-assignee filter below. An identified
+           agent is told when it cannot be read (503); anyone else is recorded and everyone is told, as before. */
+        let memberRecord = null;
+        let unreadable = false;
+        try { memberRecord = projects.readAll().find((x) => x.id === id) || null; } catch { unreadable = true; }
         if (!viaScreen && senderCard && senderCard.sessionName) {
-          let stored = null;
-          try { stored = projects.readAll().find((x) => x.id === id) || null; }
-          catch {
+          if (unreadable) {
             sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' });
             return;
           }
+          const stored = memberRecord;
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
             return;
@@ -16658,9 +16662,7 @@ const server = http.createServer(async (req, res) => {
         const others = senderCard && senderCard.sessionName ? named.filter((m) => !sameAgentName(m, senderCard.sessionName, byKey)) : named;
         /* #4491 slice 3: an assignee that has left the project stays on its tasks (removal does not unassign), but is
            not told about them: its reply would be refused as not on the project. Said in `delivered`, like an Off
-           swarm. If the project list cannot be read here, everyone is told, as before. */
-        let memberRecord = null;
-        try { memberRecord = projects.readAll().find((x) => x.id === id) || null; } catch { memberRecord = null; }
+           swarm. If the project list could not be read above, everyone is told, as before. */
         const departed = (m) => !!memberRecord && !projectHasAgent(memberRecord, String(m), false);
         const recipients = others.filter((m) => !offHere.has(String(m)) && !departed(m));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
