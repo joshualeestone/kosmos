@@ -308,3 +308,16 @@ Because the name fix is code, one more blind round follows.
   same way before this branch: not a new class.
 - (N, left) a waiter killed between printf and mv leaves a .tmp nobody reads; stand-in sleeps outlive an interrupted
   file by up to 5 minutes; a second wait by the same process would reuse its live marker (no caller does).
+
+## Review iteration 23 (blind, opus)
+0 BLOCKER, 1 WARNING, taken:
+- (W, SELF) the note said the ceiling caps the wait behind a HUNG suite. It does not: each waiter ahead giving up is a
+  fall for those behind, so the waiter k deep gives up at about (k+1) bounds, inside its (4+k)-bound ceiling (45, 90,
+  135 min; before #4574 everyone gave up at 20). The note now states that cost plainly. The reviewer's alternative (a
+  "gave up" tombstone that readers do not count as a fall) was rejected for now: new cross-process state with its own
+  races, for a rare case; the jam measured today was not a hung suite (#4609 holds the live-count side).
+- (N, taken) the own-marker gate was check-then-read: the bound now reads this run's queue time ONCE and hands it to the
+  helper; empty means the marker is gone and the pass takes no count. Control: gating on `true` reds the arm (3335
+  restarts until the explicit ceiling).
+- (N, left) a nested run under a live foreign claim no longer inherits an operator's claim override (documented
+  deliberate); the refusal names the first waiter ahead in glob order, not the oldest (true either way).
