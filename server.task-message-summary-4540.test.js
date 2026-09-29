@@ -50,6 +50,11 @@ test('the sentence carries no double quote, backslash or newline, whatever the r
   assert.match(s, /^Not told: it said no/);
 });
 
+test('control characters are stripped too, so JSON never puts a backslash back into the sentence', () => {
+  const s = taskMessageSummary([{ agent: 'zed', state: 'could_not', because: 'bell\u0007 and escape\u001b[31m red\u007f' }], 1);
+  assert.doesNotMatch(JSON.stringify(s), /\\/, JSON.stringify(s));
+});
+
 test('a could-not with no reason still names the agent', () => {
   assert.equal(taskMessageSummary([{ agent: 'zed', state: 'could_not' }], 1), 'Not told: zed could not be reached.');
 });

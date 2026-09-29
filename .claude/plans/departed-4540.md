@@ -2,8 +2,7 @@
 
 Card: joshualeestone/kosmos#4540 (claimed:angel), rescoped on the card after measuring: the other task
 notifications do not reach departed assignees with a reply to make; what is false is the CLIs' sentence.
-Stacked on #4491 slice 3 (branch task-routes-4491), whose departed-assignee filter this reports on; rebased
-onto main when that merges.
+Built on #4491 slice 3 (#4551, squash 70a2529da, on main), whose departed-assignee filter this reports on.
 
 ## Finished looks like
 After `kosmos task message` (Mac and Windows), the command prints "Message recorded on task N of P." followed by

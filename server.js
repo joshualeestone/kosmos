@@ -3799,10 +3799,10 @@ function sameAgentName(a, b, byKey) {
 }
 /* #4540: one plain sentence from a task message's `delivered` list, for the CLIs to print (the Mac CLI is bash 3.2
    with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
-   not. No double quote or backslash, so that read cannot be cut short. `assigned` is how many are on the task; the
+   not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
    sender is already off `delivered`. */
 function taskMessageSummary(delivered, assigned) {
-  const plain = (x) => String(x == null ? '' : x).replace(/["\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  const plain = (x) => String(x == null ? '' : x).replace(/["\\\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
