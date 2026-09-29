@@ -12,8 +12,9 @@ said in its own window:" and the answer, in a bounded, line-preserving block. It
 ## Decisions
 - Carried like #4611's count: musefront sends the turn's answer and start time with its idle report
   (`kosmosFinal` -> bridge -> `final` on POST /api/report -> selfreport keeps it on an idle report only, cleaned and
-  capped at 4000 characters). The thread route attaches it as `owes.unsent` only when the thread owes a reply, the
-  latest report is that idle one, and the turn began at or after the owed message arrived.
+  capped at 4000 characters). selfreport.read carries the run's latest answer across later reports. The thread route
+  attaches it as `owes.unsent` only when the thread owes a reply and the answer's turn began at or after the owed
+  message arrived.
 - Shown at once, without the two-minute grace: the turn is over, so there is nothing left to wait for.
 - The answer is shown, not only "it did not reply": it is what the person asked for, and what the Muse front already
   prints in the agent's window. Escaped, never HTML.
@@ -28,6 +29,10 @@ said in its own window:" and the answer, in a bounded, line-preserving block. It
 - Review round 3: selfreport.read carries the run's latest answer across the reports after it, and the route no
   longer requires the latest report to be idle (a room turn running next made the DM say "Nothing back yet", falsely).
   A new run (started / stopped) forgets it. The answer is cut by characters, not UTF-16 units.
+
+- Known limits (review round 4): an automatic idle report is not recorded while the agent has a standing blocked or
+  needs_you (#900), so that turn's answer is not carried and the DM keeps "Nothing back yet"; and the answer lasts
+  only within the last TAIL_BYTES (64 KB) of the report log. Both fall back to today's line, never a wrong answer.
 
 ## Weakest premise
 That the DM envelope marks the turn that answered the person. A DM whose turn failed or had no words clears it, so

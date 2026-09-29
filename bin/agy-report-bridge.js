@@ -182,7 +182,7 @@ function reportFor(eventName, payload) {
   /* #4612: the Muse front's turn answer ({ text, startedAt }) on its Stop; agy's payloads never carry it. */
   const f = payload && typeof payload === 'object' ? payload.kosmosFinal : null;
   if (state === 'idle' && f && typeof f === 'object' && typeof f.text === 'string' && f.text.trim() && typeof f.startedAt === 'string') {
-    return { state, text, final: { text: f.text.slice(0, 4000), startedAt: f.startedAt } };
+    return { state, text, final: { text: Array.from(f.text).slice(0, 4000).join(''), startedAt: f.startedAt } };   // characters
   }
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */

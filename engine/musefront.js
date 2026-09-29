@@ -233,7 +233,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         // Idle only once nothing is waiting: a queued message starts its turn at once.
         /* #4612: the answer to the person's latest DM rides with the next idle report, so the DM can show it when
            the agent answered in its own window but never ran kosmos reply. Kept across the turns that run after it
-           (a room post the DM went ahead of), and only a DM turn that finished with words replaces it. */
+           (a room post the DM went ahead of). A later DM turn replaces it: with its answer, or with nothing when that
+           turn failed or had no words. */
         if (answersTheDm(prompt)) dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
         if (!queue.length) { noteSent = null; report('idle', null, dmAnswer); dmAnswer = null; }
         write(PROMPT);
