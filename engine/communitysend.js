@@ -74,6 +74,9 @@ function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
 function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY by the sweep
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
+// #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
+// sent.json as POSTS, and must never meet a comment row.
+function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); } // written ONLY by the sweep
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -389,6 +392,72 @@ async function sweepTakedowns(keys, sent, now) {
   }
 }
 
+/**
+ * #4373 part B: send one published comment on a SERVICE post, as its registered agent.
+ * POST /posts/{remotePostId}/comments { body } (kosmos-community #15). The service holds
+ * nothing back (holding is the board's job, already done: only published rows get here).
+ * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
+ * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
+ * comment is the worse failure; the record says what happened.
+ */
+async function sendComment(c, keys, csent, now) {
+  const agentKey = c.agent;
+  if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
+  const k = await ensureRegistered(agentKey, keys, now);
+  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
+  if (k && k.refused) { csent[c.id] = rec; return; }
+  if (!k) return;
+  const body = { body: String(c.body || '') };
+  if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
+  // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
+  csent[c.id] = { ...rec, attempted: true };
+  saveJson(commentsSentFile(), csent);
+  const r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body);
+  if (r.status === 201) {
+    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}) });
+  } else if (r.status === 404) {
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
+  } else if (r.status === 409) {
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
+  } else if (r.status === 422) {
+    const why = refusalReasons(r.json);
+    const err = r.json && r.json.detail && typeof r.json.detail.error === 'string' && /^[a-z_]{1,40}$/.test(r.json.detail.error) ? [r.json.detail.error] : [];
+    csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : ['rejected']) });
+  } else if (r.status === 429) {
+    // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
+    csent[c.id] = settle(rec, {});
+    k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+    saveJson(keysFile(), keys);
+  } else if (r.status === 401) {
+    csent[c.id] = settle(rec, { lastStatus: 401 });
+    log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
+  } else if (r.status >= 400 && r.status < 500) {
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
+    log(`comment for ${agentKey}: refused with ${r.status}`);
+  } else {
+    csent[c.id] = settle(rec, { state: 'unconfirmed', ...(r.status ? { lastStatus: r.status } : {}) });
+    log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
+  }
+}
+
+async function sweepComments(keys, from, now) {
+  const csent = loadJson(commentsSentFile());
+  if (!csent) return;                                  // unreadable: send no comment rather than re-send one
+  const due = communitystore.publishedServiceComments()
+    .filter((c) => c.author && c.author.type === 'agent' && typeof c.agent === 'string' && c.agent)
+    .filter((c) => from && String(c.releasedAt || c.receivedAt) >= from)
+    .filter((c) => !csent[c.id] || (csent[c.id].state === 'pending' && !csent[c.id].attempted));
+  for (const c of due) {
+    if (!switchOn()) break;
+    try {
+      await sendComment(c, keys, csent, now);
+      saveJson(commentsSentFile(), csent);
+    } catch (e) {
+      log(`comment ${c.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -434,6 +503,8 @@ async function sweepOnce(now) {
         log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
       }
     }
+    try { await sweepComments(keys, from, now); }
+    catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
 
   try {
@@ -534,13 +605,27 @@ function statuses() {
   return out;
 }
 
+/** #4373 part B: what happened to each comment the board has tried to send. No keys. */
+function commentStatuses() {
+  const csent = loadJson(commentsSentFile()) || {};
+  const keys = loadJson(keysFile()) || {};
+  const out = {};
+  for (const [id, rec] of Object.entries(csent)) {
+    let state = rec.state || 'pending';
+    if (state === 'pending' && rec.attempted) state = 'unconfirmed';
+    const k = rec.agent && keys[rec.agent];
+    out[id] = { state, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
+  }
+  return out;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
+  switchOn, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

@@ -1,0 +1,100 @@
+'use strict';
+
+/**
+ * kosmos#4373 part B: `kosmos community comment <post-id> <text>` asks the agent's own board, with the agent's token,
+ * to comment on the service post `read` showed. Driven against a stub board, so no real board and no network.
+ *
+ *   node --test cli.community-comment-4373.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const path = require('node:path');
+const { execFile } = require('node:child_process');
+
+const CLI = path.join(__dirname, 'install', 'kosmos');
+const TOKEN = 'cd'.repeat(16);
+const POST = '1b2c3d4e-0000-4000-8000-000000000001';
+const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+
+function runCli(args, env, stdin = '') {
+  return new Promise((resolve, reject) => {
+    const child = execFile(CLI, args, { env, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '). ' + (stderr || ''))); return; }
+      resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+    });
+    child.stdin.end(stdin);
+  });
+}
+
+function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'held', id: 'c1' } }) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/api/community/service-comment') {
+      let raw = '';
+      req.on('data', (d) => { raw += d; });
+      req.on('end', () => {
+        seen.push({ headers: req.headers, body: JSON.parse(raw) });
+        res.writeHead(reply.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(reply.body));
+      });
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      let failure = null;
+      try { await fn(server.address().port, seen); } catch (e) { failure = e; }
+      server.close(() => (failure ? reject(failure) : resolve()));
+    });
+  });
+}
+
+test('#4373 B: comment sends the post id and the text as written, with the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
+  const text = 'Tuesdays "work" for us $HOME `too`';
+  const out = await runCli(['community', 'comment', POST, text], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN, 'the agent token was not sent; the board cannot tell who is commenting');
+  assert.equal(seen[0].body.servicePostId, POST);
+  assert.equal(seen[0].body.body, text, 'the text did not arrive as written');
+  assert.equal(seen[0].body.kind, 'community_post');
+  assert.equal(seen[0].body.from_pane, '%42');
+  assert.ok(!('agent' in seen[0].body), 'identity must ride the token, never the body');
+  assert.match(out.stdout, /held until your person releases it/);
+}));
+
+test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'comment', POST], envFor(port), 'line one\nline two\n');
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen[0].body.body, 'line one\nline two');
+}));
+
+test('#4373 B: a published comment says it goes on the next pass', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.match(out.stdout, /sends it to the community on its next pass/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'c1' } }));
+
+test('#4373 B: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
+  assert.equal(out.code, 1);
+  assert.match(out.stdout, /That comment was not sent: a community comment can be at most 2000 characters/);
+}, { status: 400, body: { error: 'a community comment can be at most 2000 characters' } }));
+
+test('#4373 B: no post id, no text, and --help send nothing; the usage names the verb', () => withStubBoard(async (port, seen) => {
+  const none = await runCli(['community', 'comment'], envFor(port));
+  assert.equal(none.code, 2);
+  assert.match(none.stdout, /Usage: kosmos community comment <post-id>/);
+  const blank = await runCli(['community', 'comment', POST, '   '], envFor(port));
+  assert.equal(blank.code, 2);
+  assert.match(blank.stdout, /a comment needs some text/);
+  const help = await runCli(['community', 'comment', '--help'], envFor(port));
+  assert.equal(help.code, 0);
+  const bare = await runCli(['community'], envFor(port));
+  assert.match(bare.stdout, /kosmos community comment <post-id>/, 'the usage does not name the comment verb');
+  assert.equal(seen.length, 0, 'something was sent');
+}));

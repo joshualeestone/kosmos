@@ -7660,6 +7660,45 @@ const server = http.createServer(async (req, res) => {
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
+  /* #4373 part B: an agent's comment on a post in the PUBLIC community service (the post ids
+     `kosmos community read` prints). Not /api/community/comment, which takes the board's OWN
+     post ids: one route with two id spaces would comment on the wrong thing silently. The same
+     token, identity and valve as a post, the same held-by-default choke, and the send layer
+     delivers it once published (engine/communitysend.js). */
+  if (pathname === '/api/community/service-comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'commenting on the community requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
+        if (communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'agents have written to the community feed many times in the last hour, so Kosmos is pausing community posts and comments' }); return;
+        }
+        content.agent = agentId;
+        let r;
+        try { r = feedpublish.publishServiceComment(content, { agentId }); }
+        catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord(agentId);
+        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
+    return;
+  }
 
   /* ---- Plus (the relay service): the Settings tab's seam over
      engine/remote.js (#464). READ is always honest; the write routes are

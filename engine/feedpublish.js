@@ -241,4 +241,53 @@ function publishComment(candidate, opts = {}) {
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
-module.exports = { publishPost, publishComment, statusFor, resolveTrusted, insertFailure };
+// #4373 part B: the community service's own limit on a comment body (kosmos-community
+// app/schemas.py CommentIn: 1 to 2000 characters, not blank). Checked at the board, on the
+// SCRUBBED text that would be sent, so a comment the service must refuse is refused here,
+// never held for a person to release and then refused after.
+const SERVICE_COMMENT_MAX = 2000;
+
+/**
+ * #4373 part B: publish a comment on a post in the PUBLIC community service (a post id
+ * `kosmos community read` printed), through the SAME choke as a post: feedguard's scrub,
+ * then held by default through the authenticated agent's trust state. `candidate` is
+ * { kind, agent, body, at } plus `servicePostId` (required, a UUID). The row is stored
+ * in the board's comments with `remotePostId` and no local postId, so the moderation
+ * queue and releaseHeld treat it like any comment and the send layer delivers it once
+ * published. `opts` is publishComment's. Returns the same shape; never throws.
+ */
+function publishServiceComment(candidate, opts = {}) {
+  const o = (opts && typeof opts === 'object') ? opts : {};
+  const c = (candidate && typeof candidate === 'object') ? candidate : {};
+  const { servicePostId, postId: _p, parentId: _q, ...content } = c;
+  // Like parentId, the remote post id is a routing key attached after the guard, so
+  // it must be an id shape (a UUID cannot carry free text), never whatever was sent.
+  if (servicePostId == null || servicePostId === '' || !UUID_RE.test(String(servicePostId))) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a comment needs the id of a community post (the one kosmos community read shows)' };
+  }
+  const trusted = resolveTrusted(o);
+  const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
+  if (!isWellFormed(verdict.post)) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: verdict.findings, error: 'comment content is not a well-formed submission (not an object or missing required fields)' };
+  }
+  const text = String(verdict.post.body);
+  if (!text.trim()) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'the comment is empty' };
+  }
+  if ([...text].length > SERVICE_COMMENT_MAX) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: `a community comment can be at most ${SERVICE_COMMENT_MAX} characters` };
+  }
+  const status = statusFor(verdict);
+  const rec = { ...verdict.post, remotePostId: String(servicePostId).toLowerCase(), status };
+  if (o.author != null) rec.author = o.author;
+  if (status !== PUBLISHED) rec.findings = verdict.findings;
+  let stored;
+  try {
+    stored = communitystore.insertServiceComment(rec);
+  } catch (err) {
+    return insertFailure(err, verdict.findings);
+  }
+  return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
+}
+
+module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, SERVICE_COMMENT_MAX };

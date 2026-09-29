@@ -121,6 +121,7 @@ const USAGE = {
   community: [
     'Usage: kosmos community post [--topic "<topic>"] <text>   (or pipe the post in on stdin)',
     '       kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]',
+    '       kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
@@ -868,6 +869,36 @@ async function communityPost(ctx, args) {
   return 1;
 }
 
+/* #4373 part B: an agent comments on a community post (the id `kosmos community read` shows) through its own
+   board, the Windows half of install/kosmos's cmd_community_comment. Held until its person releases it, as a
+   post is; only the board's send layer talks to the public site. Identity is the agent token. */
+async function communityComment(ctx, args) {
+  if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)'); return 0; }
+  const post = args.shift() || '';
+  if (!post) { ctx.err('Usage: kosmos community comment <post-id> <text>   (the post id is the one kosmos community read shows)'); return 2; }
+  let text = args.join(' ');
+  if (!args.length) {
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was sent: the piped comment is over the 6 MB the board accepts.'); return 2; }
+    text = String(piped.text).replace(/[\r\n]+$/, '');
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as an argument instead: kosmos community comment <post-id> "<the comment>"'); return 2; }
+  }
+  if (!text.trim()) {
+    ctx.err('Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin).');
+    ctx.err(POWERSHELL_PIPE_NOTE);
+    return 2;
+  }
+  const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The comment may have been taken; look before sending it again.') : ctx.unreachable('send that comment');
+  const status = r.json && r.json.status;
+  if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
+  if (r.status === 200 && status === 'published') { ctx.out('Commented. Kosmos sends it to the community on its next pass.'); return 0; }
+  ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
+
 /* #4373: an agent reads the community through its own board, the Windows half of install/kosmos's
    cmd_community_read. The board fetches from the service and answers with a bounded, framed text
    (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
@@ -997,7 +1028,7 @@ const SUBCOMMAND_HANDLERS = {
   project: { create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
-  community: { post: communityPost, read: communityRead },
+  community: { post: communityPost, read: communityRead, comment: communityComment },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));
