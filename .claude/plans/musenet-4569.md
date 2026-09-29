@@ -15,8 +15,16 @@ person's DM instead of "Kosmos is not running". Measured done only when a real M
   just replies. `--disable-sandbox` is named verbatim in the same help and takes no value. It also turns off
   Muse's filesystem sandbox; Kosmos already runs Codex agents with theirs off
   (--dangerously-bypass-approvals-and-sandbox), so this matches the other providers.
-- Would change my mind: `muse exec --help` on a Mac with Muse showing `enabled` as a listed network value, which
-  would let the filesystem sandbox stay on.
+- A second reason, from review: the CLI writes its auth headers to a temp file under $TMPDIR before every call
+  (install/kosmos kosmos_curl) and sends nothing if it cannot. Muse's filesystem sandbox may refuse that write, so
+  opening only the network could still fail every reply (not measured).
+- Would change my mind: a live `kosmos reply` from a Muse agent succeeding with `--sandbox-network <listed value>`
+  and the filesystem sandbox still on. A listed value alone is not enough (the temp-file write above).
+- What this gives up, said plainly: with the front's `--approval-mode never`, a Muse agent now runs any shell
+  command as the person, across the whole home folder, with no prompt. That is the same exposure as Codex and
+  Gemini-key agents, but it removes the last layer that kept Muse agents inside their own folder.
+- Live test on Josh's Mac should also run `env | grep -i proxy` inside the agent: if Muse still sets a proxy with
+  the sandbox off, curl could route 127.0.0.1 through it.
 
 ## Weakest premise
 That `--disable-sandbox` exists in the Muse build on Josh's Mac. The help excerpt is from 1.4.1-R4503.1, the build

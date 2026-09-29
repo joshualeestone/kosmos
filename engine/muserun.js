@@ -47,8 +47,10 @@ const STOPPED = 'Stopped before Muse Code finished';
  * (weakest premise: not yet observed what it excludes; the signed-in Mac run should confirm).
  * `--user-input-auto-resolve`: headless, so a question to the user is cancelled rather than waited on.
  * `--disable-sandbox` (#4569, Josh's first real Muse agent): Muse runs every shell command in its own sandbox,
- * on by default with network "proxy-only", which blocks 127.0.0.1, so the agent's `kosmos reply` never reached
- * the board and it answered only in its own terminal. `--approval-mode never` does not turn that sandbox off.
+ * on by default with network "proxy-only", which blocked the CLI's direct connection to the board on 127.0.0.1
+ * (whether it is loopback alone or every direct connection is not measured), so the agent's `kosmos reply` never
+ * reached the board and it answered only in its own terminal. The CLI also writes its auth headers to a temp
+ * file before every call (install/kosmos kosmos_curl), which a filesystem sandbox may refuse. `--approval-mode never` does not turn that sandbox off.
  * Chosen over `--sandbox-network enabled` because this flag is named verbatim in `muse exec --help` (1.4.1) and
  * takes no value, while the network mode's accepted values are not listed there, and a value Muse refuses would
  * fail every turn. Codex agents run the same way (--dangerously-bypass-approvals-and-sandbox).
