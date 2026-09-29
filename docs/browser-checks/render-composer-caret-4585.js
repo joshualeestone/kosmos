@@ -182,7 +182,9 @@ const SWEEP = async (page, text, from = 20) => page.evaluate(async ([text, from]
           await new Promise((r) => requestAnimationFrame(r));
           return { scrolls: t.scrollHeight > t.clientHeight, sb: t.offsetWidth - t.clientWidth };
         }, (SENT + ' ').repeat(6));
-        arm(sc.scrolls && sc.sb === 0, `[${engine}] scrolled past its max height, the composer shows no scrollbar`, JSON.stringify(sc));
+        // Chromium runs with classic scrollbars here, so this can fail there; WebKit's overlay scrollbars take no
+        // width, so its arm only confirms the box scrolls with a zero-width bar (it cannot see a removed rule).
+        arm(sc.scrolls && sc.sb === 0, `[${engine}] scrolled past its max height, the composer shows no scrollbar` + (engine === 'webkit' ? ' (overlay scrollbars: a zero-width bar)' : ''), JSON.stringify(sc));
         /* The column narrowed in place, no window resize: the textarea rewraps, and the mirror must follow. */
         await page.evaluate(() => { const t = document.getElementById('pj-post'); t.value = 'Thanks for using tasks and putting files here, helps me see it from the UX side'; t.dispatchEvent(new Event('input', { bubbles: true })); });
         await page.waitForTimeout(150);
