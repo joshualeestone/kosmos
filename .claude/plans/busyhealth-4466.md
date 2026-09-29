@@ -59,8 +59,11 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 ## Review round 2 decisions (deferred, with the reason)
 - **A person's `kosmos start` no longer reclaims a same-user Kosmos board that holds the port and never
   answers**: it says "already running (busy)". Deliberate: start cannot tell busy from wedged, and killing
-  a busy board is this card's bug. Recovery of a wedged board is `kosmos restart` (the pidfile path kills
-  it, supervised or not) or, for a supervised board, the watchdog's `kickstart -k` after the busy grace.
+  a busy board is this card's bug. (Round 3 corrected this: restart and kickstart do NOT cover a detached
+  holder that neither the pidfile nor launchd tracks. So after its 5-minute busy grace the watchdog runs
+  `KOSMOS_WATCHDOG_RECLAIM=1 kosmos start`, which skips the busy early-return and reaches the #3079 reclaim.)
+- **`kosmos open`** goes through the same agent guard as start for a down board, and opens a busy board
+  instead of waiting out the busy window twice.
 - **`kosmos restart` of a busy board this command did not start** refuses with exit 1 (`die` in cmd_stop
   ends the script), so it is never a silent no-op; a test arm pins it.
 - **`setup.sh`'s update-pause `stop --force` on a busy board with no pidfile** leaves that board running,

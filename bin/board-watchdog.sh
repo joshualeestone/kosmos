@@ -201,7 +201,13 @@ if [ "$FAILS" -ge 1 ] && "$LAUNCHCTL" kickstart -k "gui/$(/usr/bin/id -u)/$BOARD
   log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); kickstart -k $BOARD_LABEL (port may be wedged)"
 else
   log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); running kosmos start"
-  bash "$KOSMOS_BIN" start >> "$LOG" 2>&1 || true
+  # #4466: a board that has not answered for the whole busy grace (status exit 4) is wedged, so let
+  # `kosmos start` reclaim a silent holder of our port instead of calling it "already running".
+  if [ "$STATUS_RC" -eq 4 ]; then
+    KOSMOS_WATCHDOG_RECLAIM=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
+  else
+    bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
+  fi
 fi
 # Count the attempt for the backoff/crash-loop guard; keep the down streak (the next
 # run clears it, the fail count, and the alert if the restart took hold and the

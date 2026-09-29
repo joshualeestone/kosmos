@@ -80,6 +80,7 @@ test.after(() => fs.rmSync(STUB_DIR, { recursive: true, force: true }));
 /** A stub board in its own process. `health`: 'ok' (the new route), 'slow' (answers after delayMs),
  *  'hang' (never answers), '404' (an older board), 'stranger' (not ours anywhere). */
 async function withBoard(health, fn, delayMs = 5000) {
+  // exit code not read (#3628): this is the stub BOARD, not the CLI under test; an early exit is caught below.
   const child = spawn(process.execPath, [STUB, health, String(delayMs)], { stdio: ['ignore', 'pipe', 'inherit'] });
   try {
     const port = await new Promise((resolve, reject) => {
@@ -109,7 +110,7 @@ function baseEnv(port, extra = {}) {
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
 test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports RUNNING', () => withBoard('slow', async (port) => {
-  const out = await runCli(['status'], baseEnv(port));
+  const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '30' }));   // headroom on a loaded box
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Kosmos is running at/);
   assert.match(out.stderr, /Kosmos is busy, retrying/);
@@ -117,7 +118,7 @@ test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports 
 }));
 
 test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {
-  const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42' }));
+  const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42', KOSMOS_BUSY_WAIT: '30' }));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.doesNotMatch(out.stdout, /not running/);
   assert.match(out.stderr, /busy, retrying/);
@@ -298,3 +299,28 @@ test('#4466 a person RESTART of a busy board this command did not start refuses 
     assert.doesNotMatch(out.stdout, /already running|Bringing the board up/, 'stop refused, so start must not run after it');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
+
+test('#4466 the watchdog reclaim: only KOSMOS_WATCHDOG_RECLAIM=1 lets `kosmos start` free a port our own silent board holds', () => withBoard('hang', async (port) => {
+  // The stub is a same-user "kosmos...server.js" that never answers: to the CLI, our own busy board.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    // AGENT_WORKFORCE_LAUNCH makes the board read as unsupervised, so nothing touches this Mac's launchd.
+    const env = baseEnv(port, { KOSMOS_HOME: home, AGENT_WORKFORCE_LAUNCH: home, KOSMOS_BUSY_WAIT: '2' });
+    const plain = await runCli(['start'], env);
+    assert.equal(plain.code, 0, plain.stdout + plain.stderr);
+    assert.match(plain.stdout, /already running .*busy/, 'CONTROL: without the flag a busy board is left alone');
+    const reclaim = await runCli(['start', '--force'], { ...env, KOSMOS_WATCHDOG_RECLAIM: '1' });
+    assert.match(reclaim.stdout, /held by your own stale Kosmos .* Reclaiming it/, 'with the flag the #3079 reclaim runs: ' + reclaim.stdout + reclaim.stderr);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+}));
+
+test('#4466 part 6: `kosmos open` from an agent on a down board goes through the same restart cooldown', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    fs.writeFileSync(path.join(home, 'board.started-at'), String(Math.floor(Date.now() / 1000)));
+    const out = await runCli(['open'], baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /an agent may not start it again yet/);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
