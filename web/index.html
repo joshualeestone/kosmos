@@ -17604,7 +17604,7 @@ function kplusBar() {
   window.addEventListener('resize', kplusBarFit);
   /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
      cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
-     scrollbar gutter comes or goes (the boot cover and Talk drop it), the padding moves with it by design (#3497):
+     scrollbar gutter comes or goes, the padding moves with it by design (#3497):
      the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
      kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
      changes and the border box does not. render-plus-bar-3837 P8 drives both. */
@@ -56475,6 +56475,15 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
   if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 });
 window.addEventListener('resize', pjMentionPaint);
+/* #4506: the composer's own box too. Its width changes with NO window resize whenever the tab layout's scrollbar
+   gutter comes or goes (the overlays that drop it, and Talk), and a mirror sized before that would draw the draft
+   wrapped at the old width, off the caret, until the next keystroke. pjMentionPaint writes only the mirror, never
+   the textarea, so this cannot feed itself. render-gutter-return-4506 measures it. */
+function pjMentionWatchWidth() {
+  const input = document.getElementById('pj-post');
+  if (input && typeof ResizeObserver === 'function') new ResizeObserver(pjMentionPaint).observe(input);
+}
+pjMentionWatchWidth();
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated

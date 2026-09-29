@@ -191,12 +191,14 @@ const bar = (page) => page.evaluate(() => {
       const after = await fit();
       chk(after.gutter === 15 && after.right === 0 && after.left === 0, 'P8 once the cover lifts and the gutter is back, the bar re-fits: edge to edge of the page, not 15px past it', JSON.stringify(after));
       // The other way the header's padding moves: kosmosMeasureScrollbarWidth sets --scrollbar-width (on a press, a
-      // focus, a return to the tab) and the padding follows while the header's border box stays put. Against a
-      // border-box-only observer this arm reads right -30 until the next window resize.
+      // focus, a return to the tab) and the padding follows while the header's border box stays put, which is
+      // asserted, since the arm only tells the two observers apart when that holds.
+      const headBefore = await p8.evaluate(() => Math.round(document.querySelector('.apphead').getBoundingClientRect().width));
       await p8.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '30px'));
       await p8.waitForTimeout(300);
       const padOnly = await p8.evaluate(() => { const h = document.querySelector('.apphead'), root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
         return { pad: parseFloat(getComputedStyle(h).paddingRight), headW: Math.round(h.getBoundingClientRect().width), right: Math.round(root.right - b.right) }; });
+      chk(padOnly.headW === headBefore, 'P8 precondition: a new --scrollbar-width moves only the header\'s padding, not its border box', JSON.stringify({ headBefore, headW: padOnly.headW }));
       chk(padOnly.pad >= 30 && padOnly.right === 0, 'P8 when only the header\'s padding changes (a new scrollbar measurement, same width), the bar re-fits too', JSON.stringify(padOnly));
       await p8.evaluate(() => document.documentElement.style.removeProperty('--scrollbar-width'));
     } finally { await b8.close(); }
