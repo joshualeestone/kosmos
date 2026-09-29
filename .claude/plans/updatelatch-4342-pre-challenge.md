@@ -2,25 +2,25 @@
 pre_challenge: true
 method: challenge-loop
 branch: updatelatch-4342
-diff_hash: af10c26cec49073430fd8d5751a819658671567831eff4a287a015177f29e286
+diff_hash: 131f2f21a0bf13c2a9d249a03ff17dbbd0748a3aeb6d3d2ac708f1b694a40f37
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-28T20:55:15Z
-iterations: 6
+timestamp: 2026-09-29T16:47:16Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (iteration 6 returned no BLOCKER, WARNING or CONVENTION)
-**Total findings:** 12 (2 BLOCKERs, 8 WARNINGs, 0 CONVENTIONs, 2 NITs), plus 1 validation-gate finding
-**Fixed:** 12 plus the gate finding | **Deferred:** 1 (iteration 6 observation, reasoned below) | **Asked (awaiting user):** 0
+**Iterations:** 8 (6 before the rebase onto main after #4489, then 2 post-rebase rounds against origin/main)
+**Converged:** Yes. Iteration 6 returned no BLOCKER, WARNING or CONVENTION before the rebase; post-rebase round 2 (iteration 8) returned no new actionable finding at bc9a690ff.
+**Total findings:** 14 (2 BLOCKERs, 9 WARNINGs, 1 CONVENTION, 2 NITs), plus 1 validation-gate finding and post-rebase nits
+**Fixed:** 14 plus the gate finding | **Deferred:** 2 (iteration 6 observation; iteration 8's restatement of the plan's disclosed weakest part, both reasoned below) | **Asked (awaiting user):** 0
 
-Validation: passed at f889e1880 (hash af10c26cec49; yarn type-check, lint-fix, test with 11443 tests and 0 failures,
-build; every shell suite 0 failed). test-install at b90e28d68, run alone on its own free port: the #4342 arm
-25/25 PASS. The one red in that run is main's, not this branch's: since #4396 (#4350) the board writes
-`./Kosmos/setup-guide-state.json`, which the expected-additions list does not know yet (reported on #4350).
+**Final validation (current head):** `validation_log_run_or_skip` recorded status clean at bc9a690ff (hash 131f2f21a0bf, the same diff as this record), run on Liu Kang's turn behind `heavy-gate --twice --quiet-box` (gate CLEAR 16:32:31Z, result 16:46:38Z 2026-09-29): 11809 tests, 11644 pass, 0 fail, 0 cancelled, 165 skipped; subdir audit passed. An earlier run at the same head passed every test but was recorded `failed` because of a dangling node_modules symlink in the worktree; it is not counted.
+test-install at bc9a690ff: 406 PASS, 0 FAIL, rc 0 (the download-path arms are skipped: no packed tarballs in dist/, an environment gap). Negative control at 634d308a1: with the `_kosmos_board_decide` routing removed from the failure trap, the new connect race arm goes RED (402 pass / 4 fail); setup.sh restored byte for byte.
+
+History before the rebase (commit ids below from before the rebase): validation passed at f889e1880 (hash af10c26cec49; 11443 tests, 0 failures); test-install at b90e28d68: the #4342 arm 25/25 PASS. The one red in that run was main's, not this branch's: since #4396 (#4350) the board writes `./Kosmos/setup-guide-state.json`, which the expected-additions list did not know yet (reported on #4350).
 
 ### Per-Iteration Breakdown
 
@@ -71,6 +71,22 @@ build; every shell suite 0 failed). test-install at b90e28d68, run alone on its 
 **Converged**: no new actionable findings. One observation, deferred with reasoning:
 - `cmd_stop`'s "already down" branch writes board.stopped even when the board had crashed just before the update, so a failed update will try to start a board that was not running right before it. --> DEFERRED: the absence of board.stopped means "should be running" everywhere in the product (launchd KeepAlive and the watchdog both act on it), so starting it is the existing invariant, not a new behaviour. What would change this: a ruling that a crashed board should stay down through an update.
 
+#### Iteration 7 (post-rebase round 1, against origin/main after #4489)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, nits
+**Self-generated:** 1 (the routing through `_kosmos_board_decide` added for Kano m3052)
+- [WARNING] install/setup.sh: "another Kosmos on the port" kept `clear` on only one of its two arms, so the other left our board.stopped behind --> FIXED (bc9a690ff: `clear` on both arms; the header names the 2 exceptions; a note that the ignored signals are inherited by start)
+- [CONVENTION] .claude/plans/updatelatch-4342.md did not describe the rebased design (routing via `_kosmos_board_decide`, the connect race arm, `clear` not disarm on refusals, the measured counts) --> FIXED (bc9a690ff)
+- [NIT] x several --> FIXED (bc9a690ff)
+
+#### Iteration 8 (post-rebase round 2)
+**Reviewer model:** sonnet
+**New findings:** 0 new actionable
+**Converged** at bc9a690ff.
+- Its warning restated the plan's disclosed weakest part (an interruption in the middle of the swap) --> DEFERRED, as the plan states.
+- Its convention (plan filename) the reviewer itself called consistent with repo practice.
+- Its nits concerned a past commit subject and a structural check the runtime arms already cover.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -89,6 +105,9 @@ build; every shell suite 0 failed). test-install at b90e28d68, run alone on its 
 | 12 | 5 | WARNING | tools/test-install.sh | SELF | no http or silent stand-in arm | FIXED | 25828cb9 |
 | 13 | gate | BLOCKER | install/setup.sh:2780,2786,2816 | BRANCH | unbound variable under set -u | FIXED | f889e1880 |
 | 14 | 6 | (observation) | install/kosmos cmd_stop | BRANCH | crashed-then-updated board is started | DEFERRED | existing invariant |
+| 15 | 7 | WARNING | install/setup.sh | SELF | port refusal cleared on one arm only | FIXED | bc9a690ff |
+| 16 | 7 | CONVENTION | .claude/plans/updatelatch-4342.md | SELF | plan behind the rebased design | FIXED | bc9a690ff |
+| 17 | 8 | (restated) | install/setup.sh | BRANCH | mid-swap interruption | DEFERRED | the plan's disclosed weakest part |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
