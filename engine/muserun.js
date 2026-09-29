@@ -46,6 +46,12 @@ const STOPPED = 'Stopped before Muse Code finished';
  * only in a trusted workspace. `--no-foreign-personal-context`: keeps other tools' personal rules out
  * (weakest premise: not yet observed what it excludes; the signed-in Mac run should confirm).
  * `--user-input-auto-resolve`: headless, so a question to the user is cancelled rather than waited on.
+ * `--disable-sandbox` (#4569, Josh's first real Muse agent): Muse runs every shell command in its own sandbox,
+ * on by default with network "proxy-only", which blocks 127.0.0.1, so the agent's `kosmos reply` never reached
+ * the board and it answered only in its own terminal. `--approval-mode never` does not turn that sandbox off.
+ * Chosen over `--sandbox-network enabled` because this flag is named verbatim in `muse exec --help` (1.4.1) and
+ * takes no value, while the network mode's accepted values are not listed there, and a value Muse refuses would
+ * fail every turn. Codex agents run the same way (--dangerously-bypass-approvals-and-sandbox).
  */
 function turnArgs({ workspace, sessionId, prompt, approvalMode } = {}) {
   if (typeof prompt !== 'string' || !prompt.trim()) return { error: 'there is nothing to send' };
@@ -59,7 +65,7 @@ function turnArgs({ workspace, sessionId, prompt, approvalMode } = {}) {
   try { if (!fs.statSync(real).isDirectory()) return { error: 'the agent\'s folder is not a folder' }; } catch { return { error: 'the agent\'s folder is not there' }; }
   return {
     args: ['exec', '--json', '--workspace', real, '--session-id', String(sessionId), '--approval-mode', mode,
-      '--trust-workspace', '--no-foreign-personal-context', '--user-input-auto-resolve', '--', prompt],
+      '--disable-sandbox', '--trust-workspace', '--no-foreign-personal-context', '--user-input-auto-resolve', '--', prompt],
     workspace: real,
   };
 }
