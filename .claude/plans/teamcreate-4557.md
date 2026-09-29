@@ -61,8 +61,8 @@ creates through the existing route.
   failed row.
 - The lead goes first. The reports wait until the lead exists, because they report to it by name. A failed lead
   holds the reports with that reason, and retrying the lead releases them.
-- The org chart import (#1280) moves onto the same progress step later. Kano owns that path; the step will
-  accept plain members for it.
+- The org chart import already works (#4217, 0.7.05; Josh 09:09: "it does function with a simple list"). Moving
+  it onto this progress step is a later improvement, not part of #4554, so this step takes seeded teams only.
 
 ### Slice 2, as built (measured)
 - The step is a fourth create step, `cstep-team`, beside role / name / made. `openTeamCreate(key)` opens the

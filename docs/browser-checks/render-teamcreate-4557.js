@@ -230,4 +230,4 @@ function chk(ok, label, extra) {
   }
   console.log('\n' + (fail.length ? fail.length + ' FAILED' : 'ALL PASSED'));
   process.exit(fail.length ? 1 : 0);
-})().catch((e) => { console.error('ERR', e); process.exit(1); });
+})().catch((e) => { console.error('FAIL  render-teamcreate-4557 crashed: ' + ((e && e.stack) || e)); process.exit(1); });
