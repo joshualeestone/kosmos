@@ -666,6 +666,8 @@ async function run() {
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
+  // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
+  if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
   const engines = { chromium, webkit };
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
@@ -688,7 +690,7 @@ async function run() {
             for (const sc of screens) {
               if (s.desktop && sc.phoneOnly) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
-                skipped.push({ file: '', screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
+                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
                 console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
                 continue;
               }

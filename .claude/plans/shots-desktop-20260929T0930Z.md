@@ -56,5 +56,9 @@ SANCTIONED WAY TO TAKE SCREENSHOTS FOR A PR"), and it has phone sizes only.
   run shoots desktop only. The header and README now say what the flag does instead of making a claim about it.
 - The refusal test matches only the exact missing-module text (a checkout path containing "playwright" can no
   longer fail it); the allow-card status line left the README (it would go stale; #4524 is recorded above).
-- Not changed: the control depends on Playwright not resolving from the repo (true today: no node_modules/playwright).
-  If it ever becomes a repo dependency, that test needs a different control. Recorded here rather than fixed.
+
+## Review round 5 (sonnet), fixed
+- The test no longer depends on Playwright being absent: `MSHOTS_PLAN_ONLY=1` (a test hook, like MSHOTS_LEAK_CONTROL)
+  stops the tool right after it decides its plan. The refusal case exits 2; the control (one more screen that is not
+  phone-only) exits 0 with "planned 1". Round 4's recorded-not-fixed dependency is gone.
+- Skipped report.json entries carry `file: null`.

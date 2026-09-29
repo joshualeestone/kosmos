@@ -9,22 +9,20 @@ const { spawnSync } = require('node:child_process');
 
 const SCRIPT = path.join(__dirname, 'docs', 'browser-checks', 'mobile-shots.js');
 
-/* NODE_PATH is removed so Playwright cannot load: a run that gets PAST the check stops there, cheaply. */
+/* MSHOTS_PLAN_ONLY=1 makes the tool stop right after deciding its plan, whatever is installed: no browser, no board. */
 function run(args) {
-  const env = { ...process.env };
-  delete env.NODE_PATH;
-  return spawnSync(process.execPath, [SCRIPT, ...args], { env, encoding: 'utf8', timeout: 60000 });
+  return spawnSync(process.execPath, [SCRIPT, ...args], { env: { ...process.env, MSHOTS_PLAN_ONLY: '1' }, encoding: 'utf8', timeout: 60000 });
 }
 
 test('every requested screen phone-only at the desktop size: exit 2, before a browser starts', () => {
   const r = run(['--sizes', 'desktop', '--screens', 'nav-menu', '--themes', 'light', '--engines', 'chromium']);
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /no shot would be taken/);
-  assert.doesNotMatch(r.stderr, /Cannot find module 'playwright'/);
 });
 
-test('control: a run with a shot to take gets past the check (and stops at loading Playwright, hidden here)', () => {
+test('control: the same run plus one screen that is not phone-only passes the check, with one shot planned', () => {
   const r = run(['--sizes', 'desktop', '--screens', 'nav-menu,home', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /no shot would be taken/);
-  assert.match(r.stderr, /Cannot find module 'playwright'/);
+  assert.match(r.stdout, /planned 1 screen\(s\)/);
 });
