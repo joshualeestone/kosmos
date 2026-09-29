@@ -608,8 +608,9 @@ if [ -z "$adopt" ]; then
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
     # #4477: codex reads AGENTS.md only up to project_doc_max_bytes (32 KiB by default) and
     # silently drops the rest, which is Kosmos's own rules (appended after the person's brief).
-    # Raised to Kosmos's instruction-file cap (engine/workerfile.js MAX_BYTES, 256 KiB); the
-    # Windows launch passes the same value and engine/codex-docbytes-4477.test.js pins both.
+    # This number is a COPY of engine/workerfile.js MAX_BYTES (256 KiB), held equal by
+    # engine/codex-docbytes-4477.test.js; the Windows launch computes it from that constant.
+    # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
     DOCBYTES_CFG="project_doc_max_bytes=262144"
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses

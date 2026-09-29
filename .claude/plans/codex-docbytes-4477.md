@@ -26,7 +26,18 @@ isolated CODEX_HOME, no account)
   (codex has no other file it always loads), writing the key into the agent's config.toml (would
   touch the person's own ~/.codex/config.toml for a default-account agent).
 - Test: engine/codex-docbytes-4477.test.js pins the Windows argv, every Mac codex launch line,
-  and both values equal to workerfile.MAX_BYTES.
+  and both values equal to workerfile.MAX_BYTES; tools/test-supervisor-model-2140.sh runs the real
+  supervisor against a stub tmux and asserts `-c project_doc_max_bytes=262144` in both codex arms
+  and not in the claude arm.
+
+## Limits, stated
+- A person's own higher `project_doc_max_bytes` in their config is lowered to 256 KiB for Kosmos
+  agents (a -c always wins).
+- codex counts the budget across every AGENTS.md from the git root down; an agent folder inside a
+  repo with its own AGENTS.md shares the budget with it.
+- The Windows `exec resume` case is reasoned, not measured: the flag parses there (`--help`), and
+  the measured case is `debug prompt-input`. A Windows codex thread started before this change may
+  keep its old instructions if its thread id survives an update.
 
 ## Weakest premise
 Windows: the argv is unit-tested here but no real Windows Codex launch has been run with it.
