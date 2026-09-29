@@ -29,6 +29,12 @@ by asking the agent.
 - The Windows arm (job.model from the Scheduled Task, plannedModelId's fallback) is REASONED from readJob's win32
   shape, not driven: no test here injects a task spec. The Mac arm is unchanged in value.
 
+## Known differences, by design
+- A running Codex agent's card names the model its rollout reports; the OpenAI picker pre-selects the JOB's model
+  (plannedModelId), because the job is what the picker changes. After a /model switch inside codex they can differ
+  until the agent restarts.
+- The stopped list reads plannedModelId only for codex rows, as the roster does (one launch-file read, not three).
+
 ## Weakest premise
 That each CLI's record names the model it runs NOW: Codex's last turn_context and Grok's current_model_id do; Gemini
 names it per message, so a /model switch shows after the next reply, not at the switch.

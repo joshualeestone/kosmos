@@ -4581,6 +4581,8 @@ const server = http.createServer((req, res) => {
                  leftover shape and keeps that sentence. */
               const unseen = !create.jobMissing(k.name) && k.folder
                 && runningNow.has(k.name);
+              /* #246/#2811's runner for this row, read once: the `runner` field below and #4416's plannedModelId both use it. */
+              const rowRunner = runnerOfCard({ sessionName: k.name, runner: null });
               return {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
@@ -4715,7 +4717,7 @@ const server = http.createServer((req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
-                plannedModelId: create.plannedModelId(k.name),   // #4416: the raw id, for the OpenAI picker
+                plannedModelId: rowRunner === 'codex' ? create.plannedModelId(k.name) : null,   // #4416: the raw id, for the OpenAI picker (codex only, as on the roster)
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
@@ -4764,7 +4766,7 @@ const server = http.createServer((req, res) => {
                    of the two: the plist is the launch truth, as this file says
                    everywhere else, and the profile is the fallback when there is
                    no job to read. */
-                runner: runnerOfCard({ sessionName: k.name, runner: null }),
+                runner: rowRunner,
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),

@@ -39,6 +39,7 @@ test('#4416: an id the table does not know is read in plain language', () => {
 test('#4416: an id whose reading could mis-say its version stays raw (the reason the table exists)', () => {
   assert.equal(status.modelDisplayName('claude-haiku-4-5'), 'Claude Haiku 4.5', 'control: the table still names a dashed version it knows');
   assert.equal(status.modelDisplayName('claude-opus-6-1'), 'claude-opus-6-1', 'a dashed version would read "Opus 6 1"');
+  assert.equal(status.modelDisplayName('grok-4.6-1'), 'grok-4.6-1', 'a dotted version then a number would read "Grok 4.6 1"');
   assert.equal(status.modelDisplayName('gpt-4o-mini-2024-07-18'), 'gpt-4o-mini-2024-07-18', 'a date would read as a version');
   assert.equal(status.modelDisplayName('claude-sonnet-5-20251001'), 'Claude Sonnet 5', 'control: a dated id the table knows still drops its date');
   assert.equal(status.modelDisplayName('weird_id!'), 'weird_id!', 'something that is not words and numbers is shown as it is');
@@ -133,6 +134,8 @@ test('#4416: the OpenAI picker keys on the RAW id, on either platform', () => {
      that both server sites fill plannedModelId from the reader that also covers a Windows job. */
   const server = read('server.js');
   assert.match(server, /plannedModelId: \(a\.isNamedOurs && a\.runner === 'codex'\) \? create\.plannedModelId\(a\.sessionName\) : null,/);
-  assert.match(server, /plannedModelId: create\.plannedModelId\(k\.name\),/);
+  assert.match(server, /plannedModelId: rowRunner === 'codex' \? create\.plannedModelId\(k\.name\) : null,/,
+    'the stopped list reads the launch file for every agent, whatever its runner');
+  assert.match(server, /runner: rowRunner,/, 'the stopped row\'s runner and its plannedModelId gate read two different derivations');
   assert.equal(require('./create').plannedModelId('../escape'), null, 'an unvalidated name reads nothing');
 });

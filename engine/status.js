@@ -5517,7 +5517,8 @@ const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claud
 function readableModelId(id) {
   const parts = String(id || '').split('-');
   if (!parts.length || parts.some((p) => !/^[A-Za-z0-9.]+$/.test(p))) return null;   // anything but plain words and numbers
-  for (let i = 1; i < parts.length; i++) if (/^\d+$/.test(parts[i]) && /^\d+$/.test(parts[i - 1])) return null;   // a dashed version
+  const num = (p) => /^\d+(?:\.\d+)*$/.test(p);
+  for (let i = 1; i < parts.length; i++) if (num(parts[i]) && num(parts[i - 1])) return null;   // a dashed version (4-5, 4.6-1)
   if (parts.some((p) => /^\d{6,}$/.test(p))) return null;   // a date or snapshot number
   if (!/^[a-z]/i.test(parts[0])) return null;
   return parts.map((p) => MODEL_WORDS[p.toLowerCase()]
