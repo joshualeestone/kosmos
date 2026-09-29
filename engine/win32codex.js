@@ -38,6 +38,16 @@ const { spawn } = require('node:child_process');
    win32launch.AUTONOMY.codex carries, written once here so the two cannot drift. */
 const AUTONOMY_FLAG = '--dangerously-bypass-approvals-and-sandbox';
 
+/* #4477: codex reads a project's AGENTS.md only up to `project_doc_max_bytes` (32 KiB by
+   default) and drops the rest without a word. Kosmos appends its own working rules AFTER the
+   person's brief, so the tail it drops is ours. Measured with `codex debug prompt-input`
+   (codex-cli 0.149.1): a 42 KB AGENTS.md lost its last line by default and kept it with this
+   override. Set to twice Kosmos's instruction cap (workerfile.MAX_BYTES), because codex spends one
+   budget across every AGENTS.md from the repository root down, not only the agent's own. The Mac launch in
+   bin/agent-supervisor.sh carries a copy of this number, held equal by
+   engine/codex-docbytes-4477.test.js. */
+const DOC_BYTES_CFG = `project_doc_max_bytes=${2 * require('./workerfile').MAX_BYTES}`;
+
 /**
  * The argv for one `codex exec` turn.
  *
@@ -54,7 +64,7 @@ const AUTONOMY_FLAG = '--dangerously-bypass-approvals-and-sandbox';
  */
 function codexTurnArgs(opts) {
   const o = opts || {};
-  const args = ['exec'];
+  const args = ['-c', DOC_BYTES_CFG, 'exec'];
   if (o.sessionId) args.push('resume', String(o.sessionId));
   args.push('--json', '--skip-git-repo-check');
   if (o.model) args.push('-m', String(o.model));
@@ -156,4 +166,4 @@ function runCodexTurn(opts) {
   });
 }
 
-module.exports = { codexTurnArgs, parseCodexTurn, runCodexTurn, setSpawn, AUTONOMY_FLAG };
+module.exports = { codexTurnArgs, parseCodexTurn, runCodexTurn, setSpawn, AUTONOMY_FLAG, DOC_BYTES_CFG };
