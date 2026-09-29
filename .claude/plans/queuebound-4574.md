@@ -214,3 +214,10 @@ Because the two comment edits changed the diff, one more blind round follows.
   current.
 - (N, left) stand-in waiters are not in the file's EXIT trap (they end in 5 minutes, and their markers are in the
   sandbox's marker dir).
+
+## Review iteration 16 (blind, sonnet): CONVERGED (nothing at BLOCKER, WARNING or CONVENTION)
+Its CONVENTION line only confirms the plan matches the code. NITs, left (changing code now would need another round):
+the second ask's brief unmark is a known, bounded false restart (documented, capped by the ceiling);
+_kosmos_pid_started_local could say it is deliberately unpinned (it is the older lib's form; follow-up); the ceiling
+counts one extra waiter when one marked in the same second behind (the safe side).
+Next: the full validation (tools/run-tests.sh) on the final head, through the queue, then the proof.
