@@ -30802,7 +30802,8 @@ function orgPlace(nodes) {
      (bisected, then stepped; below). It always ends: once every two neighbouring slice centres are ORG_MIN_ARC
      apart at `base`, every agent fits the first lane, and no hub line passes a face at all. */
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
-  const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)));
+  /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
+  const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) + 1);
   let ring = firstRing(ORG_R0);
   if (ring.fellBack) {
     /* Bisect for the nearest base that clears (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
@@ -31000,7 +31001,10 @@ function orgPlace(nodes) {
       const ps = placed.get(p.agent.sessionName);
       /* #4499: only what can reach this team. Its faces and lines all lie inside the manager's slice, so a face or a
          line whose angle stays clear of the slice by more than the spacing and the clearance cannot matter. Every
-         check below reads these, once per team rather than once per try (1000 agents: 84ms -> 21ms). */
+         check below reads these, once per team rather than once per try (1000 agents: 84ms -> 21ms). The reach uses
+         the placed thing's OWN radius, whatever radius the team is tried at: a point at radius q that is d radians
+         outside a wedge of angles is q sin(d) from every point in it (the nearest is on the wedge's edge ray), so
+         a face needs its radius, and a line its nearest approach to the hub (review it2 asked; this is why). */
       const mid = (ps.lo + ps.hi) / 2;
       const halfW = (ps.hi - ps.lo) / 2;
       const rel = (a) => { const d = a - mid; return d - TAU * Math.round(d / TAU); };

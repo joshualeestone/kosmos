@@ -49,9 +49,6 @@ function lift(names, tail) {
   return new Function(consts + src + '\n' + tail)();
 }
 const page = lift(['orgTreeOf', 'orgPlace'], 'return { orgTreeOf, orgPlace, ORG_PAD, ORG_MIN_ARC };');
-/* ORG_LANE_SLOT lives inside orgPlace (so the tests that lift orgPlace need no new constant); read it from there. */
-const LANE_SLOT = Number((SCRIPT.match(/const\s+ORG_LANE_SLOT\s*=\s*([\d.]+)\s*;/) || [])[1]);
-assert.ok(LANE_SLOT > 0, 'ORG_LANE_SLOT is no longer declared in the page');
 
 /* Cards from the real producer (fixture-discipline refuses hand-built ones), with a per-tree name prefix. */
 let TREE = 0;
