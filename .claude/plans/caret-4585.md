@@ -3,7 +3,7 @@
 ## Finished looks like
 - In the project room composer, typing any message, on any line and at any width, the caret sits at the
   end of the text the person sees, in Chromium and WebKit (the Mac app's engine), including once the box
-  scrolls with a visible scrollbar. The Direct Message box and the task composers draw their own text, so
+  scrolls (it shows no scrollbar in either engine, which the check asserts). The Direct Message box and the task composers draw their own text, so
   they were never affected (asserted for the DM box).
 
 ## Cause (measured on origin/main)
@@ -24,7 +24,7 @@ the visible text (3 lengths of a long sentence at 1400px, 8 at 1180px, both engi
   the check asserts that premise rather than subtracting a scrollbar.
 
 ## Verification
-- New gated check render-composer-caret-4585.js (27 arms in Chromium and WebKit, gated on Chromium):
+- New gated check render-composer-caret-4585.js (29 arms in Chromium and WebKit, 15 in Chromium alone, gated on Chromium):
   layout properties equal; real width; text starts at the textarea's text (today and the new look; guards,
   their control does not fail at these layouts); a per-character wrap sweep at three widths (fails on
   origin/main); no scrollbar once scrolled; a width change with no resize re-sizes the mirror (fails

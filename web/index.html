@@ -57196,16 +57196,9 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
 window.addEventListener('resize', pjMentionPaint);
 /* #4585 review: the composer's width also changes with no window resize (the layout switch, a panel, a
    page scrollbar arriving): the textarea rewraps at once, so the mirror must too. */
-if (typeof ResizeObserver === 'function') {
-  new ResizeObserver(() => {
-    const input = document.getElementById('pj-post'), mirror = document.getElementById('pj-post-mirror');
-    if (!input || !mirror) return;
-    const r = input.getBoundingClientRect();
-    // pjGrowComposer already repainted for a keystroke's height change; only a size the mirror lacks repaints.
-    if (mirror.style.width === r.width + 'px' && mirror.style.height === r.height + 'px') return;
-    pjMentionPaint();
-  }).observe(document.getElementById('pj-post'));
-}
+/* It also fires on a keystroke's grow, which pjGrowComposer has already painted: a second paint is the same
+   paint (a skip on "size unchanged" was tried and could leave the mirror disengaged after a hide). */
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => pjMentionPaint()).observe(document.getElementById('pj-post'));
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated

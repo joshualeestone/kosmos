@@ -95,7 +95,7 @@ const SENT = 'Thanks for using tasks and putting files here, helps me see it fro
   + 'with this approach for the rest of the week, then look again on Monday @ada';
 /* Lines as each element lays the text out: the textarea from its scrollHeight, the mirror's text box from its
    own. Swept over every length of SENT, which crosses each width's wrap points. */
-const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evaluate(async ([text, from, onlyScrolling]) => {
+const SWEEP = async (page, text, from = 20) => page.evaluate(async ([text, from]) => {
   const t = document.getElementById('pj-post'), m = document.querySelector('#pj-post-mirror .pj-mirror-in');
   const cs = getComputedStyle(t), lh = parseFloat(cs.lineHeight), pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
   const bad = [];
@@ -103,16 +103,12 @@ const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evalu
   for (let n = from; n <= text.length; n++) {
     t.value = text.slice(0, n); t.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((r) => requestAnimationFrame(r));
-    /* Below its max height the box is sized by its own grow step, so its height is its line count only
-       while no scrollbar comes and goes during that step; the scrolling arm reads only lengths where the
-       box scrolls, where scrollHeight is the text's own height. */
-    if (onlyScrolling && !(t.scrollHeight > t.clientHeight + 1 && t.offsetWidth - t.clientWidth > 0)) continue;
     const tl = Math.round((t.scrollHeight - pad) / lh), ml = Math.round((m.scrollHeight - pad) / lh);
     lengths++; if (tl > 1) wrapped++;
     if (tl !== ml) bad.push({ n, textarea: tl, mirror: ml, at: text.slice(Math.max(0, n - 14), n) });
   }
   return { lengths, wrapped, bad: bad.slice(0, 5), badCount: bad.length, live: t.classList.contains('mention-live') };
-}, [text, from, onlyScrolling]);
+}, [text, from]);
 
 (async () => {
   fleet.install(NAMES.map((n, i) => fleet.agent(n, { state: 'idle', displayName: n[0].toUpperCase() + n.slice(1), role: 'Role ' + (i + 1) })));
@@ -199,7 +195,8 @@ const SWEEP = async (page, text, from = 20, onlyScrolling = false) => page.evalu
         arm(nar.after < nar.before - 20 && Math.abs(nar.mirror - nar.after) < 0.01,
           `[${engine}] narrowing the column in place (no window resize) re-sizes the mirror with the textarea`, JSON.stringify(nar));
         await page.close();
-        // The Direct Message box draws its own text: nothing to drift from its caret.
+        // The Direct Message box draws its own text: nothing to drift from its caret. (A guard: it fails only if a
+        // mirror, or transparent text, is ever added to that box without this check being extended to it.)
         const dm = await browser.newPage({ viewport: { width: 1400, height: 900 } });
         await open(dm, base, 'agent');
         await dm.fill('#d-say', SENT);
