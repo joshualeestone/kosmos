@@ -9,7 +9,7 @@
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
- *       [--sizes se,iphone15,promax,android] [--themes light,dark]
+ *       [--sizes se,iphone15,promax,android,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
  *       [--data sample|store] [--scale css|device]
  *
@@ -70,6 +70,10 @@ const SIZES = {
   android: { width: 412, height: 915, dpr: 2.625, label: 'mid Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
+  // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
+  // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
+  // rules) are skipped for it. Not in the default sweep.
+  desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
 };
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
@@ -679,8 +683,8 @@ async function run() {
                  decide what the next screen looks like. */
               const ctx = await browser.newContext({
                 viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
-                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch.
-                isMobile: en === 'chromium', hasTouch: true, colorScheme: theme,
+                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
+                isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
                 // A page.route stub needs the service worker off in WebKit (see allow-card).
                 ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
@@ -731,7 +735,7 @@ async function run() {
                   note = 'OVERFLOW ' + ov.containers.map((c) => `${c.sel} ${c.scrollWidth}>${c.clientWidth}`).join(', ')
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
-                fit = await fitOf(page);
+                if (!s.desktop) fit = await fitOf(page);
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
