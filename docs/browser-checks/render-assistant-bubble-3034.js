@@ -1,4 +1,5 @@
 // Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle asb-row-who asb-row-pic asb-row-msg asb-row-models asb-row-state asb-row-setup setup-guide asp-busy asb-act asp-open asp-hide asp-hide-yes asp-hide-no
+// Browser-check-functions: asbAvatar
 'use strict';
 
 /**

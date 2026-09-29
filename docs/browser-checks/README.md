@@ -77,7 +77,20 @@ be reached that way, so it says so on its first lines:
 
     // Browser-check-scope: page
 
-and runs on every page change. `render-fields` and `contrast` carry it. A check that is red on
+and runs on every page change. `render-fields` and `contrast` carry it.
+
+A check that depends on a page function it never calls or names (it sees only what the function
+draws) declares that function on its first lines:
+
+    // Browser-check-functions: asbAvatar
+
+and is selected when a change lands inside that function's body, even though the changed lines
+never name it (#4119: #3828 changed only asbAvatar's body, and the cut found
+`render-assistant-hosted-3660` red). Declare only what the check truly depends on: it adds that
+check to every PR that edits the function. A declared function the page no longer defines selects
+the check, and `browser-checks-pr-select-4119.test.js` fails until the declaration is updated.
+
+A check that is red on
 the CI runner for a reason that is not the PR's (the nightly card, #3973) is listed in the
 tool's `KNOWN_RED` and left out of this selection, with a line saying so. Run the selector
 yourself to see what a branch will run, and why. A change to `test-support/`, the driver,
