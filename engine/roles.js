@@ -34,6 +34,21 @@ const HANDS_OFF_LINES = [
   '  their way around. If they ask you to change one for them, say so kindly and',
   '  walk them through it instead.',
 ];
+/* #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
+   when no role on the list fits, the PM writes one, starting from the default text, and makes the agent from it
+   after the same one-line confirmation. The same file makes more agents with that
+   role; Kosmos keeps no list of made-up roles. Not the setup guide: it is sandboxed away from the person's secrets,
+   and a role it wrote would give an unsandboxed agent instructions the guide may not act on (the server refuses
+   it, team.vetAgentMember); it walks the person through New agent instead. */
+const NEW_ROLE_LINES = [
+  '  If no role on that list fits, write one, in a file named for it: run',
+  '  `kosmos agent role-draft --to role-<short-name>.md`, make it say what this',
+  '  agent is for and how it works (keep its first line, the one that starts',
+  '  `You are`, and say there what the agent is), then tell the operator the role\'s',
+  '  name and what it does, and only after they say yes run `kosmos agent create',
+  '  "<name>" --new-role "<role name>" --from role-<short-name>.md "<why>"`. To make',
+  '  another agent with that role later, use the same file.',
+];
 /* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
    for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
    Manager (PM_MAKES_AGENTS below, #1279) are the roles that name the verb. */
@@ -64,6 +79,7 @@ const PM_MAKE_AGENTS_LINES = [
   '  prints. If Kosmos refuses, tell the operator its reason in plain words.',
   '  If it says the agent may have been made, look at the board before trying',
   '  again.',
+  ...NEW_ROLE_LINES,
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */

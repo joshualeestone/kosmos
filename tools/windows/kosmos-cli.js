@@ -101,9 +101,12 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles>',
+    'Usage: kosmos agent <create|roles|role-draft>',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
+    '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
+    '                                                  make one with a role you wrote, when none fits',
     '  kosmos agent roles                              list the roles an agent can be made with',
+    '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
@@ -159,6 +162,15 @@ function argvFrom(argv, readFile) {
    a literal U+FEFF in this source is invisible, and an editor that strips it
    would turn the pattern into /^/ and break every Windows command (review round 1). */
 const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
+/* #4474: a text file an agent wrote, decoded by its byte order mark. Windows PowerShell 5.1's `>` writes UTF-16LE
+   with a BOM, so a role file an agent redirected there is such a file (role-draft --to avoids it); as UTF-8 it is NULs
+   between the letters, which would pass every length check. UTF-16LE, UTF-16BE and UTF-8 (BOM dropped). */
+function textFileDecoded(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf), 'utf8');
+  if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) return b.subarray(2).toString('utf16le');
+  if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) return Buffer.from(b.subarray(2)).swap16().toString('utf16le');
+  return b.toString('utf8').replace(BYTE_ORDER_MARK_AT_START, '');
+}
 
 /* cmd_room's and cmd_task's sanitizer, exactly: a project id keeps only
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
@@ -660,12 +672,28 @@ async function projectCreate(ctx, args) {
 async function agentCreate(ctx, args) {
   const name = args[0];
   const role = args[1];
-  const why = args[2] || 'the person asked for it';
+  let why = args[2] || 'the person asked for it';
   if (!name || !role) { ctx.err(USAGE.agent); return 2; }
+  /* #4474: a role the agent wrote, from a file: the `own` role with its label and the file's text. */
+  let member = { name, role };
+  if (role === '--new-role') {
+    const label = args[2];
+    if (!label || args[3] !== '--from' || !args[4]) {
+      ctx.err('Usage: kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]   (kosmos agent role-draft prints the text to start from)');
+      return 2;
+    }
+    let text;
+    try { text = ctx.readFile(args[4]); } catch (_) {
+      ctx.err('We could not read ' + args[4] + '. Write the role\'s text to a file first (kosmos agent role-draft --to role-<short-name>.md, then edit it).');
+      return 2;
+    }
+    why = args[5] || 'the person asked for it';
+    member = { name, role: 'own', label, instructions: text };
+  }
   if (!ctx.agentToken()) { ctx.err('kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead.'); return 1; }
   // A create waits on a live account check and the create itself, so it gets the long timeout; a timeout
   // after the request left is "may have been made", never "not made".
-  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [{ name, role }] }, { timeoutMs: POST_TIMEOUT_MS });
+  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [member] }, { timeoutMs: POST_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again.') : ctx.unreachable('make that agent');
   const j = r.json || {};
   const made = Array.isArray(j.created) && j.created[0] ? j.created[0] : null;
@@ -682,6 +710,23 @@ async function agentRoles(ctx) {
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
   for (const x of roles) if (x && x.key) ctx.out(x.key + '  ' + (x.label || ''));
+  return 0;
+}
+/* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
+async function agentRoleDraft(ctx, args) {
+  const to = args && args[0] === '--to' ? args[1] : null;
+  if (args && args[0] === '--to' && !to) { ctx.err('Usage: kosmos agent role-draft [--to <file>]'); return 2; }
+  // A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
+  if (to && ctx.fileExists(to)) { ctx.err(to + ' already exists, and it may hold another role. Pick another name, or move it first.'); return 2; }
+  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  if (!r.reached) return ctx.unreachable('get the role text');
+  const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
+  if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
+  if (!to) { ctx.out(text.replace(/\n+$/, '')); return 0; }
+  /* --to writes the file itself, UTF-8 with the text's own line endings: PowerShell's `>` would re-encode it
+     (UTF-16, CRLF, the console code page), and the board checks the shared rules in it word for word (#4474). */
+  try { ctx.writeFile(to, text.replace(/\n+$/, '') + '\n'); } catch (_) { ctx.err('We could not write the role text to ' + to + '.'); return 1; }
+  ctx.out('Wrote the default role text to ' + to + '. Edit it, then: kosmos agent create "<name>" --new-role "<role name>" --from ' + to);
   return 0;
 }
 
@@ -916,7 +961,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
   project: { create: projectCreate },
-  agent: { create: agentCreate, roles: agentRoles },
+  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost },
 };
@@ -1007,6 +1052,9 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
+    readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
+    writeFile: o.writeFile || ((f, text) => fs.writeFileSync(f, text, 'utf8')),   // #4474: agent role-draft --to
+    fileExists: o.fileExists || ((f) => fs.existsSync(f)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
@@ -1036,7 +1084,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, readStandardInput, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

@@ -10,9 +10,9 @@
  * This is the NARROW version Baron Draxum's design pass recommended on the card:
  * a creator makes agents OF ROLE TYPES THAT ALREADY EXIST, with the two safety
  * rails that have a real substrate to build on. It is "most of the value and
- * almost none of the risk"; "create a new role type from scratch" is a separate
- * card, because that is where the default-text generator and the permission
- * model all have to be right at once.
+ * almost none of the risk"; "create a new role type from scratch" was a separate
+ * card (#4474, below), because that is where the default-text generator and the
+ * permission model all have to be right at once.
  *
  * 🔑 KOSMOS OWNS THE BOUND, NOT THE PROMPT (Baron's runaway question). A PM agent
  * asked for "a team for purpose X" has no natural limit on team size, and an
@@ -35,9 +35,13 @@
  *     role and project access are separate axes, none a capability set -- so
  *     there is nothing to narrow yet. Recording `createdBy` is the PREREQUISITE
  *     for ever enforcing it; the enforcement is the separate card.
- *   - It does not create a role type that does not exist. Each member's role is
- *     handed to create.createAgent, which refuses an unknown role with its own
- *     sentence, captured per-member below.
+ *   - It does not add a role to Kosmos's list. Each member's role is handed to
+ *     create.createAgent, which refuses an unknown role with its own sentence,
+ *     captured per-member below. #4474: an AGENT (not the setup guide) may give a
+ *     made-up role, but only as the `own` role with its label and text
+ *     (vetAgentMember below), the same one-agent shape the person's "Describe it
+ *     yourself" makes; nothing is saved as a new role, and the agent reuses its
+ *     role by reusing its file.
  *   - It does not verify the creator is a live roster agent. The creator string
  *     is recorded as provenance; verifying it belongs to a real agent is the
  *     authoring surface's job (the chat request -> createTeam seam), not this
@@ -46,6 +50,8 @@
 
 const create = require('./create');
 const store = require('./store');
+const instructions = require('./instructions');
+const defaults = require('./defaults');
 
 /* Read a created agent's id the SAME way create.createAgent does (#170): from
    the profile, the single mint point. createAgent's RETURN carries no id -- the
@@ -105,6 +111,93 @@ function resolveCap(deps, env) {
   return Math.min(cap, MAX_TEAM_CAP);
 }
 
+/* The fields of a create request an agent may send. The rest of what create reads is launch mechanics (which
+   binary runs, which folder, which platform, the person's own pick) or set by the team itself (createdBy,
+   purpose); team.newrole-4474.test.js sorts every field create reads into one of those, so a new one is decided. */
+const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind',
+  'reportsTo', 'maxHelpers', 'dailyTokenLimit', 'dailyAllowancePct'];
+const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*(?=[,.:;\s-])/;
+const RULES_HEADING = defaults.RULES_PHRASE;   // the one phrase appendTo keys on (defaults.js)
+/**
+ * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
+ * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
+ * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a real one for the sandboxed setup guide, which cannot read the board token;
+ * a cooperative guard for any other agent, which can read the board token and reach the unvetted operator path
+ * (as the per-creator cap in server.js says of itself). It keeps a cooperating agent inside the lines.
+ *   - Only the fields an agent's request has any use for (AGENT_MEMBER_KEYS): never a runner binary, a config
+ *     folder or a launch flag, which would let an agent choose what the new agent's launch job runs (and let the
+ *     sandboxed setup guide step outside its sandbox, #3769). Other fields are dropped.
+ *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769).
+ *   - The setup guide makes agents only from the roles on the list (fromGuide): a role it wrote would hand an
+ *     unsandboxed agent instructions the guide itself may not act on. The person writes their own in New agent.
+ *   - A role's own label or text are not replaced under a built-in role's key: a made-up role is the `own` role
+ *     with a label and text, so no agent reads as a Bookkeeper while carrying other instructions.
+ *   - The shared working rules stay as Kosmos wrote them: create appends them when their heading is missing, and
+ *     text that keeps the heading must keep the rules under it word for word (defaults.block).
+ *   - In made-up text, {{NAME}} becomes the member's name, and text that does not open with the identity line
+ *     gets one, "You are **<name>**, <label>.", the line every role's text starts with (the board's fallback for
+ *     the agent's name, status.readIdentity).
+ * Returns { member } (a copy with only the allowed fields, possibly with its text completed) or { because }.
+ */
+function vetAgentMember(member, opts) {
+  const fromGuide = !!(opts && opts.fromGuide === true);
+  /* The role exactly as create reads it, through its own create.roleKeyOf: a role sent as ["setup"] is not the
+     string 'setup' until coerced, and create would make the guide from it. One function, so the two cannot
+     disagree (the repo's two-derivations rule, #1228). */
+  const role = create.roleKeyOf(member);
+  if (role === 'setup') {
+    return { because: 'the setup guide is Kosmos\'s own and only Kosmos makes it; pick another role, or write a new one with --new-role' };
+  }
+  const madeUp = member.label !== undefined || member.instructions !== undefined;
+  if (madeUp && fromGuide) {
+    return { because: 'the setup guide makes agents from the roles on the list; for a role of their own, walk the person through New agent, then Describe it yourself' };
+  }
+  if (madeUp && role !== 'own') {
+    return { because: 'a role\'s own label and text are not replaced; to make an agent with a role of your own, use role own with a label and text (kosmos agent create "<name>" --new-role "<label>" --from <file>)' };
+  }
+  const out = {};
+  for (const k of AGENT_MEMBER_KEYS) if (member[k] !== undefined) out[k] = member[k];
+  if (member.role !== undefined) out.role = role;   // the role as vetted, a string, never the shape it was sent in
+  /* The label is flattened on every path (with or without text), so it can break neither the identity line nor
+     the card: a newline or any control character (a NUL would ride into the text through the identity line), or
+     a ** run (a single * a person meant, as in "C* specialist", is kept). */
+  const label = typeof member.label === 'string'
+    ? member.label.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';   // no control char (NUL too)
+  if (typeof member.label === 'string') out.label = label;
+  if (typeof member.instructions !== 'string') return { member: out };
+  /* NUL is never text: a file saved as UTF-16 and read as UTF-8 has one between every letter, and would pass
+     every length check (the Windows CLI decodes by BOM; this is the backstop for any AGENT caller, the operator
+     path is not vetted here). */
+  if (member.instructions.includes('\u0000')) {
+    return { because: 'this role\'s text has characters that are not text, as a file saved in UTF-16 does; save it as plain text (UTF-8) and try again' };
+  }
+  /* The name goes into the identity line as given: create's own name rule (nameProblem) refuses a *, a tab or a
+     newline in it before anything is written, so it cannot break the line. Loosen that rule and this needs the
+     label's flattening too. */
+  const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
+  /* Line endings as \n: a file that went through a Windows editor or PowerShell has \r\n, and the rules check
+     below compares the shared rules word for word. */
+  let text = member.instructions.replace(/\r\n?/g, '\n').split('{{NAME}}').join(name);
+  /* This stops edits INSIDE the shared rules; text elsewhere can still say otherwise, as any role's text can. */
+  if (text.includes(RULES_HEADING) && !text.includes(defaults.block().trim())) {
+    return { because: 'the text names the shared working rules ("' + RULES_HEADING + '") but does not carry them as Kosmos wrote them; leave that section as kosmos agent role-draft --to writes it, or delete it whole and Kosmos adds it back' };
+  }
+  /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
+     it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be
+     made whose whole brief is its name. */
+  const enough = text.trim().length >= instructions.MIN_CHARS;
+  const said = IDENTITY_LINE.exec(text);
+  if (said && name && said[2].trim() !== name) {
+    /* Written for another name ("You are **Bob**," for Ann): the agent's own brief would contradict its name.
+       A replacer FUNCTION, so a name carrying $&, $' or $1 is written as typed, never expanded. */
+    text = text.replace(IDENTITY_LINE, (_, lead) => lead + 'You are **' + name + '**');
+  } else if (!said && enough && name && label) {
+    text = 'You are **' + name + '**, ' + label + '.\n\n' + text.replace(/^\s+/, '');
+  }
+  out.instructions = text;
+  return { member: out };
+}
+
 /**
  * Build a team of agents on behalf of a creator, for a stated purpose.
  *
@@ -118,6 +211,9 @@ function resolveCap(deps, env) {
  *   agent ({name, role, ...}). Must be a non-empty array no longer than the cap.
  *   NOTE: `opts` carries the REQUEST only. It deliberately has no cap field -- a
  *   cap on the request would let a model raise its own bound.
+ * @param {boolean} [opts.fromAgent]  #4474: the request came from an agent's token, so each member is vetted
+ *   (vetAgentMember) before create; a member it refuses lands in refused[] like any other.
+ * @param {boolean} [opts.fromGuide]  #4474: that agent is the setup guide, which makes agents only from the list.
  * @param {object} [deps]  { createAgent, readAgentId, cap, env } -- the TRUSTED
  *   channel, injectable for tests; defaults to create.createAgent, the profile-id
  *   reader, and process.env. `deps.cap` is the operator/seam cap override (never
@@ -154,7 +250,8 @@ function createTeam(opts, deps) {
 
   const created = [];
   const refused = [];
-  for (const member of members) {
+  for (const asked of members) {
+    let member = asked;
     /* A member that is not even an object cannot be handed to create (the spread
        below would be meaningless), so it is refused here by shape rather than
        reaching createAgent as an empty create. Its own name, if any, is echoed so
@@ -162,6 +259,14 @@ function createTeam(opts, deps) {
     if (!member || typeof member !== 'object' || Array.isArray(member)) {
       refused.push({ name: null, because: 'a team member must be a create spec object ({ name, role, ... })' });
       continue;
+    }
+    if (opts.fromAgent === true) {
+      const vet = vetAgentMember(member, { fromGuide: opts.fromGuide === true });
+      if (vet.because) {
+        refused.push({ name: String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null, because: vet.because });
+        continue;
+      }
+      member = vet.member;
     }
     /* The creator and purpose ride onto every member as provenance. They are set
        BY the team, so a member that tries to name its own createdBy/purpose does
@@ -206,4 +311,4 @@ function createTeam(opts, deps) {
   return { outcome, created, refused, because, creator, purpose, cap };
 }
 
-module.exports = { createTeam, resolveCap, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };
+module.exports = { createTeam, resolveCap, vetAgentMember, AGENT_MEMBER_KEYS, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };

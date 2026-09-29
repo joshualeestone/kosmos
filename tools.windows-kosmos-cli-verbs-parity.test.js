@@ -88,11 +88,12 @@ function macSubcommands(text, verb) {
     for (let j = i + 1; j < lines.length && !new RegExp('^' + c[1] + 'esac\\b').test(lines[j]); j++) {
       if (!lines[j].startsWith(armIndent) || /^\s/.test(lines[j].slice(armIndent.length))) continue;
       const arm = /^([^\s)]+)\)/.exec(lines[j].slice(armIndent.length));
-      if (arm) for (const word of arm[1].split('|')) if (/^[a-z][a-z_]*$/.test(word) && word !== 'help') subs.add(word);
+      /* #4474: a subcommand may carry a hyphen (`agent role-draft`); a `-`-led arm (`-h`, `--help`) is still a flag. */
+      if (arm) for (const word of arm[1].split('|')) if (/^[a-z][a-z_-]*$/.test(word) && word !== 'help') subs.add(word);
     }
   }
   const firstArg = new Set(['sub', ...[...body.matchAll(/\b([A-Za-z_]+)="\$(?:\{1:-\}|1)"/g)].map((m) => m[1])]);
-  for (const m of body.matchAll(/\[ "\$([A-Za-z_]+)" !?= "([a-z][a-z_]*)" \]/g)) if (firstArg.has(m[1])) subs.add(m[2]);
+  for (const m of body.matchAll(/\[ "\$([A-Za-z_]+)" !?= "([a-z][a-z_-]*)" \]/g)) if (firstArg.has(m[1])) subs.add(m[2]);
   return [...subs];
 }
 
