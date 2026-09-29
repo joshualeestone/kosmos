@@ -360,10 +360,10 @@ const BLOCK = [
   '',
   'The exceptions: a page the person must act on right now, such as a sign-in or a',
   'payment, or a page they ask you to open for them. You may open those in their',
-  'browser, tell them you did, and close them yourself once they have finished if',
-  'you can. Handing a link to their browser (`open`, `start`, `Start-Process` or',
-  'any such command) leaves a tab you have no way to close, so do that only for',
-  'these.',
+  'browser, tell them you did, and close them yourself only once they tell you they',
+  'have finished, if you can. Handing a link to their browser (`open`, `start`,',
+  '`Start-Process` or any such command) leaves a tab you have no way to close, so',
+  'do that only for these.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -740,7 +740,7 @@ function block() {
  *     the agent's own, such as engine/agentbrowser.js's, which only some agents
  *     have, or say you cannot read it); close tabs it left open earlier; the
  *     exceptions are a page they must act on now or ask to have opened, closed
- *     once they are done if the agent can. Only a tab the agent certainly opened
+ *     only once they say they are done, if the agent can. Only a tab the agent certainly opened
  *     is closed; an unsure agent leaves it, since it may hold the person's work.
  *     A tool that drives the person's own browser counts as theirs.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
