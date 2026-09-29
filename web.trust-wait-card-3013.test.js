@@ -63,7 +63,8 @@ function pageLabel() {
    lifted like web.not-running does; STATE_COPY is injected (built from the page's
    own label above), the rest are stubbed. */
 function render(which, a) {
-  const body = page.lift(SCRIPT, 'face') + '\n'
+  const body = page.lift(SCRIPT, 'agentNeedsAttention') + '\n'
+    + page.lift(SCRIPT, 'face') + '\n'
     + page.lift(SCRIPT, 'dmBadge') + '\n'
     + page.lift(SCRIPT, which) + '\n'
     + `return ${which}(a);`;

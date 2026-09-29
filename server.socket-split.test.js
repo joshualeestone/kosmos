@@ -135,7 +135,7 @@ function renderOffline(which, a) {
      the CURRENT global -- lift it like face, and pass CURRENT (null: no agent
      open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'STATE_COPY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(PAGE_SCRIPT, 'face')}\n${page.lift(PAGE_SCRIPT, 'dmBadge')}\n${page.lift(PAGE_SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(PAGE_SCRIPT, 'agentNeedsAttention')}\n${page.lift(PAGE_SCRIPT, 'face')}\n${page.lift(PAGE_SCRIPT, 'dmBadge')}\n${page.lift(PAGE_SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x),
     { stopped: '<span class="stop"></span>', unknown: '<span class="qmark">?</span>' },
     { off: 'Not running' },

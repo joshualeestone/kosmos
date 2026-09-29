@@ -89,6 +89,22 @@ test('a span from a smaller doctrine is brought current: span sections update, t
   assert.equal((plan.fileNext.match(/### Never wait silently/g) || []).length, 1, 'their section got duplicated');
 });
 
+/* #4467: the path most existing agents take. A managed span holding every OTHER section (the
+   doctrine as it stood before this section) must come back as a refresh that adds the tab rule. */
+test('#4467: an existing span without the tab section is refreshed to include it', () => {
+  const heading = '### Close the browser tabs you open';
+  const before = defaults.sections().filter((s) => s.heading !== heading);
+  assert.equal(before.length, defaults.sections().length - 1, 'the tab section is not one of the doctrine\'s sections');
+  const file = '# Mine\n\n' + doctrine.START + '\n' + doctrine.spanBody(before, new Date(2026, 8, 20)) + '\n' + doctrine.END + '\n';
+  const plan = doctrine.planFor(file, NOW);
+  assert.equal(plan.state, 'refresh');
+  assert.ok(plan.sections.some((s) => s.heading === heading), 'the refresh does not offer the tab section');
+  assert.ok(plan.fileNext.includes('Close every browser tab or window you open'), 'the refreshed file does not carry the rule');
+  /* CONTROL: a span that already has every section, this one included, is current. */
+  const full = '# Mine\n\n' + doctrine.START + '\n' + doctrine.spanBody(defaults.sections(), NOW) + '\n' + doctrine.END + '\n';
+  assert.equal(doctrine.planFor(full, NOW).state, 'current', 'a span already carrying it is still offered a change');
+});
+
 test('constraint 5: two well-formed spans refuse with a reason, and the text is untouched', () => {
   const span = doctrine.spanBody(defaults.sections().slice(0, 2), NOW);
   const file = doctrine.START + '\n' + span + '\n' + doctrine.END + '\n\nmine\n\n'

@@ -2367,6 +2367,11 @@ test('an agent made from a role is taught how to work, not only what it is', () 
   assert.ok(text.includes('your reply goes back to that'), 'the answer-where-you-were-asked rule is missing');
   assert.ok(text.includes('Look for what is already on this computer'), 'the look-before-you-install rule is missing');
   assert.ok(text.includes('When you make something for a person'), 'the what-you-hand-a-person rule is missing');
+  /* #4467: this file is on the Windows CI job too (tools/windows-tests.js ALSO), and the block has
+     no win32 branch, so on that job this line also shows the tab rule reaches a boot file created
+     on Windows. */
+  assert.ok(text.includes('Close every browser tab or window you open'), 'the close-your-tabs rule is missing');
+  assert.ok(text.includes('Never remove another agent unless the person asked you to and you created it'), 'the removing-another-agent rule is missing (#4475)');
 });
 
 test('nothing in an agent boot file breaks the rule that boot file states', () => {
@@ -4922,7 +4927,7 @@ test('#3391: the shipped supervisor launches a grok agent with bypass, always-ap
     'the grok launch must set GROK_CLAUDE_HOOKS_ENABLED=0 so the agent does not run the fleet ~/.claude hooks via claude-compat');
 });
 
-test('#4426: the Mac grok launch turns off every claude-compat cell, the same list the Windows turn env sets', () => {
+test('#4426 #4446: the Mac grok launch turns off every claude- and cursor-compat cell, the same list the Windows turn env sets', () => {
   // Without these a grok agent loads the person's own ~/.claude/CLAUDE.md, skills, rules and MCP
   // servers on top of its AGENTS.md. Two launch sites carry the list (the supervisor's grok arm
   // and win32keyed.js), so this pins them equal: a cell added to one and not the other goes red.
@@ -4930,11 +4935,13 @@ test('#4426: the Mac grok launch turns off every claude-compat cell, the same li
   const arm = script.slice(script.indexOf('GROK_MODEL="${MODEL:-grok-4.6}"'));
   const launch = arm.slice(0, arm.indexOf('"$CLAUDE" --permission-mode bypassPermissions --always-approve --trust'));
   const onMac = {};
-  for (const m of launch.matchAll(/-e "(GROK_CLAUDE_[A-Z]+_ENABLED)=([^"]*)"/g)) onMac[m[1]] = m[2];
-  const { GROK_CLAUDE_COMPAT_OFF } = require('./win32keyed');
-  assert.deepEqual(onMac, { ...GROK_CLAUDE_COMPAT_OFF });
-  for (const cell of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) {
-    assert.ok(`GROK_CLAUDE_${cell}_ENABLED` in onMac, `the grok launch must turn off the ${cell.toLowerCase()} cell`);
+  for (const m of launch.matchAll(/-e "(GROK_[A-Z]+_[A-Z]+_ENABLED)=([^"]*)"/g)) onMac[m[1]] = m[2];
+  const { GROK_COMPAT_OFF } = require('./win32keyed');
+  assert.deepEqual(onMac, { ...GROK_COMPAT_OFF });
+  for (const vendor of ['CLAUDE', 'CURSOR']) {   // #4446: both vendor families grok reads by default
+    for (const cell of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) {
+      assert.ok(`GROK_${vendor}_${cell}_ENABLED` in onMac, `the grok launch must turn off ${vendor.toLowerCase()}'s ${cell.toLowerCase()} cell`);
+    }
   }
 });
 
@@ -5012,6 +5019,9 @@ test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a
     // The "where your files go" doctrine reached the file the agent actually reads.
     assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Where the files you make go/,
       'the doctrine did not reach the codex brief -- the whole #2245 point');
+    // #4467: the tab rule reaches a Codex agent's AGENTS.md too, not only a Claude CLAUDE.md.
+    assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Close every browser tab or window you open/,
+      'the close-your-tabs rule did not reach the codex brief');
     // The runner->filename mapping and both resolvers agree.
     assert.equal(create.briefFilename('codex'), 'AGENTS.md');
     assert.equal(create.briefFilename('claude'), 'CLAUDE.md');

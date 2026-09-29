@@ -381,7 +381,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -395,10 +395,12 @@ function heardBy(projectId, t, who, sentence, roster) {
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
     + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+  const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
+  const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
   let sent;
-  try { sent = chat.deliver(name, line, roster); }
-  catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-  return { who: name, state: sent.state, because: sent.because || null };
+  try { sent = deliver(name, line, roster); }
+  catch (err2) { return failed(err2); }
+  return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -436,7 +438,7 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -448,17 +450,20 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   let heard;
   if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
-  if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
-    // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-    return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
-  }
-  return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
+  const finish = (heardResult) => {
+    if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
+      // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
+      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
+    }
+    return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
+  };
+  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();
@@ -928,11 +933,12 @@ const inflight = require('./engine/inflight');
  * all of it twice.
  *
  * 🛑 COLLAPSED ON THE READ PATH ONLY, AND THAT BOUNDARY IS LOAD-BEARING RATHER
- * THAN TIDINESS. `connect()` and `forget()` on both door shapes END by calling
- * their own `state()` to answer with what they just did:
+ * THAN TIDINESS. `connect()` and `forget()` on both door shapes answer with what
+ * they just did, never with a read that started before it:
  *
- *     tokendoor.js:  return state();          // after storing the token
- *     cloudflare.js: same shape
+ *     tokendoor.js:  connect answers from the check it just made (#4451: one metered
+ *                    call, not two); forget ends with `return state();`
+ *     cloudflare.js: ends with its own `state()`
  *
  * If those shared an in-flight read that started BEFORE the write, a person who
  * had just connected would be answered with the state from before they
@@ -976,6 +982,27 @@ const readConnectionsShelf = inflight.collapse(() => {
     return doors;
   });
 });
+
+/**
+ * #4451: what is CONNECTED, read from the disk only, for agents. Never a `verify()`: `readConnectionsShelf`
+ * above makes a live authenticated call to every door and Brave, Exa, Tavily and Serper bill each one to
+ * the person's own quota, so an agent asking "what is connected?" (or asking it in a loop) must not reach it.
+ * `held` is true when a token is stored (it says nothing about whether the service still accepts it), false
+ * when none is, and null for a sign-in service whose sign-in lives in its own tool, where only a live check
+ * could say. `connect` names the door an agent uses (`kosmos connect`), absent where the person signs in.
+ */
+function connectionsHeld() {
+  const fileHeld = (file) => { try { return fs.readFileSync(file, 'utf8').trim().length > 0; } catch { return false; } };
+  const out = [
+    { name: 'GitHub', route: '/api/github', how: 'sign-in', held: fileHeld(githubdevice.FILE) ? true : null },
+    { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: null },
+    { name: 'Cloudflare', route: '/api/cloudflare', how: 'token', held: fileHeld(cloudflare.FILE), connect: 'cloudflare' },
+  ];
+  for (const [name, route] of Object.entries(tokendoors.routes())) {
+    out.push({ name, route, how: 'token', held: tokendoors.byName(name).held(), connect: route.replace(/^\/api\/svc\//, '') });
+  }
+  return out;
+}
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
@@ -2934,7 +2961,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2983,7 +3010,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  const delivery = messages.sendPost({
+  const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
     project: found.id,
@@ -3014,8 +3041,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
     replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
-  federateOut(found.id, delivery, false);
-  return delivery;
+  const finish = (result) => {
+    federateOut(found.id, result, false);
+    return result;
+  };
+  return delivery && typeof delivery.then === 'function' ? delivery.then(finish) : finish(delivery);
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -3336,14 +3366,69 @@ function withUnread(list) {
    chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
    agents list that failed because a badge could not be computed would be the
    wrong thing to lose. A per-agent null in the map passes through as null. */
-function withDmUnread(list) {
-  let counts = null;
-  try { counts = chat.dmUnreadAll(); } catch { counts = null; }
+function withAgentSortFields(list, supplied) {
+  let direct = null; let roomRows = null; let births = null;
+  if (supplied) {
+    direct = supplied.direct;
+    roomRows = supplied.roomRows;
+    births = supplied.births;
+  } else {
+    try { direct = chat.dmSummaryAll(); } catch { direct = null; }
+    try { const rec = messages.record(); roomRows = rec && rec.ok === true && Array.isArray(rec.rows) ? rec.rows : null; } catch { roomRows = null; }
+    try { births = create.createdLog(); } catch { births = null; }
+  }
+  const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
+  const latest = (values) => {
+    const known = values.filter(Number.isFinite);
+    return known.length ? new Date(Math.max(...known)).toISOString() : null;
+  };
   return (list || []).map((a) => {
-    if (counts === null) return { ...a, dmUnread: null };
     const key = a && (a.sessionName || a.name);
-    const v = key != null && Object.prototype.hasOwnProperty.call(counts, key) ? counts[key] : 0;
-    return { ...a, dmUnread: v };
+    const dm = direct === null ? null
+      : key != null && Object.prototype.hasOwnProperty.call(direct, key) ? direct[key]
+        : { unread: 0, lastAt: null, lastAgentAt: null };
+    let mentionAt = null; let postAt = null;
+    if (roomRows !== null && key != null) {
+      for (const row of roomRows) {
+        const when = at(row && row.at);
+        if (when === null) continue;
+        if (row.kind === 'post' && row.operator === true && Array.isArray(row.mentioned) && row.mentioned.includes(key)) {
+          if (mentionAt === null || when > mentionAt) mentionAt = when;
+        }
+        if ((row.kind === 'post' || row.kind === 'message') && row.operator !== true && row.from === key) {
+          if (postAt === null || when > postAt) postAt = when;
+        }
+      }
+    }
+    let workAt = null; let workReadable = true;
+    if (key != null) {
+      try {
+        const work = supplied && typeof supplied.workFor === 'function'
+          ? supplied.workFor(key) : activity.read(key, 'working');
+        workAt = work && work.found === true ? at(work.at) : null;
+        if (work && work.found === false && work.because
+            && work.because !== 'no activity sample has been recorded for this agent and pattern') workReadable = false;
+      }
+      catch { workAt = null; workReadable = false; }
+    }
+    let createdAt = null;
+    if (births !== null && a) {
+      const id = a.profile && a.profile.id;
+      const names = new Set([a.name, a.sessionName].filter(Boolean).map((v) => String(v).toLowerCase()));
+      const matches = births.filter((b) => b && (b.outcome === create.OUTCOME.CREATED || b.outcome === create.OUTCOME.PARTIAL)
+        && ((id && b.id === id) || (!id && names.has(String(b.name || '').toLowerCase()))))
+        .map((b) => at(b.at)).filter(Number.isFinite);
+      if (matches.length) createdAt = new Date(Math.min(...matches)).toISOString();
+    }
+    const readableTalk = dm !== null && roomRows !== null;
+    const readableActive = dm !== null && roomRows !== null && workReadable;
+    return {
+      ...a,
+      dmUnread: dm === null ? null : dm.unread,
+      lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
+      lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
+      createdAt,
+    };
   });
 }
 
@@ -3812,7 +3897,7 @@ function setupGuideFailing() {
   return null;
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
   if (pathname === null) {
@@ -4795,7 +4880,7 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withDmUnread(agents.concat(offline));
+      const rows = withAgentSortFields(agents.concat(offline));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
@@ -6714,7 +6799,7 @@ const server = http.createServer((req, res) => {
     }
     const command = '/' + ctx[2];
     let delivery;
-    try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
     return;
@@ -6779,7 +6864,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -6847,7 +6932,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -11336,6 +11421,14 @@ const server = http.createServer((req, res) => {
      is what the page holds (SVC_BUILT). A door whose check threw answers
      connected:null, which the page says as could-not-check, never as
      nothing. GitHub is connected on either of its two roads (#620). */
+  /* #4451: the agents' read of what is connected: the disk only, never a verify() (see connectionsHeld).
+     Behind the same cross-site refusal as the sweep below, for the same reason and in the same place. */
+  if (pathname === '/api/connections/held' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    sendJson(res, 200, { services: connectionsHeld() });
+    return;
+  }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
        person merely visits can `fetch()` this in a loop. It learns nothing - CORS
@@ -12825,7 +12918,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12849,7 +12942,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
           return;
         }
-        const delivery = messages.send({
+        const delivery = await messages.sendAsync({
           fromPane: body.from_pane,
           sender: tokenSender,
           to: body.to,
@@ -12869,7 +12962,7 @@ const server = http.createServer((req, res) => {
      the project record so the engine owns no membership model. */
   if (pathname === '/api/post' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12926,7 +13019,7 @@ const server = http.createServer((req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
-        const delivery = sendRoomPostAsAgent({
+        const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
           project: body.project,
@@ -12935,7 +13028,7 @@ const server = http.createServer((req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
-        }, roster);
+        }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -13402,7 +13495,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(dm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -13658,7 +13751,7 @@ const server = http.createServer((req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = chat.deliver(name, body.text, roster, envelope,
+        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
@@ -14728,7 +14821,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/projects' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -14828,13 +14921,13 @@ const server = http.createServer((req, res) => {
         // happened") and create had the same shape.
         let told = [];
         try {
-          told = made.agents.map((a) => {
+          told = await Promise.all(made.agents.map(async (a) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = projects.speakOfMembership(a, made, 'joined', roster);
+            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
-          });
+          }));
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
@@ -15011,14 +15104,14 @@ const server = http.createServer((req, res) => {
       // SPEAK the display name, and the roster that resolves the two is already
       // in hand here. `shownAs` falls back to the machine name, because a name
       // we cannot resolve is still the only name we have.
-      told = gone.agents.map((a) => {
+      told = await Promise.all(gone.agents.map(async (a) => {
         const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === a) : null;
         const verdict = projects.syncAgent(a, roster);
         // A running member hears that the project is gone (#304); a stopped
         // one reads it at its next start, and could_not here is that fact.
-        const said = projects.speakOfMembership(a, gone, 'removed', roster);
+        const said = await projects.speakOfMembershipAsync(a, gone, 'removed', roster);
         return { agent: a, shownAs: (card && card.name) || a, ...verdict, said };
-      });
+      }));
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
@@ -15325,7 +15418,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -15372,7 +15465,7 @@ const server = http.createServer((req, res) => {
           }
           replyTo = body.reply_to;
         }
-        const delivery = messages.sendPost({
+        const delivery = await messages.sendPostAsync({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
           replyTo,
@@ -15603,7 +15696,7 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15647,7 +15740,7 @@ const server = http.createServer((req, res) => {
         fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
         for (const a of made.agents || []) {
-          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          try { projects.syncAgent(a, roster); await projects.speakOfMembershipAsync(a, made, 'joined', roster); }
           catch { /* membership is recorded; telling the agent is best-effort here */ }
         }
         let project = null;
@@ -15818,7 +15911,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(taskMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15870,7 +15963,7 @@ const server = http.createServer((req, res) => {
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
           if (viaScreen || heardBudgetAllows(made.who, roster)) {
-            heard = heardBy(id, made, made.who, made.sentence, roster);
+            heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
             // not be told once it is back.
@@ -16286,7 +16379,7 @@ const server = http.createServer((req, res) => {
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -16378,7 +16471,7 @@ const server = http.createServer((req, res) => {
         }));
         for (const one of recipients) {
           let outcome;
-          try { outcome = chat.deliver(one, line, roster); }
+          try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
@@ -16404,7 +16497,7 @@ const server = http.createServer((req, res) => {
   if (partMake && req.method === 'POST') {
     const id = decodeSegment(partMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16426,7 +16519,7 @@ const server = http.createServer((req, res) => {
         const roster = safeRoster();
         let heard;
         if (screen || heardBudgetAllows(body && body.who, roster)) {
-          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
+          heard = await heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster, chat.deliverAsync);
           if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
@@ -16445,7 +16538,7 @@ const server = http.createServer((req, res) => {
   if (partAct && req.method === 'POST') {
     const id = decodeSegment(partAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16455,7 +16548,7 @@ const server = http.createServer((req, res) => {
           // givePart (module scope): the parts valve for a process caller (#803: a process
           // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
           // on a real move (#304's rule) the pane line against the heard budget.
-          const g = givePart(id, partAct[2], partAct[3], body && body.who, { screen });
+          const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true });
           if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
           if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
           sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
@@ -16574,7 +16667,7 @@ const server = http.createServer((req, res) => {
     // its next start.
     let said = null;
     if (moved && project) {
-      said = projects.speakOfMembership(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
+      said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
     sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
     return;
@@ -16822,7 +16915,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(thread[2]);
     if (id === null || name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -16900,7 +16993,7 @@ const server = http.createServer((req, res) => {
          */
         const files = attachments.resolveForMessage(body, 'project', id, 'that attachment is not one this project can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(files.recs));
+        const delivery = await chat.deliverAsync(name, body.text, roster, undefined, attachments.wireNote(files.recs));
         // #2005: file the record under the canonical name (member.sessionName), not
         // the possibly mis-cased URL name -- appendMessage's threadFile requires the
         // exact key, so a mis-cased name would deliver above but fail to record here.
@@ -18399,6 +18492,7 @@ module.exports = {
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
   someAgentNeedsClaude,
+  withAgentSortFields,
   /* #1304: exported so the two-reader precedence can be driven directly. A test
      that needed a real process tree, a tmux server and a signed-in account would
      not run anywhere, and the precedence is the part worth pinning.

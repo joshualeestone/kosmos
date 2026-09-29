@@ -156,11 +156,12 @@ function chk(ok, label, extra) {
           const meta = document.getElementById('d-meta');
           const dm = document.querySelector('#d-nav .dnav-dm');
           const packBtn = document.querySelector('#d-nav .dnav-pack button');
-          const labs = [...document.querySelectorAll('#d-nav .dnav-lab')].map(px);
-          const icons = [...document.querySelectorAll('#d-nav .dnav-ico svg')].map((s) => Math.round(s.getBoundingClientRect().width));
+          /* The boxes a person sees: #4433's Swarm Settings box is in the nav for every agent but shown only for a swarm. */
+          const labs = [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].map(px);
+          const icons = [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-ico svg')].map((s) => Math.round(s.getBoundingClientRect().width));
           const pack = document.querySelector('#d-nav .dnav-pack');
           const cols = getComputedStyle(pack).gridTemplateColumns.split(' ').length;
-          const wrapped = [...document.querySelectorAll('#d-nav .dnav-lab')].some((l) => l.scrollWidth > l.clientWidth + 1);
+          const wrapped = [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].some((l) => l.scrollWidth > l.clientWidth + 1);
           return { metaPx: px(meta), labs, dmH: Math.round(dm.getBoundingClientRect().height), packH: Math.round(packBtn.getBoundingClientRect().height),
             packW: Math.round(packBtn.getBoundingClientRect().width), icons, cols, wrapped };
         });

@@ -606,6 +606,13 @@ if [ -z "$adopt" ]; then
     # quotes nor backslashes can appear in SUPPORT_DIR paths we write.
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
+    # #4477: codex reads AGENTS.md only up to project_doc_max_bytes (32 KiB by default) and
+    # silently drops the rest, which is Kosmos's own rules (appended after the person's brief).
+    # This number is a COPY of twice engine/workerfile.js MAX_BYTES (2 x 256 KiB): codex spends one
+    # budget across every AGENTS.md from the repository root down, not only the agent's own. Held equal by
+    # engine/codex-docbytes-4477.test.js; the Windows launch computes it from that constant.
+    # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
+    DOCBYTES_CFG="project_doc_max_bytes=524288"
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
       # whatever is current NOW, which is what stops an EXISTING agent meeting a
@@ -627,10 +634,10 @@ if [ -z "$adopt" ]; then
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
+        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
     fi
   elif [ "$RUNNER" = gemini ]; then
     # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's
@@ -695,7 +702,9 @@ if [ -z "$adopt" ]; then
     # live [claude] entries to 0). A plain CLAUDE.md in the agent's own folder still
     # loads (grok's docs). An agent ADOPTED at board start keeps the env it launched
     # with, so a running grok agent gets this at its next launch. Same list as
-    # win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two equal. The default account reads
+    # win32keyed.js GROK_COMPAT_OFF; a test pins the two equal. #4446: the five cursor-compat
+    # cells too, or it loads the person's ~/.cursor rules, skills, agents, MCPs and hooks
+    # (measured, grok 1.0.41: 2 live [cursor] entries to 0). The default account reads
     # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
@@ -779,6 +788,9 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" -e "GROK_CLAUDE_AGENTS_ENABLED=false" \
       -e "GROK_CLAUDE_RULES_ENABLED=false" -e "GROK_CLAUDE_SKILLS_ENABLED=false" \
       -e "GROK_CLAUDE_MCPS_ENABLED=false" \
+      -e "GROK_CURSOR_HOOKS_ENABLED=false" -e "GROK_CURSOR_AGENTS_ENABLED=false" \
+      -e "GROK_CURSOR_RULES_ENABLED=false" -e "GROK_CURSOR_SKILLS_ENABLED=false" \
+      -e "GROK_CURSOR_MCPS_ENABLED=false" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps

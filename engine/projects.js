@@ -2941,6 +2941,13 @@ function speakOfMembership(sessionName, project, kind, roster) {
     return { state: 'could_not', because: String((err && err.message) || 'we could not reach its window') };
   }
 }
+async function speakOfMembershipAsync(sessionName, project, kind, roster) {
+  try {
+    return await chat.deliverAsync(sessionName, membershipLine(project, kind), roster, undefined, undefined);
+  } catch (err) {
+    return { state: 'could_not', because: String((err && err.message) || 'we could not reach its window') };
+  }
+}
 
 function syncAgent(sessionName, roster) {
   const key = String(sessionName || '');
@@ -3001,7 +3008,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
+  findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,

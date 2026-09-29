@@ -61,7 +61,9 @@ test('#4408: a current board is not restarted, and the page is told no button', 
 test('#4408: a stale board that can restart itself says so, and the button runs `kosmos restart` once',
   { skip: process.platform === 'win32' && 'the Windows arm (schtasks) is not stubbed here' }, async () => {
   /* A throwaway module at the app root, never a real source file (server.test.js edits its own beside this). */
-  /* At the app folder's root (still under the checked root), in its own folder no other suite walks. */
+  /* At the app folder's root (still under the checked root), in its own folder. Not one no suite walks: the
+     parity scan, engine/projects.test.js and tools.all-node-tests-considered-1934.test.js list the tree and can
+     meet it while it exists; each skips a path gone before it is read (#4478). */
   const dir = path.join(__dirname, `.probe-restart-${process.pid}`);
   const probe = path.join(dir, 'x.js');
   fs.mkdirSync(dir, { recursive: true });

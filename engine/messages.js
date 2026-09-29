@@ -932,7 +932,7 @@ function filteredText(from, text) {
   try { return senderTextFilter(from, text); } catch { return text; }
 }
 
-function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
+function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster, deliverToPane) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
      here (a Windows agent has no pane to derive one from). Without one, the pane
@@ -1117,13 +1117,13 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
     + (replyTo ? ' · answers ' + replyTo : '')
     + '] ' + body;
 
-  const sent = chat.deliver(toName, envelope, roster);
-  if (sent.state === chat.DELIVERY.COULD_NOT) {
+  const finish = (sent) => {
+    if (sent.state === chat.DELIVERY.COULD_NOT) {
     // A refused delivery must not orphan its spill: the next send mints
     // the same id and would silently overwrite it with unrelated text.
-    unspill(spillFile);
-    return refuse(toName, sent.because);
-  }
+      unspill(spillFile);
+      return refuse(toName, sent.because);
+    }
 
   /* Logged only when something was actually typed (placed or unconfirmed --
      unconfirmed means the text MAY have landed -- typed with Enter
@@ -1131,8 +1131,19 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
      on the side of "this may have been read"). The five
      fields are the screens' contract; kind and state ride along so a
      conversation view can mark the unconfirmed case honestly. */
-  appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state });
-  return { state: sent.state, because: sent.because || null, id, at };
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state });
+    return { state: sent.state, because: sent.because || null, id, at };
+  };
+  const sent = deliverToPane(toName, envelope, roster);
+  return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+}
+
+function send(input, roster) {
+  return sendWithDelivery(input, roster, chat.deliver);
+}
+
+function sendAsync(input, roster) {
+  return Promise.resolve(sendWithDelivery(input, roster, chat.deliverAsync));
 }
 
 /**
@@ -1292,7 +1303,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1665,14 +1676,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
   let reached = 0;
-  for (const name of recipients) {
-    if (offHere.has(name)) continue;
+  const deliverOne = (name) => {
+    if (offHere.has(name)) return null;
     /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
        file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
     let bodyHere = cleaned;
     if (long && chat.addressable(name, roster).ok) {   // one that cannot be typed into is refused by deliver below, with its reason, and gets no file
       const spill = spillInto(name, id, cleaned);
-      if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; continue; }
+      if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; return null; }
       const file = spill.file;
       spilled[name] = file;
       bodyHere = cleaned.slice(0, 200) + '\u2026 (long message; the full text is in your own folder at ' + file + ')';
@@ -1766,11 +1777,17 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
-    const sent = chat.deliver(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
-    outcomes[name] = sent.state;
-    if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
-    else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
-  }
+    const finish = (sent) => {
+      outcomes[name] = sent.state;
+      if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
+      else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      return sent;
+    };
+    const sent = deliverToPane(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
+    return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+  };
+
+  const finishDeliveries = () => {
 
   /**
    * ⚠️ AND `reached` COUNTS PANES, so with nobody to type into it is zero and
@@ -1825,7 +1842,25 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-  return { state, because: null, id, at, outcomes, from, text: stored };
+    return { state, because: null, id, at, outcomes, from, text: stored };
+  };
+
+  if (asynchronousDelivery) {
+    return (async () => {
+      for (const name of recipients) await deliverOne(name);
+      return finishDeliveries();
+    })();
+  }
+  for (const name of recipients) deliverOne(name);
+  return finishDeliveries();
+}
+
+function sendPost(input, roster, members) {
+  return sendPostWithDelivery(input, roster, members, chat.deliver, false);
+}
+
+function sendPostAsync(input, roster, members) {
+  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true));
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
@@ -2435,7 +2470,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
+  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

@@ -116,6 +116,8 @@ const USAGE = {
     '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
   community: 'Usage: kosmos community post [--topic "<topic>"] <text>   (or pipe the post in on stdin)',
+  connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
 
 /* #1674: what a person or an agent types when they do not yet know what a command
@@ -818,6 +820,67 @@ async function communityPost(ctx, args) {
   return 1;
 }
 
+/* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
+   its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
+   service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
+async function verbConnections(ctx) {
+  const r = await ctx.call('GET', '/api/connections/held', undefined, { agent: false });
+  if (!r.reached) { ctx.err('We could not reach Kosmos to read what is connected. Is it running at ' + ctx.url + '?'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  const services = r.json && Array.isArray(r.json.services) ? r.json.services : null;
+  if (r.status >= 400 || !services) { ctx.err('Kosmos gave an answer we could not read about what is connected.'); return 1; }
+  for (const x of services) {
+    if (!x || typeof x.name !== 'string') continue;
+    if (x.held === true) ctx.out(x.name + ': connected' + (x.how === 'token' ? ' (a token is stored; Settings > Connections checks it with ' + x.name + ' when opened' + (x.connect ? '; replace it with: kosmos connect ' + x.connect : '') + ')' : ' (signed in through Kosmos)'));
+    else if (x.held === false) ctx.out(x.name + ': not connected' + (x.connect ? ' (store the token the person gives you with: kosmos connect ' + x.connect + ')' : ''));
+    else ctx.out(x.name + ': not known without a live check; the person connects it in Settings > Connections');
+  }
+  return 0;
+}
+
+/* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
+const CONNECT_TIMEOUT_MS = 35000;
+const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
+
+/* #4451, as install/kosmos cmd_connect: store a token through the service's Kosmos door, so its row
+   in Settings > Connections shows it. The token is read from STDIN and never taken as an argument
+   (an argument is visible to other processes). It goes straight into the request body: this command
+   makes the request itself, so unlike the Mac's curl there is no file to hold it. */
+async function verbConnect(ctx, args) {
+  const svc = args[0] || '';
+  if (!/^[a-z0-9-]+$/.test(svc)) {
+    ctx.err('Which service? For example: printf \'%s\' "$TOKEN" | kosmos connect brave-search   (kosmos connections lists them)');
+    return 2;
+  }
+  if (args.length > 1) { ctx.err('Give the token on stdin, not as an argument. Nothing was sent. For example: printf \'%s\' "$TOKEN" | kosmos connect ' + svc); return 2; }
+  const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, CONNECT_TOKEN_MAX_BYTES);
+  if (piped.overflow) { ctx.err('Nothing was sent: that is too long to be a token.'); return 2; }
+  const token = String(piped.text || '').trim();
+  if (!token) {
+    ctx.err('Nothing to connect: the token on stdin was empty. For example: printf \'%s\' "$TOKEN" | kosmos connect ' + svc);
+    ctx.err('(in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)');
+    return 2;
+  }
+  /* A token that stopped arriving without the input ending may be cut short, and a cut token would
+     cost the person a metered check for nothing. */
+  if (!piped.ended) { ctx.err('Nothing was sent: the token on stdin stopped arriving without ending, so it may be cut short.'); return 2; }
+  const route = svc === 'cloudflare' ? '/api/cloudflare/token' : '/api/svc/' + svc + '/token';
+  const shown = svc === 'cloudflare' ? 'Cloudflare' : svc;
+  const r = await ctx.call('POST', route, { token }, { agent: false, timeoutMs: CONNECT_TIMEOUT_MS });
+  if (!r.reached) {
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have connected; check with: kosmos connections');
+    ctx.err('We could not reach Kosmos, so nothing was connected. Is it running at ' + ctx.url + '?');
+    return 1;
+  }
+  const j = r.json;
+  if (!j) { ctx.err('Kosmos gave an answer we could not read, so we cannot say whether it connected.'); return 1; }
+  if (typeof j.error === 'string') { ctx.err(j.error === 'no such door' ? 'Kosmos has no door for ' + shown + '. kosmos connections lists the ones it has.' : j.error); return 1; }
+  if (j.refused) { ctx.err('Not connected: ' + j.refused); return 1; }
+  if (j.connected) { ctx.out('Connected ' + (j.service || shown) + (j.who ? ' as ' + j.who : '') + '. Its row in Settings > Connections shows it.'); return 0; }
+  ctx.err((typeof j.because === 'string' && j.because) || 'It did not connect.');
+  return 1;
+}
+
 /* A verb whose first argument must be one of its subcommands: reached only when
    that argument is not one. install/kosmos's words and exit 2 for both cases. */
 function subcommandRequired(verb) {
@@ -845,6 +908,8 @@ const VERB_HANDLERS = {
   agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
   community: async (ctx) => { ctx.err(USAGE.community); return 2; },
+  connections: verbConnections,
+  connect: verbConnect,
 };
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },

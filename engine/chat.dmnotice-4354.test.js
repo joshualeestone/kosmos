@@ -61,8 +61,11 @@ test('the notice stands only in the pause it was written in (review of #4354: a 
 test('swarm.pauseOf: switched off with its start time; running, not a swarm, or unreadable reads as not paused', () => {
   const swarm = require('./swarm');
   const on = swarm.birthProfile({ dailyTokenLimit: 1000 });
-  const off = { ...on, swarm: swarm.pausedFor(swarm.settingsOf(on), 'limit', Date.parse(at(3))) };
-  assert.deepEqual(swarm.pauseOf(off), { paused: true, pausedSince: at(3) });
+  /* #4483: ONE fixed instant for the pause and the expectation. `at(3)` reads the clock each call, so a pause built
+     from one reading and compared with another failed by a millisecond when the two landed across a tick. */
+  const PAUSED = '2026-09-28T12:00:00.000Z';
+  const off = { ...on, swarm: swarm.pausedFor(swarm.settingsOf(on), 'limit', Date.parse(PAUSED)) };
+  assert.deepEqual(swarm.pauseOf(off), { paused: true, pausedSince: PAUSED });
   assert.deepEqual(swarm.pauseOf(on), { paused: false, pausedSince: null });
   assert.deepEqual(swarm.pauseOf({ role: 'pm' }), { paused: false, pausedSince: null });
   assert.deepEqual(swarm.pauseOf({}), { paused: false, pausedSince: null });

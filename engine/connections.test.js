@@ -139,3 +139,18 @@ test('#1034: the marker pair is in the registry, so the neutralisers cover it', 
   /* And a name carrying the marker cannot fabricate a pair. */
   assert.doesNotMatch(projects.neutralise(`evil ${connections.START} name`), new RegExp(connections.START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
+
+test('#4451: the block teaches the Connections tab, the cheap read, and connecting through the door', () => {
+  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  assert.match(flat, /Settings has a \*\*Connections\*\* tab/, 'the Connections tab is not named');
+  assert.match(flat, /To see what is connected, run `kosmos connections`/, 'the cheap read is not the one taught');
+  /* 🛑 THE COST TRAP: the block must forbid the metered sweep, not merely omit it. */
+  assert.match(flat, /Never read `GET \/api\/connections` yourself, and never in a loop/);
+  assert.match(flat, /bill the person for every check/);
+  assert.match(flat, /`kosmos connect <service>`, giving the token on stdin and never as an argument/, 'the token is not kept off the command line');
+  assert.match(flat, /GitHub and Vercel are signed in to by the person, in the Connections tab itself/);
+  assert.match(flat, /it will not appear in the Connections tab/, 'a service with no door is not said honestly');
+  assert.match(flat, /If the person asks what connections you need/, 'the callout\'s question has no answer in the block');
+  // CONTROL: the AI-provider section is still there, so the new text was added, not swapped in.
+  assert.match(flat, /How connecting a provider works/);
+});

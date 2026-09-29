@@ -327,6 +327,35 @@ test('#3929: the gated list is one name per line, sorted, unique, each a real ch
   assert.ok(!wiredIn(code.replace(`for n in ${GATED_LOOP_LIST}; do`, 'for n in; do'), probe, names) || invokedByOtherPosition(code, probe),
     'the file still reads as run when the runner no longer loops over it');
 });
+/* #4464: gated.txt is the NO-ADDRESS loop: the runner runs each name there with no board URL,
+   for checks that boot their own board or are hermetic. A
+   check that is also launched elsewhere (a run_one on a shared board, with that board's URL) ran
+   twice on #4457: green on its board, red with no address in the gated loop, and only CI saw it. */
+function gatedAlsoElsewhere(code, gated) {
+  const elsewhere = invokedNames(code, []);   // an empty gated list: only launches outside the gated loop
+  return gated.filter((n) => elsewhere.has(n));
+}
+test('#4464: no check in gated.txt is also launched elsewhere in the runner (it would run twice, once with no address)', () => {
+  const code = runnerCode();
+  const names = gatedNames();
+  assert.deepEqual(gatedAlsoElsewhere(code, names), [],
+    'these are in gated.txt AND launched elsewhere; a check that takes a board URL belongs on its board only (remove it from gated.txt)');
+  /* CONTROLS: the "elsewhere" read sees real launches, and a gated name re-launched in each form the
+     matcher knows is caught, one form at a time so a broken pattern cannot hide behind another. */
+  assert.ok(invokedNames(code, []).size >= 20, 'the read of launches outside the gated loop looks broken (too few)');
+  assert.ok(code.includes(B8_OPEN), `the $B8 anchor (${B8_OPEN}) is gone, so the controls below would inject nothing`);
+  const probe = names[0];
+  const forms = {
+    'a run_one line': `run_one "${probe}" true`,
+    'a direct node launch': `PORT=1 node docs/browser-checks/${probe}.js &`,
+    'a for-n list with run_one': `for n in ${probe}; do run_one "$n" true; done`,
+  };
+  for (const [form, line] of Object.entries(forms)) {
+    const doubled = code.replace(B8_OPEN, `${B8_OPEN}\n  ${line}`);
+    assert.deepEqual(gatedAlsoElsewhere(doubled, names), [probe], `${probe} re-launched as ${form} goes unnoticed`);
+  }
+});
+
 function invokedByOtherPosition(code, stem) {
   return invokedNames(code, []).has(stem);
 }

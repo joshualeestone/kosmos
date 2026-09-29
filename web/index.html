@@ -1109,12 +1109,6 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    step must not borrow. Ink keeps the mark visible and calm. Like .dwarn-m the
    glyph is aria-hidden decoration; the words carry the meaning. */
 .dwarn-ok { color: var(--k-ink); font-weight: 700; margin-right: 6px; }
-/* #4450: the light-gold note at the top of Global Skills. A tint, not a fill: the text stays
-   --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold that holds
-   3:1 on light grounds. No hover, no cursor: it is not a control. */
-.gs-ask { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
-  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
-  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -1750,13 +1744,44 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swpanel[hidden] { display: none; }
 .swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
 .swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
-.swctl { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }   /* #3564 review: Stop now kept apart from the two settings beside it; wrapped under them it lines up, no indent */
-.swmode { margin: 0; flex: 1 1 auto; }
-.swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
 .swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
 .swstop:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.swstop:disabled { opacity: .5; }
 .swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
+/* #4433 (#3946 item 14, Mona's design): the Swarm Settings box and view. A state is a colour AND a word; the
+   colour is a soft tint (about 14%) so the ink keeps its contrast, never a solid fill and never a left bar. */
+#d-nav-swarm, .swcard { --sw-st: var(--ok); }
+#d-nav-swarm[data-st="paused"], .swcard[data-st="paused"] { --sw-st: var(--warn-ink); }
+#d-nav-swarm[data-st="stopped"], .swcard[data-st="stopped"] { --sw-st: var(--danger); }
+#d-nav.dnav-boxed button[hidden] { display: none; }
+#d-nav.dnav-boxed button.dnav-swarm { position: relative; padding: 10px 16px; border-radius: 14px;
+  background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }
+#d-nav.dnav-boxed button.dnav-swarm:not(.on):hover { background: color-mix(in srgb, var(--sw-st) 20%, var(--k-surface)); }
+#d-nav.dnav-boxed button.dnav-swarm.on { background: color-mix(in srgb, var(--sw-st) 14%, var(--k-surface)); }   /* the gold edge marks it open */
+.swpill { display: inline-flex; align-items: center; gap: 5px;   /* under the label: at the right it covered the label in the 220px column */
+  padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--sw-st) 45%, transparent);
+  background: var(--k-surface); font: 600 .75rem var(--font-ui); color: var(--k-ink); white-space: nowrap; }
+.swpill i { width: 8px; height: 8px; border-radius: 50%; background: var(--sw-st); flex: none; }
+.swsub { margin: 4px 0 var(--space-4); }
+#d-sec-swarm .swpanel { margin-top: 0; }
+.swstates { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 10px; }
+.swcard { display: grid; grid-template-columns: auto 1fr auto; column-gap: 8px; row-gap: 4px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); cursor: pointer; }
+.swcard:hover { border-color: var(--sw-st); }
+.swcard:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.swcard[aria-checked="true"] { border: 1.5px solid var(--sw-st); padding: 11.5px 13.5px; background: color-mix(in srgb, var(--sw-st) 8%, var(--k-surface)); }
+.swdot { width: 10px; height: 10px; border-radius: 50%; background: var(--sw-st); }
+.swname { font: 650 var(--text-body) var(--font-ui); color: var(--k-ink); }
+.swcheck { visibility: hidden; color: var(--sw-st); font-weight: 700; }
+.swcard[aria-checked="true"] .swcheck { visibility: visible; }
+.swline { grid-column: 1 / -1; font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); }
+.swline[hidden], .swconfirm[hidden], #d-swarm-tolimit[hidden] { display: none; }
+/* #4433 (Mona's review): under the cards at the left, where the Paused card is read, not centred on its own. Not
+   inside the card: a card is a radio, and a button inside a radio is not reachable as itself by a screen reader. */
+#d-swarm-tolimit { justify-self: start; margin-top: -4px; }
+.swlimit { color: var(--k-ink); }
+.swconfirm { border: 1.5px solid var(--danger); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--danger) 6%, var(--k-surface)); }
+.swconfirm-q { margin: 0 0 8px; font-weight: 600; color: var(--k-ink); }
+.swconfirm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
 .swbar i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }   /* the mock's green: gold means selected */
 .swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
@@ -2311,6 +2336,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #pj-list-view .statsrow > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   #pj-list-view .sortctl { flex: 0 0 auto; }
   #pj-list-view .viewctl > .viewtoggle { flex: 0 0 auto; }
+  /* #4428: the Agents row gained the same Sort + view pair. Give the action its
+     narrow column and let the controls wrap inside the remaining width, exactly
+     as the Projects precedent above. */
+  #boardbar { grid-template-columns: min-content minmax(0, 1fr); }
+  #boardbar > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  #boardbar .sortctl, #boardbar .viewctl > .viewtoggle { flex: 0 0 auto; }
 }
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
@@ -3305,6 +3336,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    once opened. Chevron rotates open, native details behaviour otherwise. */
 .con-group { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
              color: var(--label-2); margin: 18px 0 6px; }
+/* The "Ask your agent" note: a flat light-gold panel with words, not a button. One class for every such note, so
+   they read as one kind of thing: Global Skills (#g-skills-ask) and Connections (#conn-ask).
+   A tint, not a fill: the text stays --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold
+   that holds 3:1 on light grounds. No hover, no cursor: it is not a control.
+   `.panel` in the selector is load-bearing: both notes are <p> inside the Settings panel, and `.panel p` (0,1,1) would
+   otherwise outrank a bare class and set their font and colour (render-conn-ask-4451 pins that this rule wins). */
+.panel .ask-agent { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 .con-cat { border-bottom: 0.5px solid var(--separator); }
 .con-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 2px; cursor: pointer;
                    list-style: none; font: var(--text-body) var(--font-ui); color: var(--label); }
@@ -3768,7 +3808,8 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 .cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
 .cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
-.cons-agents-lay { display: inline-flex; gap: 6px; margin: 0 0 var(--space-5) 0; }
+.cons-agents-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 0 0 var(--space-5) 0; }
+.cons-agents-lay { display: inline-flex; gap: 6px; }
 .cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
@@ -9912,45 +9953,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* A defence only: Start this agent shows for an agent that is off, and a stopped sign-in counts as on, so
      today the two never show together. If they ever do, the name row, Start and a pinned 44px Sign in again
      need about 150px, more than an SE's 120px cap, so the cap has a 152px floor (an SE gives up 32px;
-     larger phones are already past it). The case that does happen, a swarm agent whose sign-in stopped,
-     has its own floor below. The header steps aside while typing, so writing gets the room back. */
+     larger phones are already past it). The header steps aside while typing, so writing gets the room back. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-start-wrap:not([hidden])) {
     max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(152px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
-  /* A swarm agent whose sign-in stopped: the name row, Stop now and a pinned 44px Sign in again share the
-     block, and Stop now carries its warning (it says work is dropped), up to 116px on an SE. The floor is
-     tall enough that Stop now is never under the pinned button and scrolling brings the whole warning into
-     view above it and its fade (116 + 16 + 44 + padding). The conversation gives up about 70px on an SE and
-     at most 37px on larger phones, only in this state, when the agent cannot answer anyway. Both floors are
-     held to 30% of the visible height, which leaves every portrait phone its full floor (30% of an SE's
-     667px is 200px) and keeps a phone held sideways (360px tall) its conversation; there the warning may
-     need a scroll past the button (sideways phones are outside #718's sizes). */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) {
-    max-height: max(calc(0.18 * var(--kosmos-visible-height, 100dvh)), min(190px, calc(0.3 * var(--kosmos-visible-height, 100dvh)))); }
-  /* The floor is measured for a one-line name row; a long name, or a task sentence that wraps, would push
-     Stop now back under the pinned button. So for a swarm agent whose sign-in stopped (not for the defensive
-     Start case, which never happens today) the row stays one line: the task sentence is
-     not shown (the state badge, "Sign-in isn't working", and the pinned Sign in again already say it), nor
-     the role (both are on Profile; with the role beside it the name was squeezed to "A.." on an SE), the
-     state badge keeps its size, and the name takes the rest (a short name whole; a long one ellipsized, it
-     is on Profile in full). */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .dnamerow { flex-wrap: nowrap; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-task { display: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-meta { display: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) #d-name { min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-reauth:not([hidden])):has(#d-swarm-panel:not([hidden])) .detail-state { flex: none; }
-  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
-     they come before the notes, so they sit at the top of the capped block, on screen. The helper
-     and daily-limit sliders stay on Profile. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox { display: none; }
-  /* Stop now acts at once, so its explanation is never cut short (it says work is dropped). It can sit below
-     the capped block's fold (an SE shows part of it on first view); while a swarm agent's sign-in has
-     stopped, the pinned Sign in again (#3892) also lies over it until the block is scrolled, and scrolling
-     brings the whole of it into view above the pinned button. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { margin: 4px 0 0; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
-    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; margin: 0; }
+  /* #4433: a swarm's controls left the header for the Swarm Settings view, so the swarm-specific floor and the
+     compact header controls that were here went with them. */
   /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
   /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
@@ -9985,6 +9992,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
@@ -10567,42 +10575,9 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
-      <!-- #3564: a swarm's controls, under its name on every section (the mock, section 3). Shown only for a swarm
-           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu.
-           #3946: Josh's item 13 (these buttons above this panel) is superseded by his item 14 (a Swarm Settings view);
-           the panel stays here until that view replaces it, because the phone's chat-first header (#718) relies on
-           it sitting in the header. -->
-      <section class="swpanel" id="d-swarm-panel" hidden aria-label="Swarm controls">
-        <div class="swbox">
-          <h3 class="swlab">Swarm</h3>
-          <div class="swctl">
-            <fieldset class="pj-mode swmode" aria-describedby="d-swarm-pause-hint"><legend class="vh">Active or paused</legend>
-              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
-              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
-            </fieldset>
-            <button type="button" class="btn swstop" id="d-swarm-stop" aria-describedby="d-swarm-stop-hint">Stop now</button>
-          </div>
-          <!-- #3946: Josh asked how Paused differs from Stop now; the toggle said nothing, so it says so here. -->
-          <p class="dhint" id="d-swarm-pause-hint">Paused finishes what it is doing, then takes nothing new until you switch it back to Active.</p>
-          <p class="dhint" id="d-swarm-stop-hint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
-          <p class="swwhy" id="d-swarm-why" hidden></p>
-        </div>
-        <div class="swbox">
-          <label class="swlab" for="d-swarm-max">Maximum helpers</label>
-          <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
-          <p class="dhint" id="d-swarm-warn"></p>
-        </div>
-        <div class="swbox">
-          <h3 class="swlab">Today</h3>
-          <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
-          <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
-          <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
-          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily usage limit</label>
-          <p class="dhint" id="d-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
-          <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
-        </div>
-        <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
-      </section>
+      <!-- #4433 (#3946 item 14): a swarm's controls used to sit here, under its name on every section. Josh,
+           2026-09-28 17:11: "get it out of the left-hand column". They live in the Swarm Settings view now
+           (#d-sec-swarm), opened by the Swarm Settings box under the four-pack. -->
       <!-- #569 put two notes under the badge: where the state came from, and the two
            witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
            slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
@@ -10730,6 +10705,16 @@ window.kosmosMeasureScrollbarWidth();
         <span class="dnav-lab" data-win-copy="terminalTab">Advanced</span>
       </button>
     </div>
+    <!-- #4433 (#3946 item 14, Mona's design on #3946): swarm agents only, below the four-pack, the same size and
+         shape as Direct Message. Its state shows in colour AND in words (WCAG 1.4.1): a soft tint of the state colour
+         on the whole box, and a pill with a dot and the word. swarmPagePaint shows it and keeps the pill current. -->
+    <button type="button" data-go="swarm" aria-controls="d-sec-swarm" class="dnav-swarm" id="d-nav-swarm" data-st="active" hidden>
+      <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="13" r="6"/><circle cx="19" cy="6" r="2.5"/><circle cx="20" cy="15.5" r="2.5"/></svg></span>
+      <span class="dnav-lab">Swarm Settings</span>
+      <!-- The pill's word IS the box's spoken state (the button's name reads "Swarm Settings Active"). Not a .vh copy:
+           the .snav rule hides any .vh on a button without data-dot, which silenced the first version (review round 5). -->
+      <span class="swpill"><i aria-hidden="true"></i><span id="d-nav-swarm-word">Active</span></span>
+    </button>
   </nav>
   <!-- #3614 (Josh, 2026-09-24): the files this agent makes for you in a Direct Message, under the
        four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
@@ -11510,6 +11495,61 @@ window.kosmosMeasureScrollbarWidth();
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
     <p class="dhint" id="d-filesall-more" hidden></p>
+  </section>
+  <!-- #4433 (#3946 item 14): every swarm control, in one view. Mona's design (#3946, 2026-09-26 12:46):
+       three state cards as a real radio group, Stopped asks first, then Maximum helpers, the daily limit and Today.
+       The controls keep the ids the old header panel had, so swarmPagePaint, swarmSend and their checks still hold. -->
+  <section class="dsec" id="d-sec-swarm" data-sec="swarm" tabindex="-1" aria-label="Swarm Settings" hidden>
+    <h2 class="dfiles-title" id="d-swarm-h">Swarm Settings</h2>
+    <p class="fhint swsub">Choose how this swarm works, how many helpers it brings in, and how much it can use.</p>
+    <p class="dhint" id="d-swarm-none" hidden>Swarm settings are not available for this agent right now.</p>
+    <section class="swpanel" id="d-swarm-panel" hidden>
+      <!-- 🔑 A CUSTOM radio group, not native radios: a native radio picks on an arrow key, and a pick here applies at
+           once, so arrowing from Active past Paused would pause a live swarm. Arrow keys move, Space or Enter picks
+           (Mona's spec); a click picks. -->
+      <div class="swstates" id="d-swarm-states" role="radiogroup" aria-label="How this swarm works" aria-describedby="d-swarm-why">
+        <div class="swcard" role="radio" data-st="active" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-active" aria-describedby="d-swarm-l-active">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-active">Active</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-active">Takes work. Brings in helpers when parts of a task can run at the same time.</span>
+        </div>
+        <div class="swcard" role="radio" data-st="paused" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-paused" aria-describedby="d-swarm-l-paused">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-paused">Paused</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-paused">Takes nothing new. Anything already in progress finishes.</span>
+          <span class="swline swlimit" id="d-swarm-l-limit" hidden>It reached today's limit and resumes tomorrow.</span>
+        </div>
+        <div class="swcard" role="radio" data-st="stopped" aria-checked="false" tabindex="-1" aria-labelledby="d-swarm-n-stopped" aria-describedby="d-swarm-l-stopped">
+          <span class="swdot" aria-hidden="true"></span><span class="swname" id="d-swarm-n-stopped">Stopped</span><span class="swcheck" aria-hidden="true">&#10003;</span>
+          <span class="swline" id="d-swarm-l-stopped">Stops now. Helpers stop, the lead is interrupted, and unfinished work is dropped. It stays stopped until you set it to Active.</span>
+        </div>
+      </div>
+      <!-- Stopped asks first: dropping unfinished work cannot be undone. Active and Paused apply at once. -->
+      <div class="swconfirm" id="d-swarm-confirm" role="group" aria-labelledby="d-swarm-confirm-q" hidden>
+        <p class="swconfirm-q" id="d-swarm-confirm-q">Stop now? Unfinished work is dropped.</p>
+        <div class="swconfirm-btns">
+          <button type="button" class="btn swstop" id="d-swarm-stop">Stop now</button>
+          <button type="button" class="btn" id="d-swarm-keep">Keep it running</button>
+        </div>
+      </div>
+      <p class="swwhy" id="d-swarm-why" hidden></p>
+      <button type="button" class="linkish" id="d-swarm-tolimit" hidden>Change today's limit</button>
+      <div class="swbox">
+        <label class="swlab" for="d-swarm-max">Maximum helpers</label>
+        <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
+        <p class="dhint" id="d-swarm-warn"></p>
+      </div>
+      <div class="swbox">
+        <label class="swlab" for="d-swarm-cap">Daily usage limit</label>
+        <p class="dhint" id="d-swarm-cap-sub" hidden>Choose how much of your weekly allowance this swarm can use in one day.</p>
+        <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
+      </div>
+      <div class="swbox">
+        <h3 class="swlab">Today</h3>
+        <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
+        <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
+        <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+      </div>
+      <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
+    </section>
   </section>
   </div>
   </div>
@@ -15494,6 +15534,10 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
   <section class="dbox">
     <h3 class="dlab">Connections</h3>
+    <!-- #4451 (Josh, 2026-09-28 19:57): "promote your agent to ask them what connections you need and have them
+         make them for you". Words, not a button: the person asks in a conversation, and an agent that connects a
+         service does it through Kosmos (kosmos connect), so its row below shows it. Same look as #4450's callout. -->
+    <p class="ask-agent" id="conn-ask">Ask your agent: <b>&ldquo;What connections do we need?&rdquo;</b> It can set them up for you.</p>
     <!-- 🔑 THE SHAPE IS TWO GROUPS AND QUIET ROWS (#282, #325). Sixteen
          categories is roughly sixty services; flat, the page is a wall and
          nearly all of it is irrelevant to any one person. So: a category with
@@ -15668,7 +15712,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4450 (Josh, 2026-09-28 19:56): a light-gold note, NOT a button. Josh took
            the gold buttons out that afternoon (#4407), so this is a flat tinted panel
            with text and nothing to press. -->
-      <p class="gs-ask" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
+      <p class="ask-agent" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
       <p class="dhint" style="margin:0 0 12px;">
         Skills every agent on this computer gets, alongside whatever each one has
         of its own. Agents read them when they start, so anything you add
@@ -16888,6 +16932,20 @@ window.kosmosMeasureScrollbarWidth();
       <b id="st-dm" data-count="dm">0</b><span class="slab">Messages</span>
     </div>
   </div>
+  <div class="viewctl">
+    <label class="sortctl agent-sortctl" for="agent-sort">
+      <select id="agent-sort" data-agent-sort aria-label="Sort agents">
+        <option value="talked">Last talked to</option>
+        <option value="model">By model</option>
+        <option value="name">Name A to Z</option>
+        <option value="needs">Needs you first</option>
+        <option value="active">Recently active</option>
+        <option value="newest">Newest first</option>
+        <option value="project">By project</option>
+        <option value="role">By role</option>
+      </select>
+      <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </label>
   <div class="viewtoggle" role="group" aria-label="How to show agents" data-scope="agents">
     <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show agents as a grid" title="Show agents as a grid">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor"/></svg>
@@ -16900,7 +16958,7 @@ window.kosmosMeasureScrollbarWidth();
     <button class="vt" type="button" data-layout="org" aria-pressed="false" aria-label="Show agents as an org chart" title="Show agents as an org chart">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.6"/><circle cx="2.4" cy="3.2" r="1.5"/><circle cx="13.6" cy="3.6" r="1.5"/><circle cx="12.8" cy="13" r="1.5"/><path d="M6.1 6.4 3.6 4.3M9.9 6.5l2.5-2M9.6 9.7l2.3 2.2"/></svg>
     </button>
-  </div>
+  </div></div>
   <!-- the exit affordance, shown while ANY board filter is on (CSS keys on
        body.filter-msgs, filter-attn or filter-noproj). Josh's words: a "View all agents"
        text link. Clicking it clears whichever board filter is active. -->
@@ -18170,6 +18228,17 @@ function roleLine(a, titles) {
   if (known) return known;
   return parsed.charAt(0).toUpperCase() + parsed.slice(1);
 }
+
+/* #3410/#3718/#4428: the exact Issue contract shared by the chip filter and
+   Needs-you-first. This deliberately differs from cardStOf: an agent-raised
+   question has a calm visual and still needs the person, while needs_trust is
+   an Issue even though it has no ordinary card state. Keep this byte-for-byte
+   aligned with engine/status.js needsPerson. */
+function agentNeedsAttention(a) {
+  return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+}
+
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
    ring band, the list bar band, the membadge and the heat wash each wrote
    80 (and 60) out by hand, and only the membadge boundary was pinned --
@@ -18734,7 +18803,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18749,7 +18818,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -18795,7 +18864,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18940,7 +19009,7 @@ function lrow(a) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18953,7 +19022,7 @@ function lrow(a) {
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -19012,7 +19081,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -20561,7 +20630,7 @@ function paintAgentList() {
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
-  const shown = lim ? src.slice(0, Number(lim)) : src;
+  const shown = sortAgents(lim ? src.slice(0, Number(lim)) : src, AGENT_SORT, PROJECTS);
   /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
      same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
@@ -20994,7 +21063,8 @@ async function tick() {
        agents", which lands here having created nothing. So does skipping
        first-run, and so does removing the last agent. (Mona Lisa, #? on the
        agents-page package, 2026-08-22.) */
-    document.getElementById('grid').innerHTML = shown.length ? shown.map(card).join('') : boardEmpty();
+    const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS);
+    document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty();
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
     // hand the toggle a stale copy of whichever view was resting.
@@ -29482,12 +29552,10 @@ function paintOrg() {
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar || isSwarm ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + (Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : '')
-      /* #3423: the chip-filter markers, keyed on the SERVER state to match the
-         "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
-         exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in the same cases data-attn does but splits off agent questions, so it would not match the
-         count). Kept inline/self-contained like data-has-msgs. */
-      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
+      /* #3423: read the same Issue predicate used by the flat views and sort.
+         The Issue contract is wider than this node's visual badge: an agent's
+         question stays calm-looking but still needs the person. */
+      + (agentNeedsAttention(a) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -29811,6 +29879,100 @@ document.getElementById('orgview').addEventListener('scroll', (e) => {
 }, { passive: true });
 
 let BOARD_LAYOUT = 'grid';
+/* #4428: one flat-list order for the grid and list. The org chart is a hierarchy,
+   so neither the control nor this order applies there. Every comparator ends in
+   the same name key, then original position, so ties are predictable without
+   mutating the status payload. */
+const AGENT_SORTS = ['talked', 'model', 'name', 'needs', 'active', 'newest', 'project', 'role'];
+const AGENT_SORT_DEFAULT = 'talked';
+function agentSortMode(saved) {
+  return AGENT_SORTS.includes(saved) ? saved : AGENT_SORT_DEFAULT;
+}
+function agentFirstProject(agent, projects) {
+  const key = agent && agent.sessionName;
+  if (!key) return null;
+  const names = (projects || []).filter((p) => Array.isArray(p && p.agents)
+    && p.agents.some((m) => m && m.sessionName === key))
+    .map((p) => String((p && p.name) || '').trim()).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return names[0] || null;
+}
+function sortAgents(list, mode, projects) {
+  const rows = (list || []).map((agent, index) => ({ agent, index }));
+  const text = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
+  const time = (v) => { const n = Date.parse(v || ''); return Number.isFinite(n) ? n : null; };
+  const name = (r) => text(r.agent && (r.agent.name || r.agent.sessionName));
+  const cmpText = (a, b) => {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+  };
+  const cmpTime = (a, b) => {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return b - a;
+  };
+  const byName = (a, b) => cmpText(name(a), name(b)) || a.index - b.index;
+  const needsRank = (a) => {
+    if (agentNeedsAttention(a)) return 0;
+    const state = a && a.state;
+    if (state === 'blocked') return 1;
+    if (state === 'working' || state === 'restarting') return 2;
+    if (state === 'idle') return 3;
+    return 4;
+  };
+  const cmp = mode === 'name' ? byName
+    : mode === 'model' ? (a, b) => {
+      const aa = a.agent || {}, bb = b.agent || {};
+      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity'
+        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
+      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity'
+        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
+      return cmpText(ak, bk) || byName(a, b);
+    }
+    : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
+    : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
+    : mode === 'role' ? (a, b) => cmpText(text(roleLine(a.agent || {}, ROLE_TITLES)), text(roleLine(b.agent || {}, ROLE_TITLES))) || byName(a, b)
+    : (a, b) => {
+      const field = mode === 'active' ? 'lastActiveAt' : mode === 'newest' ? 'createdAt' : 'lastTalkedAt';
+      return cmpTime(time(a.agent && a.agent[field]), time(b.agent && b.agent[field])) || byName(a, b);
+    };
+  return rows.sort(cmp).map((r) => r.agent);
+}
+let AGENT_SORT = (() => {
+  let saved = null;
+  try { saved = localStorage.getItem('kosmos.sort.agents'); } catch { saved = null; }
+  return agentSortMode(saved);
+})();
+function agentSortControlHtml(id) {
+  const opts = [
+    ['talked', 'Last talked to'], ['model', 'By model'], ['name', 'Name A to Z'],
+    ['needs', 'Needs you first'], ['active', 'Recently active'], ['newest', 'Newest first'],
+    ['project', 'By project'], ['role', 'By role'],
+  ];
+  return '<label class="sortctl agent-sortctl" for="' + id + '"><select id="' + id + '" data-agent-sort aria-label="Sort agents">'
+    + opts.map((o) => '<option value="' + o[0] + '">' + o[1] + '</option>').join('')
+    + '</select><svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></label>';
+}
+function agentSortVisibility() {
+  for (const label of document.querySelectorAll('.agent-sortctl')) label.hidden = BOARD_LAYOUT === 'org';
+  for (const select of document.querySelectorAll('[data-agent-sort]')) select.value = AGENT_SORT;
+}
+document.addEventListener('change', (e) => {
+  const select = e.target.closest && e.target.closest('[data-agent-sort]');
+  if (!select) return;
+  AGENT_SORT = agentSortMode(select.value);
+  try { localStorage.setItem('kosmos.sort.agents', AGENT_SORT); } catch { /* display preference only */ }
+  agentSortVisibility();
+  const lim = new URLSearchParams(location.search).get('limit');
+  const listed = (LAST || []).filter((a) => !(a && a.isGuide === true));
+  const shown = lim ? listed.slice(0, Number(lim)) : listed;
+  const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
+  document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
+  paintAgentList();
+});
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
 let CONS_AGENTS_OPEN = false;
@@ -29830,6 +29992,7 @@ function boardApplyVisibility(onAgents) {
      shows there for a person whose Agents layout is org, and the card grid for anyone else (the
      list is already the rail beside it, so a second list would say nothing new). */
   const consAgents = CONS_AGENTS_OPEN && document.body.classList.contains('consolidated');
+  agentSortVisibility();
   if (consAgents) {
     document.getElementById('grid').hidden = BOARD_LAYOUT === 'org';
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
@@ -33498,7 +33661,7 @@ function detailPaintWindow(a) {
    `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
-const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'];   // #3757: files has no pill (View All reaches it)
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'];   // #4433: swarm, only while the Swarm Settings box shows   // #3757: files has no pill (View All reaches it)
 /* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
@@ -33527,6 +33690,9 @@ function detailSectionGroup(section) {
 let TALK_SCROLL = null;
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
+  /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
+  if (section === 'swarm') { const sb = document.getElementById('d-nav-swarm'); if (!sb || sb.hidden) section = 'talk'; }
+  if (section !== 'swarm' && typeof swarmConfirmShow === 'function') swarmConfirmShow(false);   // leaving the view closes an open stop question
   /* The reader's place is kept only across THEIR OWN click away from Talk
      (the open path passes focus:false and never captures: it is a different
      agent's thread, and openDetail has just reset the offset for it). */
@@ -33593,6 +33759,11 @@ function detailGo(section, opts) {
      to the open-time record: a missing one means the agent left the board,
      which is the case the helper's first arm exists for. */
   if (section === 'files' && CURRENT && arriving) paintAgentFilesAll(CURRENT.sessionName);   // #3757
+  if (section === 'swarm' && CURRENT && arriving) {   // #4433: the view reads today's row as it opens
+    if (typeof swarmMsgClear === 'function') swarmMsgClear();
+    const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
+    if (fresh) swarmPagePaint(fresh, { force: true });
+  }
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
@@ -39612,9 +39783,10 @@ function placeAgentsPanel(consolidated) {
       /* Review round 1: the board's own view toggle stays behind in the tab view's bar, so without
          this a person on the grid could never reach the org chart Josh named. It saves to the same
          key as that toggle, so the choice is one choice. List is not offered: the list is the rail. */
-      wrap.innerHTML = '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
+      wrap.innerHTML = '<div class="cons-agents-head">' + agentSortControlHtml('agent-sort-cons')
+        + '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
         + '<button type="button" data-conslay="grid" aria-pressed="false">Grid</button>'
-        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div>';
+        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div></div>';
       wrap.addEventListener('click', (e) => {
         const b = e.target.closest('[data-conslay]');
         if (!b) return;
@@ -39628,6 +39800,7 @@ function placeAgentsPanel(consolidated) {
       for (const id of ids) { const el = document.getElementById(id); if (el) CONS_AGENTS_HOME[id] = { parent: el.parentElement, next: el.nextElementSibling }; }
     }
     for (const id of ids) { const el = document.getElementById(id); if (el && el.parentElement !== wrap) wrap.appendChild(el); }
+    agentSortVisibility();
   } else {
     CONS_AGENTS_OPEN = false;
     if (wrap) wrap.hidden = true;
@@ -45284,7 +45457,7 @@ function swarmStatusWords(a) {
   const st = a && a.state;
   return st === 'working' ? 'Working alone' : st === 'idle' ? 'Idle, working alone' : 'No helpers working';
 }
-/* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
+/* The swarm's Swarm Settings view (#4433; was the mock's section 3): the three states, Most helpers, the limit and Today. Painted from the
    status row every poll; a control the person is using is not repainted under them. */
 var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
 var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's page starts with an empty message line
@@ -45294,8 +45467,14 @@ function swarmPagePaint(a, { force = false } = {}) {
   const sw = a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? a.swarm : null;
   SWARM_ROW = sw ? a : null;
   const who = a && a.sessionName;
-  if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
+  if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; swarmConfirmShow(false); }
   panel.hidden = !sw;
+  /* #4433: the Swarm Settings box follows the field. This runs on every poll, and the poll never chooses the
+     section (web.agent-nav.test.js), so a view left open when the field goes says so instead of moving the reader. */
+  const navBox = document.getElementById('d-nav-swarm');
+  if (navBox) navBox.hidden = !sw;
+  if (!sw) swarmConfirmShow(false);
+  { const none = document.getElementById('d-swarm-none'); if (none) none.hidden = !!sw; }
   /* The page's header face follows the field: it gains or loses the cluster when a poll brings or drops `swarm`. */
   { const head = document.getElementById('d-swarm'); if (head && a && (!!sw) === head.hidden && typeof renderAvatar === 'function') renderAvatar(a); }
   /* A swarm runs on Claude only (the engine refuses a move off it), so it is not offered a switch that cannot work. */
@@ -45303,20 +45482,31 @@ function swarmPagePaint(a, { force = false } = {}) {
   if (!sw) return;
   renderAvatarSwarmOnly(a);
   const on = sw.active !== false;
-  const want = document.querySelector(`input[name="d-swarm-active"][value="${on ? 'on' : 'off'}"]`);
-  if (want && !want.checked && SWARM_BUSY !== who) want.checked = true;
+  /* #4433: the three states. Active is active; Paused is a person's pause or the daily limit's; Stopped is a stop. */
+  const st = on ? 'active' : sw.pausedBecause === 'stopped' ? 'stopped' : 'paused';
+  const limitPaused = !on && sw.pausedBecause === 'limit';
+  if (SWARM_BUSY !== who) swarmCardsPaint(st);
+  document.getElementById('d-swarm-l-limit').hidden = !limitPaused;
+  /* A hidden element named by aria-describedby is still READ (the accessible-name rules), so the limit line joins the
+     Paused card's description only while it is true (review round 7). */
+  { const pc = document.querySelector('#d-swarm-states .swcard[data-st="paused"]');
+    if (pc) pc.setAttribute('aria-describedby', limitPaused ? 'd-swarm-l-paused d-swarm-l-limit' : 'd-swarm-l-paused'); }
+  document.getElementById('d-swarm-tolimit').hidden = !limitPaused || !(Number(sw.dailyTokenLimit) > 0);
+  if (SWARM_BUSY !== who) swarmPillPaint(st, limitPaused);
+  /* #4433: when is a stop USED UP? Only when nothing is left to stop: stopped (or paused at the limit), no helper
+     counted in a full read (metered false may be missing one), and the lead itself known idle (the meter counts helpers
+     only, and a stop whose interrupt failed leaves it stopped with its turn running). Anything uncertain counts as
+     not used up. This decides one thing: whether picking Stopped when it is ALREADY the chosen card asks again. From
+     Paused (by the person or the limit), Stopped always asks, because it is a real change: a limit pause resumes by
+     itself, a stop does not. */
+  SWARM_STOP_SPENT = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
+  /* The line claims work is still running, so it needs evidence, not the cautious rule above (review round 3): a helper
+     counted, or the lead reported working. Right after a stop the row still says working until a poll lands, so the
+     line may show for one poll beside the done message; it is true of the last reading. */
   const why = document.getElementById('d-swarm-why');
-  const words = on ? '' : sw.pausedBecause === 'limit' ? `Paused at today's limit. It starts again at midnight, or switch it back to Active.`
-    : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
-    : 'Paused. It takes no new work until you switch it back to Active.';
+  const busyNow = (sw.metered !== false && Number(sw.activeHelpers) > 0) || a.state === 'working';
+  const words = st === 'stopped' && busyNow ? 'It is still finishing what it was doing. Pick Stopped again to stop it now.' : '';
   why.textContent = words; why.hidden = !words;
-  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works, and while
-     the count itself could not be read in full (metered false), since it may be missing one that is. */
-  /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
-     once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
-  /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
-     still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
-  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
   if ((force || document.activeElement !== range) && SWARM_BUSY !== who) range.value = String(max);
@@ -45364,7 +45554,7 @@ function swarmPagePaint(a, { force = false } = {}) {
     } else {
       capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
       capR.value = String(Math.max(1, Math.round(cap / 1000000)));
-      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US') + ' tokens';   // #4433: the unit, as Today says it
       capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
     }
   }
@@ -45407,7 +45597,6 @@ document.addEventListener('change', async (e) => {
   const t = e.target;
   if (!t || !CURRENT) return;
   const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
-  if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
   /* Saved but the lead could not be told (told.could_not): the page must not show the new number as if it runs. */
   if (t.id === 'd-swarm-max') {
     await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) },
@@ -45423,10 +45612,11 @@ document.addEventListener('change', async (e) => {
 });
 /* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
 document.body.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'd-swarm-cap' || e.target.id === 'd-swarm-max')) swarmMsgClear();   // #4433: the person moved on
   if (e.target && e.target.id === 'd-swarm-cap') {
     const pct = e.target.dataset.mode === 'pct';
     const t = pct ? e.target.value + '%' : (Number(e.target.value) * 1000000).toLocaleString('en-US');
-    document.getElementById('d-swarm-cap-v').textContent = t;
+    document.getElementById('d-swarm-cap-v').textContent = pct ? t : t + ' tokens';
     e.target.setAttribute('aria-valuetext', pct ? t + ' of your weekly allowance' : t + ' tokens a day');
   }
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
@@ -45437,8 +45627,86 @@ document.body.addEventListener('input', (e) => {
 });
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
-  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for this swarm, as swarmPick
+  swarmConfirmShow(false);
+  swarmCardsPaint('stopped'); swarmPillPaint('stopped', false);   // shown at once; a refused stop repaints the saved state
+  const who = CURRENT.sessionName;
+  await swarmSend('/api/agent/' + encodeURIComponent(who) + '/swarm/stop', 'POST', {},
     (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
+  if (CURRENT && CURRENT.sessionName === who) swarmCardFocus();
+});
+/* #4433 (Mona's design on #3946): the three state cards. A custom radio group: arrow keys (and Home, End) move
+   between them, Space or Enter picks, a click picks. Active and Paused apply at once; Stopped asks first. */
+var SWARM_STOP_SPENT = false;   // set by swarmPagePaint: a stop now would change nothing
+function swarmCards() { return [...document.querySelectorAll('#d-swarm-states .swcard')]; }
+/* The Swarm Settings box's state, in colour and words. Painted with the cards, so the two never disagree. */
+function swarmPillPaint(st, limitPaused) {
+  const navBox = document.getElementById('d-nav-swarm');
+  if (!navBox) return;
+  const word = st === 'active' ? 'Active' : st === 'stopped' ? 'Stopped' : limitPaused ? 'Paused (limit)' : 'Paused';
+  navBox.dataset.st = st;
+  document.getElementById('d-nav-swarm-word').textContent = word;
+}
+function swarmCardsPaint(st) {
+  const cards = swarmCards();
+  const focused = cards.find((c) => c === document.activeElement);   // a poll leaves the tab stop where the person is
+  for (const c of cards) { const chosen = c.dataset.st === st; c.setAttribute('aria-checked', String(chosen)); c.tabIndex = (focused ? c === focused : chosen) ? 0 : -1; }
+}
+function swarmCardFocus() {
+  const c = document.querySelector('#d-swarm-states .swcard[aria-checked="true"]');
+  if (c && !document.getElementById('d-sec-swarm').hidden) c.focus();
+}
+/* #4433 (Mona's review): a refusal on the message line explains the one change it refused, and says so until the
+   person's next move in the view (a slider moved, the stop question opened, the view opened again). Left longer, it
+   read as "something is still broken" beside settings that were fine. A change the board answers writes its own. */
+function swarmMsgClear() { const m = document.getElementById('d-swarm-msg'); if (m) m.textContent = ''; }
+function swarmConfirmShow(show) {
+  const box = document.getElementById('d-swarm-confirm');
+  if (!box) return;
+  box.hidden = !show;
+  if (show) swarmMsgClear();
+  /* The safe answer takes focus, never Stop now: a held or doubled Enter on the Stopped card would otherwise
+     land on Stop now and confirm a stop that cannot be undone (review round 1). */
+  if (show) document.getElementById('d-swarm-keep').focus();
+}
+async function swarmPick(card) {
+  if (!card || !CURRENT || !SWARM_ROW || SWARM_ROW.sessionName !== CURRENT.sessionName) return;
+  if (SWARM_BUSY === CURRENT.sessionName) return;   // one change at a time for THIS swarm; another swarm's stuck request never freezes it
+  const chosen = card.getAttribute('aria-checked') === 'true';
+  const st = card.dataset.st;
+  if (st === 'stopped') {
+    if (chosen && SWARM_STOP_SPENT) { document.getElementById('d-swarm-msg').textContent = 'It is already stopped, with nothing left running.'; return; }
+    swarmConfirmShow(true); return;
+  }
+  swarmConfirmShow(false);
+  if (chosen) return;
+  swarmCardsPaint(st); swarmPillPaint(st, false);   // shown at once; a refusal repaints the saved state (swarmSend's finally)
+  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm', 'PUT', { active: st === 'active' });
+}
+document.addEventListener('click', (e) => {
+  const t = e.target && e.target.closest;
+  if (!t) return;
+  const card = e.target.closest('#d-swarm-states .swcard');
+  if (card) { card.focus(); swarmPick(card); return; }
+  if (e.target.closest('#d-swarm-keep')) { swarmConfirmShow(false); swarmCardFocus(); return; }
+  if (e.target.closest('#d-swarm-tolimit')) { const cap = document.getElementById('d-swarm-cap'); if (cap) cap.focus(); }
+});
+document.addEventListener('keydown', (e) => {
+  const card = e.target && e.target.closest && e.target.closest('#d-swarm-states .swcard');
+  if (card) {
+    const all = swarmCards(), i = all.indexOf(card);
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? all[(i + 1) % all.length]
+      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? all[(i + all.length - 1) % all.length]
+      : e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1] : null;
+    if (to) { e.preventDefault(); all.forEach((c) => { c.tabIndex = c === to ? 0 : -1; }); to.focus(); return; }
+    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); swarmPick(card); }
+    else if (e.key === ' ' || e.key === 'Enter') e.preventDefault();   // a held key picks once
+    return;
+  }
+  /* Escape in the stop question keeps it running, as the other button does. */
+  if (e.key === 'Escape' && e.target && e.target.closest && e.target.closest('#d-swarm-confirm')) {
+    e.preventDefault(); e.stopPropagation(); swarmConfirmShow(false); swarmCardFocus();
+  }
 });
 function swminiSay(group, words) {
   const row = group.closest('.pj-member');

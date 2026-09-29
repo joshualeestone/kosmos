@@ -16,22 +16,22 @@ test.after(() => codex.setSpawn(null));
 
 test('#3380 a fresh turn: --json, git check skipped, autonomy, message last -- no resume', () => {
   const args = codex.codexTurnArgs({ message: 'hello', autonomy: true });
-  assert.deepEqual(args, ['exec', '--json', '--skip-git-repo-check', codex.AUTONOMY_FLAG, 'hello']);
+  assert.deepEqual(args, ['-c', codex.DOC_BYTES_CFG, 'exec', '--json', '--skip-git-repo-check', codex.AUTONOMY_FLAG, 'hello']);
 });
 
 test('#3380 a continuing turn resumes the thread id, before the flags', () => {
   const args = codex.codexTurnArgs({ message: 'again', sessionId: 'thread-abc', autonomy: true });
-  assert.deepEqual(args, ['exec', 'resume', 'thread-abc', '--json', '--skip-git-repo-check', codex.AUTONOMY_FLAG, 'again']);
+  assert.deepEqual(args, ['-c', codex.DOC_BYTES_CFG, 'exec', 'resume', 'thread-abc', '--json', '--skip-git-repo-check', codex.AUTONOMY_FLAG, 'again']);
 });
 
 test('#3380 a model is passed with -m, codex\'s own spelling', () => {
   const args = codex.codexTurnArgs({ message: 'm', model: 'gpt-5.6', autonomy: true });
-  assert.deepEqual(args, ['exec', '--json', '--skip-git-repo-check', '-m', 'gpt-5.6', codex.AUTONOMY_FLAG, 'm']);
+  assert.deepEqual(args, ['-c', codex.DOC_BYTES_CFG, 'exec', '--json', '--skip-git-repo-check', '-m', 'gpt-5.6', codex.AUTONOMY_FLAG, 'm']);
 });
 
 test('#3380 autonomy is OMITTED when not asked -- the flag is not invented', () => {
   const args = codex.codexTurnArgs({ message: 'x' });
-  assert.deepEqual(args, ['exec', '--json', '--skip-git-repo-check', 'x']);
+  assert.deepEqual(args, ['-c', codex.DOC_BYTES_CFG, 'exec', '--json', '--skip-git-repo-check', 'x']);
 });
 
 test('#3380 the parser reads thread.started, agent_message and turn.completed', () => {
