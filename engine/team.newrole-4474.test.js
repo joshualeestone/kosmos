@@ -177,3 +177,9 @@ test('#4474: the real served draft passes the vetting with Windows line endings 
   assert.equal(out.outcome, 'created', 'the served draft with CRLF was refused: ' + JSON.stringify(out.refused));
   assert.ok(!got[0].instructions.includes('\r'), 'CRLF reached create');
 });
+
+test('#4474: the member create receives carries the role as vetted (a string), not the shape it was sent in', () => {
+  const { got } = build([{ name: 'Lis', role: ['pm'] }, { name: 'Pad', role: '  pm  ' }]);
+  assert.equal(got[0].role, 'pm', 'a role sent as a list reached create as a list');
+  assert.equal(got[1].role, 'pm');
+});
