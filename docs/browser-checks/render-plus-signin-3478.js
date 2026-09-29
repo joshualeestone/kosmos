@@ -991,7 +991,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in..." and the
-         app's ring loader turns beside the words, and no Kosmos K animates in the card. */
+         app's ring loader turns beside the words. (No K animates in the card on main either: the k === 0 part is
+         a guard against one arriving, not evidence for this change.) */
       await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(300);
       const during = await page.evaluate(() => {

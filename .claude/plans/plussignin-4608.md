@@ -16,8 +16,9 @@ the moment it shows would name it.
 
 ## How
 - Markup: a hidden `.spin spin-sweep` (#plus-si-spin) at the start of #plus-si-owned.
-- plusSiDoRegister: sets the heading to "Signing in..." and shows the loader (automatic register) before the
-  POST; after it, hides the loader and restores the heading if it still says "Signing in...".
+- plusSiDoRegister: sets the heading to "Signing in..." for every register, shows the loader for the automatic
+  one (a chosen name says "Signing in..." in the live status line instead), and restores both only for its own
+  non-stale answer or a throw; plusSiShow also hides the loader on any step change.
 
 ## Verification
 - render-plus-signin-3478: the first register answer is held 1.5 s; during it the heading, the loader and no K
