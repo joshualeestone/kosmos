@@ -68,7 +68,17 @@ test('#4474: blank or too-short text gets no identity line, so create refuses it
   assert.equal(got[1].instructions, 'hi', 'a two-character text was padded past create\'s minimum');
 });
 
-test('#4474: a label cannot break the identity line (newlines and ** are flattened)', () => {
+test('#4474: a label cannot break the identity line or the card (newlines and ** are flattened in both)', () => {
   const { got } = build([{ name: 'Lu', role: 'own', label: 'Grant\n**writer**', instructions: 'Write grants and sign them all.' }]);
   assert.equal(got[0].instructions, 'You are **Lu**, Grant writer.\n\nWrite grants and sign them all.');
+  assert.equal(got[0].label, 'Grant writer', 'the label create stores for the card was not flattened');
+});
+
+test('#4474: an identity line written for another name is given the member\'s name; its own name is kept', () => {
+  const { got } = build([
+    { name: 'Ann', role: 'own', label: 'Editor', instructions: 'You are **Bob**, the editor.\n\nEdit everything twice.' },
+    { name: 'Cal', role: 'own', label: 'Editor', instructions: 'You are **Cal**, the editor.\n\nEdit everything twice.' },
+  ]);
+  assert.equal(got[0].instructions, 'You are **Ann**, the editor.\n\nEdit everything twice.');
+  assert.equal(got[1].instructions, 'You are **Cal**, the editor.\n\nEdit everything twice.', 'CONTROL: the right name was changed');
 });

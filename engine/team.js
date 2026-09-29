@@ -121,7 +121,7 @@ function resolveCap(deps, env) {
  * The shared working rules are appended by create (defaults.appendTo) to any text, so a made-up role cannot drop
  * them. Returns { member } (a copy, possibly with its text completed) or { because }.
  */
-const IDENTITY_LINE = /^\s*You are \*\*[^*\n]+\*\*,/;
+const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*,/;
 function vetAgentMember(member) {
   const role = typeof member.role === 'string' ? member.role.trim() : member.role;
   if (role === 'setup') {
@@ -139,10 +139,16 @@ function vetAgentMember(member) {
      made whose whole brief is its name. The label is flattened so it cannot break the line (a newline, or **). */
   const label = typeof member.label === 'string' ? member.label.replace(/\*+/g, '').replace(/\s+/g, ' ').trim() : '';
   const enough = text.trim().length >= require('./instructions').MIN_CHARS;
-  if (enough && !IDENTITY_LINE.test(text) && name && label) {
+  const said = IDENTITY_LINE.exec(text);
+  if (said && name && said[2].trim() !== name) {
+    /* Written for another name ("You are **Bob**," for Ann): the agent's own brief would contradict its name. */
+    text = text.replace(IDENTITY_LINE, said[1] + 'You are **' + name + '**,');
+  } else if (!said && enough && name && label) {
     text = 'You are **' + name + '**, ' + label + '.\n\n' + text.replace(/^\s+/, '');
   }
-  return { member: Object.assign({}, member, { instructions: text }) };
+  const out = { instructions: text };
+  if (typeof member.label === 'string') out.label = label;   // the card shows the same flattened label
+  return { member: Object.assign({}, member, out) };
 }
 
 /**
@@ -156,10 +162,10 @@ function vetAgentMember(member) {
  *   reason -- recording WHY is the drift guard, so a team with no why defeats it.
  * @param {Array<object>} opts.members  one create.createAgent opts object per
  *   agent ({name, role, ...}). Must be a non-empty array no longer than the cap.
- * @param {boolean} [opts.fromAgent]  #4474: the request came from an agent's token, so each member is vetted
- *   (vetAgentMember) before create; a member it refuses lands in refused[] like any other.
  *   NOTE: `opts` carries the REQUEST only. It deliberately has no cap field -- a
  *   cap on the request would let a model raise its own bound.
+ * @param {boolean} [opts.fromAgent]  #4474: the request came from an agent's token, so each member is vetted
+ *   (vetAgentMember) before create; a member it refuses lands in refused[] like any other.
  * @param {object} [deps]  { createAgent, readAgentId, cap, env } -- the TRUSTED
  *   channel, injectable for tests; defaults to create.createAgent, the profile-id
  *   reader, and process.env. `deps.cap` is the operator/seam cap override (never
