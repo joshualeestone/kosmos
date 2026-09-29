@@ -18,3 +18,7 @@ Card: joshualeestone/kosmos#4627 (from #4580 item 8). Owner: PigeonPete.
 ## Blind review round 1 (Opus, separate reviewer): nothing above NIT
 Fixed: the fast-path comment still said a link is stripped to its text; the rule comment now says a label that is itself a bare URL is linked to itself (never to the hidden address).
 Accepted, written in the rule comment: an address is cut at its first `)` (as a bare URL is); the title form `(url "t")` stays text; an address naming a project file gets no "Show me" chip (it had no address at all before); inline code inside an address leaves the rest of it open to emphasis (cosmetic, no leak, pinned by the placeholder check).
+
+## Blind review round 2 (Sonnet, separate reviewer): nothing above NIT. Converged.
+Accepted: an image `![alt](url)` now shows `!alt (url)` with the url linked, not only `!alt` (visible and honest; images are not rendered in this surface); punctuation written inside the parentheses stays in the href; the unheld code-bearing address can take emphasis (cosmetic). The only other `[label](url)` handling found, engine/feedback-triage.js, is the server's feedback surface, not agent dialogue.
+Next: full validation, then PR.
