@@ -53,3 +53,8 @@ Two WARNINGs fixed, both arms failing on the previous commit's page:
 - A re-ask was told apart by comparing the relay's first_seen with the page's clock, so a Mac clock ahead of the relay hid it. Each answer now stores the first_seen it answered (`asked`); a listed device with a DIFFERENT first_seen is a new request. No clock comparison.
 - Closing the sheet on an allowed result (Escape, backdrop, See your devices, Kosmos Plus) deleted it, and the 6s expiry deleted it whether or not the device was still listed, so a lagging listing brought an answered device back with Allow on it. Closing turns a result into `gone`, and an answer is forgotten only once the device is no longer listed (after 6s allowed / a minute kept out).
 NIT (accepted): navigating to Kosmos Plus with the sheet on a fresh Allowed result closes it; the device row and its ring still show it.
+
+## Blind review round 5 (Opus, separate reviewer): nothing above NIT. Converged.
+Walked: an allowed device leaves the listing within one tunnel poll (allow list + grant); a kept-out one drops at once; a re-ask gets a new first_seen only from denied; first_seen is NOT NULL and stable. The notice, the inline cards and the sheet read the same state.
+Accepted NIT: an Allow whose coordinator ack FAILED, followed by Remove within the kept window, leaves the re-listed request hidden (same first_seen) until the page reloads; it needs a failed ack plus a Remove of that very device.
+Next: full validation after #4610 lands (stacked), then PR.
