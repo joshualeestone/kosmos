@@ -11,6 +11,7 @@
  *   J4  after that, the agent's next message keeps them at the bottom
  *   J5  with a search filtering the thread, their send does not move them
  *   J6  someone who scrolls up while a slow send is in flight is not pulled back when it lands
+ *   J7  a thread not read yet (first open: no "Sending" bubble can be drawn) still ends with their message in view
  *
  * Harness: loaded over file:// with fetch answered here (render-dm-reply-4256.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -143,13 +144,35 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     chk(scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4,
       'J6 someone who scrolls up while a slow send is in flight is not pulled back when it lands', JSON.stringify({ scrolledMid, afterSlow }));
 
+    // J7
+    await page.evaluate(() => {
+      const el = document.getElementById('d-dmthread');
+      delete el.__lastBody;   // as on first open: talkPaintPending has nothing to draw into
+      el.scrollTop = Math.floor(el.scrollHeight * 0.35);
+    });
+    const firstUp = await pos();
+    await page.fill('#d-say', 'My first-open message 4639-g');
+    await page.click('#d-send');
+    await page.waitForFunction(() => !TALK_SENDING, null, { timeout: 5000 });
+    await page.waitForTimeout(200);
+    const afterFirst = await pos();
+    const firstVisible = await page.evaluate(() => {
+      const el = document.getElementById('d-dmthread');
+      const row = [...el.querySelectorAll('.msg.you')].reverse().find((r) => r.textContent.includes('4639-g'));
+      if (!row) return false;
+      const a = row.getBoundingClientRect(), b = el.getBoundingClientRect();
+      return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+    });
+    chk(firstUp.gap > 200 && afterFirst.gap <= 8 && firstVisible,
+      'J7 a thread not read yet still ends with their message in view', JSON.stringify({ firstUp, afterFirst, firstVisible }));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } catch (e) {
     chk(false, 'the check itself', String((e && e.message) || e));
   } finally {
     await browser.close().catch(() => {});
   }
-  if (ran < 7) { console.log('dm-sendjump: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 8) { console.log('dm-sendjump: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (fail.length) { console.log('dm-sendjump: ' + fail.length + ' FAILED'); process.exit(1); }
   console.log('dm-sendjump: all good, ' + ran + ' checks');
 })();

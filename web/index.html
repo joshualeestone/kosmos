@@ -56953,8 +56953,8 @@ async function pjPostSend(attachment) {
   PJ_POSTING = true;
   document.getElementById('pj-post-go').disabled = true;
   /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
-     seconds, and a jump that late would pull back someone who scrolled up meanwhile. The
-     repaints after this measure the floor before they write, so they keep them there. */
+     seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
+     send that then fails has still moved them; its sentence is beside this composer. */
   jumpToOwnSend(document.getElementById('pj-room'), PJ_ROOM_QUERY);
   const verdict = (line) => {
     if (PJ_CURRENT === sentProject) msg.textContent = line;

@@ -436,6 +436,27 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         await p.waitForFunction(() => PJ_ROOM_QUERY.trim() === '', null, { timeout: GROW_MS });
         if (filteredUp.gap > 200 && Math.abs(afterFiltered.top - filteredUp.top) <= 4) ok('#4639 ' + tag + 'with a search filtering the room, their send does not move them');
         else bad('#4639 ' + tag + 'with a search filtering the room, their send does not move them', JSON.stringify({ filteredUp, afterFiltered }));
+        /* A send that fails has still moved them (the jump is at the press, above): they
+           land at the bottom, and the failure is said beside the composer they are at. */
+        await scrollBack();
+        const failUp = await roomPos();
+        await p.route('**/api/project/*/room', async (route) => {
+          if (route.request().method() === 'POST') await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'We could not post that.' }) });
+          else await route.continue();
+        });
+        let afterFail, failSaid;
+        try {
+          await p.fill('#pj-post', 'My failed post 4639-f' + slug);
+          await p.click('#pj-post-go');
+          await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
+          afterFail = await roomPos();
+          failSaid = await p.evaluate(() => document.getElementById('pj-room-msg').textContent.trim());
+        } finally {
+          await p.unroute('**/api/project/*/room');
+        }
+        await p.fill('#pj-post', '');
+        if (failUp.gap > 200 && afterFail.gap <= 8 && failSaid) ok('#4639 ' + tag + 'a send that fails lands them at the bottom and says so beside the composer');
+        else bad('#4639 ' + tag + 'a send that fails lands them at the bottom and says so beside the composer', JSON.stringify({ failUp, afterFail, failSaid }));
       } catch (e) {
         bad('#4639 ' + tag + 'the room send-jump arms ran', String((e && e.message) || e));
       }
