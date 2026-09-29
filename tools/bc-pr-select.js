@@ -38,8 +38,8 @@
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
  *              from the page, or its end cannot be found, or it is declared twice; in those cases it
  *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines
- *              never name it, and
- *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
+ *              never name it, and render-assistant-hosted-3660 never calls it (it sees the bubble's
+ *              image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
  *              changed in 23 commits in two weeks), and one escape asked only for this (Liu Kang, #4119).

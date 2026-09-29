@@ -13,7 +13,7 @@ follow-up PRs). Iteration 1 of that loop (a blind reviewer over 7b8b45371 and 01
    at the next declaration at the same indentation and answers 'unclosed', which selects the check with the
    reason "its end was not found". The declared-function test also asserts each declared range is one
    balanced body (braces balance once strings and // comments are removed), independent of how the finder picks
-   its end. Measured: it fails when the finder ends a body one line early (the unsafe direction, under-selection);
+   its end. Measured by a mutation run (the finder made to end each body one line early): it fails when the finder ends a body early (the unsafe direction, under-selection);
    it does NOT fail when a range runs on over code that is itself balanced (over-selection, the safe direction).
    Found by iteration 2: the first version of that assertion reused the finder's own stop rule and could not fail.
 3. touchedLines counted every file's hunks (and, once it filtered, needed git's default a/ b/ prefixes; main() now
@@ -38,7 +38,8 @@ Not changed, with reasons:
 - Neither merged commit had its own plan file; this file records both.
 
 Weakest part: the range finder still reads indentation, not syntax. A body whose own inner block closes at the
-declaration's indentation would end early (under-selection). The balanced-body assertion catches that for
+declaration's indentation would end early (under-selection), and regex literals are not parsed (a quote inside one would mislead the one-line check; the unpaired-quote
+guard sends such a line to the multi-line scan instead). The balanced-body assertion catches that for
 every function a check declares today; it does not guard a function declared later until its test runs, and it
 cannot see a range that runs on over balanced code (over-selection, the safe side). The one-line indentation
 assertion does not fire today (both declarations are multi-line); it is a guard for a future one-line

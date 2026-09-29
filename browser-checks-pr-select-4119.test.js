@@ -386,3 +386,9 @@ test('main() diffs with the flags that keep user git config out of the headers a
     assert.ok(call.includes(flag), `main()'s git diff lost ${flag}`);
   }
 });
+
+test('through select(): a head without the page (pageAt gave "") selects every declaring check as "not on the page"', () => {
+  const diff = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -2,1 +2,1 @@', '-<html lang="en">', '+<html lang="en" >'].join('\n');
+  assert.match((sel.select(diff, [], '').get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(not on the page\)/);
+});
