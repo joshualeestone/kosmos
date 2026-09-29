@@ -6534,7 +6534,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4631: Copy reference too */
+  /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
+     thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
+  #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -6555,7 +6558,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -55474,11 +55477,24 @@ function pjRxnResetRow(messageRow) {
 }
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
+/* #4631: keep a touchscreen's open bar inside its thread sideways. Copy reference made the bar wider, and on a phone
+   a short post of the person's own (its bar hangs from the bubble's right edge) sent it past the thread's left edge,
+   and an agent's (hanging from the bubble's left) past the right. Shifted, not re-anchored, so it stays over its own
+   post as far as the thread allows. The shift is exact: a rounded one left it 0.4px outside. Called by pjRxnPlace
+   (a tap) and by the keyboard-focus opener, which never runs pjRxnPlace. */
+function rxnKeepInsideX(quickBar, host) {
+  if (!quickBar || !host) return;
+  quickBar.style.transform = '';
+  const R = host.getBoundingClientRect(), Q = quickBar.getBoundingClientRect();
+  const dx = Q.left < R.left ? R.left - Q.left : (Q.right > R.right ? R.right - Q.right : 0);
+  if (dx) quickBar.style.transform = 'translateX(' + dx + 'px)';
+}
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
   const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
   if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   quickBar.removeAttribute('style');
+  rxnKeepInsideX(quickBar, room);   // #4631
   const band = pjRxnVisibleBand(room);
   const rowRect = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
@@ -55500,7 +55516,8 @@ function pjRxnPlace(row, fromTap) {
   RXN_PINNED = true;
   // A post taller than what is showing (just tapped, or re-placed): pin the bar in the visible
   // thread, where the post is, at the same left edge. A scroll or viewport change re-places it (below).
-  const barLeft = quickBar.getBoundingClientRect().left;
+  const barLeft = quickBar.getBoundingClientRect().left;   // after the sideways shift above, which the fixed left now carries
+  quickBar.style.transform = '';
   // At the post's own top when that is showing (so it does not cover the message above), else at
   // the top of what is showing; never past the bottom of what is showing.
   const pinTop = Math.min(Math.max(band.top, rowRect.top) + RXN_BAR_GAP_PX, band.bottom - quickBar.offsetHeight - RXN_BAR_GAP_PX);
@@ -55615,11 +55632,12 @@ for (const id of rxnHosts()) document.getElementById(id).addEventListener('focus
   const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
   row.classList.remove('rxn-below');
   if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
+  rxnKeepInsideX(quickBar, event.currentTarget);   // #4631: and inside it sideways
 });
 for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusout', (event) => {
   const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || quickBar.contains(event.relatedTarget)) return;
-  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) { row.classList.remove('rxn-below'); quickBar.style.transform = ''; }   // #4631: the sideways shift too
 });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
