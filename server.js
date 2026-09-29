@@ -6345,6 +6345,8 @@ const server = http.createServer(async (req, res) => {
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
+          // #4557: a seeded team member's brief, layered into its role's instructions (never replacing them).
+          teamInstructions: body.teamInstructions,
           // Which provider it runs on (#245). Absent means Anthropic, which
           // is what every existing caller means; the engine validates and
           // refuses anything it does not know.

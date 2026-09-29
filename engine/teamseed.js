@@ -14,6 +14,7 @@
  */
 const fs = require('node:fs');
 const create = require('./create');
+const roles = require('./roles');
 
 let injected = null;
 
@@ -145,9 +146,12 @@ function specs(req, cat, deps) {
     title: m.title,
     spec: {
       name: names[m.slot],
-      role: m.role,
+      // #4557 (Josh): the SAME create path as a single agent. The catalogue's role when Kosmos has it,
+      // else the general-purpose one; the member's brief is layered INTO that role's standard
+      // instructions (teamInstructions), never sent as `instructions`, which would replace them.
+      role: roles.byKey(m.role) ? m.role : 'own',
       label: m.title,
-      instructions: c.memberInstructions(team.key, m.slot, names),
+      teamInstructions: c.memberInstructions(team.key, m.slot, names),
       reportsTo: m.slot === lead ? null : create.slugFor(names[lead]),
       ...(project ? { projects: [project] } : {}),
     },

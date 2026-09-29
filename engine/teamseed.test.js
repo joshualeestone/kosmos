@@ -88,13 +88,15 @@ test('specs: lead first; reports report to the lead by its machine name, however
   assert.equal(r.specs[2].spec.reportsTo, 'maya-okafor');
   assert.deepEqual(r.specs.map((s) => s.spec.name), ['Maya Okafor', 'Leo', 'Ana']);
   assert.deepEqual(r.specs.map((s) => s.spec.label), ['Chief Marketing Officer', 'Content Writer', 'Social Media Manager']);
-  assert.deepEqual(r.specs.map((s) => s.spec.role), ['cmo', 'copy', 'social']);
+  assert.deepEqual(r.specs.map((s) => s.spec.role), ['own', 'copy', 'social'] /* #4557: cmo is not a Kosmos role, so it gets the general template (layered, not refused) */);
 });
 
-test('specs: instructions are the catalogue\'s, built with the CHOSEN names for every slot', () => {
+test('specs: the team brief is the catalogue\'s, built with the CHOSEN names for every slot', () => {
   const cat = fixture();
   const r = teamseed.specs({ team: 'marketing', names: NAMES }, cat);
-  assert.equal(r.specs[1].spec.instructions, 'You are **Leo**, on marketing as content.\n\nReports to Maya Okafor.');
+  // #4557 (Josh): the brief rides as teamInstructions, layered into the role's template; never raw `instructions`.
+  assert.equal(r.specs[1].spec.teamInstructions, 'You are **Leo**, on marketing as content.\n\nReports to Maya Okafor.');
+  assert.equal(r.specs[1].spec.instructions, undefined);
   assert.equal(cat.calls.length, 3);
   for (const c of cat.calls) assert.deepEqual(c.names, NAMES);
 });

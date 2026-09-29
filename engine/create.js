@@ -510,6 +510,11 @@ function cleanName(raw) {
    and another to create. */
 function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
 
+/* #4557: the block a seeded team member's brief rides in, inside its role's standard instructions. */
+function teamBlockBody(brief) {
+  return '## Your team\n\n' + String(brief).trim() + '\n';
+}
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -4218,6 +4223,10 @@ function createAgentInner(opts) {
    */
   const wantLabel = opts && opts.label !== undefined ? opts.label : undefined;
   const wantInstructions = opts && opts.instructions !== undefined ? opts.instructions : undefined;
+  // #4557 (Josh, via Splinter on the card): a seeded team member is made by THIS path like any agent, and
+  // its team brief is LAYERED INTO the role's standard instructions as its own block. It never replaces
+  // them the way `instructions` (the person's own words, verbatim) does, so every standard block lands.
+  const wantTeam = opts && opts.teamInstructions !== undefined ? opts.teamInstructions : undefined;
   // Project ids the route already validated; used once, to compose the
   // projects block into the first write (#323). Never read from here again.
   const wantProjects = opts && Array.isArray(opts.projects)
@@ -4235,6 +4244,21 @@ function createAgentInner(opts) {
   if (wantLabel !== undefined
       && (typeof wantLabel !== 'string' || !wantLabel.trim() || wantLabel.trim().length > 80)) {
     return { outcome: OUTCOME.REFUSED, because: 'a role label has to be words (80 characters or fewer)', steps };
+  }
+  if (wantTeam !== undefined) {
+    if (wantInstructions !== undefined) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief is layered into its role\'s instructions, so give one or the other, not both', steps };
+    }
+    if (typeof wantTeam !== 'string' || !wantTeam.trim()) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief has to be words', steps };
+    }
+    // The template with the brief in it must fit the same cap every boot file does, measured the way the
+    // write step composes it, or create would mint a file the app's own editor refuses to read back.
+    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, String((opts && opts.name) || '')) || '',
+      teamBlockBody(wantTeam), require('./projects').TEAM_START, require('./projects').TEAM_END);
+    if (Buffer.byteLength(composed, 'utf8') > require('./instructions').MAX_BYTES) {
+      return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
+    }
   }
   if (wantInstructions !== undefined
       && (typeof wantInstructions !== 'string' || !wantInstructions.trim())) {
@@ -4903,6 +4927,12 @@ function createAgentInner(opts) {
     let text = wantInstructions !== undefined
       ? wantInstructions.replace(/\n?$/, '\n')
       : roles.instructionsFor(roleKey, shown);
+    // #4557: the team brief goes INTO the role's text, first, so the blocks below land around it as they
+    // do for any agent. Checked to fit before anything was made (above).
+    if (wantTeam !== undefined) {
+      const pj = require('./projects');
+      text = pj.spliceBlock(text, teamBlockBody(wantTeam), pj.TEAM_START, pj.TEAM_END);
+    }
     // The About-you answers ride the boot file from BIRTH, spliced here
     // rather than told after the fact -- at this moment the session does not
     // exist yet, so the tell path's tied-session gate would refuse the very
