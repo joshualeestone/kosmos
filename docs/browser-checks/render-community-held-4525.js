@@ -272,7 +272,7 @@ async function run() {
     await pf.route(MOD, mod(Array.from({ length: 200 }, (_, i) => ({ ...QUEUE[2], id: 'f' + i }))));
     await openAutomation(pf);
     const fl = await readList(pf);
-    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200 of each kind are shown\. There may be more/.test(fl.empty), fl.empty);
+    check('FULL: 200 rows say they are the oldest and there may be more', fl.rows.length === 200 && fl.emptyHidden === false && /oldest 200 waiting and the oldest 200 stopped are shown\. There may be more/.test(fl.empty), fl.empty);
     await pf.close();
 
     // FULL-STOPPED: 200 OLDER stopped rows cannot push a newer releasable post out of sight (it is listed first).

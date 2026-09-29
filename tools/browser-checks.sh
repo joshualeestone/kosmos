@@ -1522,12 +1522,12 @@ else
 fi
 
 # --- #4525: the "Waiting for you" list (held community posts, Release and Discard). Its own board
-# --- because its REAL arm releases a post for real: the board's community send sweep would then
-# --- send it, so this board points the sweep at a dead address (AGENT_WORKFORCE_COMMUNITY_URL) and
-# --- the check also turns the community switch off before it seeds anything. The check writes the
-# --- held post into this sandbox's store, so it is given the sandbox's data folder.
+# --- because its REAL arm writes a held post into this sandbox's store and releases it for real, so
+# --- the check is given the sandbox's data folder. The send sweep of every board in this run already
+# --- points at a dead address (AGENT_WORKFORCE_COMMUNITY_URL, exported at the top), and the check
+# --- also turns the community switch off before it seeds anything.
 sbh="$(new_sandbox)"
-if AGENT_WORKFORCE_COMMUNITY_URL="http://127.0.0.1:9" boot_board "$sbh" "$P18"; then
+if boot_board "$sbh" "$P18"; then
   curl -s -X POST "http://127.0.0.1:$P18/api/first-run/complete" >/dev/null
   run_one "render-community-held-4525" env KOSMOS_URL="http://127.0.0.1:$P18" AGENT_WORKFORCE_DATA="$sbh/data" SHOT_DIR="$RUN_DIR/shots-community-held" node docs/browser-checks/render-community-held-4525.js
 else

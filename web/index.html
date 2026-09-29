@@ -28775,6 +28775,9 @@ function openCommunityDelete(r, li) {
    publishes the row and, for a post, records the approval on the agent's trust ladder; Discard asks
    inside the row, then POSTs {id} to /api/community/discard. A quarantined row (the safety check
    caught something) cannot be released, so it says why and offers only Discard. */
+/* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
+   two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
+   test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
 const COMMUNITY_SITE = 'https://community.installkosmos.com';
 function communityHeldReason(findings) {
   const said = {
@@ -28803,7 +28806,15 @@ function communityHeldTitle(r) {
   return r.topic || 'Untitled post';
 }
 let COMMUNITY_HELD_EPOCH = 0;
+/* The moderation route's ceiling, engine/communitysite.js MOD_LIMIT_MAX (web.community-held-4525.test.js
+   pins the two equal: below it, the "there may be more" line could never show). */
 const COMMUNITY_HELD_MAX = 200;
+/* Read all shows when the text may run past the four lines .community-held-body clamps it to
+   (-webkit-line-clamp: 4); 240 characters is about four lines at the Settings column's width. */
+const COMMUNITY_HELD_CLAMP_LINES = 4;
+const COMMUNITY_HELD_READ_ALL_CHARS = 240;
+/* How much of a comment names its buttons for a screen reader: enough to tell two apart. */
+const COMMUNITY_HELD_LABEL_CHARS = 40;
 function communityHeldPaint(rows, full) {
   const list = document.getElementById('community-held-list');
   const empty = document.getElementById('community-held-empty');
@@ -28819,7 +28830,7 @@ function communityHeldPaint(rows, full) {
   empty.textContent = 'Nothing is waiting for you.';
   if (full) {
     empty.hidden = false;
-    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' of each kind are shown. There may be more; they show here as you release or discard these.';
+    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped are shown. There may be more; they show here as you release or discard these.';
   }
   for (const r of rows) {
     const stopped = r.status === 'quarantined';
@@ -28828,7 +28839,7 @@ function communityHeldPaint(rows, full) {
     /* The buttons' names: a post's title, or for a comment its agent plus how it starts, since
        one agent can have several comments waiting. */
     const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
-    const label = isComment && said ? name + ': ' + (said.length > 40 ? said.slice(0, 40) + '…' : said) : name;
+    const label = isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
     const li = document.createElement('li');
     li.className = 'community-mine-row community-held-row';
     li.dataset.id = r.id;
@@ -28917,7 +28928,7 @@ function communityHeldPaint(rows, full) {
         show.setAttribute('aria-expanded', String(!body.hidden));
       });
       body.after(show);
-    } else if (txt.length > 240 || txt.split('\n').length > 4) {
+    } else if (txt.length > COMMUNITY_HELD_READ_ALL_CHARS || txt.split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
       const more = document.createElement('button');
       more.className = 'linkish community-held-more';
       more.type = 'button';
@@ -28968,12 +28979,15 @@ async function communityHeldRelease(r, li, btn) {
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) { note.textContent = (out && out.error) || 'We could not release it.'; buttons.forEach((b) => { b.disabled = false; }); btn.focus(); return; }
-    await communityHeldDone();
   } catch {
     note.textContent = 'We could not release it.';
     buttons.forEach((b) => { b.disabled = false; });
     btn.focus();
+    return;
   }
+  /* Released. The repaint is outside the try: a refresh that fails must not tell the person the
+     release failed, when it landed. */
+  await communityHeldDone();
 }
 /* Discard asks inside the row, the same way Delete does above: both buttons name the act, and
    Keep it takes focus so an unaimed Enter is harmless. */
@@ -29017,13 +29031,14 @@ function openCommunityDiscard(r, li, name) {
       });
       const out = await res.json().catch(() => null);
       if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; del.focus(); return; }
-      await communityHeldDone();
     } catch {
       note.textContent = 'We could not discard it.';
       del.disabled = false;
       keep.disabled = false;
       del.focus();
+      return;
     }
+    await communityHeldDone();   // discarded: a failed repaint is not a failed discard
   });
   const row = document.createElement('div');
   row.style.display = 'flex';
