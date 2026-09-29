@@ -302,13 +302,14 @@ test('every function a check declares is defined on the page today, so no declar
       declared.push(`${f}:${fn}`);
       const r = sel.functionRange(page, fn);
       assert.ok(Array.isArray(r), `${f} declares ${fn}, which web/index.html ${r === 'unclosed' ? 'declares with no closing brace at its own indentation' : 'no longer defines'}`);
-      // Tight, not merely found: no other function declared at the same indentation inside the range, so a
-      // closing line the finder missed cannot stretch it over the functions after it.
-      const lines = page.split('\n');
-      const indent = /^(\s*)/.exec(lines[r[0] - 1])[1];
-      const other = new RegExp(`^${indent}(?:async\\s+)?function\\s+[A-Za-z_$][\\w$]*\\s*\\(`);
-      const inside = lines.slice(r[0], r[1]).filter((l) => other.test(l));
-      assert.deepEqual(inside, [], `${f}'s ${fn} range [${r}] runs over another function`);
+      // The range is the body, checked independently of how the finder finds its end: its braces balance once
+      // strings and // comments are removed. A range that ends early or runs on leaves them unbalanced.
+      let open = 0; let close = 0;
+      for (const l of page.split('\n').slice(r[0] - 1, r[1])) {
+        const code = l.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
+        open += (code.match(/\{/g) || []).length; close += (code.match(/\}/g) || []).length;
+      }
+      assert.ok(open > 0 && open === close, `${f}'s ${fn} range [${r}] is not one balanced body (${open} { against ${close} })`);
     }
   }
   assert.ok(declared.length >= 2, `CONTROL: the walker found ${declared.length} declarations; it must see the two this card added`);
@@ -347,4 +348,7 @@ test('touchedLines counts only web/index.html hunks, and places a -U0 pure delet
     'diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
     '@@ -10,2 +9,0 @@', '-gone1', '-gone2', '@@ -20 +20 @@', '-old', '+new'].join('\n');
   assert.deepEqual(sel.touchedLines(diff), [10, 10, 20, 20]);
+  // A header without a/ b/ prefixes (diff.noprefix) is still the page's.
+  const noprefix = ['diff --git web/index.html web/index.html', '--- web/index.html', '+++ web/index.html', '@@ -5 +5 @@', '-a', '+b'].join('\n');
+  assert.deepEqual(sel.touchedLines(noprefix), [5, 5]);
 });

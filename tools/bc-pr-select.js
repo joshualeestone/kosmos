@@ -9,7 +9,7 @@
  * broke render-fields. This names the checks a `web/index.html` diff reaches, so the PR job runs
  * them too. It diffs `<base>...<head>` (the merge base, as the #2518 gate does), web/index.html
  * only, and reads the changed (+/-) lines. The checks and gated.txt are read from the working tree,
- * so a replay asks what TODAY's checks select; the page itself (its ids, function names and function
+ * as are tools/browser-checks.sh and tools/bc-surface-map.sh, so a replay asks what TODAY's checks select; the page itself (its ids, function names and function
  * bodies) is read at `head`, so the diff's line numbers refer to the page they were written against.
  *
  * NOT READ: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
@@ -34,7 +34,7 @@
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
- *              from the page, or its end cannot be found (it then selects on every page diff). #3828 changed only the body of asbAvatar(); its lines never name it, and
+ *              from the page, or its end cannot be found; in those two cases it selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -102,6 +102,8 @@ function functionRange(page, name) {
     const m = decl.exec(lines[i]);
     if (!m) continue;
     // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
+    // A regex literal is not recognised as one: a quote inside it can pair with a later one, and such a function
+    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red).
     const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
     const opens = (code.match(/\{/g) || []).length;
     if (opens > 0 && opens === (code.match(/\}/g) || []).length) return [i + 1, i + 1];
@@ -126,9 +128,12 @@ function touchedLines(diff) {
   const out = [];
   let next = null;
   let inPage = true;   // a diff with no file headers (a hand-built one) is taken as the page's
+  let afterMinus = false;
   for (const l of diff.split('\n')) {
-    if (l.startsWith('diff --git ')) { next = null; inPage = true; continue; }
-    if (l.startsWith('+++ ') && next === null) { inPage = l === '+++ b/web/index.html'; continue; }
+    if (l.startsWith('diff --git ')) { next = null; inPage = true; afterMinus = false; continue; }
+    if (afterMinus && l.startsWith('+++ ')) { inPage = /(^|\/)web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
+    afterMinus = next === null && l.startsWith('--- ');
+    if (afterMinus) continue;
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
     if (h) { next = inPage ? Number(h[1]) + (h[2] === '0' ? 1 : 0) : null; continue; }
     if (next === null) continue;
@@ -335,7 +340,8 @@ function main(argv) {
   let changedChecks;
   let why;
   try {
-    diff = git(['diff', `${base}...${head}`, '--', 'web/index.html']);
+    // Prefixes pinned: a diff.noprefix or diff.dstPrefix setting would change the `+++` header touchedLines reads.
+    diff = git(['diff', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
     // A check the PR edits runs too: a changed assertion is only proven by running it. A top-level
     // .js is a check or lib by name; any other file is passed by its path under the directory.
     changedChecks = git(['diff', '--name-only', `${base}...${head}`, '--', 'docs/browser-checks/'])
