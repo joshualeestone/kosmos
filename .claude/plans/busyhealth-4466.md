@@ -109,6 +109,21 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   Windows connect that hangs is also called busy (Windows has no restart verbs for an agent to misuse);
   "no reply in 0 s" when someone sets KOSMOS_BUSY_WAIT=0.
 
+## Review round 10 decisions
+- Deferred, not real: "an empty lsof owner reads as stranger". `port_listener_owner` prints a line on every
+  success path and returns 1 on an empty pid or uid, which `_health_no_answer` maps to unknown, then busy.
+- Deferred: "a future refactor could call healthy in a subshell". The comment above `healthy()` already
+  forbids it (HEALTH_STATE is a global); nothing does it today.
+
+## Review round 11 decisions
+- The watchdog's every attempt on a busy board past the grace is the reclaim-flagged start, never kickstart:
+  the #3079 reclaim kills our listener whoever tracks it (a superset of kickstart for the port), and falling
+  back to kickstart after one failed reclaim left a detached holder wedged until the cooldown. Arm 6d now
+  pins it (red on the old escalation); 6b is the plain-down control that still kickstarts.
+- The CLI's numbers are named: BUSY_WAIT_DEFAULT_S (20), BUSY_PROBE_MAX_S (8), AUTO_REPORT_BUSY_WAIT_S (6),
+  AGENT_RESTART_COOLDOWN_S (300, was written twice), each with its reason. The header names status exit 4.
+- Deferred again: the dev-path stranger (rounds 7 and 8).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -146,7 +161,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - `tools.windows-kosmos-cli-busy-4466.test.js` (3 arms): a timed-out read says busy; a timed-out write adds that
   it may have happened; refused keeps the old line.
 - `tools/test-board-watchdog-2955.sh` arms 6e/6c/6d: busy 60 s no restart (red on the old watchdog), busy
-  400 s recovered.
+  400 s recovered by the reclaim start, busy after a failed reclaim reclaims again (no kickstart).
 - Red-capability measured: on main's `install/kosmos`, 6 of the 10 CLI arms fail and the 4 that should
   hold on both (stopped, stranger, older board, control) pass.
 

@@ -6,7 +6,8 @@
 #
 #   kosmos start     start the board if it is not already running
 #   kosmos stop      stop it
-#   kosmos status    say whether it is running, in a sentence
+#   kosmos status    say whether it is running, in a sentence (exit 0 running,
+#                    1 not, 4 running but too busy to answer: #4466, the watchdog reads it)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -339,10 +340,24 @@ EOF
   # checkout such as ~/work/agent-workforce/server.js reads as a stranger here. Development only.)
   if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ]; then HEALTH_STATE=stranger; fi
 }
-# KOSMOS_BUSY_WAIT in whole seconds (default 20). Anything else is 20: "2.5" would be an arithmetic
+# How long a verb waits on a busy board before it gives up (still saying busy, never "not running").
+# 20 s: long enough to ride out the multi-second answers a 25-agent board gave the tester, short enough
+# that an agent's command does not look hung. KOSMOS_BUSY_WAIT overrides it.
+BUSY_WAIT_DEFAULT_S=20
+# The longest single probe in that wait (probes run 2, 4, 8, 8... s): one slow answer is waited for, and
+# the retries still come often enough to catch the board the moment it is free.
+BUSY_PROBE_MAX_S=8
+# An --auto report (a hook's) waits only this long: SessionStart runs one in the foreground under
+# Claude Code's 15 s hook timeout, so it must end inside it with room to print.
+AUTO_REPORT_BUSY_WAIT_S=6
+# An agent may not start (or restart) the board again within this long of its last start: the 140
+# restarts an hour came from agents that each saw "not running". Five minutes covers a slow boot of a
+# busy board. KOSMOS_AGENT_RESTART_COOLDOWN overrides it.
+AGENT_RESTART_COOLDOWN_S=300
+# KOSMOS_BUSY_WAIT in whole seconds. Anything else is the default: "2.5" would be an arithmetic
 # error under set -e, and the messages must name the wait that was actually used.
 _busy_wait() {
-  case "${KOSMOS_BUSY_WAIT:-}" in ''|*[!0-9]*) printf '20' ;; *) printf '%s' "$KOSMOS_BUSY_WAIT" ;; esac
+  case "${KOSMOS_BUSY_WAIT:-}" in ''|*[!0-9]*) printf '%s' "$BUSY_WAIT_DEFAULT_S" ;; *) printf '%s' "$KOSMOS_BUSY_WAIT" ;; esac
 }
 healthy() {
   _HEALTH_OWNER=""
@@ -361,7 +376,7 @@ healthy() {
     if [ "$_left" -le 0 ]; then return 1; fi
     if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
     _t=$(( _t * 2 ))
-    if [ "$_t" -gt 8 ]; then _t=8; fi
+    if [ "$_t" -gt "$BUSY_PROBE_MAX_S" ]; then _t="$BUSY_PROBE_MAX_S"; fi
     if [ "$_t" -gt "$_left" ]; then _t="$_left"; fi
   done
 }
@@ -760,8 +775,8 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   _last="$(cat "$BOARD_STARTED_AT" 2>/dev/null || true)"
   case "$_last" in ''|*[!0-9]*) return 0 ;; esac
   _now="$(date +%s)"; _ago=$(( _now - _last ))
-  _cool="${KOSMOS_AGENT_RESTART_COOLDOWN:-300}"
-  case "$_cool" in ''|*[!0-9]*) _cool=300 ;; esac   # whole seconds; anything else would turn the cooldown off
+  _cool="${KOSMOS_AGENT_RESTART_COOLDOWN:-$AGENT_RESTART_COOLDOWN_S}"
+  case "$_cool" in ''|*[!0-9]*) _cool="$AGENT_RESTART_COOLDOWN_S" ;; esac   # whole seconds; anything else would turn the cooldown off
   if [ "$_ago" -ge 0 ] && [ "$_ago" -lt "$_cool" ]; then
     say "Kosmos was started ${_ago} s ago, so an agent may not start it again yet. If it still is not answering in a few minutes, tell the person who runs this computer."
     exit 1
@@ -1833,7 +1848,7 @@ cmd_report() {
   # is OFF" sentence never shows; every other hook event starts one in the background, and a busy
   # board's CPU is the last thing to spend on 20 s of retries per event. So a 6 s busy budget (probes of
   # 2 and 4 s) unless the caller set one. A person's or an agent's own report keeps the full wait.
-  if [ "$auto" = 1 ] && [ -z "${KOSMOS_BUSY_WAIT:-}" ]; then KOSMOS_BUSY_WAIT=6; fi
+  if [ "$auto" = 1 ] && [ -z "${KOSMOS_BUSY_WAIT:-}" ]; then KOSMOS_BUSY_WAIT="$AUTO_REPORT_BUSY_WAIT_S"; fi
   if ! healthy; then
     say_not_up "this could not be recorded"
     exit 1

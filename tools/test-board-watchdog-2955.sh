@@ -110,10 +110,12 @@ grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 400 s: the start i
 grep -qx 'start --force' "$H/.stub-start-args" && ok "#4466: the busy reclaim start passes --force too" || bad "busy start without --force: $(cat "$H/.stub-start-args" 2>/dev/null)"
 [ "$(starts "$H")" = 1 ] && [ "$(kicks "$H")" = 0 ] && [ -f "$H/.stub-healthy" ] && ok "busy 400 s: recovered on the first attempt, no kickstart" || bad "busy 400 s: $(starts "$H") starts, $(kicks "$H") kicks, healthy=$([ -f "$H/.stub-healthy" ] && echo yes || echo no)"
 rm -rf "$H"
-# 6d. A reclaim that did not take (fail_count 1) escalates, as for any board: kickstart -k of the board job.
+# 6d. A reclaim that did not take (fail_count 1) tries the RECLAIM again, not kickstart: kickstart cannot
+#     reach a detached holder, and the reclaim kills our listener whoever tracks it. Arm 6b below is the
+#     control: a plain-down board with failures does escalate to kickstart.
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=1\n' "$(( $(now) - 800 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
-[ "$(kicks "$H")" -ge 1 ] && [ -f "$H/.stub-healthy" ] && ok "busy 800 s after a failed start: kickstart -k recovers the wedged board" || bad "busy wedged board never escalated ($(kicks "$H") kicks)"
+[ "$(kicks "$H")" = 0 ] && grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 800 s after a failed reclaim: reclaims again, no kickstart" || bad "busy after a failed reclaim: $(kicks "$H") kicks, starts: $(cat "$H/.stub-start-calls" 2>/dev/null)"
 rm -rf "$H"
 
 # 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate
