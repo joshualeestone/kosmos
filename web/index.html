@@ -18718,8 +18718,15 @@ function lrowRing(a) {
    ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
-  if (pct === null) return '';
   const R = 47, C = 2 * Math.PI * R;
+  /* #3739 (Josh, 0.6.94: "it renders with no context ring"): the setup guide is shown before its first session,
+     so its page draws the empty track until there is a reading. Only the guide: any other agent's unknown
+     memory still draws nothing, and its MEMORY box says why. */
+  if (pct === null) {
+    return a && a.isGuide === true
+      ? `<svg viewBox="0 0 100 100" aria-hidden="true"><circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/></svg>`
+      : '';
+  }
   const band = memBand(pct);
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
     <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>

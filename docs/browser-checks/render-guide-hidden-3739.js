@@ -70,6 +70,21 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(/Kosmos Guide/.test(detail), 'the guide\'s own page shows the title Kosmos Guide');
     say(!/Kosmos setup guide/.test(detail), 'the long title is gone');
     say(!/Unknown model|Model: Unknown|Unknown Model/i.test(detail), 'the guide\'s page never says Unknown for its model');
+    /* The ring half of Josh's note: before its first session the guide's page shows the empty track, not nothing. */
+    const ringOf = () => page.evaluate(() => {
+      const r = document.getElementById('d-ring');
+      return { track: !!(r && r.querySelector('svg circle.gt')), fill: !!(r && r.querySelector('svg circle.gf')) };
+    });
+    /* The page's own test for a reading (pctOf): a finite context.percent. */
+    const known = (name) => page.evaluate((n) => { const a = (LAST || []).find((x) => x.sessionName === n); return !!(a && a.context && Number.isFinite(a.context.percent)); }, name);
+    say(!(await known('guidebot')), 'CONTROL: the guide has no memory reading yet, so the ring has nothing to fill');
+    const gring = await ringOf();
+    say(gring.track && !gring.fill, 'the guide\'s page draws the empty memory ring, not nothing', JSON.stringify(gring));
+    await page.goto(URL + '/?tab=detail&agent=ida', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const iknown = await known('ida');
+    const iring = await ringOf();
+    say(!iknown && !iring.track, 'CONTROL: an ordinary agent with no reading still draws no ring', JSON.stringify({ iknown, iring }));
     say(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
