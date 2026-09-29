@@ -30,11 +30,11 @@ const printDisabled = (names) => (bin, args) => (bin === '/bin/launchctl' && arg
   ? { ok: true, stdout: names.map((n) => '\t"' + create.serviceLabel(n) + '" => disabled\n').join('') + '\t"com.kosmos.board" => enabled\n' }
   : { ok: true, stdout: '' });
 
-// alexis: live (plist present), renamed (shown as Morpheus). eric, larry: stale overrides (no plist).
+// alexis: live (plist present), renamed (shown as Harbor). eric, larry: stale overrides (no plist).
 // oldone: removed through Kosmos, its plist still there, so only the removed list can hide it.
 fs.writeFileSync(create.plistPath('alexis'), '<plist/>');
 fs.writeFileSync(create.plistPath('oldone'), '<plist/>');
-store.writeProfile('alexis', { displayName: 'Morpheus' });
+store.writeProfile('alexis', { displayName: 'Harbor' });
 const FIXTURE = ['alexis', 'eric', 'larry', 'oldone'];
 const REMOVED = { ok: true, names: ['oldone'] };
 
@@ -42,7 +42,7 @@ test('#4479 the card\'s fixture shows exactly one agent, by the name the person 
   const got = machine.agentAutostartCheck(printDisabled(FIXTURE), { ...DARWIN, removed: REMOVED });
   assert.equal(got.state, machine.STATE.ATTENTION);
   assert.equal(got.title, 'An agent is set up to start at login, but turned off');
-  assert.match(got.detail, /^Morpheus has its login job switched off right now/);
+  assert.match(got.detail, /^Harbor has its login job switched off right now/);
   assert.doesNotMatch(got.detail, /alexis|eric|larry|oldone/, 'a job name, or a leftover with no agent, was shown');
 });
 
