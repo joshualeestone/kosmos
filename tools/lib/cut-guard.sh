@@ -524,12 +524,14 @@ kosmos_refuse_if_suite_live() {
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
 # the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus one per waiter
 # ahead at entry) ends any queued wait whatever the heuristic says, without ending a healthy deep queue.
-# #4609: the controls and overrides that steer run-tests.sh's own wait. run-tests.sh unsets them once its wait has read
-# them, and test-cut-guard.sh starts without them, so no test inherits a caller's (one list, used by both).
+# #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
+# pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
+# no test inherits a caller's (one list, used by both).
 KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
-# _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
+# _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
+# start time: line 4 against the UTC form or line 3 against the local form; see below).
 # Unlinks a marker it can prove stale, as _kosmos_marker_other_live does.
 _kosmos_suite_waiter_live() {
   local pid="$1" f stored live
@@ -611,7 +613,7 @@ _kosmos_suite_waiters_ahead() {
   read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
-    case "$f" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter (review 19)
+    case "${f##*/}" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter; the NAME only, so a marker dir whose path holds ".tmp." still counts
     pid="${f##*.}"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     [ "$pid" = "$$" ] && continue

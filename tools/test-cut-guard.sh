@@ -819,6 +819,14 @@ done
 [ "$(_kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a waiter whose re-mark is in flight (marker + .tmp) counts once" \
   || fail "#4574 a waiter with a .tmp beside its marker was counted more than once ($(_kosmos_suite_waiters_ahead | tr '\n' ' '))"
 rm -f "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
+# The .tmp filter reads the file NAME: a marker dir whose own path holds ".tmp." still counts its waiters (review 21).
+D21="$T/x.tmp.y/markers"; mkdir -p "$D21"
+sleep 300 & zd=$!
+q_ready "$zd"
+printf '1 %s\n%s\n%s\n%s\n' "$zd" "$(ps -ww -o command= -p "$zd")" "$(_kosmos_pid_started_local "$zd")" "$(_kosmos_pid_started "$zd")" > "$D21/suitewait.$zd"
+[ "$(KOSMOS_RUN_MARKER_DIR="$D21" _kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a marker dir whose path holds .tmp. still counts its waiters" \
+  || fail "#4574 the .tmp filter skipped real markers because of the directory's name"
+kill "$zd" 2>/dev/null; wait "$zd" 2>/dev/null
 # A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
 rm -f "$W/calls"
 printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
