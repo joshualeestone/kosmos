@@ -15994,7 +15994,10 @@ const server = http.createServer(async (req, res) => {
         // Without its link the project is an ordinary local one that says nothing
         // of where it came from; take it back out rather than leave that behind.
         try {
-          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+          /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
+             its seat is the account's own room, nothing was redeemed, nothing is sealed. */
+          if (snap.own) federation.recordLink(made.id, { role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt });
+          else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
@@ -16012,7 +16015,11 @@ const server = http.createServer(async (req, res) => {
             throw err;
           }
         }
-        if (!snap.seal_s) {
+        if (snap.own) {
+          try {
+            messages.roomNote(made.id, 'This project is shared between your own computers: what anyone posts here reaches your other computers too. It is not sealed end to end, because only your computers are in it.');
+          } catch { /* the note is furniture; the room exists regardless */ }
+        } else if (!snap.seal_s) {
           try {
             messages.roomNote(made.id, 'This shared room is not sealed end to end: the owner\'s computer runs an older Kosmos, so its messages travel readable to the relay. To seal it, ask the owner to update Kosmos and send a new code.');
           } catch { /* the note is furniture; the room exists regardless */ }

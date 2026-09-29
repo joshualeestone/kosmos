@@ -342,3 +342,39 @@ test('#3728: a join with a code from an older owner (no second half) says in the
   const rows = require('./engine/messages').record().rows.filter((m) => m.project === j.json.id);
   assert.ok(rows.some((m) => /not sealed end to end/.test(m.text || '')), 'the room did not say it is unsealed: ' + JSON.stringify(rows.map((m) => m.text)));
 });
+
+/* kosmos#4649: a project from ANOTHER computer of this account ("add your other computer").
+   Nothing is redeemed with the coordinator; the join makes a `self` link seated in the
+   account's own room, unsealed, and says so in the room. */
+test('#4649 an own-account code joins as a self link, with nothing signed and nothing sealed', async () => {
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-1', name: 'Weekend Plans' })).toString('base64url');
+  const before = signedCalls.length;
+  const v = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  assert.equal(signedCalls.length, before, 'an own code must not be sent to the coordinator');
+  assert.equal(v.json.own, true);
+  assert.equal(v.json.project_name, 'Weekend Plans');
+  assert.equal(v.json.owner_handle, 'your other computer');
+
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  assert.equal(j.status, 200, JSON.stringify(j.json));
+  const link = federation.linkFor(j.json.id);
+  assert.equal(link.role, 'self');
+  assert.equal(link.ref, 'ref-own-1');
+  assert.equal(link.edge_id, undefined, 'a self link has no edge');
+  assert.equal(require('./engine/fedseal').roomState(j.json.id), null, 'an own room starts with no seal record');
+  const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
+  assert.match(room, /shared between your own computers/);
+  assert.doesNotMatch(room, /older Kosmos/, 'the unsealed-owner note is not for an own room');
+
+  // The same project cannot be joined twice on one computer.
+  const again = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(again.status, 409, JSON.stringify(again.json));
+  assert.equal(again.json.reason, 'already_joined');
+});
+
+test('#4649 an own code is still screen-only, like every join', async () => {
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-2', name: 'X' })).toString('base64url');
+  const v = await post('/api/federation/verify', { code });
+  assert.equal(v.status, 403, JSON.stringify(v.json));
+});

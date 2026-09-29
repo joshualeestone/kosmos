@@ -162,6 +162,9 @@ function refOk(v) {
    an own room is only ever minted for the caller's OWN account, so this code pasted on
    someone else's computer opens that account's own (empty) room, never this one. */
 const OWN_PREFIX = 'kosmos-own:';
+/* The key an own-account join is held under between verify and join (never an edge id,
+   which the coordinator mints as 32 hex characters). */
+const OWN_KEY_PREFIX = 'own:';
 function ownCode(projectId, projectName) {
   const link = linkFor(projectId);
   let ref = link && (link.role === 'owner' || link.role === 'self') && refOk(link.ref) ? link.ref : null;
@@ -225,6 +228,21 @@ async function invite(remote, body) {
 /** Redeem a code into a connection and show the owner's read-only snapshot. */
 async function verify(remote, body) {
   const pasted = body && typeof body.code === 'string' ? body.code.trim() : '';
+  /* kosmos#4649: a code from ANOTHER computer of this account ("add your other computer")
+     is not an invite: nothing is redeemed with the coordinator. It becomes a `self` link
+     at join, whose seat is this account's own room. Checked before the invite length
+     bound, since it carries the project's name. */
+  const own = parseOwnCode(pasted);
+  if (own) {
+    const here = Object.entries(links()).find(([, l]) => l && (l.role === 'self' || l.role === 'owner') && l.ref === own.ref);
+    if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
+    const key = OWN_KEY_PREFIX + own.ref;
+    const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
+    verified.delete(key);
+    verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
+    while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
+    return { status: 200, body: snap };
+  }
   if (!pasted || pasted.length > 200) return { status: 400, body: { error: 'Paste the code you were given first.' } };
   // #3728: only the coordinator's half goes to the coordinator; `s` stays on this board.
   const { code, s: sealS } = fedseal.splitInviteCode(pasted);
