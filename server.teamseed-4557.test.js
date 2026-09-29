@@ -77,6 +77,18 @@ async function call(method, p, body) {
   return { status: res.status, json };
 }
 
+test('a catalogue that throws: all three routes answer 503 with a sentence, not a 500', async () => {
+  teamseed.setCatalogue({ teams() { throw new Error('bad build'); }, team() { throw new Error('bad build'); } });
+  const quiet = console.error; console.error = () => {};
+  try {
+    for (const [m, p, b] of [['GET', '/api/teams/seeded'], ['GET', '/api/teams/seeded/marketing'], ['POST', '/api/teams/seeded/marketing/specs', { names: {} }]]) {
+      const r = await call(m, p, b);
+      assert.equal(r.status, 503, p);
+      assert.equal(r.json.error, teamseed.BROKEN, p);
+    }
+  } finally { console.error = quiet; teamseed.setCatalogue(CATALOGUE); }
+});
+
 test('not installed: all three routes answer 503 with a sentence, and nothing crashes', async () => {
   teamseed.setCatalogue(false);
   try {

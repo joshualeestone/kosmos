@@ -1068,6 +1068,44 @@ test('describe’s OWN role gate bites: an untied card CARRYING a role still rea
   });
 });
 
+test('#4557: the thread opens on the member the others report to, not the first role that says manager', () => {
+  /* April (#4555 review): a seeded Marketing team's room opened on the Social Media Manager, not the CMO
+     everyone reports to. Real produced cards; only profile.reportsTo is set, where create.js stores it. */
+  withFleet([
+    fleet.agent('sam', { displayName: 'Sam', role: 'Social Media Manager', state: 'idle' }),
+    fleet.agent('cora', { displayName: 'Cora', role: 'Chief Marketing Officer', state: 'idle' }),
+    fleet.agent('wes', { displayName: 'Wes', role: 'Writer', state: 'idle' }),
+  ], (board) => {
+    const reports = { sam: 'cora', wes: 'Cora' }; // the case of the stored name does not matter
+    const agents = board.agents.map((a) => (reports[a.sessionName]
+      ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const members = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam', 'cora', 'wes'],
+      everSeen: { sam: true, cora: true, wes: true }, told: {},
+    }, agents).agents;
+    // Controls: the reports came through describe, and the role rule alone WOULD pick sam.
+    assert.equal(members.find((m) => m.sessionName === 'sam').reportsTo, 'cora');
+    assert.equal(chat.looksLikeManager('Social Media Manager'), true);
+    assert.equal(chat.defaultAgentFor(members), 'cora');
+    // With no reports on the project, the old rule stands.
+    assert.equal(chat.defaultAgentFor(members.map((m) => ({ ...m, reportsTo: null }))), 'sam');
+    // An untied card's reportsTo is not read, like its role.
+    const untied = agents.map((a) => (a.sessionName === 'sam' ? { ...a, isNamedOurs: false } : a));
+    const row = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam'], everSeen: { sam: true }, told: {},
+    }, untied).agents[0];
+    assert.equal(row.reportsTo, null);
+  });
+});
+
+test('#4557: most reports wins, and a tie keeps the project order', () => {
+  const m = (sessionName, reportsTo, role) => ({ sessionName, reportsTo: reportsTo || null, role: role || null });
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d'), m('e', 'd')]), 'd');
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d')]), 'c');
+  // Reporting to someone NOT on the project does not make anybody the head.
+  assert.equal(chat.defaultAgentFor([m('a', 'zed'), m('b', null, 'project manager')]), 'b');
+});
+
 test('a project with nobody on it has nobody to address', () => {
   assert.equal(chat.defaultAgentFor([]), null);
   assert.equal(chat.defaultAgentFor(null), null);

@@ -605,6 +605,14 @@ function folderState(folder) {
  * `describe` read `name`, `state` and `because` off a producer that emits none
  * of them). Asking whether the key is there says which of the two this is.
  */
+/* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
+function profileReportsTo(card) {
+  const profile = card && card.profile;
+  if (!profile || typeof profile !== 'object' || !Object.prototype.hasOwnProperty.call(profile, 'reportsTo')) return null;
+  const to = profile.reportsTo;
+  return (typeof to === 'string' && to.trim()) ? to.trim() : null;
+}
+
 function profileRole(card) {
   const profile = card && card.profile;
   if (!profile || typeof profile !== 'object') return null;
@@ -915,6 +923,10 @@ function describe(project, roster, all) {
       // the gate-bites test in chat.test.js holds it with a produced card
       // whose tie flag is deliberately flipped).
       role: (card && card.isNamedOurs) ? (profileRole(card) || card.role || null) : null,
+      // #4557: who this member reports to (the session name the org chart stores), under the same
+      // isNamedOurs gate as role. chat.defaultAgentFor prefers the member others report to, so a
+      // seeded team's room opens on its lead, not on whichever role text says "manager".
+      reportsTo: (card && card.isNamedOurs) ? profileReportsTo(card) : null,
       // ⚠️ `unknown` for an untied pane, for the same reason the board refuses
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.

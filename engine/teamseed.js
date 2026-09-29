@@ -39,6 +39,21 @@ function catalogue() {
 }
 
 const NOT_INSTALLED = 'the prebuilt teams are not installed in this version of Kosmos yet';
+/* #4557 (April, #4555 review): the catalogue is generated (catalogue-teams.js), so a bad build can make
+   it throw on load or on a call. That is "unavailable", like not installed, never a 500 that reads as a
+   bug in the page. */
+const BROKEN = 'the prebuilt teams could not be read in this version of Kosmos';
+
+function guarded(fn) {
+  return function (...args) {
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.error('[teamseed] the catalogue failed:', err && err.message);
+      return { ok: false, because: BROKEN, unavailable: true };
+    }
+  };
+}
 
 function membersOf(team) {
   return Array.isArray(team && team.members) ? team.members : [];
@@ -53,7 +68,7 @@ function leadSlot(team) {
 /** For the Team dropdown: every seeded team, ordered by rank. */
 function list(cat) {
   const c = cat === undefined ? catalogue() : cat;
-  if (!c) return { ok: false, because: NOT_INSTALLED };
+  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
   const teams = (c.teams() || []).map((t) => ({
     key: t.key, label: t.label, blurb: t.blurb, kind: t.kind, rank: t.rank, count: membersOf(t).length,
   }));
@@ -64,7 +79,7 @@ function list(cat) {
 /** For the confirm screen: one team's members, lead first, with the suggested names. */
 function detail(key, cat) {
   const c = cat === undefined ? catalogue() : cat;
-  if (!c) return { ok: false, because: NOT_INSTALLED };
+  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
   const team = c.team(key);
   if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)) };
   const lead = leadSlot(team);
@@ -100,7 +115,7 @@ function ordered(team) {
 function specs(req, cat, deps) {
   const c = cat === undefined ? catalogue() : cat;
   const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
-  if (!c) return { ok: false, because: NOT_INSTALLED };
+  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
   const key = req && req.team;
   const team = c.team(key);
   if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)) };
@@ -141,4 +156,7 @@ function specs(req, cat, deps) {
   return { ok: true, team: team.key, specs: out };
 }
 
-module.exports = { list, detail, specs, setCatalogue, catalogue, NOT_INSTALLED };
+module.exports = {
+  list: guarded(list), detail: guarded(detail), specs: guarded(specs),
+  setCatalogue, catalogue, NOT_INSTALLED, BROKEN,
+};

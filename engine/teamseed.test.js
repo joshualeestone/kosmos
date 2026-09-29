@@ -46,6 +46,18 @@ test('list: every team, ordered by rank, with its member count', () => {
   assert.equal(r.teams[1].label, 'Marketing Team');
 });
 
+test('a catalogue that throws (a bad generated build) is unavailable, never a throw', () => {
+  const broken = { teams() { throw new Error('catalogue-teams.js: bad build'); }, team() { throw new Error('bad build'); } };
+  const quiet = console.error; console.error = () => {};
+  try {
+    for (const r of [teamseed.list(broken), teamseed.detail('marketing', broken), teamseed.specs({ team: 'marketing', names: {} }, broken)]) {
+      assert.equal(r.ok, false);
+      assert.equal(r.because, teamseed.BROKEN);
+      assert.equal(r.unavailable, true);
+    }
+  } finally { console.error = quiet; }
+});
+
 test('not installed: every entry point says so in words and never throws', () => {
   for (const r of [teamseed.list(null), teamseed.detail('marketing', null), teamseed.specs({ team: 'marketing', names: {} }, null)]) {
     assert.equal(r.ok, false);

@@ -6535,7 +6535,7 @@ const server = http.createServer(async (req, res) => {
       const key = m[1];
       if (!m[2]) {
         const r = teamseed.detail(key);
-        if (!r.ok) { sendJson(res, r.because === teamseed.NOT_INSTALLED ? 503 : 404, { error: r.because }); return; }
+        if (!r.ok) { sendJson(res, r.unavailable ? 503 : 404, { error: r.because }); return; }
         sendJson(res, 200, { team: r.team, members: r.members });
         return;
       }
@@ -6544,7 +6544,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
         if (!r.ok) {
-          const code = r.because === teamseed.NOT_INSTALLED ? 503 : (/no prebuilt team called/.test(r.because) ? 404 : 400);
+          const code = r.unavailable ? 503 : (/no prebuilt team called/.test(r.because) ? 404 : 400);
           sendJson(res, code, { error: r.because });
           return;
         }
