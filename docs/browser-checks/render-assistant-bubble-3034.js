@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const instructions = require('../../engine/instructions');
@@ -199,6 +199,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(x0.on && x0.w === 20 && Math.abs(x0.cx - (x0.bRight - 4)) <= 1 && Math.abs(x0.cy - (x0.bTop + 4)) <= 1,
       'B2x held about a second, a 20px X shows on the bubble\'s top-right corner', JSON.stringify(x0));
     chk(x0.label === 'Close the Kosmos Guide', 'B2x the X is labelled "Close the Kosmos Guide"', String(x0.label));
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'bubble-x-chromium.png'), clip: { x: 1180, y: 740, width: 100, height: 110 } }); }
     // Tight: a point 11.3px from the X's centre (outside its 10px circle, INSIDE its 20px square box) is the avatar.
     const nearX = { x: x0.cx - 8, y: x0.cy + 8 };
     const hitNear = await page.evaluate((p) => { const e = document.elementFromPoint(p.x, p.y); return e && (e.closest('#asb-close') ? 'x' : e.closest('#asb') ? 'bubble' : e.tagName); }, nearX);
@@ -273,6 +274,25 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     // The bubble needs the guide agent to exist, so its return proves the X deleted nothing.
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'B2x switched back on, the same guide\'s bubble returns (the X deleted nothing)');
+    // B2w (#4496): the tight hit area in WEBKIT, the Mac app's engine (the premise the chromium arm cannot prove).
+    {
+      const wb = await webkit.launch({ headless: process.env.HEADED === '0' });
+      try {
+        const wp = await wb.newPage({ viewport: { width: 1280, height: 860 } });
+        await wp.goto(URL, { waitUntil: 'networkidle' });
+        if (await wp.$('#firstrun:not([hidden])')) { await wp.keyboard.press('Escape'); await wp.waitForTimeout(200); }
+        const up = await waitFor(wp, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
+        chk(up, 'B2w precondition: webkit shows the bubble');
+        const wbub = await wp.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        await wp.mouse.move(wbub.x, wbub.y); await wp.waitForTimeout(1250);
+        const wx = await wp.evaluate(() => { const x = document.getElementById('asb-close'); const r = x.getBoundingClientRect(); return { on: x.classList.contains('on'), cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+        chk(wx.on, 'B2w webkit shows the X after a hold', JSON.stringify(wx));
+        if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await wp.screenshot({ path: path.join(SHOTS, 'bubble-x-webkit.png'), clip: { x: 1180, y: 740, width: 100, height: 110 } }); }
+        const who = await wp.evaluate((p) => { const at = (x, y) => { const e = document.elementFromPoint(x, y); return e && (e.closest('#asb-close') ? 'x' : e.closest('#asb') ? 'bubble' : e.tagName); };
+          return { near: at(p.cx - 8, p.cy + 8), centre: at(p.cx, p.cy) }; }, wx);
+        chk(who.near === 'bubble' && who.centre === 'x', 'B2w webkit: just outside the circle (inside its square) is the avatar; the centre is the X', JSON.stringify(who));
+      } finally { await wb.close(); }
+    }
 
     // B15: the corner is shared. On an agent's page the chat's Send button lives there: the bubble lifts
     // above it, Send is still what the pointer hits, and the open panel does not cover it either.
@@ -285,6 +305,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       return { sendReachable: hitAt(document.getElementById('d-send')), overlap: s.left < a.right && s.right > a.left && s.top < a.bottom && s.bottom > a.top, lifted: document.getElementById('asb').style.bottom };
     });
     chk(b15.sendReachable && !b15.overlap, 'B15 on an agent\'s page the bubble sits clear of Send, which still takes the click', JSON.stringify(b15));
+    // B15x (#4496): held on the LIFTED bubble, the X sits on the lifted bubble's corner (not where it was at 16/16).
+    {
+      const lb = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.move(lb.x, lb.y); await page.waitForTimeout(1250);
+      const lx = await page.evaluate(() => { const x = document.getElementById('asb-close'), b = document.getElementById('asb'); const xr = x.getBoundingClientRect(), br = b.getBoundingClientRect();
+        return { on: x.classList.contains('on'), cx: xr.left + xr.width / 2, cy: xr.top + xr.height / 2, bRight: br.right, bTop: br.top, lifted: b.style.bottom }; });
+      chk(lx.on && parseFloat(lx.lifted) > 16 && Math.abs(lx.cx - (lx.bRight - 4)) <= 1 && Math.abs(lx.cy - (lx.bTop + 4)) <= 1,
+        'B15x on a lifted bubble the X sits on its corner', JSON.stringify(lx));
+      await page.mouse.move(2, 2); await page.waitForTimeout(400);
+    }
     await page.click('#asb');
     await page.waitForTimeout(300);
     const b15p = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && !!h.closest('#d-send'); });

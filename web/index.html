@@ -1672,9 +1672,13 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
    bubble (a button cannot hold a button), sized exactly to its circle with no padding, so only the circle closes and
    anywhere else on the avatar still opens the chat. The bubble is right 16 / bottom 16, 52px: the X's centre is 4px in
    from the corner of the bubble's box. */
-.asb-close { position: fixed; right: 10px; bottom: 54px; z-index: 44; width: 20px; height: 20px; padding: 0; margin: 0; border: 0;
-  border-radius: 50%; box-sizing: border-box; background: var(--k-ink); color: var(--k-surface); font: 700 14px/20px system-ui, sans-serif;
-  text-align: center; cursor: pointer; box-shadow: 0 0 0 2px var(--k-surface); opacity: 0; visibility: hidden; transition: opacity .12s; }
+/* The hit area is clipped to the circle with clip-path: WebKit (the Mac app) hit-tests a rounded button by its SQUARE
+   box, so border-radius alone left the corners closing the Guide (measured, B2w). The ring is a border INSIDE the
+   20px box, since a clip would cut an outside box-shadow. */
+.asb-close { position: fixed; right: 10px; bottom: 54px; z-index: 44; width: 20px; height: 20px; padding: 0; margin: 0;
+  border: 2px solid var(--k-surface); border-radius: 50%; box-sizing: border-box; clip-path: circle(50% at 50% 50%);
+  background: var(--k-ink); color: var(--k-surface); font: 700 13px/16px system-ui, sans-serif;
+  text-align: center; cursor: pointer; opacity: 0; visibility: hidden; transition: opacity .12s; }
 .asb-close.on { opacity: 1; visibility: visible; }
 .asb-close:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .asb-close-msg { position: fixed; right: 16px; bottom: 76px; z-index: 44; max-width: calc(100vw - 100px); padding: 6px 10px; border-radius: 8px;
@@ -65064,7 +65068,7 @@ function asbPaint() {
        to the page rather than falling to nowhere. */
     const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
-    asbCloseShow(false);   // #4496: never an X without its bubble
+    asbCloseShow(false); asbCloseMsgClear();   // #4496: never an X, or its words, without its bubble
     ASB.open = false; ASB.wasWorking = false; ASB.saidSignIn = '';   // so a chat that comes back is announced afresh
     if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
@@ -65276,6 +65280,7 @@ function asbPaintThread(rows, session) {
 }
 
 function asbOpen() {
+  asbCloseMsgClear();   // #4496: the X's failure words do not sit beside the open chat
   ASB.open = true; ASB.asking = false; ASB.offering = false; ASB.dot = false;
   ASB.sentThisOpen = false;   // #3034 (Josh 09-25 07:38): what asbX asks about is THIS opening
   { const box = document.getElementById('asp-say'); ASB.draftAtOpen = box ? box.value : ''; }   // an old unsent draft is not typing now
@@ -65640,6 +65645,13 @@ async function asbSwitchOff(opts) {
 /* #4496: the bubble's X. Shown after about a second with the pointer on the bubble (or at once when the keyboard reaches
    the bubble, so Tab goes on to it), hidden when the pointer leaves both. A click on it switches the Guide off. */
 const ASB_CLOSE_HOLD_MS = 1000;
+/* The X's failure words belong to the X: gone with it (bubble hidden, chat opened, a later success). */
+var ASB_CLOSE_MSG = { hideTimer: 0, fillTimer: 0 };   // var: asbPaint may run before this line
+function asbCloseMsgClear() {
+  clearTimeout(ASB_CLOSE_MSG.hideTimer); clearTimeout(ASB_CLOSE_MSG.fillTimer);
+  const msg = document.getElementById('asb-close-msg');
+  if (msg) { msg.hidden = true; msg.textContent = ''; }
+}
 function asbCloseShow(on) {
   const x = document.getElementById('asb-close');
   if (x) x.classList.toggle('on', !!on && !document.getElementById('asb')?.hidden);
@@ -65657,7 +65669,6 @@ function asbCloseWire() {
   // Keyboard focus leaving the bubble for anything but its X (Shift+Tab back, a click elsewhere) takes the X away.
   bub.addEventListener('blur', (e) => { if (e.relatedTarget !== x && !bub.matches(':hover')) asbCloseShow(false); });
   x.addEventListener('blur', (e) => { if (e.relatedTarget !== bub && !bub.matches(':hover')) asbCloseShow(false); });
-  let msgTimer = 0, fillTimer = 0;
   x.addEventListener('click', async (e) => {
     e.stopPropagation();
     // As the Settings switch: nothing is saved before the setting has been read.
@@ -65667,8 +65678,7 @@ function asbCloseWire() {
     const msg = document.getElementById('asb-close-msg');
     if (ok) {
       // An earlier failure's words must not outlive a success.
-      clearTimeout(msgTimer); clearTimeout(fillTimer);
-      if (msg) { msg.hidden = true; msg.textContent = ''; }
+      asbCloseMsgClear();
       asbCloseShow(false);
       asbFocusPage();
       return;
@@ -65681,9 +65691,9 @@ function asbCloseWire() {
       // text changes is not read), and a repeat failure is a change again (as asp-msg does in asbOpen).
       msg.textContent = '';
       msg.hidden = false;
-      clearTimeout(msgTimer); clearTimeout(fillTimer);
-      fillTimer = setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
-      msgTimer = setTimeout(() => { msg.hidden = true; msg.textContent = ''; }, 5000);
+      clearTimeout(ASB_CLOSE_MSG.hideTimer); clearTimeout(ASB_CLOSE_MSG.fillTimer);
+      ASB_CLOSE_MSG.fillTimer = setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
+      ASB_CLOSE_MSG.hideTimer = setTimeout(asbCloseMsgClear, 5000);
     }
   });
 }
