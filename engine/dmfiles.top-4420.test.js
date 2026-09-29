@@ -62,7 +62,7 @@ test('#4420: the pointer sits ABOVE the doctrine section that says "your own fol
   const text = fs.readFileSync(f, 'utf8');
   const rules = text.indexOf('## How you work, whatever the job');
   assert.ok(text.indexOf(dm.TOP_START) < text.indexOf('### Where the files you make go'), 'the pointer is below the earlier rule');
-  assert.ok(text.indexOf(dm.TOP_END) < rules, 'the pointer is inside the working rules');
+  assert.ok(text.indexOf(dm.TOP_END) < rules, 'the pointer came after the working rules, not before them');
   assert.ok(text.startsWith('# born\nYou are a project manager.\n'), 'the person\'s own words are no longer first (#591)');
 });
 
@@ -132,4 +132,16 @@ test('#4420: with the rules as plain text (the person\'s, #122) the pointer is I
   // A heading line that only STARTS with the words is not the heading (the match is on a whole line).
   const lookalike = '# x\n## How you work, whatever the job, and more\n';
   assert.ok(dm.spliceTop(lookalike, '/f').endsWith(dm.TOP_END + '\n'), 'a lookalike heading drew the pointer into the middle');
+});
+
+test('#4420 review 2: a file with Windows line endings (CRLF) gets the pointer BEFORE the rules, in CRLF, and cuts back out byte for byte', () => {
+  const dir = '/Users/x/work/workers/born/Files';
+  const original = ('# born\nYou are a project manager.\n\n' + require('./defaults').block() + '\nMy own closing line.\n').replace(/\n/g, '\r\n');
+  const spliced = dm.spliceTop(original, dir);
+  const block = dm.TOP_START + '\r\n' + dm.topLine(dir) + '\r\n' + dm.TOP_END;
+  assert.ok(spliced.indexOf(block) !== -1 && spliced.indexOf(block) < spliced.indexOf('## How you work, whatever the job'),
+    'a CRLF file got the pointer appended after the rules (the placement this card fixes)');
+  assert.equal(spliced.replace(block + '\r\n\r\n', ''), original, 'a byte of the CRLF file changed');
+  assert.doesNotMatch(spliced.replace(/\r\n/g, ''), /\n/, 'a bare LF went into a CRLF file');
+  assert.equal(dm.spliceTop(spliced, dir), spliced, 'a second sync of the CRLF file changed it');
 });

@@ -181,13 +181,17 @@ function topLine(dir) {
      the start of a line and no existing byte changes, so cutting out exactly that string gives the file back byte
      for byte (dmfiles.top-4420.test.js pins it). A future remover must cut exactly that, not projects.removeBlock,
      which also collapses the blank line before it. The person's own words above the rules stay first (#591).
-   - No working rules in the file: appended like every other managed block, so the person's text is untouched.
+   - No working rules in the file: appended like every other managed block, so the person's text is untouched. A
+     pointer placed that way stays where it is if rules arrive later (replaced in place, never moved).
+   - Review 2: a file saved with Windows line endings (CRLF, e.g. from Notepad) matches too, and the pointer is written
+     with the file's own line ending, so the insert-only cut-out above holds for it byte for byte as well.
    Replaced where it already is; refused (text unchanged) on two pointers. PURE. */
 const DOCTRINE_HEADING = '## How you work, whatever the job';
-const HEADING_LINE = /(^|\n)## How you work, whatever the job[ \t]*(?=\n|$)/;
+const HEADING_LINE = /(^|\n)## How you work, whatever the job[ \t]*\r?(?=\n|$)/;
 function spliceTop(text, dir) {
   const original = String(text == null ? '' : text);
-  const block = TOP_START + '\n' + topLine(dir) + '\n' + TOP_END;
+  const eol = original.includes('\r\n') ? '\r\n' : '\n';   // the file's own line ending
+  const block = TOP_START + eol + topLine(dir) + eol + TOP_END;
   const at = projects.findBlock(original, TOP_START, TOP_END);
   if (at && at.ambiguous) return original;
   if (at) return original.slice(0, at.start) + block + original.slice(at.end);
@@ -204,7 +208,7 @@ function spliceTop(text, dir) {
         break;
       }
     }
-    return original.slice(0, pos) + block + '\n\n' + original.slice(pos);
+    return original.slice(0, pos) + block + eol + eol + original.slice(pos);
   }
   return projects.spliceBlock(original, topLine(dir), TOP_START, TOP_END);
 }

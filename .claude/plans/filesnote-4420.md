@@ -43,3 +43,12 @@ first thing it reads and names the exact mistake, which is what is in our contro
   it obeyed. Rejected: appending (the Files block was already at the end, and the agent still obeyed the earlier
   sentence). Weakest premise: that position in the file changes what a model obeys.
 - No working rules in the file: appended like any managed block.
+
+## Review iteration 2
+- (WARNING) A file with Windows line endings (CRLF, e.g. saved from Notepad) never matched the heading line, so the
+  pointer was appended after the rules: the exact placement this card fixes, for good. The heading match now allows
+  the trailing CR, and the pointer is written in the file's own line ending, so the insert-only cut-out holds byte for
+  byte on CRLF too (tested; dropping either half reds it).
+- ACCEPTED: a pointer appended to a file with no working rules stays at the end if rules arrive later (replaced in
+  place, never moved); the comment now says so. ACCEPTED: the pointer adds about 450 bytes, so an instructions file
+  already at the size cap is refused whole (reported as could-not, visible), same as any other managed block.
