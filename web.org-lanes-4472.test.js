@@ -170,7 +170,8 @@ test('several leads, and a CEO over several managers: even and odd teams both ta
     ['a CEO over 4 x 20', ceo(4, 20), 2950], ['a CEO over 4 x 21', ceo(4, 21), 2800]];
   for (const [label, spec, ceiling] of cases) {
     const t = paint(spec);
-    assert.ok(outer(t) >= 40, label + ': only ' + outer(t) + ' faces on an outer ring');
+    /* 30, not 40: since #4499's wide window one team of a CEO over 4 x 20 fits on one ring (measured: 30 outer). */
+    assert.ok(outer(t) >= 30, label + ': only ' + outer(t) + ' faces on an outer ring');
     assert.ok(t.size <= ceiling, label + ' is ' + t.size + 'px, over ' + ceiling);
   }
 });

@@ -30679,9 +30679,6 @@ function orgPlace(nodes) {
   /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
      light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
   const ORG_SHARE_POWER = 0.85;
-  /* #4499: the least slice a first-ring agent gets (radians) when the circle has room, so a spilled one can find
-     an angle whose hub line clears its neighbours by ORG_LINE_CLEAR (0.15 or more starved a big branch: 17,908px). */
-  const ORG_ROOT_FLOOR = 0.11;
   const ORG_HUB_CLEAR = 74;   // #4434: no report's line nearer the hub's centre than its radius plus a face's (52 + 22)
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
@@ -30730,61 +30727,86 @@ function orgPlace(nodes) {
   };
   // The first ring: slices by leaf count, the first one centred at the top as before.
   const roots = kids.get('') || [];
-  /* #4499: slices by leaf count, but none under ORG_ROOT_FLOOR when the circle has room (water-filling: whoever the
-     leaf-count share would give less gets the floor, the rest is shared by leaf count among the others). */
-  const rootSpans = (() => {
-    const ws = roots.map(weigh);
-    if (!ws.length) return [];
-    /* The floors together never take more than half the circle: with ~80 first-ring agents a full floor each
-       would not fit, and an even split instead gave a branch of 101 people 4.3 degrees (one tree: 222,670px). */
-    const floor = Math.min(ORG_ROOT_FLOOR, TAU / (2 * ws.length));
-    const fixed = ws.map(() => false);
-    for (;;) {
-      const rest = TAU - floor * fixed.filter(Boolean).length;
-      const w = ws.reduce((sum, x, i) => sum + (fixed[i] ? 0 : x), 0);
-      let changed = false;
-      ws.forEach((x, i) => { if (!fixed[i] && (rest * x) / w < floor) { fixed[i] = true; changed = true; } });
-      if (!changed) return ws.map((x, i) => (fixed[i] ? floor : (rest * x) / w));
-    }
-  })();
-  let at = -Math.PI / 2 - (roots.length ? rootSpans[0] : 0) / 2;
-  const lanes = [];   // per lane, the angles already on it
-  roots.forEach((n, ri) => {
-    const span = rootSpans[ri];
-    const ang = at + span / 2;
-    /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
-       lane cannot cause a crossing; it only keeps two faces from touching. */
-    /* #4499: and ORG_LINE_CLEAR on the first ring too. A spilled agent's hub line passes the faces on the lanes inside
-       it, and an inner one sits under the hub lines of those further out (measured on #4473: 5.5px). Try the lanes
-       from the inside and, on each, angles from the slice's centre outward (a radial line anywhere in its own slice
-       cannot cross anything), and take the first that clears both ways; if none does, the old rule. */
-    const clearAt = (a, rr) => [...placed.values()].every((f) => {
-      const d = Math.atan2(Math.sin(a - f.ang), Math.cos(a - f.ang));
-      return Math.cos(d) <= 0 || Math.min(f.r, rr) * Math.abs(Math.sin(d)) >= ORG_LINE_CLEAR || Math.abs(f.r - rr) < 1e-9;
-    });
-    const spare = span / 2 - Math.min(span / 2, ORG_LINE_CLEAR / ORG_R0);
-    const offsets = [0];
-    for (let k = 1; k <= 40; k += 1) offsets.push((k / 40) * spare, (-k / 40) * spare);
-    /* A lane is already clear, so only the new angle against it needs checking. */
-    const fits = (L, a) => !(lanes[L] || []).some((b) => {
-      const d = Math.abs(a - b) % TAU;
-      return 2 * (ORG_R0 + L * 58) * Math.sin(Math.min(d, TAU - d) / 2) < ORG_MIN_ARC;
-    });
-    let lane = -1;
-    let ang2 = ang;
-    for (let L = 0; L <= lanes.length && lane < 0; L += 1) {
-      for (const off of offsets) {
-        if (fits(L, ang + off) && clearAt(ang + off, ORG_R0 + L * 58)) { lane = L; ang2 = ang + off; break; }
+  const rootTotal = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
+  const rootSpans = roots.map((n) => (TAU * weigh(n)) / rootTotal);
+  /* #4499: the first ring from `base` outward. Returns its spots, and whether any agent had to fall back to the old
+     spill rule (no lane and angle in its slice cleared ORG_LINE_CLEAR both ways). */
+  const firstRing = (base) => {
+    let at = -Math.PI / 2 - (roots.length ? rootSpans[0] : 0) / 2;
+    const lanes = [];   // per lane, the angles already on it
+    const spots = [];
+    let fellBack = false;
+    roots.forEach((n, ri) => {
+      const span = rootSpans[ri];
+      const ang = at + span / 2;
+      /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
+         lane cannot cause a crossing; it only keeps two faces from touching. */
+      /* #4499: and ORG_LINE_CLEAR on the first ring too. A spilled agent's hub line passes the faces on the lanes
+         inside it, and an inner one sits under the hub lines of those further out (measured on #4473: 5.5px). Try the
+         lanes from the inside and, on each, angles from the slice's centre outward (a radial line anywhere in its own
+         slice cannot cross anything), and take the first that clears both ways; if none does, the old rule. */
+      /* On lane L, the angles this agent may not take, as intervals: nearer a face on the same lane than the angle
+         whose chord there is ORG_MIN_ARC, or nearer any other face than its hub line may pass (ORG_LINE_CLEAR at the
+         nearer-in of the two radii). The free angle nearest the slice's centre, within `spare` of it, is taken. */
+      const spare = span / 2 - Math.min(span / 2, ORG_LINE_CLEAR / base);
+      const wrap = (x) => { const d = x - ang; return d - TAU * Math.round(d / TAU); };
+      const freeOn = (L) => {
+        const rr = base + L * 58;
+        const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * rr)));
+        const blocked = [];
+        for (const b of lanes[L] || []) blocked.push([wrap(b) - need, wrap(b) + need]);
+        for (const f of spots) {
+          if (Math.abs(f.r - rr) < 1e-9) continue;
+          const k = ORG_LINE_CLEAR / Math.min(f.r, rr);
+          const w = k >= 1 ? Math.PI / 2 : Math.asin(k);
+          blocked.push([wrap(f.ang) - w, wrap(f.ang) + w]);
+        }
+        const near = blocked.filter(([x, y]) => y > -spare && x < spare);
+        const inside = (t) => near.some(([x, y]) => t > x + 1e-12 && t < y - 1e-12);
+        const tries = [0, ...near.flatMap(([x, y]) => [x, y])].filter((t) => Math.abs(t) <= spare).sort((u, v) => Math.abs(u) - Math.abs(v));
+        for (const t of tries) if (!inside(t)) return ang + t;
+        return null;
+      };
+      let lane = -1;
+      let ang2 = ang;
+      for (let L = 0; L <= lanes.length && lane < 0; L += 1) {
+        const a = freeOn(L);
+        if (a !== null) { lane = L; ang2 = a; }
       }
+      const fits = (L, a) => {
+        const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * (base + L * 58))));
+        return !(lanes[L] || []).some((b) => { const d = Math.abs(a - b) % TAU; return Math.min(d, TAU - d) < need; });
+      };
+      if (lane < 0) { fellBack = true; lane = 0; while (!fits(lane, ang)) lane += 1; }
+      if (!lanes[lane]) lanes[lane] = [];
+      lanes[lane].push(ang2);
+      spots.push({ ang: ang2, r: base + lane * 58, node: n, lo: at, hi: at + span });
+      at += span;
+    });
+    return { spots, fellBack };
+  };
+  /* #4499: a first ring too crowded to clear ORG_LINE_CLEAR (about 40 agents over several lanes: each full inner lane
+     rules out ~139 degrees for a hub line passing it) starts further out, half a lane at a time, until none falls
+     back. It always ends: once every two neighbouring slice centres are ORG_MIN_ARC apart at `base`, every agent
+     fits the first lane, and no hub line passes a face at all. */
+  const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
+  const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)));
+  let ring = firstRing(ORG_R0);
+  if (ring.fellBack) {
+    /* Bisect for the nearest base that clears (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
+       at a time was 30 placements and 350ms), then, since clearing is not proven to hold at every larger base, step
+       on from there half a lane at a time: settledBase always clears, so this always ends. */
+    let lo = ORG_R0; let hi = settledBase;
+    while (hi - lo > 29) {
+      const m = (lo + hi) / 2;
+      if (firstRing(m).fellBack) lo = m; else hi = m;
     }
-    if (lane < 0) { lane = 0; while (!fits(lane, ang)) lane += 1; }
-    if (!lanes[lane]) lanes[lane] = [];
-    lanes[lane].push(ang2);
-    const r = ORG_R0 + lane * 58;
-    placed.set(n.agent.sessionName, { ang: ang2, r, node: n, lo: at, hi: at + span });
-    maxR = Math.max(maxR, r);
-    at += span;
-  });
+    for (let base = hi; ; base = Math.min(base + 29, settledBase)) {
+      ring = firstRing(base);
+      if (!ring.fellBack || base >= settledBase) break;
+    }
+  }
+  for (const spot of ring.spots) { placed.set(spot.node.agent.sessionName, spot); maxR = Math.max(maxR, spot.r); }
   // The rings beyond, a generation at a time: each manager's reports inside its window, at the team's own radius.
   let prev = roots;
   while (true) {
