@@ -87,8 +87,8 @@ draws) declares that function on its first lines:
 and is selected when a change lands inside that function's body, even though the changed lines
 never name it (#4119: #3828 changed only asbAvatar's body, and the cut found
 `render-assistant-hosted-3660` red). Declare only what the check truly depends on: it adds that
-check to every PR that edits the function. A declared function the page no longer defines, or whose
-end cannot be found, selects the check on every page diff, and `browser-checks-pr-select-4119.test.js`
+check to every PR that edits the function. A declared function the page no longer defines, whose
+end cannot be found, or that is declared twice selects the check on every page diff, and `browser-checks-pr-select-4119.test.js`
 fails until the declaration or the function is fixed. Declare every name on that one line, within the
 check's first five lines, and only names declared once on the page: the first declaration is the one read.
 

@@ -36,8 +36,8 @@
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
- *              from the page, or its end cannot be found; in those two cases it selects on every
- *              page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
+ *              from the page, or its end cannot be found, or it is declared twice; in those cases it
+ *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -97,17 +97,18 @@ function declaredFunctions(src) {
 /* A page function's body as 1-based [first, last] lines: the declaration, to the first later line that is
    the declaration's own indentation followed by `}` (then optionally `;` and a `//` comment). A function
    whose braces open and close on its declaration line is that one line. null when the page does not
-   declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation. */
+   declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation;
+   'duplicate' when it is declared more than once (the last declaration is the live one, and a check cannot
+   say which body it depends on). */
 function functionRange(page, name) {
   const lines = page.split('\n');
   const decl = new RegExp(`^(\\s*)(?:async\\s+)?function\\s+${name.replace(/\$/g, '\\$')}\\s*\\(`);
+  if (lines.filter((l) => decl.test(l)).length > 1) return 'duplicate';
   for (let i = 0; i < lines.length; i += 1) {
     const m = decl.exec(lines[i]);
     if (!m) continue;
     // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
-    // A regex literal is not recognised as one: a quote inside it can pair with a later one, and such a function
-    // then reads 'unclosed' (it selects on every diff, and the declared-function test goes red). A line is one
-    // function only if its braces balance, it ends with `}` (or `};`), and stripping left no quote unpaired:
+    // A line is one function only if its braces balance, it ends with `}` (or `};`), and stripping left no quote unpaired:
     // `function f(a = {})` with its body on the next line balances but is not one, and a regex literal holding
     // a quote leaves one unpaired, so both fall through to the multi-line scan.
     const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
@@ -329,6 +330,7 @@ function selectByPage(diff, text, add, page) {
       const r = functionRange(page, fn);
       if (!r) add(name, `function ${fn} (not on the page)`);
       else if (r === 'unclosed') add(name, `function ${fn} (its end was not found)`);
+      else if (r === 'duplicate') add(name, `function ${fn} (declared more than once on the page)`);
       else if (touched.some((n) => n >= r[0] && n <= r[1])) add(name, `function ${fn}`);
     }
     const sel = [...selectorsOf(src, index)].filter((t) => hits(t, text) && usedAsSelector(t, text)).sort();
@@ -349,7 +351,7 @@ function main(argv) {
   let why;
   try {
     // Prefixes pinned: a diff.noprefix or diff.dstPrefix setting would change the `+++` header touchedLines reads.
-    diff = git(['diff', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
+    diff = git(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
     // A check the PR edits runs too: a changed assertion is only proven by running it. A top-level
     // .js is a check or lib by name; any other file is passed by its path under the directory.
     changedChecks = git(['diff', '--name-only', `${base}...${head}`, '--', 'docs/browser-checks/'])

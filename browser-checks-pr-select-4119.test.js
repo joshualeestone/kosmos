@@ -301,7 +301,7 @@ test('every function a check declares is defined on the page today, so no declar
     for (const fn of sel.declaredFunctions(fs.readFileSync(path.join(CHECKS, f), 'utf8'))) {
       declared.push(`${f}:${fn}`);
       const r = sel.functionRange(page, fn);
-      assert.ok(Array.isArray(r), `${f} declares ${fn}, which web/index.html ${r === 'unclosed' ? 'declares with no closing brace at its own indentation' : 'no longer defines'}`);
+      assert.ok(Array.isArray(r), `${f} declares ${fn}, which web/index.html ${r === 'unclosed' ? 'declares with no closing brace at its own indentation' : r === 'duplicate' ? 'declares more than once' : 'no longer defines'}`);
       // The range is the body, checked independently of how the finder finds its end: its braces balance once
       // strings and // comments are removed. A range that ends early or runs on leaves them unbalanced.
       let open = 0; let close = 0;
@@ -328,6 +328,8 @@ test('functionRange: a closing line may carry ; or a comment, a one-line functio
   // c has no closer before d's: it is 'unclosed', never stretched over d (d's own `}` is at the same indentation).
   assert.equal(sel.functionRange(page, 'c'), 'unclosed');
   assert.equal(sel.functionRange(page, 'nope'), null);
+  // Declared twice: JavaScript runs the last, so neither body can be trusted as the check's; it selects always.
+  assert.equal(sel.functionRange(['function a() {', '}', 'function a() {', '  b();', '}'].join('\n'), 'a'), 'duplicate');
   // A brace in a string or a trailing comment does not make a one-line function; indentation and a
   // destructured parameter's braces are handled.
   const more = ['function f() { const s = "}"', '  g();', '}', 'function h() { return 1; } // {',
@@ -353,6 +355,10 @@ test('through select(): an unclosed declared function selects its check with its
   const got = (sel.select(diff, [], broken).get('render-assistant-hosted-3660') || []).join(';');
   assert.match(got, /function asbAvatar \(its end was not found\)/);
   assert.doesNotMatch(got, /not on the page/);
+  // Wherever the change lands: a hunk on the page's first lines still selects it for the same reason.
+  const far = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -2,1 +2,1 @@', '-<html lang="en">', '+<html lang="en" >'].join('\n');
+  assert.match((sel.select(far, [], broken).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(its end was not found\)/);
 });
 
 test('touchedLines counts only web/index.html hunks, and places a -U0 pure deletion after its head line', () => {
