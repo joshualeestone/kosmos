@@ -923,9 +923,11 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # is gone, and --strict makes horizontal overflow on these screens red. The
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
-# rather than error. The full sweep (16 shots per screen) is a by-hand tool.
+# rather than error. allow-card fails unless its Allow button is the element at its own centre
+# (kosmos#4524), and every shot fails if the Community notice or What's New covers it. The full
+# sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts --sizes se,desktop --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
@@ -940,6 +942,18 @@ for _arm in account:'the throwaway board lists' page:'this screen shows real dat
     esac
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
+done
+# kosmos#4524: the cover check's control. MSHOTS_COVER_CONTROL=cmnotice leaves the Community notice
+# owed, so it opens over the first shot, and the run MUST fail that shot with exit 2 AND
+# "COVERED: #cmnotice". A clean exit means the check (or the notice) did not fire.
+for _arm in cmnotice:'COVERED: #cmnotice'; do
+  run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
+      --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+    case "$rc:$out" in
+      2:*"$2"*) echo "cover control $1: the covered shot failed with exit 2, as it must"; exit 0 ;;
+    esac
+    echo "FAIL  cover control $1: exit $rc, expected 2 with \"$2\": the cover check did not fire"; exit 1' \
+    _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done
 
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
