@@ -24,7 +24,7 @@ and 3 and is not the gate.
 **What the branch does:** the Files block for the person (dmfiles) now says the file goes directly in the Files
 path, not the agent's own folder above it and not a subfolder, and that only files there appear on the agent's page.
 The doctrine's earlier "Where the files you make go" section, the sentence Gemini-Test2 actually obeyed, now sends a
-file for the person to Files (DOCTRINE_VERSION 16). A one-line pointer (kosmos:dmfiles-top) reaches every agent,
+file for the person to Files (DOCTRINE_VERSION 18). A one-line pointer (kosmos:dmfiles-top) reaches every agent,
 placed before the working rules so it is read before that older sentence; insert-only, so cutting it out returns the
 person's file byte for byte.
 

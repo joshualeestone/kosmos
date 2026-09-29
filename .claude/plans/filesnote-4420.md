@@ -17,7 +17,7 @@ inside your own folder", which names the folder the agent then used.
 - ROOT CAUSE (the agent's own account, on the card 15:33): the doctrine's EARLIER "### Where the files you make go"
   (engine/defaults.js) said work not tied to a project goes in "your own folder", and the agent stopped there. That
   section now says: project work in the project's folder; a file for the person in the Files folder (the only place
-  they see it), naming the dmfiles section with the path; working notes in your own folder. DOCTRINE_VERSION 16.
+  they see it), naming the dmfiles section with the path; working notes in your own folder. DOCTRINE_VERSION 18 (16 when written; #4467 and #4475 took 16 and 17 first, resolved in the rebase).
   Same heading, so it reaches new agents and managed spans; the doctrine is the person's text once born, so existing
   agents get the rule from the pointer below, which is Kosmos's to keep current without consent.
 - A one-line pointer (new marker pair kosmos:dmfiles-top, in ALL_MARKERS) for EVERY agent (Splinter 15:34: all

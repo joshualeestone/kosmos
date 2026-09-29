@@ -72,7 +72,8 @@ test('#4420: the doctrine sends a file made for the person to Files, and names t
   assert.match(flat, /"Where to save files you make for the person"/, 'the doctrine does not point at the section with the path');
   assert.match(flat, /Your own folder, the one above Files, is never where a file made for the person goes/);
   assert.doesNotMatch(flat, /your own folder is where it goes/, 'the sentence the agent stopped at is back');
-  assert.equal(require('./defaults').DOCTRINE_VERSION, 16);
+  /* 18, not 16: #4467 and #4475 took 16 and 17 first. At least, not equal: a later bump must not red this. */
+  assert.ok(require('./defaults').DOCTRINE_VERSION >= 18, 'the rule changed but the doctrine version did not move past 17');
 });
 
 test('#4420: a second sync changes nothing, and two pointers are refused unchanged', () => {
