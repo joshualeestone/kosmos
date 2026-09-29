@@ -206,6 +206,15 @@ function ownCode(projectId, projectName) {
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
 }
+/** Whether `ref` is a room this account's other computers sit in (an owner shared by own code,
+    or a project joined by one). Throws on an unreadable links record. */
+function selfSharedRef(ref) {
+  return Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true) || l.role === 'self') && l.ref === ref);
+}
+/** Whether a project on this computer already sits in the own room `ref` (as owner or self). Throws on an unreadable links record. */
+function ownRefHere(ref) {
+  return Object.values(links()).some((l) => l && (l.role === 'self' || l.role === 'owner') && l.ref === ref);
+}
 /** The {ref, name} an own-account code carries, or null for anything else. */
 function parseOwnCode(text) {
   const t = typeof text === 'string' ? text.trim() : '';
@@ -232,7 +241,7 @@ async function invite(remote, body) {
      hold no seal state, so they could no longer read or post there (#4658). An unreadable
      links record does not block an invite; the paths that read links report it. */
   let selfShared = false;
-  try { selfShared = Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true) || l.role === 'self') && l.ref === body.project_ref); } catch { selfShared = false; }
+  try { selfShared = selfSharedRef(body.project_ref); } catch { selfShared = false; }
   if (selfShared) {
     return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
   }
@@ -252,6 +261,12 @@ async function invite(remote, body) {
   if (typeof r.data.invite_id !== 'string' || !r.data.invite_id) {
     return { status: 502, body: { error: 'The connection service is older than this Kosmos, so a sealed invite cannot be made yet. Try again later.' } };
   }
+  // Checked again after the coordinator answered: an own code made meanwhile must not be sealed out.
+  let sharedNow = false;
+  try { sharedNow = selfSharedRef(body.project_ref); } catch { sharedNow = false; }
+  if (sharedNow) {
+    return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
+  }
   const s = fedseal.randomSecret();
   try { fedseal.stashInvite(body.project_ref, { s, code: r.data.code, invite: r.data.invite_id }); } catch (err) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
@@ -268,9 +283,12 @@ async function verify(remote, body) {
      bound, since it carries the project's name. */
   const own = parseOwnCode(pasted);
   if (own) {
-    let all;
-    try { all = links(); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
-    const here = Object.entries(all).find(([, l]) => l && (l.role === 'self' || l.role === 'owner') && l.ref === own.ref);
+    // The coordinator seats an own room only for a Kosmos Plus account.
+    if (typeof remote.kosmosPlus === 'function' && remote.kosmosPlus() !== true) {
+      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer.' } };
+    }
+    let here;
+    try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
     if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
     const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
@@ -331,7 +349,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
-  ownCode, ownCodeRefusal, parseOwnCode, OWN_PREFIX,
+  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,

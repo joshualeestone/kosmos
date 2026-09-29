@@ -343,6 +343,15 @@ function spawnFor(projectId, edge) {
     const link = code === 3 ? safeLink(projectId) : null;
     // An unreadable link record is not an ending: restart like any other exit.
     if (code === 3 && link) {
+      /* A computer joined by own code: its room is its own account's, so a refusal there is
+         not the end of someone else's invitation. Stop for this session, say so, and try
+         again at the next start rather than ending the project. */
+      if (link.role === 'self') {
+        cur.ownRefused = true;
+        say(projectId, 'This project could not be connected to your other computers. Kosmos will try again the next time it starts.');
+        setStatus(projectId, 'waiting');
+        return;
+      }
       if (link.role === 'owner') {
         /* The owner's OWN room (no edge) refused for good: stop seating it this session,
            and say so once, instead of retrying into the same refusal. */
@@ -371,9 +380,9 @@ function spawnFor(projectId, edge) {
       /* An owner's OWN room (no edge) on a connector too old for --own-project: the project
          keeps waiting for guests on its edges; only its own room stops for this session. */
       const l2 = safeLink(projectId);
-      if (l2 && l2.role === 'owner' && !cur.edge) {
+      if (l2 && ((l2.role === 'owner' && !cur.edge) || l2.role === 'self')) {
         cur.ownRefused = true;
-        say(projectId, 'Your other computers cannot join this project yet: this computer\'s Kosmos connector is too old. Update Kosmos and they will connect.');
+        say(projectId, 'This computer\'s Kosmos connector is too old to connect this project to your other computers. Update Kosmos and it will connect.');
         setStatus(projectId, 'waiting');
         return;
       }
@@ -674,7 +683,10 @@ async function ensure(projectId, edges) {
     if (link.role === 'member') edge = link.edge_id;
     /* kosmos#4649: another computer of the SAME account (a `self` link) sits in the
        account's own room: `fed-room --own-project`, no edge. */
-    else if (link.role === 'self') edge = { own: link.ref };
+    else if (link.role === 'self') {
+      if (s.ownRefused) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      edge = { own: link.ref };
+    }
     else {
       const got = await ownerEdge(link, s.refused, edges);
       if (got.failed) {

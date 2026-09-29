@@ -346,7 +346,10 @@ test('#3728: a join with a code from an older owner (no second half) says in the
 /* kosmos#4649: a project from ANOTHER computer of this account ("add your other computer").
    Nothing is redeemed with the coordinator; the join makes a `self` link seated in the
    account's own room, unsealed, and says so in the room. */
-test('#4649 an own-account code joins as a self link, with nothing signed and nothing sealed', async () => {
+test('#4649 an own-account code joins as a self link, with nothing signed and nothing sealed', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  remote.kosmosPlus = () => true;
   const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-1', name: 'Weekend Plans' })).toString('base64url');
   const before = signedCalls.length;
   const v = await post('/api/federation/verify', { code }, SCREEN);
@@ -371,6 +374,26 @@ test('#4649 an own-account code joins as a self link, with nothing signed and no
   const again = await post('/api/federation/verify', { code }, SCREEN);
   assert.equal(again.status, 409, JSON.stringify(again.json));
   assert.equal(again.json.reason, 'already_joined');
+});
+
+test('#4649 an own code: no Plus, no join; and a Join for a room already here is refused, not doubled', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-3', name: 'Twice' })).toString('base64url');
+  remote.kosmosPlus = () => false;
+  const np = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(np.status, 403, JSON.stringify(np.json));
+  assert.equal(np.json.reason, 'not-plus');
+  remote.kosmosPlus = () => true;
+  const v = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  // The room arrives here by another path (a Join already finished) while this snapshot is live.
+  federation.recordLink('proj-already-3', { role: 'self', ref: 'ref-own-3' });
+  const before = Object.keys(federation.readLinks()).length;
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  assert.equal(j.status, 409, JSON.stringify(j.json));
+  assert.equal(j.json.reason, 'already_joined');
+  assert.equal(Object.keys(federation.readLinks()).length, before, 'no second project in the same room');
 });
 
 test('#4649 an own code is still screen-only, like every join', async () => {

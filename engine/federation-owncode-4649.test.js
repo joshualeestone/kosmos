@@ -107,3 +107,11 @@ test('an invite is refused for a project this computer joined by own code (the s
   assert.equal(out.status, 409);
   assert.equal(called, 0);
 });
+
+test('an own code made while an invite waits on the coordinator stops that invite before it seals', async () => {
+  federation.recordLink('proj-race', { role: 'owner', ref: 'ref-race' });
+  const stub = { macRequest: async () => { federation.ownCode('proj-race', 'Race'); return { ok: true, data: { code: 'C', expires_at: 1, invite_id: 'i' } }; } };
+  const out = await federation.invite(stub, { project_ref: 'ref-race', project_name: 'Race', invited_kind: 'person' });
+  assert.equal(out.status, 409, JSON.stringify(out.body));
+  assert.equal(require('./fedseal').isSealedRef('ref-race'), false, 'the room was not sealed under the other computers');
+});

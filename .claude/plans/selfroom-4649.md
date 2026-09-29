@@ -38,6 +38,9 @@ it needs none.
 - **Sharing with your other computers is one-way for now.** Once a project is shared that way (or joined
   by own code), an outside invite for it is refused (409 `self-shared`): sealing it would lock those
   computers out. The settings hint says so. Undoing it, and inviting both, waits on #4658.
+- **A refused own room stops for the session, never for good.** Exit 3 or 2 on an owner's own room or on a
+  self link says so once in the room, waits, and is tried again at the next start (updating Kosmos restarts
+  it). It is the account's own room, so a refusal there is not the end of anyone's invitation.
 - **An own code's ref is limited to letters, digits, _ and -, starting alphanumeric.** It reaches the
   connector's command line, and a pasted code is written by whoever made it.
 - **"Add your other computer" still shows on a project joined from someone else.** The page is not told a

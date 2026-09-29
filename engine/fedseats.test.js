@@ -156,12 +156,24 @@ test('#4649 an owner\'s own room on a connector too old for it (exit 2) stops, a
   h.spawned[0].emit('exit', 2);
   await tick();
   assert.strictEqual(fedseats.statusOf('proj-old'), 'waiting', 'not ended: the project still takes guests');
-  assert.ok(h.notes.some((n) => n.projectId === 'proj-old' && /other computers cannot join this project yet/.test(n.text)));
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-old' && /too old to connect this project to your other computers/.test(n.text)));
   assert.ok(!federation.linkFor('proj-old').ended);
   h.edges = [{ id: 'edge-old', project_ref: 'ref-old', status: 'active' }];
   await fedseats.ensure('proj-old');
   assert.strictEqual(h.spawned.length, 2);
   assert.strictEqual(h.spawned[1].edge, 'edge-old', 'a guest\'s edge is seated after the own room stopped');
+});
+
+test('#4649 a self link on a connector too old for its own room (exit 2) waits, and is not ended', async () => {
+  federation.recordLink('proj-self2', { role: 'self', ref: 'ref-self2' });
+  const h = harness();
+  await fedseats.ensure('proj-self2');
+  h.spawned[0].emit('exit', 2);
+  await tick();
+  assert.strictEqual(fedseats.statusOf('proj-self2'), 'waiting');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-self2' && /too old to connect this project to your other computers/.test(n.text)));
+  assert.strictEqual(await fedseats.ensure('proj-self2'), 'waiting');
+  assert.strictEqual(h.spawned.length, 1);
 });
 
 test('#4649 a self link (another computer of the same account) sits in the account\'s own room', async () => {
@@ -171,12 +183,17 @@ test('#4649 a self link (another computer of the same account) sits in the accou
   assert.strictEqual(h.spawned.length, 1);
   assert.deepStrictEqual(h.spawned[0].edge, { own: 'ref-self' });
   assert.strictEqual(h.asked, 0, 'a self link needs no edge lookup');
-  // A refusal retrying cannot fix (exit 3) ends it like a guest's, and files no fake edge.
+  // A refusal (exit 3) stops it for this session, says so, and does NOT end the project:
+  // the room is this account's own, so the next start tries again.
   h.spawned[0].emit('exit', 3);
   await tick();
   const link = federation.linkFor('proj-self');
-  assert.ok(link.ended, 'an own seat refused for good ends');
+  assert.ok(!link.ended, 'an own seat refused is not ended for good');
   assert.ok(!Array.isArray(link.refused) || link.refused.length === 0, 'an own seat has no edge to refuse');
+  assert.strictEqual(fedseats.statusOf('proj-self'), 'waiting');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-self' && /could not be connected to your other computers/.test(n.text)));
+  assert.strictEqual(await fedseats.ensure('proj-self'), 'waiting');
+  assert.strictEqual(h.spawned.length, 1, 'not seated again this session');
 });
 
 test('nothing starts on a Mac that is not connected to Kosmos+, or for a project with no link', async () => {

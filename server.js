@@ -16015,6 +16015,13 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        // A second Join of the same own code (the snapshot is forgotten only after the first
+        // finishes) would make a second project in the same room.
+        if (snap.own) {
+          let here = false;
+          try { here = federation.ownRefHere(snap.ref); } catch { here = false; }
+          if (here) { sendJson(res, 409, { reason: 'already_joined', error: 'This project is already on this computer.' }); return; }
+        }
         const roster = safeRoster();
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
         // The owner's words stay theirs: the name is only a starting point for a
