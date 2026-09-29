@@ -633,3 +633,35 @@ test('#4612 review round 1: the answer carried is the DM turn\'s, even when a ro
   q.f.feed('[message from your operator · m7 · project p · to answer, run: kosmos post --in-reply-to m7 p] hi\r'); await q.f.drained();
   assert.equal(d[d.length - 1], null, 'a room post from the person was carried as a DM answer');
 });
+
+test('#4612 review round 2: a stop note\'s answer is carried (it answers the person\'s stop DM); a later failed DM clears an earlier answer', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Stopped, sorry.')), { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await within(h.f.drained(), 'the stop did not settle');
+  const idle = sent.filter(([s]) => s === 'idle');
+  assert.equal(idle[idle.length - 1][1] && idle[idle.length - 1][1].text, 'Stopped, sorry.', 'the stop note\'s answer was not carried');
+  // A DM answered, then a second DM whose turn fails, before any idle: nothing is carried (never the older answer).
+  const f = [];
+  const g = harness((input, i) => (i === 0 ? 'hold' : i === 1 ? OK('first answer') : { ok: false, text: '', because: 'Muse Code did not finish the turn' }),
+    { report: (s, w, final) => f.push([s, final || null]) });
+  g.f.feed('long job\r'); g.f.feed(OP('one') + '\r'); g.f.feed(OP('two') + '\r');
+  g.pending[0](OK('done')); await g.f.drained();
+  assert.equal(f.filter(([s]) => s === 'idle').pop()[1], null, 'an older DM\'s answer was carried for a newer DM whose turn failed');
+});
+
+test('#4612 review round 2: every real DM envelope form is recognised, straight from engine/messages.js operatorDirect', async () => {
+  const src = require('node:fs').readFileSync(require.resolve('./messages'), 'utf8');
+  const at = src.indexOf('function operatorDirect(');
+  assert.notEqual(at, -1, 'operatorDirect is gone from engine/messages.js');
+  const operatorDirect = new Function(src.slice(at, src.indexOf('\n}\n', at) + 2) + '\nreturn operatorDirect;')();
+  const forms = [operatorDirect(null, ''), operatorDirect('11:52 AM', ''),
+    operatorDirect(null, ' \u00b7 answers "first words"'), operatorDirect('11:52 AM', ' \u00b7 answers "first words"')];
+  for (const env of forms) {
+    const finals = [];
+    const h = harness([OK('answer')], { report: (s, w, final) => finals.push(final || null) });
+    h.f.feed(env + ' hello\r');
+    await h.f.drained();
+    assert.equal(finals[finals.length - 1] && finals[finals.length - 1].text, 'answer', 'not recognised as a DM: ' + env);
+  }
+});
