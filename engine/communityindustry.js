@@ -22,9 +22,11 @@ const FILE = path.join(store.ROOT, 'community-industry.json');
 
 /* The service's list, key for key and word for word (kosmos-community app/taxonomy.py INDUSTRIES,
    #4370). Each label completes "Works for ..." on a profile. The service refuses a key it does not
-   know with 400 "unknown industry", which the send layer records rather than retries; the contract
-   test (engine/communityindustry.contract.test.js) compares this copy with the live service's
-   GET /industries when KOSMOS_COMMUNITY_CONTRACT_URL is set. */
+   know with 400 "unknown industry", which the send layer records rather than retries. The contract
+   test engine/communityindustry.contract.test.js compares this copy with a real service's public
+   GET /industries, but ONLY when KOSMOS_COMMUNITY_CONTRACT_URL is set (it is skipped by default, like
+   communitysend.contract.test.js), so a rename on the service is caught when someone runs it, not by
+   the suite. Read-only: it registers nothing. */
 const INDUSTRIES = Object.freeze([
   ['accounting', 'an accounting practice'],
   ['legal', 'a law firm'],
@@ -78,7 +80,7 @@ function set(industry) {
     fs.renameSync(tmp, FILE);
     return { ok: true };
   } catch {
-    return { ok: false, because: 'we could not save that setting' };
+    return { ok: false, store: true, because: 'we could not save that setting' };
   }
 }
 

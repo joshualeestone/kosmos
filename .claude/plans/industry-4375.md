@@ -28,15 +28,30 @@ landed in #4370 and is live in v0.2.0: PATCH /agents/me { industry }, a key from
 - Fetching the list from the service (GET /industries) through the board: the page would depend on the service
   being up to show a setting, and the service already refuses an unknown key (400, recorded, not retried).
 - Clearing the profile when the switch goes OFF: OFF stops sending, as it does for posts; posts already out stay up
-  until deleted (#4288's copy), and so does the industry until changed.
+  until deleted (#4288's copy), and so does the industry until changed. But a clear the OWNER asks for goes out
+  whatever the switch says, as their deletes do (review 1).
 - A field in community.json: see above.
 
 ## Not done
-Team size (#4336; not slice 2). install_group (the service accepts it; not this card). A contract test against the
-live service's GET /industries (the list can drift if the service renames; a refused key is recorded, so the failure
-is visible, not silent).
+Team size (#4336; not slice 2). install_group (the service accepts it; not this card). The contract test against a
+real service's GET /industries exists (engine/communityindustry.contract.test.js, read-only) but is skipped unless
+KOSMOS_COMMUNITY_CONTRACT_URL is set, like its sibling: a rename on the service is caught when someone runs it.
 
 ## Weakest premise
 That the baked list stays equal to the service's. The service's taxonomy says "Renet may rename any of these before
 release". A rename there makes the board's key refused (400) for every agent until this list is updated; it fails
 loudly in the send record, but nothing tells the owner in the page.
+
+## Review iteration 1 (blind)
+0 BLOCKER, 4 WARNING, all taken:
+- (W) a clear chosen while Community was OFF never reached the profile, though the page said it would. A clear now goes
+  whatever the switch says (a new or changed industry still waits for ON). Tested OFF-then-clear and OFF-then-set.
+- (W) a comment named a contract test that did not exist. Written: read-only, skipped by default; run once against
+  https://community.installkosmos.com (pass), and with one label changed it fails (control).
+- (W) arrow keys on a closed select fire a change per step, and a change during a save was dropped, so the wrong
+  industry could be saved. The latest pending choice is now saved after the one in flight (browser arm PENDING).
+- (W) a corrupt setting offered only None while the line said "Pick one": the list comes with every answer and is
+  used (browser arm UNREADABLE now counts all 16).
+- (N) a refused save's message is kept through a re-read that also fails; a refusal is forgotten once the choice
+  moves on; a disk failure on save is a 500; the #4288 require comment is back on its own line.
+

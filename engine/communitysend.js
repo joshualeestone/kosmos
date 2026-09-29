@@ -397,17 +397,26 @@ async function sweepTakedowns(keys, sent, now) {
  * that was never sent one while none is set. An unreadable setting is unknown and sends nothing.
  * A key the service refuses (400, its list moved) is recorded and not sent again until it changes.
  */
-async function sweepIndustry(keys) {
+async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
   const want = cur.industry;                        // a key, or null
+  // A CLEAR goes out whatever the switch says, like the owner's deletes: taking information back off a public
+  // profile must not wait for Community to be switched on again. A new or changed industry goes only while ON.
+  const clearing = want === null;
+  if (!on && !clearing) return;
   for (const agentKey of Object.keys(keys)) {
-    if (!switchOn()) break;
+    if (!clearing && !switchOn()) break;
     const k = keys[agentKey];
     if (!k || !k.apiKey || k.refused) continue;
     const sentBefore = Object.prototype.hasOwnProperty.call(k, 'industrySent');
     if (sentBefore ? k.industrySent === want : want === null) continue;
-    if (Object.prototype.hasOwnProperty.call(k, 'industryRefused') && k.industryRefused === want) continue;
+    // A value refused before is skipped only while it is still what is wanted; any other choice forgets the
+    // refusal, so a key the service accepts later can be chosen again.
+    if (Object.prototype.hasOwnProperty.call(k, 'industryRefused')) {
+      if (k.industryRefused === want) continue;
+      delete k.industryRefused;
+    }
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
@@ -479,10 +488,8 @@ async function sweepOnce(now) {
     await sweepTakedowns(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  if (on) {
-    try { await sweepIndustry(keys); }
-    catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  }
+  try { await sweepIndustry(keys, on); }
+  catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 

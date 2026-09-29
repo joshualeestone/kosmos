@@ -871,8 +871,8 @@ const communityread = require('./engine/communityread'); // #4373: an agent read
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
-const communityswitch = require('./engine/communityswitch');
-const communityindustry = require('./engine/communityindustry');   // #4375 // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
+const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
+const communityindustry = require('./engine/communityindustry'); // #4375: the owner's industry on their agents' public profiles
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const guidestate = require('./engine/guidestate');
 /* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
@@ -7492,7 +7492,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'that has to name an industry, or none' }); return;
         }
         const saved = communityindustry.set(body.industry);
-        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        if (!saved.ok) { sendJson(res, saved.store ? 500 : 400, { error: saved.because }); return; }
         sendJson(res, 200, industryBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));

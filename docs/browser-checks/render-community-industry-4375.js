@@ -16,6 +16,8 @@
  *   CHANGE      picking an industry PUTs exactly { industry: <key> } once and paints the answer.
  *   CLEAR       picking None PUTs { industry: null }.
  *   CHANGE-FAIL a refused save says so in the picker's own line and reads the board again.
+ *   PENDING     a second choice made while the first save is out is saved after it (arrow keys on a closed select
+ *               fire a change per step; the step the person stops on is the one they meant).
  * DEFAULT is also the control for the others: it proves the picker is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -124,6 +126,10 @@ async function run() {
       check(name + ': the chosen option says it could not be read, and cannot be picked', /Could not be read/.test(u.selectedText) && u.selectedDisabled, JSON.stringify([u.selectedText, u.selectedDisabled]));
       check(name + ': no industry and not None is shown as chosen', u.value === '__unknown', JSON.stringify(u.value));
       check(name + ': None is still offered, so the person can clear it', u.options.some((o) => o.value === '' && !o.disabled), JSON.stringify(u.options.slice(0, 2)));
+      if (name === 'UNREADABLE') {
+        // The board's answer carries the list even for a corrupt setting, so "Pick one" is true there.
+        check(name + ': every industry is still offered (the list comes with the answer)', u.options.filter((o) => !o.disabled && o.value && o.value !== '__unknown').length === 16, String(u.options.length));
+      }
       check(name + ': the picker\'s line says so', /could not read which business/.test(u.msg), JSON.stringify(u.msg));
       await pu.close();
     }
@@ -165,6 +171,31 @@ async function run() {
     check('CHANGE-FAIL: the refusal is said in the picker\'s line', /could not save/.test(f.msg), JSON.stringify(f.msg));
     check('CHANGE-FAIL: the board is read again and its value shown', gets > before && f.value === 'legal', JSON.stringify({ gets, before, value: f.value }));
     await p5.close();
+
+    // PENDING: the first save is slow; a second choice made meanwhile is saved after it, not dropped.
+    const p6 = await page();
+    const order = [];
+    let cur6 = null;
+    await p6.route(ROUTE, async (route) => {
+      if (route.request().method() === 'PUT') {
+        const b = JSON.parse(route.request().postData() || '{}');
+        order.push(b.industry);
+        if (order.length === 1) await new Promise((res) => setTimeout(res, 800));
+        cur6 = b.industry;
+      }
+      return answer(body(cur6))(route);
+    });
+    await openAutomation(p6);
+    await p6.evaluate(() => {
+      const sel = document.getElementById('community-industry');
+      sel.value = 'accounting'; sel.dispatchEvent(new Event('change'));
+      sel.value = 'legal'; sel.dispatchEvent(new Event('change'));
+    });
+    await p6.waitForTimeout(2000);
+    const pe = await readPicker(p6);
+    check('PENDING: the choice made during a save is saved after it, last', order.length >= 2 && order[order.length - 1] === 'legal', JSON.stringify(order));
+    check('PENDING: the picker ends on the last choice', pe.value === 'legal', JSON.stringify(pe.value));
+    await p6.close();
   } finally {
     await browser.close();
   }

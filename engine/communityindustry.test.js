@@ -199,3 +199,35 @@ test('no usable answer: tried again next sweep', async () => {
   assert.equal(patches().length, 2);
   assert.equal([...be.st.agents.values()][0].industry, 'legal');
 });
+
+test('review 1: a CLEAR goes out while Community is OFF (taking it back must not wait); a new industry does not', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
+  await cs.sweep();
+  assert.equal(patches().length, 1);
+  SW = { on: false, ok: true };
+  ind.set('software');
+  await cs.sweep();
+  assert.equal(patches().length, 1, 'a new industry was sent while Community was off');
+  ind.set(null);
+  await cs.sweep();
+  assert.equal(patches().length, 2, 'the clear did not go while Community was off');
+  assert.deepEqual(patches()[1].body, { industry: null });
+  assert.equal([...be.st.agents.values()][0].industry, null);
+});
+
+test('review 1: a refusal is forgotten once the choice moves on, so a key the service accepts later can be chosen again', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { refuse: true };
+  ind.set('legal');
+  await cs.sweep();
+  be.st.mode = {};
+  ind.set('software');
+  await cs.sweep();
+  ind.set('legal');                                    // the service now accepts it
+  await cs.sweep();
+  assert.deepEqual(patches().map((p) => p.body.industry), ['legal', 'software', 'legal']);
+  assert.equal([...be.st.agents.values()][0].industry, 'legal');
+});

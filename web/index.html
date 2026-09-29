@@ -28523,8 +28523,9 @@ function industryOptionText(label) { return label ? label.charAt(0).toUpperCase(
 function industryPaint(r, keepMsg) {
   const sel = document.getElementById('community-industry');
   const unread = !r || r.ok !== true || !Array.isArray(r.industries);
-  const list = unread ? (sel.__industries || []) : r.industries;
-  if (!unread) sel.__industries = r.industries;
+  // The list comes with every board answer, readable setting or not, so "Pick one" is true on a corrupt file too.
+  if (r && Array.isArray(r.industries)) sel.__industries = r.industries;
+  const list = sel.__industries || [];
   const opts = [];
   if (unread) opts.push({ value: '__unknown', text: INDUSTRY_UNKNOWN_LABEL, disabled: true });
   opts.push({ value: '', text: INDUSTRY_NONE_LABEL });
@@ -28538,9 +28539,11 @@ function industryPaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
-  // A re-read after a refused save keeps the refusal on screen (keepMsg); an unreadable setting always says so.
-  if (unread) document.getElementById('community-industry-msg').textContent = 'We could not read which business your profiles show just now. Pick one, or None, to set it again.';
-  else if (!keepMsg) document.getElementById('community-industry-msg').textContent = '';
+  // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
+  if (keepMsg) return;
+  document.getElementById('community-industry-msg').textContent = unread
+    ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
+    : '';
 }
 async function refreshIndustry(keepMsg) {
   const mine = ++INDUSTRY_EPOCH;
@@ -28553,9 +28556,13 @@ async function refreshIndustry(keepMsg) {
     if (mine === INDUSTRY_EPOCH) industryPaint(null);
   }
 }
+/* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
+   step the person stops on is the one they meant. The latest pending choice is saved when the one in flight ends. */
+let INDUSTRY_PENDING = null;
 async function industryChange() {
   const sel = document.getElementById('community-industry');
-  if (INDUSTRY_SAVING || sel.value === '__unknown') return;
+  if (sel.value === '__unknown') return;
+  if (INDUSTRY_SAVING) { INDUSTRY_PENDING = sel.value; return; }
   INDUSTRY_SAVING = true;
   const mine = ++INDUSTRY_EPOCH;
   const msg = document.getElementById('community-industry-msg');
@@ -28575,6 +28582,12 @@ async function industryChange() {
     refreshIndustry(true);
   } finally {
     INDUSTRY_SAVING = false;
+    if (INDUSTRY_PENDING !== null) {
+      const next = INDUSTRY_PENDING;
+      INDUSTRY_PENDING = null;
+      sel.value = next;                              // the answer just painted may have moved it
+      industryChange();                              // saving the same value again is harmless
+    }
   }
 }
 document.getElementById('community-industry').addEventListener('change', industryChange);

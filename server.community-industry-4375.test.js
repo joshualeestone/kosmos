@@ -73,3 +73,14 @@ test('#4375: an unreadable setting reads ok:false, never "none"', async () => {
   assert.equal(j.industry, null);
   assert.equal(j.industries.length, 16, 'the list is still given, so the page can offer None to repair it');
 });
+
+test('#4375 review 1: a save the disk refuses is a 500 (a storage fault), not a 400', async () => {
+  fs.rmSync(communityindustry.FILE, { force: true });
+  fs.mkdirSync(communityindustry.FILE);              // the file's place is taken by a folder: the rename fails
+  try {
+    const r = await put({ industry: 'legal' });
+    assert.equal(r.status, 500);
+  } finally {
+    fs.rmSync(communityindustry.FILE, { recursive: true, force: true });
+  }
+});
