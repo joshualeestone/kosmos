@@ -48,8 +48,10 @@ async function main() {
   const screen = path.join(sb, 'screen.txt');
   const tmux = path.join(sb, 'fake-tmux.sh');
   const profileDir = path.join(sb, 'profile');
-  const projectFolder = path.join(sb, 'project-folder');
-  for (const dir of [workers, profileDir, projectFolder]) fs.mkdirSync(dir, { recursive: true });
+  const dataRoot = path.join(sb, 'data');
+  const kosmosData = path.join(dataRoot, 'Kosmos');
+  const projectFolders = Array.from({ length: 3 }, (_, i) => path.join(sb, `project-folder-${i + 1}`));
+  for (const dir of [workers, profileDir, kosmosData, ...projectFolders]) fs.mkdirSync(dir, { recursive: true });
 
   const specs = Array.from({ length: AGENTS }, (_, i) => fleet.agent(`load-agent-${i + 1}`, {
     pane: `0.${i}`,
@@ -83,6 +85,24 @@ esac
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `You are **${spec.displayName}**, ${spec.role}.\n`);
   }
+  const agentNames = specs.map((spec) => spec.name);
+  const projects = projectFolders.map((folder, i) => ({
+    id: `loadroom${i + 1}`,
+    name: `Load room ${i + 1}`,
+    description: '',
+    folder,
+    agents: agentNames,
+    everSeen: Object.fromEntries(agentNames.map((name) => [name, true])),
+    told: Object.fromEntries(agentNames.map((name) => [name, { state: 'told', because: null, at: '2026-01-01T00:00:00.000Z' }])),
+    parent: null,
+    made: { via: 'process', by: null, at: '2026-01-01T00:00:00.000Z' },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }));
+  for (let i = 0; i < projectFolders.length; i += 1) {
+    fs.writeFileSync(path.join(projectFolders[i], 'BRIEF.md'), `# Load room ${i + 1}\n`);
+  }
+  fs.writeFileSync(path.join(kosmosData, 'projects.json'), JSON.stringify(projects, null, 2) + '\n');
 
   const child = spawn(process.execPath, [
     '--cpu-prof', `--cpu-prof-dir=${profileDir}`, '--cpu-prof-name=board-25.cpuprofile',
@@ -93,7 +113,7 @@ esac
       HOME: sb,
       PORT: '0',
       NODE_TEST_CONTEXT: 'profile-4468',
-      AGENT_WORKFORCE_DATA: path.join(sb, 'data'),
+      AGENT_WORKFORCE_DATA: dataRoot,
       AGENT_WORKFORCE_WORKERS: workers,
       AGENT_WORKFORCE_LAUNCH: path.join(sb, 'launch'),
       AGENT_WORKFORCE_PROJECTS: path.join(sb, 'projects'),
@@ -123,12 +143,6 @@ esac
     }
     if (!port) throw new Error(`board did not start; stdout=${stdout}; stderr=${stderr}`);
     const base = `http://127.0.0.1:${port}`;
-
-    const made = await fetch(`${base}/api/projects`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Load room', folder: projectFolder, agents: specs.map((s) => s.name) }),
-    });
-    if (!made.ok) throw new Error(`project setup failed: ${made.status} ${await made.text()}`);
 
     const timings = { status: [], projects: [], msg: [], post: [] };
     const failures = [];
@@ -189,7 +203,7 @@ esac
       if (i < POSTS_PER_MINUTE) {
         jobs.push(once(Math.floor(i * (60000 / POSTS_PER_MINUTE)), () => hit('post', '/api/post', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ from_pane: fromPane, project: 'loadroom', text: `load post from ${from.name}`, new_post: true, reply_expected: false }),
+          body: JSON.stringify({ from_pane: fromPane, project: `loadroom${(i % 3) + 1}`, text: `load post from ${from.name}`, new_post: true, reply_expected: false }),
         })));
       }
     }
