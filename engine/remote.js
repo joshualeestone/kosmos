@@ -563,7 +563,11 @@ function ensure(port) {
     if (!wanted) { stopChild(); return; }
     // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
-    if (child) { status(); return; }
+    if (child) {
+      status();
+      if (selfPendingInSnapshot()) allowSelfQuietly();   // #4610, Josh's ruling: the retry, off the read path
+      return;
+    }
     if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
@@ -1176,11 +1180,21 @@ function forgetPendingSnapshot() {
    🔑 SCOPED TO THIS COMPUTER BY A VALUE ONLY THIS BOARD HOLDS: remote.json's device_id, which this board minted
    itself for its own sign-in (signinStart) and never takes from a request, not a name or label a device sends, so a
    remote device cannot claim it. Every other device still asks.
-   Retried from pendingDevices while the snapshot still lists it (a failed call, or a register still in flight when
-   it first ran), at most once a minute and never two at once. */
+   Retried from the supervisor's 15s tick (ensure) while the running tunnel's snapshot still lists it (a failed call,
+   a register still in flight when it first ran, or a Mac signed in before this change), at most once a minute and
+   never two at once. NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
 let selfAllowAt = 0;
 let selfAllowing = false;
 const SELF_ALLOW_RETRY_MS = 60000;
+/* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
+function selfPendingInSnapshot() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id) return false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8'));
+    return !!(raw && Array.isArray(raw.devices) && raw.devices.some((d) => d && String(d.device_id) === id));
+  } catch { return false; }
+}
 function allowSelfQuietly() {
   const id = typeof read().device_id === 'string' ? read().device_id : '';
   if (!id || selfAllowing || !enrolled()) return false;
@@ -1207,7 +1221,6 @@ function pendingDevices() {
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
   const self = typeof settings.device_id === 'string' ? settings.device_id : '';
-  if (self && list.some((d) => d && String(d.device_id) === self)) allowSelfQuietly();   // Josh's ruling above
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
     .filter((d) => !self || String(d.device_id) !== self)

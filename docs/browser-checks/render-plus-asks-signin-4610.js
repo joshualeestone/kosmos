@@ -42,48 +42,52 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
   const BASE = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
-    const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
-    const errs = [];
-    page.on('pageerror', (e) => errs.push(e.message));
-    const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
-    await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
-    await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: PENDING, email: 'you@example.com', self_device_id: 'd-self' })));
-    await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [] })));
-    await page.goto(BASE, { waitUntil: 'networkidle' });
-    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-    await page.evaluate(() => showTab('settings'));
-    await page.click('#s-nav button[data-go="plus"]');
-    await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+    /* Desktop and phone widths (the settings column stacks on a phone). */
+    for (const W of [1400, 390]) {
+      const page = await browser.newPage({ viewport: { width: W, height: W > 800 ? 950 : 844 } });
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: PENDING, email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [] })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.evaluate(() => { const b = document.querySelector('#s-nav button[data-go="plus"]'); if (b) b.click(); });
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
 
-    /* The state right after a sign-in: the wizard on its done step, the connected panel not yet shown. */
-    const where = await page.evaluate(async () => {
-      document.getElementById('plus-state2').hidden = false;
-      document.getElementById('plus-flow').hidden = true;
-      plusSiShow('plus-si-done');
-      if (typeof pollAsk === 'function') await pollAsk();
-      paintAsk();
-      const vis = (id) => { const e = document.getElementById(id); return !!(e && !e.hidden && e.getBoundingClientRect().height > 0); };
-      const asks = document.getElementById('plus-asks'), sec = document.getElementById('s-sec-plus'), head = document.querySelector('.apphead');
-      const a = asks.getBoundingClientRect(), s = sec.getBoundingClientRect();
-      return {
-        signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
-        inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
-        rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
-        withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
-        belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
-      };
-    });
-    chk(where.signedInShown && !where.flowShown, 'precondition: the Plus screen shows "You\'re signed in" and not the connected panel', JSON.stringify(where));
-    chk(where.inSection && where.rows === 2, '#4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
-    chk(!where.topCard, '#4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
-    chk(where.withinSection && where.belowHeader, '#4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
+      /* The state right after a sign-in: the wizard on its done step, the connected panel not yet shown. */
+      const where = await page.evaluate(async () => {
+        document.getElementById('plus-state2').hidden = false;
+        document.getElementById('plus-flow').hidden = true;
+        plusSiShow('plus-si-done');
+        if (typeof pollAsk === 'function') await pollAsk();
+        paintAsk();
+        const vis = (id) => { const e = document.getElementById(id); return !!(e && !e.hidden && e.getBoundingClientRect().height > 0); };
+        const asks = document.getElementById('plus-asks'), sec = document.getElementById('s-sec-plus'), head = document.querySelector('.apphead');
+        const a = asks.getBoundingClientRect(), s = sec.getBoundingClientRect();
+        return {
+          signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
+          inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
+          rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
+          withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
+          belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
+        };
+      });
+      chk(where.signedInShown && !where.flowShown, '[' + W + '] precondition: the Plus screen shows "You\'re signed in" and not the connected panel', JSON.stringify(where));
+      chk(where.inSection && where.rows === 2, '[' + W + '] #4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
+      chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
+      chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
 
-    /* CONTROL: on any other view the top card is the compact notice, as before. */
-    await page.evaluate(async () => { showTab('agents'); paintAsk(); });
-    await page.waitForTimeout(200);
-    const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
-    chk(other.shown && /2 devices are asking to use this Kosmos\./.test(other.text) && other.cards === 0, 'CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
-    chk(errs.length === 0, 'no page errors', errs.join(' | '));
+      /* CONTROL: on any other view the top card is the compact notice, as before. */
+      await page.evaluate(async () => { showTab('agents'); paintAsk(); });
+      await page.waitForTimeout(200);
+      const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
+      chk(other.shown && /2 devices are asking to use this Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
+      chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

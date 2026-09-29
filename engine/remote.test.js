@@ -2791,3 +2791,48 @@ test('#4610 Josh\'s ruling: a sign-in grants THIS Mac\'s own device at once, by 
   assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['dev-stranger'], 'a stranger with the self label was hidden');
   remote.setOn(false);
 });
+
+test('#4610 reading pending never spawns, even while this Mac\'s own sign-in is still listed (the retry lives in ensure)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('readmac')).ok, true);
+  const self = remote.read().device_id;
+  await new Promise((r) => setTimeout(r, 300));   // let the sign-in's own grant finish first
+  /* Clear the once-a-minute throttle that grant just set, or a spawn from the read path would be blocked by the
+     throttle and this test could not tell the two apart (measured: it passed with the read-path call put back). */
+  remote.resetForTests();
+  remote.setOn(true);
+  const before = recorded().filter((a) => a[0] === 'devices').length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  for (let i = 0; i < 5; i += 1) remote.pendingDevices();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(recorded().filter((a) => a[0] === 'devices').length, before, 'reading pending spawned the tunnel program');
+  remote.setOn(false);
+});
+
+test('#4610 a Mac whose own sign-in was never granted (signed in before this change) is granted by the supervisor tick', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('tickmac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  /* As a Mac signed in before this change: the same-name shortcut, which grants nothing itself. */
+  remote.resetForTests();
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const again = await remote.signinRegister('tickmac');
+  assert.equal(again.ok, true, again.because);
+  assert.equal(again.data.alreadySetUp, true, 'this did not take the shortcut, so the arm is not about the tick');
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(before), [self]);
+  remote.setOn(false);
+});
