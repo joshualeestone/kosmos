@@ -222,6 +222,32 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
   }
 });
 
+test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
+  const h = {};
+  const e = env(await freePort(), {}, h);
+  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
+    // It exits on its own after a minute, so a start that failed to stop it cannot leak it.
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
+    + "setTimeout(() => process.exit(0), 60000);\n");
+  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
+  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  try {
+    const r = await run(CLI, ['restart'], e, true);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /so it was stopped again/);
+    assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false,
+      'a crashed board was left "deliberately stopped" by a failed sandboxed restart, so the watchdog would not recover it');
+  } finally {
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});
+
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
    stubbed (bash allows a function named /usr/bin/curl), so the arms decide the exact sequence of answers. */
 function probe(curlAnswers, listeners) {
@@ -263,7 +289,7 @@ test('the one re-probe: a board that answers on the second try is up; one that n
   assert.match(gone.out, /first=down flag=\[\]/, gone.out);
 });
 
-test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', async () => {
+test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', { skip: !HAVE_PYTHON && 'no working /usr/bin/python3 for the listener' }, async () => {
   // Measured on macOS: a full accept queue drops new connects silently (curl 28), never refuses them (curl 7).
   const py = spawn('/usr/bin/python3', ['-c', 'import socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(1)\nprint(s.getsockname()[1],flush=True)\ntime.sleep(60)'], { stdio: ['ignore', 'pipe', 'ignore'] });
   const held = [];
@@ -275,6 +301,14 @@ test('a board whose connection queue is FULL (wedged) is not "unreachable": the 
     });
     for (let i = 0; i < 4; i++) { const c = require('node:net').connect(port, '127.0.0.1'); c.on('error', () => {}); held.push(c); }
     await new Promise((ok) => setTimeout(ok, 500));
+    // The queue really is full: one more raw connect is neither accepted nor refused within a second.
+    const extra = await new Promise((resolve) => {
+      const c = require('node:net').connect(port, '127.0.0.1');
+      const t = setTimeout(() => { c.destroy(); resolve('pending'); }, 1000);
+      c.once('connect', () => { clearTimeout(t); c.destroy(); resolve('connected'); });
+      c.once('error', (err) => { clearTimeout(t); resolve(err.code); });
+    });
+    assert.equal(extra, 'pending', 'the queue was not full (a further connect was ' + extra + '), so this arm measures nothing');
     const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; _health_probe 2; echo "state=$HEALTH_STATE"'],
       { env: env(port) }, (err, so) => resolve(String(so).trim())));
     assert.doesNotMatch(r, /state=unreachable/, r);
