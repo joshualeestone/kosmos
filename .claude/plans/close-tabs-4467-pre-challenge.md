@@ -22,20 +22,67 @@ converged: true
 - Three validation runs were stopped by me (kill of my own processes in this worktree only) because the code they validated was superseded mid-run; none completed a result that was ignored.
 - Origin column: set by reading, not by the 6c-bis blame lookup; recorded BRANCH (fail-safe). Several findings were in this loop's own earlier copy.
 
-### Per-Iteration Breakdown (actionable only)
-- **1 (opus):** a page that needs a real browser had no path --> FIXED (c18148e5c)
-- **2 (sonnet):** point at the agent's private browser; Windows comment overstated; the open-a-link paragraph would generate a message per link --> FIXED (535b6ba9a)
-- **3 (opus):** agents without the private browser had no instruction; the rule was absolute then contradicted --> FIXED (278959a91: one rule, one method, one exception; missingFrom pinned)
-- **4 (sonnet):** plan disagreed with the copy; shell-opened tabs; tool naming --> FIXED (20d91acfd)
-- **5 (opus):** fallback excluded other private browsers --> FIXED (4da49f07e)
-- **6 (sonnet):** private-browser naming (FIXED), doctrine span path untested (DEFERRED, then pinned in iteration 7)
-- **7 (opus):** "close tabs opened earlier" could close the person's tabs (SAFETY); a page the person asks for was not an exception --> FIXED (dd83a7fb8); doctrine planFor span path pinned
-- **8 (sonnet):** Codex delivery unmeasured (FIXED: AGENTS.md assertion, 5dbd2240c); no fetch tool (clarified: `curl`)
-- **9 (opus):** NITs only; the certainty guard extended to the whole rule (f889be164)
-- **10 (sonnet):** close what you can; exception tabs have an end; a tool on their browser is theirs --> FIXED (c5f693781); wrap-tolerant content test
-- **11 (opus):** NITs only; exception tab closed only once the person says so (15028a9da)
-- **12 (sonnet):** a tool on their browser: the browser is theirs, the tab is yours to close; closeable exception tabs vs handed-off links --> FIXED (5ab3be5cf). Gemini delivery unmeasured --> DEFERRED (no create test builds a GEMINI.md; appendTo has no provider branch; recorded in the plan)
-- **13 (opus):** Codex reads only the first 32 KiB of AGENTS.md --> DEFERRED to #4477 (pre-existing; this branch adds 1.6 KB; now claimed and prioritised)
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** opus
+- [WARNING] engine/defaults.js — a page that needs a real browser had no path --> FIXED (c18148e5c)
+
+#### Iteration 2
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — point at the agent's private browser; Windows comment overstated; the open-a-link paragraph would generate a message per link --> FIXED (535b6ba9a)
+
+#### Iteration 3
+**Reviewer model:** opus
+- [WARNING] engine/defaults.js — agents without the private browser had no instruction; the rule was absolute then contradicted --> FIXED (278959a91: one rule, one method, one exception; missingFrom pinned)
+
+#### Iteration 4
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — plan disagreed with the copy; shell-opened tabs; tool naming --> FIXED (20d91acfd)
+
+#### Iteration 5
+**Reviewer model:** opus
+- [WARNING] engine/defaults.js — fallback excluded other private browsers --> FIXED (4da49f07e)
+
+#### Iteration 6
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — private-browser naming (FIXED), doctrine span path untested (DEFERRED, then pinned in iteration 7)
+
+#### Iteration 7
+**Reviewer model:** opus
+- [WARNING] engine/defaults.js — "close tabs opened earlier" could close the person's tabs (SAFETY); a page the person asks for was not an exception --> FIXED (dd83a7fb8); doctrine planFor span path pinned
+
+#### Iteration 8
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — Codex delivery unmeasured (FIXED: AGENTS.md assertion, 5dbd2240c); no fetch tool (clarified: `curl`)
+
+#### Iteration 9
+**Reviewer model:** opus
+- [NIT] engine/defaults.js — NITs only; the certainty guard extended to the whole rule (f889be164)
+
+#### Iteration 10
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — close what you can; exception tabs have an end; a tool on their browser is theirs --> FIXED (c5f693781); wrap-tolerant content test
+
+#### Iteration 11
+**Reviewer model:** opus
+- [NIT] engine/defaults.js — NITs only; exception tab closed only once the person says so (15028a9da)
+
+#### Iteration 12
+**Reviewer model:** sonnet
+- [WARNING] engine/defaults.js — a tool on their browser: the browser is theirs, the tab is yours to close; closeable exception tabs vs handed-off links --> FIXED (5ab3be5cf). Gemini delivery unmeasured --> DEFERRED (no create test builds a GEMINI.md; appendTo has no provider branch; recorded in the plan)
+
+#### Iteration 13
+**Reviewer model:** opus
+- [WARNING] engine/defaults.js — Codex reads only the first 32 KiB of AGENTS.md --> DEFERRED to #4477 (pre-existing; this branch adds 1.6 KB; now claimed and prioritised)
+
+### Final Ledger
+
+| # | Iter | Category | File | Origin | Description | Status |
+|---|------|----------|------|--------|-------------|--------|
+| 1 | 12 | WARNING | .claude/plans/close-tabs-4467.md | BRANCH | Gemini delivery unmeasured | DEFERRED |
+| 2 | 13 | WARNING | engine/defaults.js | BRANCH | Codex 32 KiB project-doc limit | DEFERRED (#4477) |
+| (others) | 1-12 | WARNING | engine/defaults.js, tests, plan | BRANCH | see per-iteration list | FIXED |
 
 ### Deferred
 - Gemini GEMINI.md delivery: reasoned, not measured (plan).
@@ -47,6 +94,7 @@ converged: true
 - Controls measured red, then restored: the section removed (defaults content test and create.test.js's Windows-list assertion both red); the heading renamed (doctrine span test red); one phrase altered (the named content assertion red).
 
 ### Strengths
+- [STRENGTH] listed below
 - A new `###` heading, so both refresh paths (missingFrom, doctrine.planFor) offer it to existing agents; both pinned.
 - One text for every provider and platform; delivery measured for Claude CLAUDE.md and Codex AGENTS.md, the latter on the Windows CI list too.
 - The copy never lets an agent close a tab it is not certain it opened.
