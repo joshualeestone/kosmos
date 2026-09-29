@@ -737,8 +737,8 @@ function status() {
         address: null,
         /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
            repair instruction has one source. Only a person's own action (the switch among them) rewrites a damaged
-           file (see write()). "Kosmos Plus" is what the pane calls the switch. */
-        because: 'your remote-access settings could not be read. Turn Kosmos Plus on again to repair them',
+           file (see write()). "Kosmos+" is what the pane calls the switch. */
+        because: 'your remote-access settings could not be read. Turn Kosmos+ on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
