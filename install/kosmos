@@ -331,6 +331,7 @@ _health_no_answer() {
   # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
   # and a board this busy is on a machine that cannot spare the sweeps.
   if [ -z "$_HEALTH_OWNER" ]; then _HEALTH_OWNER="$(port_listener_owner 2>/dev/null)" || _HEALTH_OWNER=unknown; fi
+  [ -n "$_HEALTH_OWNER" ] || _HEALTH_OWNER=unknown   # printed nothing: no owner named, the same as a failed lookup
   # Something took the connection, so something listens. A user's own lsof sees every one of that
   # user's processes, so when lsof RAN and still names no listener, the listener is another account's
   # (on this Mac, non-root lsof sees 13 of 23 listening ports; the rest are root's and other users'):

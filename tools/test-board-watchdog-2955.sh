@@ -104,7 +104,7 @@ KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 rm -rf "$H"
 # 6c. #4466: BUSY past BUSY_GRACE -> the first attempt is `kosmos start` with KOSMOS_RECLAIM_BUSY=1,
 #     which reaches the #3079 reclaim, so the wedged board comes back on the first attempt.
-H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=%s\n' "$(( $(now) - 400 ))" "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 400 s: the start is told it may reclaim a silent holder (KOSMOS_RECLAIM_BUSY=1)" || bad "busy start did not ask to reclaim: $(cat "$H/.stub-start-calls" 2>/dev/null)"
 grep -qx 'start --force' "$H/.stub-start-args" && ok "#4466: the busy reclaim start passes --force too" || bad "busy start without --force: $(cat "$H/.stub-start-args" 2>/dev/null)"
@@ -113,9 +113,23 @@ rm -rf "$H"
 # 6d. A reclaim that did not take (fail_count 1) tries the RECLAIM again, not kickstart: kickstart cannot
 #     reach a detached holder, and the reclaim kills our listener whoever tracks it. Arm 6b below is the
 #     control: a plain-down board with failures does escalate to kickstart.
-H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=1\n' "$(( $(now) - 800 ))" > "$H/logs/board-watchdog.state"
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=1\nbusy_since=%s\n' "$(( $(now) - 800 ))" "$(( $(now) - 800 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 [ "$(kicks "$H")" = 0 ] && grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 800 s after a failed reclaim: reclaims again, no kickstart" || bad "busy after a failed reclaim: $(kicks "$H") kicks, starts: $(cat "$H/.stub-start-calls" 2>/dev/null)"
+rm -rf "$H"
+
+# 6f. #4466: DOWN for 400 s, then BUSY for the first time (it came back slow). The busy grace starts NOW,
+#     so the board that just came back is not reclaimed. 6c is the control: busy for 400 s is reclaimed.
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
+KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
+[ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "down 400 s then busy: no reclaim of a board that just came back" || bad "down then busy: restarted a board that just came back ($(starts "$H") starts, $(kicks "$H") kicks)"
+grep -q '^busy_since=[1-9]' "$H/logs/board-watchdog.state" && ok "down then busy: the busy clock starts at the first busy reading" || bad "busy_since not recorded: $(cat "$H/logs/board-watchdog.state")"
+rm -rf "$H"
+# 6g. #4466: busy, then plainly DOWN: the busy clock stops (busy_since cleared), so a later busy spell
+#     gets its own full grace.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=%s\n' "$(( $(now) - 10 ))" "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"
+grep -q '^busy_since=$' "$H/logs/board-watchdog.state" && ok "busy then down: busy_since is cleared" || bad "busy then down: busy_since kept: $(cat "$H/logs/board-watchdog.state")"
 rm -rf "$H"
 
 # 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate

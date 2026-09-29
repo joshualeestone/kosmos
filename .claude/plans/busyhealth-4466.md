@@ -142,6 +142,22 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - An agent's `stop` on a stranger-held port says "Kosmos is not running here" (it said "not answering").
 - Deferred NIT: `lastWasRead` on Windows treats only GET as a read; nothing sends HEAD.
 
+## Review round 13 decisions
+- The watchdog times the busy grace from `busy_since`, the first BUSY reading of the streak, not from
+  `down_since`: a board down for a while that comes back slow is busy for the first time, and timing
+  from the down streak reclaimed (killed) it on that first reading. `busy_since` clears when a reading
+  is not busy. Arms 6f (down 400 s then busy: no reclaim; red on the old timing) and 6g (busy then down
+  clears it); 6c/6d seed `busy_since`.
+- An owner lookup that succeeds but prints nothing is treated as no owner named (unreachable today).
+- The agent restart guard is Mac-only by design: the Windows `kosmos` has no start/stop/restart verbs
+  for agents (the board runs from Kosmos.exe), so the only Windows path to a restart was the "Is it
+  running?" sentence, which now says busy.
+- Deferred: `kosmos status` exit 4 is documented in the file header and read by the watchdog, its only
+  non-test caller. The plan file name has no timestamp, like most siblings in this directory; the gate
+  finds it by branch.
+- Deferred NIT: "Kosmos is busy, retrying..." can appear inside SessionStart's "reporting is OFF"
+  reason; it is true there.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

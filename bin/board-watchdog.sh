@@ -99,11 +99,13 @@ state_get() {
   printf '%s' "${line#*=}"
 }
 
-# Atomic rewrite of the three tracked keys.
-state_put() { # $1 down_since  $2 last_kickstart  $3 fail_count
+# Atomic rewrite of the tracked keys. busy_since (#4466) is when the board was first seen BUSY in this
+# streak (empty when it is not busy), so the busy grace runs from the busy reading, not from the start of
+# a down streak it may have followed.
+state_put() { # $1 down_since  $2 last_kickstart  $3 fail_count  [$4 busy_since]
   mkdir -p "$STATE_DIR" 2>/dev/null || return 0
   local tmp="$STATE.tmp.$$"
-  { printf 'down_since=%s\n' "$1"; printf 'last_kickstart=%s\n' "$2"; printf 'fail_count=%s\n' "$3"; } > "$tmp" 2>/dev/null \
+  { printf 'down_since=%s\n' "$1"; printf 'last_kickstart=%s\n' "$2"; printf 'fail_count=%s\n' "$3"; printf 'busy_since=%s\n' "${4:-}"; } > "$tmp" 2>/dev/null \
     && mv -f "$tmp" "$STATE" 2>/dev/null
   rm -f "$tmp" 2>/dev/null || true
 }
@@ -120,6 +122,7 @@ log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$1" >> "$LOG" 2>/dev/null || tr
 LAST_KICK="$(num "$(state_get last_kickstart)")"
 FAILS="$(num "$(state_get fail_count)")"
 DOWN_SINCE_RAW="$(state_get down_since)"
+BUSY_SINCE_RAW="$(state_get busy_since)"
 
 # --- reboot reset: discard state from before this boot ----------------------
 # The state file survives reboots. If down_since predates the current boot it is
@@ -131,7 +134,7 @@ DOWN_SINCE_RAW="$(state_get down_since)"
 # run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
-  DOWN_SINCE_RAW=""; LAST_KICK=0; FAILS=0
+  DOWN_SINCE_RAW=""; BUSY_SINCE_RAW=""; LAST_KICK=0; FAILS=0
   # A reboot is a fresh chance, so a pre-reboot crash-loop alert should not survive
   # into it (it would otherwise suppress the re-log and could surface a stale "keeps
   # crashing" state); a real new crash loop raises it again.
@@ -152,14 +155,23 @@ fi
 # --- board is down ----------------------------------------------------------
 NOW="$(now)"
 if [ -z "$DOWN_SINCE_RAW" ]; then
-  state_put "$NOW" "$LAST_KICK" "$FAILS"  # first observation: start the grace clock
+  # first observation: start the grace clock (and the busy one, if it is busy)
+  if [ "$STATUS_RC" -eq 4 ]; then state_put "$NOW" "$LAST_KICK" "$FAILS" "$NOW"; else state_put "$NOW" "$LAST_KICK" "$FAILS"; fi
   exit 0
 fi
 DOWN_SINCE="$(num "$DOWN_SINCE_RAW")"
 
+# #4466: a busy board (status exit 4) gets BUSY_GRACE, counted from when it was first seen BUSY. A board
+# that was down for a while and has just come back slow is busy for the first time now: timing its grace
+# from the down streak would reclaim (kill) it on its first busy reading.
+if [ "$STATUS_RC" -eq 4 ]; then
+  if [ -z "$BUSY_SINCE_RAW" ]; then state_put "$DOWN_SINCE" "$LAST_KICK" "$FAILS" "$NOW"; exit 0; fi
+  [ "$((NOW - $(num "$BUSY_SINCE_RAW")))" -lt "$BUSY_GRACE" ] && exit 0
+elif [ -n "$BUSY_SINCE_RAW" ]; then
+  BUSY_SINCE_RAW=""; state_put "$DOWN_SINCE" "$LAST_KICK" "$FAILS"   # not busy now: the busy clock stops
+fi
+
 # still within grace: a legit start may be mid-boot
-# #4466: a busy board (status exit 4) gets BUSY_GRACE, not GRACE.
-if [ "$STATUS_RC" -eq 4 ] && [ "$BUSY_GRACE" -gt "$GRACE" ]; then GRACE="$BUSY_GRACE"; fi
 [ "$((NOW - DOWN_SINCE))" -lt "$GRACE" ] && exit 0
 
 # --- crash-loop guard -------------------------------------------------------
@@ -217,5 +229,5 @@ fi
 # Count the attempt for the backoff/crash-loop guard; keep the down streak (the next
 # run clears it, the fail count, and the alert if the restart took hold and the
 # board now answers).
-state_put "$DOWN_SINCE" "$NOW" "$((FAILS + 1))"
+state_put "$DOWN_SINCE" "$NOW" "$((FAILS + 1))" "$BUSY_SINCE_RAW"
 exit 0
