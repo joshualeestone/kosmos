@@ -580,7 +580,7 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4498 a suite that is only waiting for the box does not count as running" \
@@ -591,7 +591,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
   || fail "#4498 CONTROL: an unmarked suite did not refuse (rc=$rc, $out)"
 # The right start time with the wrong command, so ONLY the command check can call it stale (Kano's review: with no
 # start time the start-time check caught it first, and removing the command check left this green).
-printf '100 %s\nnot its command\n%s\n' "$wp" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\nnot its command\n%s\n%s\n' "$wp" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker whose pid now runs another command is stale: counted as running and removed" \
   || fail "#4498 a recycled-pid waiting marker was trusted (rc=$rc, $out)"
@@ -607,7 +607,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
 # Each level runs a second command, so no shell execs straight into its child.
 sh -c 'sh -c "sleep 60; :" & wait; :' & deep=$!
 sleep 1; mid="$(pgrep -P "$deep" | head -1)"; leaf="$(pgrep -P "$mid" 2>/dev/null | head -1)"
-printf '100 %s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
+printf '100 %s\n%s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started_local "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
 if [ -n "$leaf" ]; then
   out="$(printf '%s bash tools/run-tests.sh\n' "$leaf" | _kosmos_drop_suite_waiters)"
   [ -z "$out" ] && pass "#4498 a subshell two levels below a waiter is part of the waiter" \
@@ -622,7 +622,7 @@ for p in $leaf $mid $deep; do kill "$p" 2>/dev/null; done; wait "$deep" 2>/dev/n
 rm -f "$W/markers/suitewait.$deep"
 
 # The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
-rm -f "$W/held"; printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+rm -f "$W/held"; printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4498 a run that is not yet queued waits behind a queued suite" \
   || fail "#4498 an unqueued run jumped the queue (rc=$rc, $out)"
@@ -669,7 +669,7 @@ q_ready() { local j; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1"
   fail "#4574 FIXTURE: stand-in waiter $1 never showed as sleep, so the arms after it cannot be trusted"; return 1; }
 q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do sleep 300 & echo "$!" >> "$W/ahead"
   q_ready "$!"
-  printf '%s %s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
+  printf '%s %s\n%s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started_local "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
 q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
 qnow() { cat "$W/clock" 2>/dev/null || echo 0; }
 # Sleeps: advance the clock by QSTEP; on every QLEAVE-th sleep (0 = never) the first waiter still marked leaves.
@@ -733,7 +733,7 @@ q_clear; q_ahead
 for p in $(sed -n '2,3p' "$W/ahead"); do rm -f "$W/markers/suitewait.$p"; done
 qb=$(sed -n '3p' "$W/ahead")
 qflip() { if [ -e "$W/markers/suitewait.$qb" ]; then rm -f "$W/markers/suitewait.$qb"
-  else printf '%s %s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qb" "$(ps -ww -o command= -p "$qb")" "$(_kosmos_pid_started "$qb")" > "$W/markers/suitewait.$qb"; fi; }
+  else printf '%s %s\n%s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qb" "$(ps -ww -o command= -p "$qb")" "$(_kosmos_pid_started_local "$qb")" "$(_kosmos_pid_started "$qb")" > "$W/markers/suitewait.$qb"; fi; }
 out="$(WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=qflip kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
   && pass "#4574 a waiter behind this run coming and going does not restart its bound" \
@@ -747,13 +747,25 @@ out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=120 
   && pass "#4574 the queue's ceiling ends a wait even while the queue keeps moving" \
   || fail "#4574 a moving queue outlived the ceiling (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear
-# The default ceiling is four bounds: six waiters ahead leaving every 60 s keep a 60 s bound restarting past 240 s, and
-# the default ceiling (240 s) ends it at call 9.
+# The default ceiling scales with the queue at entry (four bounds plus one per waiter ahead), so a HEALTHY deep queue
+# is never ended by it: six waiters ahead leave every 60 s (360 s in all, past four 60 s bounds) and the run starts.
 q_clear; q_ahead 6
-out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; QLEAVE=2 WPASS_AFTER=30 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 9 ] && has "$out" "KOSMOS_WAIT_QUEUE_CEIL_S=240"; } \
-  && pass "#4574 the queue's default ceiling is four bounds" \
-  || fail "#4574 the default ceiling is not four bounds (rc=$rc, calls=$(cat "$W/calls"), $out)"
+out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; QLEAVE=2 WPASS_AFTER=12 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 14 ]; } \
+  && pass "#4574 the default ceiling does not end a healthy deep queue (six ahead, 360 s on a 60 s bound)" \
+  || fail "#4574 the default ceiling ended a healthy deep queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# ...but a restart signal that never settles (one waiter ahead whose marker comes and goes every call, forever) is
+# ended by it: (4 + 1 ahead at entry) x 60 s = 300 s.
+q_clear; q_ahead 1
+qa=$(sed -n '1p' "$W/ahead")
+qflap() { echo $(( $(qnow) + 30 )) > "$W/clock"
+  if [ -e "$W/markers/suitewait.$qa" ]; then rm -f "$W/markers/suitewait.$qa"
+  else printf '%s %s\n%s\n%s\n%s\n' 11 "$qa" "$(ps -ww -o command= -p "$qa")" "$(_kosmos_pid_started_local "$qa")" "$(_kosmos_pid_started "$qa")" > "$W/markers/suitewait.$qa"; fi; }
+out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; WPASS_AFTER=999 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qflap kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "KOSMOS_WAIT_QUEUE_CEIL_S=300"; } \
+  && pass "#4574 a restart signal that never settles is ended by the default ceiling, four bounds plus one per waiter ahead" \
+  || fail "#4574 the default ceiling did not end a flapping wait at (4+1) bounds (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
 q_clear
 # The start time a marker records does not depend on the reader's zone or locale, and a marker written the older way
 # (the writer's own zone and locale) still reads as live.
@@ -816,7 +828,7 @@ rm -f "$W/calls"
 
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "has been waiting for the box longer" && has_pid "$out" "$wp"; } \
@@ -835,7 +847,7 @@ RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; trap 'rm -rf "$T" "$RT"' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pid $DEAD (see the wiring test below).
 printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \

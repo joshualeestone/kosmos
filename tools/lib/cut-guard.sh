@@ -521,8 +521,8 @@ kosmos_refuse_if_suite_live() {
 # harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
 # poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
-# the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S, default four bounds: 3 hours) ends any
-# queued wait whatever the heuristic says.
+# the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus one per waiter
+# ahead at entry) ends any queued wait whatever the heuristic says, without ending a healthy deep queue.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -543,7 +543,7 @@ _kosmos_suite_waiter_live() {
   local want; want="$(_kosmos_pid_started "$pid")"
   # An empty start time (ps could not say) matches nothing: stale, the safe side, before any comparison.
   if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] \
-     || { [ "$utc" != "$want" ] && [ "$began" != "$want" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
+     || { [ "$utc" != "$want" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
@@ -644,8 +644,12 @@ kosmos_wait_until_clear() {
   [ "$queue" = 1 ] && { _kosmos_suite_waiter_live "$$" || true; }
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
-  # #4574: a hard ceiling on a queued wait (default four bounds), so ending the wait never rests on the restart heuristic.
-  case "$ceil" in ''|*[!0-9]*) ceil=$((max * 4)) ;; esac
+  # #4574: a hard ceiling on a queued wait, so ending it never rests on the restart heuristic. By default it is four
+  # bounds PLUS one per waiter ahead at entry (set on the first pass below): a waiter k deep waits about k suites, well
+  # inside it, so it ends a hung or flapping wait without ending a healthy deep queue. KOSMOS_WAIT_QUEUE_CEIL_S sets it
+  # outright (0 gives up on the first pass, as KOSMOS_WAIT_MAX_S=0 does).
+  local ceil_auto=0
+  case "$ceil" in ''|*[!0-9]*) ceil=$((max * 4)); ceil_auto=1 ;; esac
   while :; do
     # #4574: a queued run whose own marker vanished (a failed ps reads it as stale and removes it) writes it again with its
     # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
@@ -672,6 +676,7 @@ kosmos_wait_until_clear() {
       # same second behind this one can read as a fall on the second pass: one early restart, harmless.
       ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true
       ahead="${ahead:-0}"
+      [ -z "$prev" ] && [ "$ceil_auto" = 1 ] && ceil=$((max * (4 + ahead)))
       if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
       prev="$ahead"
     else
@@ -687,7 +692,8 @@ kosmos_wait_until_clear() {
       if [ "$waited" -gt 0 ] && [ "$over" = 1 ]; then
         echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
       elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
-        echo "gave up after waiting ${waited}s in all, ${wblk}s since a waiter ahead last left the queue (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
+        local since=$(( $(_kosmos_wait_now) - bstart )); [ "$wblk" -gt "$since" ] && since="$wblk"
+        echo "gave up after waiting ${waited}s in all, ${since}s since a waiter ahead last left the queue (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       fi
