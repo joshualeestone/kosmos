@@ -446,14 +446,18 @@ async function sweepIndustry(keys, on) {
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
       delete k.industryRefused;
-      delete k.industryClearRetrying;
+      delete k.industryRetrying;
       saveJson(keysFile(), keys);
-    } else if (clearing && (r.status === 404 || r.status === 405)) {
-      // A CLEAR is never given up (review 5): the service always accepts null, so a 404/405 is the route being absent
-      // right now (a rollback, a deploy). Tried again every sweep, logged once, until it lands.
-      if (!k.industryClearRetrying) { k.industryClearRetrying = true; saveJson(keysFile(), keys); log(`industry for ${agentKey}: the clear got ${r.status}; trying again every sweep until it lands`); }
-    } else if (r.status === 400 || r.status === 422 || r.status === 404 || r.status === 405) {
-      // 404/405 on a PICK: a service without the profile route (older than #4370): final until the value changes.
+    } else if (r.status === 404 || r.status === 405) {
+      // The route being absent right now (a rollback, a deploy, a service older than #4370) is a fact about the ROUTE,
+      // not the value (review 6): nothing is given up on it, a clear least of all. Tried again every sweep, logged once
+      // per value, until it lands. Only 400/422 (the service refusing this value) are final.
+      if (k.industryRetrying !== want) {
+        k.industryRetrying = want;
+        saveJson(keysFile(), keys);
+        log(`industry for ${agentKey}: got ${r.status}; trying again every sweep until it lands`);
+      }
+    } else if (r.status === 400 || r.status === 422) {
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);

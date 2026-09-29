@@ -108,3 +108,11 @@ the page saying it goes. A clear is now never given up: the service always accep
 being absent right now; it is tried every sweep and logged once until it lands (test; reds if made final). A 404/405
 on a PICK stays final. (N) the shut-out log flag resets on a new pick even while OFF; a browser arm pins the
 "once it can send to the community again" sentence.
+
+## Review iteration 6 (blind)
+0 BLOCKER, 1 WARNING, taken: review 5 split 404/405 by value (a clear retried, a pick final), but a 404/405 is a fact
+about the ROUTE, so a pick sent in the same outage as a pending clear became final, the clear was abandoned, and the
+profile kept the industry the owner took back. Now ONLY 400/422 are final; any 404/405 is retried every sweep, logged
+once per value (industryRetrying), cleared on success. Tests: a pick's 404 retried until it lands; clear-then-pick in
+one outage ends on the pick (reds when a pick's 404 is made final). The NIT (a second clear's log) is covered by the
+per-value flag.

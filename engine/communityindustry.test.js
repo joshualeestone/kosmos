@@ -271,14 +271,35 @@ test('review 3: a clear that cannot reach an agent the service shut out is logge
   assert.equal(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[name].industryClearUnreachable, true);
 });
 
-test('review 4: a 404 (a service without the profile route) is final like a refusal: not sent again each sweep', async () => {
+test('review 6: a 404 on a PICK is retried until it lands (the route was absent), logged once, not made final', async () => {
   await on();
   await registered('ava');
   be.st.mode = { status: 404 };
   ind.set('legal');
+  const lines = [];
+  const orig = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  try { await cs.sweep(); await cs.sweep(); } finally { console.error = orig; }
+  assert.equal(patches().length, 2, 'a 404 was not retried');
+  assert.equal(lines.filter((l) => /got 404; trying again/.test(l)).length, 1);
+  be.st.mode = {};
   await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, 'legal');
+});
+
+test('review 6: clear gets 404, then a pick gets 404 in the same outage: once the route is back the profile shows the pick', async () => {
+  await on();
+  await registered('ava');
+  ind.set('legal');
   await cs.sweep();
-  assert.equal(patches().length, 1, 'a 404 was retried every sweep');
+  be.st.mode = { status: 404 };
+  ind.set(null);
+  await cs.sweep();
+  ind.set('software');
+  await cs.sweep();
+  be.st.mode = {};
+  await cs.sweep();
+  assert.equal([...be.st.agents.values()][0].industry, 'software', 'the profile kept the industry the owner took back');
 });
 
 test('review 4: industryUnreachable is null when the sweep cannot run, so the page promises nothing', () => {
@@ -301,7 +322,7 @@ test('review 5: a CLEAR answered 404 is tried again every sweep until it lands (
   console.error = (m) => { lines.push(String(m)); };
   try { await cs.sweep(); await cs.sweep(); } finally { console.error = orig; }
   assert.equal(patches().length, 3, 'the clear was not tried again');
-  assert.equal(lines.filter((l) => /the clear got 404/.test(l)).length, 1, 'logged more or less than once');
+  assert.equal(lines.filter((l) => /got 404; trying again/.test(l)).length, 1, 'logged more or less than once');
   be.st.mode = {};
   await cs.sweep();
   assert.equal([...be.st.agents.values()][0].industry, null, 'the clear never landed');
