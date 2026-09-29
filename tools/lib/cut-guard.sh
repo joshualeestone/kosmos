@@ -70,7 +70,9 @@ _kosmos_drop_self_subtree() {
 # and cwd cannot be read stays in the list unless its script path is in the sandbox, which preserves
 # the guard's refuse-rather-than-guess posture.
 _kosmos_drop_test_fixtures() {
-  local line pid script re='^[0-9]+ +(/bin/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks)\.sh)( |$)'
+  # The interpreter is ([^ ]*/)?(ba)?sh, as wide as _kosmos_suite_candidates's, so a fixture started by
+  # a Homebrew bash is dropped by its script path too (#4410 review 13).
+  local line pid script re='^[0-9]+ +([^ ]*/)?(ba)?sh +(([^ ]*/)?tools/(release|browser-checks|test-install|run-tests)\.sh)( |$)'
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
@@ -221,7 +223,7 @@ _kosmos_marker_other_live() {
 }
 
 # The live-cut guard (#708). Two copies of the install gate on one Mac share
-# the fixed port range, the real ~/Applications and /Applications
+# the harness's port range (probed from 4460), the real ~/Applications and /Applications
 # fingerprints and the gui launchd domain, and they poison each other:
 # measured 2026-08-26 01:29, a local run went red on "real home Applications
 # unchanged" at the second cut 0.5.54's own gate was installing. A cut has
@@ -235,6 +237,12 @@ _kosmos_marker_other_live() {
 # guard refuses EVERY cut, on a Mac with no other cut, forever -- a total
 # release outage that reads exactly like the guard working. The seam is an
 # env var so the tests can drive it; it defaults to the caller's own pid.
+# 🛑 CALLING CONTRACT for the pgrep-probing kosmos_refuse_if_* guards below (#4410 review): call as
+# `kosmos_refuse_if_x "what" || exit 1`, or inside an `if`. Each runs `raw="$(pgrep ...)"; rc=$?`,
+# and pgrep exits 1 when nothing matches, which is the ordinary nothing-running case. Called as a
+# bare statement under `set -e` (release.sh and test-install.sh both set it), that exit 1 would end
+# the caller silently at the very moment the answer is "go ahead". The `||` or `if` suspends -e for
+# the whole call, which is why every call site in this repo is written that way.
 kosmos_refuse_if_cut_live() {
   local what="${1:-this run}" probe="${KOSMOS_CUT_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_CUT_SELF_PID:-$$}"
@@ -357,7 +365,8 @@ kosmos_refuse_if_browser_run_live() {
 # reverse was missing and is not the rarer case: a cut started while a harness is
 # ALREADY running was unprotected, and the harness's own start-check cannot help
 # -- it already ran. Measured 2026-08-31: a harness run overlapped the 16:40
-# cut's start by ~32s; nothing broke that time. The harness holds a FIXED port,
+# cut's start by ~32s; nothing broke that time. The harness holds a port (probed from 4460 up
+# since then, not fixed; #4410) and boots real boards on it,
 # and two things wanting it is not a slow test, it is a failed release step
 # blamed on whatever the cut was doing then. So the CUT asks, at its own start,
 # whether a harness is already live. A harness is a process (tools/test-install.sh)
@@ -370,12 +379,20 @@ kosmos_refuse_if_browser_run_live() {
 # test-install.sh, so it cannot self-match today; a future caller inside a harness
 # would. The seam (KOSMOS_HARNESS_PROBE) shows it red and green without a real
 # harness; a probe that cannot answer is a refusal, the same posture as above.
+# #4410: a proven unit-test fixture (tools/lib/process-fixture.sh, the rule heavy-gate and the
+# two guards above share since #4259) is not a harness, here as in heavy-gate. (The command
+# shapes still differ: heavy-gate also counts a zsh or a bare name run from tools/, which the
+# regex below does not.) tools/run-tests.sh now asks this too, before a suite starts beside a
+# harness; the optional second argument is the caller's own way to override it.
+# KOSMOS_HARNESS_KEEP_FIXTURES=1 is a test seam that keeps fixtures in the list, so
+# tools/test-cut-guard.sh can prove the real pgrep detects a stand-in that every OTHER guard on
+# the Mac drops. Left set by mistake it only refuses more, never less.
 kosmos_refuse_if_harness_live() {
-  local what="${1:-this run}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
+  local what="${1:-this run}" override="${2:-KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway}" probe="${KOSMOS_HARNESS_PROBE:-}" raw out rc self marker_other
   self="${KOSMOS_HARNESS_SELF_PID:-$$}"
   # #1796: the reliable arm -- a marked harness that is not this caller's own. This
   # is the guard the card measured firing during a cut: a real test-install.sh RUN
-  # correctly refuses a cut (they share the fixed install-gate port), but the marker
+  # correctly refuses a cut (they share the install gate's port range), but the marker
   # means only a RUN counts -- editing test-install.sh, `bash -n`ing it, `git add`ing
   # it, or a worktree named after it marks nothing, so the person hardening the
   # guarded script does not block a cut merely by working on it.
@@ -390,13 +407,75 @@ kosmos_refuse_if_harness_live() {
   if [ -n "$out" ] && [ -n "$self" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   fi
+  if [ -n "$out" ] && [ "${KOSMOS_HARNESS_KEEP_FIXTURES:-0}" != 1 ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
   if [ "$rc" -ge 2 ]; then
-    echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway." >&2
+    echo "could not tell whether an install harness is running (the probe exited $rc); refusing to guess for $what. $override." >&2
     return 1
   fi
   if { [ "$rc" -eq 0 ] && [ -n "$out" ]; } || [ -n "$marker_other" ]; then
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"; [ -n "$detail" ] || detail="$marker_other"
-    echo "an install harness (tools/test-install.sh) is already running on this Mac ($detail); it holds the install gate's fixed port, so $what would collide with it and the failed step would be blamed on the cut rather than the harness. Wait for the harness to finish, or KOSMOS_CUT_IGNORE_HARNESS=1 to cut anyway." >&2
+    echo "an install harness (tools/test-install.sh) is already running on this Mac ($detail); it boots real boards on test ports and checks that they let go of them, so $what would collide with it and either run's red could be the other's. Wait for the harness to finish, or $override." >&2
+    return 1
+  fi
+  return 0
+}
+
+# --- #4410: the other direction, an install harness asking about a SUITE ------
+# Measured 2026-09-28 about 20:04 UTC on Mortals: Kano's tools/test-install.sh started behind a
+# clear gate, a tools/run-tests.sh started 3 minutes later behind a clear gate too, and the
+# harness's board-port checks went red in unrelated sections (uninstall port release, #2073 open,
+# the connect arm). run-tests.sh now asks kosmos_refuse_if_harness_live before it starts; this is
+# the mirror, which test-install.sh asks before it takes a port. Same shape as the guards above:
+# only a bash/sh whose own command line IS tools/run-tests.sh counts (a mention does not), the
+# caller's own subtree is dropped (defensive: test-install.sh never self-matches run-tests.sh), and a
+# proven unit-test fixture is dropped: a node --test ancestor (tools.shell-shard-4317.test.js runs
+# run-tests.sh under node --test), or the kt<digits> sandbox, which is what keeps
+# tools/test-cut-guard.sh's own run-tests.sh stand-in (8 s, in every suite) from refusing other
+# agents' harnesses. And a
+# probe that cannot answer is a refusal. No run marker: nothing that asks this self-matches
+# run-tests.sh, which is the race markers exist for (#1796). The seam is KOSMOS_SUITE_PROBE.
+# Coverage, named: a zsh, a bare `bash run-tests.sh` from tools/, and a bare `node --test` are not
+# matched; `yarn test` and `bash tools/run-tests.sh` (any bash or sh, by path too), the documented
+# ways, are.
+# The name arm on its own, so tools/test-cut-guard.sh can prove the real pgrep and filter see a
+# stand-in suite even while other agents' real suites are live (a refusal alone could not tell whose
+# suite it saw). Prints the matching `pid command` lines; exits 1 for none, 2+ when pgrep failed.
+# Its interpreter pattern, ([^ ]*/)?(ba)?sh, is deliberately wider than the older guards' (/bin/)?(ba)?sh:
+# a suite started by a Homebrew bash is still a suite (review 11). Only more candidates, never fewer.
+_kosmos_suite_candidates() {
+  local raw rc
+  raw="$(pgrep -fl 'run-tests\.sh' 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return "$rc"
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/run-tests\.sh( |$)' || return 1
+}
+
+kosmos_refuse_if_suite_live() {
+  local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" raw out rc self
+  self="${KOSMOS_SUITE_SELF_PID:-$$}"
+  # The source differs (the seam or the real name arm); everything after it is shared, so the
+  # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
+  # name arm is tested on its own through _kosmos_suite_candidates (#4410 review 8).
+  if [ -n "$probe" ]; then
+    out="$("$probe" 2>/dev/null)"; rc=$?
+  else
+    out="$(_kosmos_suite_candidates)"; rc=$?
+  fi
+  if [ "$rc" -le 1 ]; then rc=0; [ -n "$out" ] || rc=1; fi
+  if [ -n "$out" ] && [ -n "$self" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  fi
+  if [ -n "$out" ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
+  if [ "$rc" -ge 2 ]; then
+    echo "could not tell whether a test suite is running (the probe exited $rc); refusing to guess for $what. $override." >&2
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
+    echo "a test suite (tools/run-tests.sh) is already running on this Mac ($detail); $what boots real boards on test ports and checks that they let go of them, and a suite beside it can make those checks red for reasons that are not the change. Wait for the suite to finish (bash tools/heavy-gate.sh --twice --quiet-box says when the box is quiet), or $override. On a busy Mac a suite is often running, so expect to wait rather than to override." >&2
     return 1
   fi
   return 0
@@ -559,6 +638,31 @@ kosmos_refuse_if_machine_claimed() {
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
   echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
   return 1
+}
+
+# #4410: true only when THIS run holds the live machine claim (a cut, or a gate run the cut
+# started, which inherits KOSMOS_MACHINE_CLAIM_COOKIE). The suite and harness checks stand down for
+# a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate);
+# everything else, including `yarn test:install-gate` outside a cut, still asks.
+# ⚠️ WHAT STANDING DOWN LEANS ON, and the one gap it leaves. A harness that starts DURING the cut is
+# not caught by this stand-down's callers; it is refused by its own start-time
+# kosmos_refuse_if_cut_live, which sees the cut's `cut` marker (kosmos_mark_run in release.sh) for
+# the cut's whole life (test-install.sh skips that check only for the claim holder itself, not for
+# KOSMOS_INSTALL_GATE=1 alone). A new suite during the cut is refused by
+# kosmos_refuse_if_machine_claimed. Change either of those and this stand-down becomes a real gap.
+# THE GAP, named: a suite ALREADY running when the cut starts. release.sh asks whether a cut or a
+# harness is live at its start, not whether a suite is, and the claim only refuses later suites;
+# so a suite that outlives steps 1 to 4 can overlap the cut's step-4b gate. That was already true
+# before #4410 (nothing asked about suites), and a cut refusing on any agent's suite is a release
+# policy change this card does not make; cuts wait for a quiet box by practice (heavy-gate
+# --quiet-box counts suites).
+kosmos_holds_machine_claim() {
+  local active cookie self="${KOSMOS_MACHINE_CLAIM_COOKIE:-}"
+  [ -n "$self" ] || return 1
+  active="$(_kosmos_machine_claim_active)"
+  [ -n "$active" ] || return 1
+  cookie="$(printf '%s' "$active" | awk '{print $1}')"
+  [ "$cookie" = "$self" ]
 }
 
 # kosmos_machine_claim_status  -- the "who has the box?" answer, one line to

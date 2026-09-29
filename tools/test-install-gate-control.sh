@@ -9,10 +9,12 @@
 # Needs the staged trees in dist/ (build them first, as test-install.sh says).
 # Minutes, three gate runs (untouched, staged tree broken, tarball broken); run by hand before changing the gate or the
 # installer's post-extract list: `bash tools/test-install-gate-control.sh`.
+# Exit 0: the control holds. Exit 1: a real red. Exit 3: skipped, it could not answer (the box was
+# busy, or dist/ is not built) (#4410).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-[ -d dist/kosmos-bundle ] && [ -d dist/tmux-bundle ] || { echo "SKIP: dist/ staged trees missing (build them first)"; exit 1; }
+[ -d dist/kosmos-bundle ] && [ -d dist/tmux-bundle ] || { echo "SKIP: dist/ staged trees missing (build them first)"; exit 3; }
 C="$(mktemp -d "${TMPDIR:-/tmp}/install-gate-control.XXXXXX")"; trap 'rm -rf "$C"' EXIT
 # #3691: test-support/ too. test-install.sh points the board at test-support/fake-tmux.sh
 # (#1651); a copy without it made the untouched arm red on every bundle, so nothing discriminated.
@@ -32,10 +34,33 @@ settle() {
   done
   echo "   (the harness's port range is still busy after 40s; running anyway)"
 }
+# #4410: test-install.sh now refuses to start beside a live suite or a cut, even
+# with KOSMOS_INSTALL_GATE=1 (only a cut's own claim holder skips those checks). Such a refusal is
+# not the gate's verdict, so say the box is busy instead of scoring it as green or red, and exit 3
+# (not 1, which is a real red) so `... && echo ok` and a caller's exit check can tell them apart.
+# The pre-check is heavy-gate --quiet-box, which is broader than the harness's own refusals (it also
+# counts a browser run and a release reservation): all of those would disturb a gate run anyway.
+hg_rc=0; bash tools/heavy-gate.sh --quiet --quiet-box || hg_rc=$?
+if [ "$hg_rc" -ne 0 ]; then
+  if [ "$hg_rc" = 1 ]; then why="the box is busy (bash tools/heavy-gate.sh --quiet-box says with what)"
+  else why="heavy-gate could not read the box (exit $hg_rc)"; fi
+  echo "SKIP: $why, so this control cannot answer; run it again when the box is quiet."; exit 3
+fi
+# The refusals test-install.sh makes before it judges anything: a busy box (a suite, a cut, a release
+# reservation), a guard that could not tell (#4410 review 13), or a disk too full to start. None is the
+# gate's verdict, so each is a SKIP with exit 3.
+REFUSED_RE='is already running on this Mac|a cut is running on this Mac|reserved for a release|could not tell whether|could not read free space|MB free on'
+busy_refusal() {
+  grep -qE "$REFUSED_RE" "$1" || return 1
+  echo "SKIP: a gate run was refused before it judged anything, so this control cannot answer: $(grep -E "$REFUSED_RE" "$1" | head -1 | cut -c1-160)"
+  exit 3
+}
 # CONTROL OF THE CONTROL: the untouched copy must be green, or the red below
 # could be the copy itself.
 settle
-if ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/green.log" 2>&1; then ok "CONTROL: the untouched copy passes the gate ($(grep -E ' passed, ' "$C/green.log" | tail -1))"
+g_rc=0; ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/green.log" 2>&1 || g_rc=$?
+[ "$g_rc" -eq 0 ] || busy_refusal "$C/green.log"
+if [ "$g_rc" -eq 0 ]; then ok "CONTROL: the untouched copy passes the gate ($(grep -E ' passed, ' "$C/green.log" | tail -1))"
 else bad "CONTROL: the untouched copy fails the gate, so nothing below discriminates: $(grep -E '^FAIL' "$C/green.log" | head -3 | tr '\n' ' ')"; echo "install-gate-control: $FAILS failures"; exit 1; fi
 # The bundle-shape defect: a file the installer's post-extract check expects
 # (install/setup.sh checks app/bin/kosmos-tunnel after extract) is missing
@@ -49,7 +74,9 @@ rm -f "$C/repo/dist/kosmos-bundle/app/bin/kosmos-tunnel"
 ( cd "$C/repo/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && ( cd repack && tar -czf ../kosmos-arm64.tar.gz -- * ) && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
 tar -tzf "$C/repo/dist/kosmos-arm64.tar.gz" | grep -q '^app/' && ok "the repacked tarball keeps the built tarball's member shape (app/..., no ./)" || bad "the repack changed the member shape"
 settle
-if ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red.log" 2>&1; then bad "a bundle missing app/bin/kosmos-tunnel PASSED the gate (the gate is blind to the bundle's shape)"
+r_rc=0; ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red.log" 2>&1 || r_rc=$?
+[ "$r_rc" -eq 0 ] || busy_refusal "$C/red.log"
+if [ "$r_rc" -eq 0 ]; then bad "a bundle missing app/bin/kosmos-tunnel PASSED the gate (the gate is blind to the bundle's shape)"
 else ok "a bundle missing app/bin/kosmos-tunnel turns the gate red ($(grep -E ' passed, ' "$C/red.log" | tail -1 || true; [ -n "$(grep -E ' passed, ' "$C/red.log")" ] || echo "$(grep -c '^FAIL' "$C/red.log") FAIL line(s), no summary"))"; fi
 grep -q "^FAIL  install exits 0" "$C/red.log" && ok "and the red names the install itself, not a later check" || bad "the red did not name the install: $(grep -E '^FAIL' "$C/red.log" | head -2 | tr '\n' ' ')"
 
@@ -62,7 +89,9 @@ rm -rf "$C/repo2"; mkdir -p "$C/repo2"; cp -R install tools test-support package
 ( cd "$C/repo2/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && ( cd repack && tar -czf ../kosmos-arm64.tar.gz -- * ) && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
 [ -x "$C/repo2/dist/kosmos-bundle/app/bin/kosmos-tunnel" ] && ok "CONTROL: the second copy's staged tree is intact (only the tarball is broken)" || bad "the second copy's staged tree lost the file too"
 settle
-if ( cd "$C/repo2" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red2.log" 2>&1; then bad "a tarball missing app/bin/kosmos-tunnel (staged tree intact) PASSED the gate: the download path is not gating the artifact people receive"
+r2_rc=0; ( cd "$C/repo2" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/red2.log" 2>&1 || r2_rc=$?
+[ "$r2_rc" -eq 0 ] || busy_refusal "$C/red2.log"
+if [ "$r2_rc" -eq 0 ]; then bad "a tarball missing app/bin/kosmos-tunnel (staged tree intact) PASSED the gate: the download path is not gating the artifact people receive"
 else ok "a tarball missing app/bin/kosmos-tunnel, staged tree intact, turns the gate red"; fi
 grep -q "^FAIL  download-path install exits 0" "$C/red2.log" && ok "and that red lands at the download-path install, the pass that opens the tarball" || bad "the tarball red did not land at the download path: $(grep -E '^FAIL' "$C/red2.log" | head -3 | tr '\n' ' ')"
 grep -q "^FAIL  install exits 0" "$C/red2.log" && bad "the staged-tree install failed in the tarball-only run (the copy was not what it claims)" || ok "and the staged-tree install still passed in that run (the red is the tarball's alone)"

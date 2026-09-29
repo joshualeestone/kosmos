@@ -336,7 +336,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # nothing and keeps the harness able to reach the check it exists to make.
 # 🛑 TWO CUTS ON ONE MAC DESTROY EACH OTHER, and it has already happened: the
 # 18:28 attempt at 0.5.73 died because a fixture server was SIGTERM'd by the
-# other cut's teardown (#1050). They share the install gate's fixed ports, the
+# other cut's teardown (#1050). They share the install gate's port range (probed from 4460), the
 # real ~/Applications and /Applications fingerprints and the gui launchd
 # domain, so either one's result can be the other's.
 # ⭐ THE GUARD FOR EXACTLY THIS EXISTED AND NOTHING CALLED IT. tools/lib/
@@ -377,7 +377,7 @@ if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ]; then
 fi
 # The mirror (#1713): a cut started while an install HARNESS was ALREADY running
 # was unprotected -- the harness's own start-check cannot help once it has run,
-# and the two share the install gate's fixed port, so the collision fails a
+# and the two share the install gate's port range and boot real boards on it, so the collision fails a
 # release step and the failure lands on the cut rather than the harness. Ask
 # here, at the cut's start, where the decision to cut is made, rather than four
 # steps in at 4b's port bind. KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway.
