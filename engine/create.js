@@ -5638,6 +5638,8 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
+  spokenName,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
   underRoot,
