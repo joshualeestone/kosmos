@@ -10,7 +10,7 @@
  *  - each checkbox sits on the centre of its label's first line (within 1.5px),
  *  - each label spans the whole list, so the whole row is the target, and clicking the row's
  *    far end really toggles the box,
- *  - nothing scrolls sideways,
+ *  - nothing scrolls sideways, and the page throws no error,
  * in light and dark, at 1400px and at a 390px phone.
  *
  *   node docs/browser-checks/render-recommender-guards-4545.js [shots-dir]            # headed
@@ -88,6 +88,8 @@ let ran = 0;
       for (const width of [1400, 390]) {
         const tag = `[${theme} ${width}]`;
         const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme });
+        const pageErrors = [];
+        page.on('pageerror', (e) => pageErrors.push(String(e)));
         const reset = await page.request.put(URL + '/api/recommender-setting', { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
         chk(reset.status() === 200, hook(`${tag} setup: the setting was reset to off`), String(reset.status()));
         await openAutomation(page, URL);
@@ -130,6 +132,7 @@ let ran = 0;
           const box = await page.evaluateHandle(() => document.getElementById('rec-guards-row').closest('.dbox'));
           await box.asElement().screenshot({ path: path.join(SHOTS, `recommender-${theme}-${width}.png`) });
         }
+        chk(pageErrors.length === 0, hook(`${tag} no page errors`), pageErrors.join(' | ').slice(0, 300));
         await page.request.put(URL + '/api/recommender-setting', { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
         await page.close();
       }
@@ -140,5 +143,5 @@ let ran = 0;
     for (const d of SANDBOXES) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 32 ? 1 : 0);   // 4 arms x 8 checks; a skipped arm must fail
+  process.exit(fail.length || ran < 36 ? 1 : 0);   // 4 arms x 9 checks; a skipped arm must fail
 })().catch((e) => { console.error(e); process.exit(1); });

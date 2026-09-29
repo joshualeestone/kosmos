@@ -21,8 +21,9 @@ horizontally, so three labels of different widths sat centred and staggered (che
   wrapping their checkbox (the explicit `for` and direct-child input are pinned by
   web.settings-nav.test.js and the 44px phone-label check), then the footnote. Inline styles removed.
 - CSS beside `.setrow`: tokens only (`--k-rule`, `--k-sunk`, `--k-ink`, `--k-ink-2`), so both themes
-  follow; the box's margin is computed from the label's own line height (not `em`, which resolves
-  against the input's font).
+  follow; the box's top margin is `calc((.9375rem * 1.4 - 16px) / 2)`, the label's font-size and
+  line-height written again as literals (not `em`, which resolves against the input's font). If
+  either changes, the check's first-line-centre arm goes red.
 
 ## Decided (weakest premise named)
 - A bordered group with hairlines between rows, rather than a bare list: it reads as one set of
@@ -35,8 +36,8 @@ horizontally, so three labels of different widths sat centred and staggered (che
 - Keeping `.frow` and overriding `align-items`: the class brought nothing else this block uses.
 
 ## Verification
-- `docs/browser-checks/render-recommender-guards-4545.js` (light/dark x 1400/390, 32 checks, floor
-  32), gated.txt + README. Negative control: against origin/main's page it fails (18/32) on one x,
+- `docs/browser-checks/render-recommender-guards-4545.js` (light/dark x 1400/390, 36 checks, floor
+  36), gated.txt + README. Negative control: against origin/main's page it fails (22/36) on one x,
   first-line centring, row span and (desktop) the far-end click.
 - Review shots: `mobile-shots.js` gains a `settings-recommender` screen (the /design-shots set:
   `--sizes desktop,iphone15 --themes light,dark --engines chromium --screens settings-recommender`).
