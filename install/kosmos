@@ -1937,8 +1937,8 @@ cmd_restart() {
 
 # #2255: an agent reacts to a room post with an emoji (Discord-style). The
 # operator reacts on the board; this is the agent's own surface, mirroring
-# cmd_post -- the sender rides in from_pane (never trusted from the body), so an
-# agent can only ever react AS itself. The post id comes from `kosmos room`,
+# cmd_post -- the sender is this agent's token, else from_pane (never trusted from
+# the body), so an agent can only ever react AS itself. The post id comes from `kosmos room`,
 # which prints it in brackets before each post (e.g. [m3]). The route TOGGLES:
 # reacting again with the same emoji takes the reaction back.
 cmd_react() {

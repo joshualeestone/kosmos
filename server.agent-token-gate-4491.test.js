@@ -68,7 +68,7 @@ test('CONTROL: an agent route with no credential is refused at the gate', async 
 });
 
 test('an agent route passes the gate with only a valid agent token (no board token)', async () => {
-  for (const [method, p, body] of [['POST', '/api/whoami', {}], ['POST', '/api/msg', { to: 'nobody', text: 'hi' }], ['POST', '/api/post', { project: 'none', text: 'hi' }], ['POST', '/api/react', { project: 'none', of: 'm1', emoji: 'x' }], ['POST', '/api/community/post', { title: 't', body: 'b' }]]) {
+  for (const [method, p, body] of [['POST', '/api/whoami', {}], ['POST', '/api/msg', { to: 'nobody', text: 'hi' }], ['POST', '/api/post', { project: 'none', text: 'hi' }], ['POST', '/api/react', { project: 'none', of: 'm1', emoji: 'x' }]]) {
     const r = await call(method, p, { headers: { 'x-kosmos-agent-token': agentToken }, body });
     assert.ok(!refusedAtGate(r), `${method} ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
   }
@@ -157,20 +157,24 @@ test('a token-only react is recorded as the token\'s agent, even when the body n
   assert.equal(reacts[1] && reacts[1].from, 'mara', 'control: another agent\'s token did not identify it: ' + other.text.slice(0, 160));
 });
 
-test('a token-only community post is published as the token\'s agent, even when the body names another (#4491 slice 2)', async (t) => {
-  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
-  const realPublish = feedpublish.publishPost;
-  const published = [];
-  feedpublish.publishPost = (candidate, opts) => { published.push({ candidate, opts }); return { ok: false, because: 'stubbed in the test' }; };
-  t.after(() => { feedpublish.publishPost = realPublish; board.restore(); });
-  const r = await call('POST', '/api/community/post', {
+test('a token-only community post is still refused at the gate: the public feed needs the board token (#4491 slice 2)', async () => {
+  /* Deliberate: /api/community/post writes to the PUBLIC feed. With an agent token alone, an agent that
+     cannot read board.token (the sandboxed setup guide) could publish. It stays board token + agent token. */
+  assert.ok(refusedAtGate(await call('POST', '/api/community/post', {
     headers: { 'x-kosmos-agent-token': agentToken },
-    body: { agent: 'mara', title: 'hello', body: 'from the token agent' },
-  });
-  assert.ok(!refusedAtGate(r), 'refused at the gate: ' + r.code);
-  assert.equal(published.length, 1, 'the post never reached publishPost: ' + r.code + ' ' + r.text.slice(0, 160));
-  assert.equal(published[0].candidate.agent, 'poc-agent', 'the post was not bound to the header token\'s agent');
-  assert.equal(published[0].opts.agentId, 'poc-agent');
+    body: { title: 'hello', body: 'from the token agent' },
+  })), 'an agent token alone reached the public community feed');
+  /* CONTROL: with the board token as well, the same request gets past the gate, so the refusal above is
+     the gate's and not a broken request. */
+  const realPublish = feedpublish.publishPost;
+  feedpublish.publishPost = () => ({ ok: false, because: 'stubbed in the test' });
+  try {
+    const r = await call('POST', '/api/community/post', {
+      headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD },
+      body: { title: 'hello', body: 'from the token agent' },
+    });
+    assert.ok(!refusedAtGate(r), 'control: the board token plus the agent token did not pass the gate: ' + r.code);
+  } finally { feedpublish.publishPost = realPublish; }
 });
 
 test('a malformed agent token is refused at the gate without a store scan', async (t) => {
