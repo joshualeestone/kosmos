@@ -712,6 +712,8 @@ async function fitOf(page) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+  // A control with a mistyped name would arm nothing and pass; refuse it instead.
+  if (COVER_CONTROL && COVER_CONTROL !== 'cmnotice') throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, not ' + COVER_CONTROL);
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
@@ -730,6 +732,7 @@ async function run() {
   const rows = [];
   const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
+  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -781,7 +784,11 @@ async function run() {
                 await page.waitForTimeout(250);
                 /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
                    green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
-                if (COVER_CONTROL === 'cmnotice') await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
+                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
+                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
+                  coverControlWaited = true;
+                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
+                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -801,12 +808,12 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
-                /* #4524: a one-time window the screen did not open (the Community notice, What's New) sits over
-                   whatever the shot was for. Read after the shot, so it can also catch one opened just after it. */
-                // Literal ids, so bc-pr-select.js ties a change to either window's markup to this check.
-                const cover = await page.evaluate(() => [document.getElementById('cmnotice') && 'cmnotice',
-                  document.getElementById('whatsnew') && 'whatsnew'].filter(Boolean));
-                if (cover.length) throw new Error('COVERED: #' + cover.join(', #') + ' is open over this screen (its shot is kept, to show it)');
+                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
+                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
+                   to its markup to this check. */
+                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
+                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept, to show it)');
+                }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
