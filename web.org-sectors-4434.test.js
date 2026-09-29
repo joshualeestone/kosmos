@@ -546,6 +546,40 @@ test('a tree whose canvas changes size at the same width carries its positions a
   assert.equal(carry(false, 3000, 1600, false), 1, 'CONTROL: a flat fleet at the same width keeps them, as before');
 });
 
+test('a tree that turns flat (its last manager removed) starts from the flat placement, not the tree\'s positions (#4434, review it8)', () => {
+  /* Positions from a tree's canvas (2630px for this one) put a flat fleet's faces far outside its 860px canvas,
+     and a flat fleet has no repair at rest: review it8 measured 37 overlapping pairs at rest, one at 0px. */
+  const at = SCRIPT.indexOf('function paintOrg(');
+  const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
+  assert.match(paint, /if \(!orgKeepPositions\(ORG_POS_TREE, tree\)\) ORG_POS\.clear\(\);\s*ORG_POS_TREE = tree;\s*const f = orgCarryFactor\(widthChanged, ORG_SIZE, size, tree\);/,
+    'paintOrg no longer drops positions across a change between tree and flat');
+  const k = SCRIPT.indexOf('function orgKeepPositions(');
+  // eslint-disable-next-line no-new-func
+  const keep = new Function(SCRIPT.slice(k, SCRIPT.indexOf('\n', k)) + '\nreturn orgKeepPositions;')();
+  assert.deepEqual([keep(null, true), keep(true, true), keep(false, false), keep(true, false), keep(false, true)], [true, true, true, false, false]);
+  /* The live chart through the change, both ways of seeding it. */
+  const spec = [['m']].concat(Array.from({ length: 59 }, (_, i) => ['a' + i, 'm']));
+  const tp = firstPaint(cards(spec)).placed;
+  const pre = [...tp.keys()][0].split('_')[0] + '_';
+  const fp0 = firstPaint(cards(spec.map(([nm]) => [nm]))).placed;
+  const preF = [...fp0.keys()][0].split('_')[0] + '_';
+  const fp = new Map([...fp0].map(([key, v]) => [key.replace(preF, pre), v]));
+  const settleFlat = (clear) => {
+    const t = canvasFor(tp, 0);
+    const { page, map, run } = livePage();
+    page.orgLiveStart(map, tp, t.cx, t.cy, t.size); run();
+    if (clear) page.pos().clear();
+    const c = canvasFor(fp, 0);
+    page.orgLiveStart(map, fp, c.cx, c.cy, c.size); run();
+    const pos = new Map([...page.pos()].filter(([key]) => key !== '\u0000hub'));
+    return { overlapping: overlaps(pos, 44), grew: t.size / c.size };
+  };
+  const fixed = settleFlat(true);
+  assert.equal(fixed.overlapping, 0, 'the flat fleet rests with faces overlapping');
+  const carried = settleFlat(false);
+  assert.ok(carried.grew > 2 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
+});
+
 test('a click on the hub of a tree at rest does not move it; a drag of the same hub does (#4434, review it5, it6)', () => {
   /* Through the page's own pointerdown and pointerup. review it6: the source pin below stayed green with every
      press counted as moved, which re-opened the bug. */
