@@ -1,6 +1,6 @@
 # layer-gutter-4494: no strip of the page beside the first-run wizard or the update overlay
 
-Card: joshualeestone/kosmos#4494 (claimed by Angel 2026-09-29 01:3x CDT, comment on the card).
+Card: joshualeestone/kosmos#4494 (claimed by Angel 2026-09-29 01:30 CDT, comment on the card at 06:30:16Z).
 Found by Kano's review round on #4489, which fixed the same strip on the #4356 first screen.
 
 ## Finished looks like
@@ -22,6 +22,13 @@ a mouse attached) and goes red with the rule removed.
 - The wizard scrolls inside its own layer (`.fr-back { overflow-y: auto }`), so hiding the page's
   overflow takes nothing from it.
 - #4489's first-screen rule is NOT duplicated here: #4489 is still open and carries it.
+- Accepted trade: the update overlay is an 0.86 wash, not opaque, so when the gutter goes the board behind it
+  widens 15px, faintly visible under the wash (the restart screen makes the same trade and is opaque). A 15px
+  shift under a wash that announces the board is about to reload, over a bright strip beside it.
+- Dialogs and the loading cover have the same shape and are NOT covered: filed as #4506, because a dialog's
+  wash is lighter still and every dialog open would shift the board (#1309's jump). Page has no <dialog>.
+- Rebased onto main after #4421 moved the emit-site counts (201->202, 122->123); this branch's +3/+2 now reads
+  205/125, measured by the equality test on the rebased tree.
 
 ## The check (render-layer-gutter-4494)
 - MEASURED: this Mac's Chromium 151 (headless and headed) gives a stable gutter 0 width, and a
