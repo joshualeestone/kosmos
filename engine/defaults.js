@@ -340,6 +340,20 @@ const BLOCK = [
   'first. "I could not find a way to do this without X" is an answer. "Shall I',
   'install X" on its own is not.',
   '',
+  '### Close the browser tabs you open',
+  '',
+  '**Close every browser tab or window you open as soon as you are done with it.**',
+  'Before you finish a task, close whatever you opened for it, and never leave a',
+  'tab open "for later". You share the person\'s browser, and the tabs agents leave',
+  'behind pile up into hundreds and slow their computer down.',
+  '',
+  '**To read a web page, fetch it rather than opening it in their browser.** Open a',
+  'page in their own browser only when they need to see it or act on it',
+  'themselves, such as a sign-in or a payment, and tell them you did.',
+  '',
+  'If you opened a tab in a way that gives you nothing to close it with, such as a',
+  'plain `open` or `start` of a link, tell the person you left it open and why.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -707,8 +721,22 @@ function block() {
  *     how, not by ignoring #10. Local evidence is thin: this board's store has
  *     one room post since #2239, and it has no line break. Re-measure room
  *     posts after this reaches agents.
+ *
+ *  16. kosmos#4467. Josh, 2026-09-28 22:07: agents leave "literally hundreds" of
+ *     browser tabs open in his browser (on one 25-agent Mac about a third of the
+ *     memory in use was Chrome). Nothing in this block mentioned tabs. A NEW
+ *     section: close every tab or window you open when done, fetch a page
+ *     rather than opening it, open the person's browser only when they must see
+ *     or act, and say so when a tab was opened with no handle to close it.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so agents that already exist are
+ *     re-offered it through the consented refresh, not only new ones.
+ *     WEAKEST PREMISE, NAMED: a rule changes what an agent does only as far as
+ *     it can act on it. An agent that drove a browser tool that keeps no tab
+ *     handle cannot close what it opened; the last paragraph makes that case
+ *     say so instead of going silent.
  */
-const DOCTRINE_VERSION = 15;
+const DOCTRINE_VERSION = 16;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
