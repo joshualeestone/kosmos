@@ -374,6 +374,20 @@ test('#4649 an own-account code joins as a self link, with nothing signed and no
   const again = await post('/api/federation/verify', { code }, SCREEN);
   assert.equal(again.status, 409, JSON.stringify(again.json));
   assert.equal(again.json.reason, 'already_joined');
+
+  // This joined computer can hand a code on to a third one; the room was told at join, so no second note.
+  const fwd = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  assert.equal(fwd.status, 200, JSON.stringify(fwd.json));
+  assert.equal(federation.parseOwnCode(fwd.json.code).ref, 'ref-own-1');
+  await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  const room2 = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
+  assert.doesNotMatch(room2, /now shared with your other computers/, room2);
+  // A Plus check that throws reads as not-plus, never as raw internals.
+  remote.kosmosPlus = () => { throw new Error('EIO: raw internals'); };
+  const code2 = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-9', name: 'Nine' })).toString('base64url');
+  const thrown = await post('/api/federation/verify', { code: code2 }, SCREEN);
+  assert.equal(thrown.status, 403, JSON.stringify(thrown.json));
+  assert.equal(thrown.json.reason, 'not-plus');
 });
 
 test('#4649 an own code: no Plus, no join; and a Join for a room already here is refused, not doubled', async (t) => {

@@ -16002,7 +16002,7 @@ const server = http.createServer(async (req, res) => {
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
           const before = federation.linkFor(proj.id);
-          wasShared = !!(before && before.selfShared === true);
+          wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
           code = federation.ownCode(proj.id, proj.name);
         } catch {
           sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
