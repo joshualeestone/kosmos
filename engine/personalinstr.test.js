@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { personalInstructions, filesFor } = require('./personalinstr');
+const { personalInstructions, sourcesFor, RULES_MAX_DEPTH, RULES_MAX_ENTRIES } = require('./personalinstr');
 
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'personalinstr-4446-'));
@@ -103,7 +103,7 @@ test('a Grok agent is NOT told about the person\'s CLAUDE.md (that import is off
 
 test('a per-account Gemini agent looks one level down, where the CLI keeps its files', () => {
   const create = fakeCreate('/r', null);
-  assert.deepStrictEqual(filesFor('gemini', '/r/.gemini-work', create), [path.join('/r/.gemini-work', '.gemini', 'GEMINI.md')]);
+  assert.deepStrictEqual(sourcesFor('gemini', '/r/.gemini-work', create), { files: [path.join('/r/.gemini-work', '.gemini', 'GEMINI.md')], rules: [] });
 });
 
 test('Codex: the override file alone is enough, and a per-account agent reads its own home', (t) => {
@@ -157,4 +157,46 @@ test('Claude: a *.md in the config dir\'s rules/ counts, in a subfolder too', (t
   assert.strictEqual(personalInstructions('ann', { create }), null, 'no CLAUDE.md and no *.md rule: nothing to say');
   write(path.join(acct, 'rules', 'team', 'style.md'), 'short answers\n');
   assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' });
+});
+
+test('Claude rules: CLAUDE.md answers without walking rules/, and the walk is bounded', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  const rules = path.join(acct, 'rules');
+  write(path.join(acct, 'CLAUDE.md'), 'x\n');
+  write(path.join(rules, 'a.md'), 'x\n');
+  const asked = [];
+  const has = (f) => { asked.push(f); return fs.statSync(f).size > 0; };
+  assert.deepStrictEqual(personalInstructions('ann', { create, hasContent: has }), { tool: 'Claude Code' });
+  assert.deepStrictEqual(asked, [path.join(acct, 'CLAUDE.md')], 'CLAUDE.md answered, so rules/ was never read');
+
+  fs.rmSync(path.join(acct, 'CLAUDE.md'));
+  fs.rmSync(path.join(rules, 'a.md'));
+  fs.symlinkSync(rules, path.join(rules, 'loop'));   // a folder that contains itself
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'a symlink loop ends, and says nothing');
+
+  let deep = rules;
+  for (let i = 0; i <= RULES_MAX_DEPTH; i++) deep = path.join(deep, 'd' + i);
+  write(path.join(deep, 'too-deep.md'), 'x\n');
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'below the depth cap is not reached');
+  write(path.join(path.dirname(deep), 'deepest-counted.md'), 'x\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' },
+    'control: one level up, at the cap, is found, so the null above is the cap and not a broken walk');
+});
+
+test('Claude rules: a folder over the entry cap is given up on, not scanned in full', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const rules = path.join(acct, 'rules');
+  fs.mkdirSync(rules, { recursive: true });
+  for (let i = 0; i < RULES_MAX_ENTRIES; i++) fs.writeFileSync(path.join(rules, 'a' + String(i).padStart(4, '0') + '.txt'), '');
+  write(path.join(rules, 'zz.md'), 'x\n');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'the .md past the cap is not reached');
+  fs.rmSync(path.join(rules, 'a0000.txt'));
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' },
+    'control: one entry fewer and it is found, so the null above is the cap');
 });

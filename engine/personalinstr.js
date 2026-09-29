@@ -21,30 +21,48 @@ const path = require('path');
 
 const TOOL = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok' };
 
-/* Every `*.md` in `dir` (and below it when `deep`), or none when it cannot be read. */
-function mdIn(dir, deep) {
-  let names = [];
-  try { names = fs.readdirSync(dir, { recursive: deep }).map(String).filter((n) => n.endsWith('.md')).sort(); } catch { names = []; }
-  return names.map((n) => path.join(dir, n));
-}
-
-/* The user-level files this runner's CLI may read for an agent launched with `configDir`
-   (null = the default account). Empty for a runner with none. */
-function filesFor(runner, configDir, create) {
+/* This runner's user-level sources for an agent launched with `configDir` (null = the default
+   account): fixed `files`, and `rules` folders whose `*.md` files also load (`deep` = subfolders
+   too). Both empty for a runner with none. */
+function sourcesFor(runner, configDir, create) {
   if (runner === 'claude') {
     const dir = configDir || path.join(require('./accounts').homeDir(), '.claude');
-    return [path.join(dir, 'CLAUDE.md'), ...mdIn(path.join(dir, 'rules'), true)];
+    return { files: [path.join(dir, 'CLAUDE.md')], rules: [{ dir: path.join(dir, 'rules'), deep: true }] };
   }
   if (runner === 'codex') {
     const home = configDir || create.defaultAgentCodexHome();
-    return [path.join(home, 'AGENTS.override.md'), path.join(home, 'AGENTS.md')];
+    return { files: [path.join(home, 'AGENTS.override.md'), path.join(home, 'AGENTS.md')], rules: [] };
   }
-  if (runner === 'gemini') return [path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md')];
+  if (runner === 'gemini') return { files: [path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md')], rules: [] };
   if (runner === 'grok') {
     const home = configDir || create.defaultAgentGrokHome();
-    return [path.join(home, 'AGENTS.md'), ...mdIn(path.join(home, 'rules'), false)];
+    return { files: [path.join(home, 'AGENTS.md')], rules: [{ dir: path.join(home, 'rules'), deep: false }] };
   }
-  return [];
+  return { files: [], rules: [] };
+}
+
+/* This runs on every Instructions read, synchronously, so a rules folder is walked lazily and
+   bounded: it stops at the first `*.md` with content, never enters a symlinked folder (no loops),
+   and gives up after RULES_MAX_DEPTH levels or RULES_MAX_ENTRIES entries. Giving up answers false. */
+const RULES_MAX_DEPTH = 4;
+const RULES_MAX_ENTRIES = 500;
+
+function rulesHaveContent(dir, deep, has) {
+  let seen = 0;
+  const walk = (d, depth) => {
+    let ents;
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    ents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));   // same answer on every filesystem
+    const sub = [];
+    for (const e of ents) {
+      if (++seen > RULES_MAX_ENTRIES) return false;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (deep && depth < RULES_MAX_DEPTH) sub.push(p); continue; }
+      if (e.name.endsWith('.md') && has(p)) return true;
+    }
+    return sub.some((p) => walk(p, depth + 1));
+  };
+  return walk(dir, 0);
 }
 
 /* A regular file with something in it. statSync follows a symlink, which is the point:
@@ -68,11 +86,11 @@ function personalInstructions(name, deps = {}) {
     try { runner = create.recordedRunner(name); } catch { runner = null; }
   }
   if (!TOOL[runner]) return null;
-  let files;
-  try { files = filesFor(runner, job ? job.configDir : null, create); } catch { files = []; }
+  let src;
+  try { src = sourcesFor(runner, job ? job.configDir : null, create); } catch { src = { files: [], rules: [] }; }
   const has = deps.hasContent || hasContent;
-  if (!files.some((f) => has(f))) return null;
-  return { tool: TOOL[runner] };
+  const found = src.files.some((f) => has(f)) || src.rules.some((r) => rulesHaveContent(r.dir, r.deep, has));
+  return found ? { tool: TOOL[runner] } : null;
 }
 
-module.exports = { personalInstructions, filesFor, TOOL };
+module.exports = { personalInstructions, sourcesFor, TOOL, RULES_MAX_DEPTH, RULES_MAX_ENTRIES };
