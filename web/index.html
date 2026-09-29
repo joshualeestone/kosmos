@@ -1109,6 +1109,12 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    step must not borrow. Ink keeps the mark visible and calm. Like .dwarn-m the
    glyph is aria-hidden decoration; the words carry the meaning. */
 .dwarn-ok { color: var(--k-ink); font-weight: 700; margin-right: 6px; }
+/* #4450: the light-gold note at the top of Global Skills. A tint, not a fill: the text stays
+   --k-ink (full contrast in both themes) and the border uses --gold-edge, the gold that holds
+   3:1 on light grounds. No hover, no cursor: it is not a control. */
+.gs-ask { margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  font: .9375rem/1.45 var(--font-ui); color: var(--k-ink); }
 /* #727: the provider choice on Accounts; the pressed one reads pressed. */
 .acct-pick .btn[aria-pressed="true"] { background: var(--attn-bg); border-color: var(--border-strong); font-weight: 600; }
 /* #734: a floored Agents count is a way to This Mac. */
@@ -15595,6 +15601,10 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="s-sec-gskills" data-sec="gskills" tabindex="-1" aria-label="Global skills" hidden>
     <section class="dbox">
       <h3 class="dlab">Global skills</h3>
+      <!-- #4450 (Josh, 2026-09-28 19:56): a light-gold note, NOT a button. Josh took
+           the gold buttons out that afternoon (#4407), so this is a flat tinted panel
+           with text and nothing to press. -->
+      <p class="gs-ask" id="g-skills-ask">Ask your agent: <b>&ldquo;What skills should we install?&rdquo;</b></p>
       <p class="dhint" style="margin:0 0 12px;">
         Skills every agent on this computer gets, alongside whatever each one has
         of its own. Agents read them when they start, so anything you add
