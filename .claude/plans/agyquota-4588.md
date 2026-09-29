@@ -92,3 +92,20 @@ Controls: each fix reds its test when removed. The engine regression set: 730/73
   card's time carries its zone; the weakest premise names the unmeasured Windows path.
 - (N, left) the wiring pin is a source match (no test may run the server).
 Controls: each fix reds its test when removed. The engine regression set: 733/733.
+
+## Review iteration 4 (blind, sonnet)
+0 BLOCKER, 3 WARNING:
+- (W, taken) quotaResetMs fired on any RESOURCE_EXHAUSTED with a "Resets in": a short per-minute limit would be told
+  as the account's quota used up. It now also requires "quota" (the measured text: "Individual quota reached").
+  Control: a per-minute limit reads null; dropping the requirement reds it.
+- (W, taken) the guide fallback (web asbFallbackWords, fed by setup-assistant guideFailure) still said "Add credits
+  with Google" for an agy guide. An agy card is rate_limited only on this quota (its screen is never read), so the
+  line says the Google quota refills by itself. Other runners keep their advice (control).
+- (W, residual, kept and argued) the in-memory resume book repeats after a restart. Kept: the agent's latest report
+  still being the quota idle means Kosmos has seen NO sign it resumed, so typing the carry-on line again is the right
+  action; the only duplicate is an agent that resumed but fired no hook, and it costs one extra line, within six hours.
+- (N, taken) a reset more than 20 hours out is shown with its day (the weekly window); the sweep requires status.js once.
+- (N, left) compact-only regex forms ("1 hour 5 minutes" reads early; early only means a failed nudge and a new pause);
+  NUDGE_TEXT carries no Kosmos marker (as connlost-heal and firstreply-nudge); past the six hours "at rest" replaces
+  the ordinary idle reading for this one report shape.
+The engine regression set (with setup-assistant): 743/743.
