@@ -141,6 +141,15 @@ function waitingOf(state, w) {
   return { n, yours };
 }
 
+/* #4612: { text, startedAt } on an idle report, text 1..4000 characters (control characters but newline and tab
+   removed), startedAt a time that parses; else undefined (not written). */
+function finalOf(state, f) {
+  if (state !== 'idle' || !f || typeof f !== 'object' || typeof f.text !== 'string' || typeof f.startedAt !== 'string') return undefined;
+  if (!Number.isFinite(Date.parse(f.startedAt))) return undefined;
+  const text = f.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').trim().slice(0, 4000);
+  return text ? { text, startedAt: f.startedAt } : undefined;
+}
+
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -275,6 +284,9 @@ function record(sessionName, entry) {
        from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
        card alone, so a false one is no worse than a false "working". */
     waiting: waitingOf(state, entry.waiting),
+    /* #4612: a Muse turn's answer, { text, startedAt }, on the idle report that ended it. Shown in the DM only when
+       the person's latest message is still unanswered there and this turn began after it arrived (server.js). */
+    final: finalOf(state, entry.final),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of
        them disagreeing read as one agent changing its mind. The route fills
@@ -407,6 +419,7 @@ function read(sessionName) {
     found: true,
     state: latest.state,
     waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
+    final: finalOf(latest.state, latest.final) || null,         // #4612
     because: latest.because || null,
     on: latest.on || null,
     owner: latest.owner || null,

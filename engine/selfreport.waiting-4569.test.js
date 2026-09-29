@@ -45,3 +45,20 @@ test('#4569 fix 4: status carries the count on a fresh working report only', () 
   const stale = { ...fresh, at: new Date(now - 60 * 60 * 1000).toISOString() };
   assert.ok(!reconcileReport(stale, scraped, now).waiting, 'a stale report kept its count');
 });
+
+test('#4612: an idle report keeps a turn\'s answer (cleaned, capped) and reads it back; anything else is not kept', () => {
+  const at = new Date().toISOString();
+  selfreport.record('mark2', { state: 'idle', auto: true, final: { text: 'Done.\u0007 Next step: deploy.', startedAt: at } });
+  assert.deepEqual(selfreport.read('mark2').final, { text: 'Done. Next step: deploy.', startedAt: at });
+  selfreport.record('mark2', { state: 'idle', auto: true, final: { text: 'x'.repeat(5000), startedAt: at } });
+  assert.equal(selfreport.read('mark2').final.text.length, 4000);
+  for (const [label, entry] of [
+    ['a working report', { state: 'working', auto: true, final: { text: 'x', startedAt: at } }],
+    ['blank text', { state: 'idle', auto: true, final: { text: '   ', startedAt: at } }],
+    ['a bad time', { state: 'idle', auto: true, final: { text: 'x', startedAt: 'soon' } }],
+    ['no answer', { state: 'idle', auto: true }],
+  ]) {
+    selfreport.record('mark2', entry);
+    assert.equal(selfreport.read('mark2').final, null, label + ' was kept');
+  }
+});

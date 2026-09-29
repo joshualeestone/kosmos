@@ -12918,6 +12918,7 @@ const server = http.createServer(async (req, res) => {
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
+          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle report
           on: body.on,
           owner: body.owner,
           until: body.until,
@@ -13870,6 +13871,18 @@ const server = http.createServer(async (req, res) => {
        if it was written in THIS pause (chat.noticeStands). store.readProfile answers {} when it cannot read, and
        a non-swarm reads as running: the line then comes back rather than being hidden. */
     const owes = chat.dmOwes(messages, name, require('./engine/swarm').pauseOf(store.readProfile(name)));
+    /* #4612: a Muse agent that answered in its own window but never ran kosmos reply. Its idle report carries the
+       turn's answer; when the person's latest message is still owed and that turn began after the message arrived,
+       the page shows the answer instead of "Nothing back yet". Read-only, and only ever about THIS agent's report. */
+    if (owes && owes.state === 'owes') {
+      try {
+        const rep = selfreport.read(name);
+        const heard = Date.parse(owes.lastHeardAt || '');
+        if (rep && rep.found && rep.state === 'idle' && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
+          owes.unsent = { text: rep.final.text, at: rep.at || null };
+        }
+      } catch { /* no report: the line stays "Nothing back yet" */ }
+    }
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;

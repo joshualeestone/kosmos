@@ -105,3 +105,33 @@ test('#4340: a colleague\'s kosmos msg to the agent does not put the person\'s t
     'fixture: the colleague row is not in the message log addressed to the agent, so this test proves nothing');
   assert.equal((await owes()).state, 'clear', 'a colleague\'s message made the person\'s answered thread owe');
 });
+
+test('#4612: an owed DM shows the answer the agent gave in its own window, only when that turn began after the DM', async () => {
+  const selfreport = require('./engine/selfreport');
+  const U = 'novamuse';
+  fs.mkdirSync(create.workerDir(U), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(U), 'CLAUDE.md'), `# ${U}\n`);
+  const own = async () => (await (await fetch(`${base}/api/agent/${U}/thread`)).json()).owes;
+  const heard = Date.now() - 5 * 60000;
+  chat.appendMessage(chat.DIRECT, U, { text: 'hello', at: new Date(heard).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  // CONTROL: owed, with no report at all: no answer to show.
+  let o = await own();
+  assert.equal(o.state, 'owes'); assert.equal(o.unsent, undefined);
+  // A turn that began BEFORE the DM arrived is not its answer.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'an older answer', startedAt: new Date(heard - 60000).toISOString() } });
+  o = await own();
+  assert.equal(o.unsent, undefined, 'an answer from before the message was shown as its answer');
+  // A turn that began after it, ended idle with words: shown.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  o = await own();
+  assert.equal(o.state, 'owes');
+  assert.equal(o.unsent && o.unsent.text, 'Hi Josh, all good here.', JSON.stringify(o));
+  // Working again (a new turn): the answer is no longer the latest word, so it is not shown.
+  selfreport.record(U, { state: 'working', auto: true });
+  assert.equal((await own()).unsent, undefined, 'a stale answer showed while the agent was working again');
+  // Once the agent replies here, nothing is owed and nothing is shown.
+  selfreport.record(U, { state: 'idle', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  keepAgentReply(U, 'Hi Josh, all good here.', new Date().toISOString());
+  o = await own();
+  assert.equal(o.state, 'clear'); assert.equal(o.unsent, undefined);
+});

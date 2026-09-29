@@ -578,3 +578,33 @@ test('#4569 fix 4: the reporter hands the count to the bridge in its payload; th
     assert.equal(bridge.shouldSend('working', t + 3000, env, ''), true, 'clearing the line was held back');
   } finally { fs.rmSync(bridge.markerFile(env), { force: true }); }
 });
+
+/* #4612: the turn's answer rides with the idle report, so the DM can show it when no reply arrived. */
+test('#4612: an idle report after a turn that finished with words carries its answer and when the turn began', async () => {
+  const sent = [];
+  const h = harness([OK('Here is the summary you asked for.')], { report: (s, w, final) => sent.push([s, final || null]) });
+  const before = Date.now();
+  h.f.feed(OP('summarise it') + '\r');
+  await h.f.drained();
+  const [state, final] = sent[sent.length - 1];
+  assert.equal(state, 'idle');
+  assert.equal(final && final.text, 'Here is the summary you asked for.');
+  assert.ok(Date.parse(final.startedAt) >= before - 5 && Date.parse(final.startedAt) <= Date.now(), 'startedAt is not the turn start: ' + final.startedAt);
+  // CONTROL: a failed turn, or one with no words, sends no answer.
+  const f = []; const g = harness([{ ok: false, text: '', because: 'Muse Code did not finish the turn' }], { report: (s, w, x) => f.push(x || null) });
+  g.f.feed('x\r'); await g.f.drained();
+  assert.equal(f[f.length - 1], null);
+});
+
+test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on a Stop only', () => {
+  const spawned = [];
+  const spawn = () => { const c = new EventEmitter(); c.stdin = Object.assign(new EventEmitter(), { end: (d) => spawned.push(d) }); c.unref = () => {}; return c; };
+  front.makeReporter({ spawn, node: '/n', env: { KOSMOS_MUSE_BRIDGE: '/b.js' } })('idle', null, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.deepEqual(JSON.parse(spawned[0]), { kosmosFinal: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  const bridge = require('../bin/agy-report-bridge');
+  const r = bridge.reportFor('Stop', { kosmosFinal: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  assert.deepEqual(r, { state: 'idle', text: '', final: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  assert.deepEqual(bridge.buildBody('idle', '', { TMUX_PANE: '%1' }, null, r.final).final, r.final);
+  assert.equal(bridge.reportFor('PreInvocation', { kosmosFinal: { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' } }).final, undefined, 'a working report carried an answer');
+  assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' }, 'CONTROL: agy\'s own Stop is unchanged');
+});

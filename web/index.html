@@ -6873,6 +6873,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
+   size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
+.dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
+  font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -56848,6 +56852,12 @@ function dmOwesLine(owes) {
      ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
      first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
      timestamp rather than treating it as long ago. */
+  /* #4612: the agent finished a turn after this message and answered only in its own window (a Muse agent that never
+     ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
+  if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
+    return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
+      + '<blockquote class="dmunsent-text">' + esc(owes.unsent.text) + '</blockquote></div>';
+  }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }

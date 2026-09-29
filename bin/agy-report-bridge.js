@@ -179,6 +179,11 @@ function reportFor(eventName, payload) {
   if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
     return { state, text, waiting: { n: w.n, yours: w.yours } };
   }
+  /* #4612: the Muse front's turn answer ({ text, startedAt }) on its Stop; agy's payloads never carry it. */
+  const f = payload && typeof payload === 'object' ? payload.kosmosFinal : null;
+  if (state === 'idle' && f && typeof f === 'object' && typeof f.text === 'string' && f.text.trim() && typeof f.startedAt === 'string') {
+    return { state, text, final: { text: f.text.slice(0, 4000), startedAt: f.startedAt } };
+  }
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
@@ -188,10 +193,11 @@ function reportFor(eventName, payload) {
 
 /* The /api/report body. `auto: true` is the field the correctness argument rests on (a turn ending
    must not erase a blocked the agent filed deliberately, #1456); asserted by the test. */
-function buildBody(state, text, env, waiting) {
+function buildBody(state, text, env, waiting, final) {
   const e = env || process.env;
   const body = { state, text, on: '', owner: '', until: '', auto: true, from_pane: e.TMUX_PANE || '' };
   if (waiting) body.waiting = waiting;   // #4569 fix 4
+  if (final) body.final = final;         // #4612
   return body;
 }
 
@@ -262,7 +268,7 @@ async function main() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting)), signal: controller.signal,
+    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.final)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }

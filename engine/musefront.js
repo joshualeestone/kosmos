@@ -123,6 +123,8 @@ const DIGEST_MAX = 40;
    session ("already in use", muserun.BUSY). The note is tried again this many times, this far apart, before it
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
+/* #4612: the most of a turn's final answer sent to the board (the DM shows it when no reply arrived). */
+const FINAL_MAX = 4000;
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
 const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
@@ -206,6 +208,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
+        const startedAt = new Date().toISOString();   // #4612: the turn's start, which the board compares with the DM
         try {
           for (let tries = 0; ; tries++) {
             r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
@@ -222,7 +225,10 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        if (!queue.length) { noteSent = null; report('idle'); }
+        /* #4612: the turn's answer rides with the idle report, so the DM can show it when the agent answered here
+           in its own window but never ran kosmos reply. Only a turn that finished with words. */
+        const final = r && r.ok && text ? { text: text.slice(0, FINAL_MAX), startedAt } : null;
+        if (!queue.length) { noteSent = null; report('idle', null, final); }
         write(PROMPT);
       }
     } finally {
@@ -359,14 +365,17 @@ function makeReporter(o = {}) {
   const env = o.env || process.env;
   const bridge = o.bridge || env.KOSMOS_MUSE_BRIDGE || path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
   const EVENT = { working: 'PreInvocation', idle: 'Stop' };
-  return (state, waitingNow) => {
+  return (state, waitingNow, final) => {
     const ev = EVENT[state];
     if (!ev) return;
     try {
       const child = spawn(o.node || process.execPath, [bridge, ev], { stdio: ['pipe', 'ignore', 'ignore'], env });
       child.on('error', () => { /* a missed report must never stop a turn */ });
       // #4569 fix 4: the queue rides in the payload; agy's own payloads never carry this field.
-      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(waitingNow ? { kosmosWaiting: waitingNow } : {})); }
+      const payload = {};
+      if (waitingNow) payload.kosmosWaiting = waitingNow;
+      if (final) payload.kosmosFinal = final;   // #4612
+      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(payload)); }
       if (child.unref) child.unref();
     } catch { /* same */ }
   };
