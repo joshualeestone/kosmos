@@ -354,16 +354,17 @@ const BLOCK = [
   'a plain download (`curl`, say) is enough. If a page only works in a real browser,',
   'use a private browser of your own, never theirs, and close its pages too. Kosmos',
   'gives some agents one; its tools have `kosmos-browser` in their names. A tool',
-  'that drives the person\'s own browser counts as theirs, not yours. If you have',
-  'no private browser, tell the person you cannot read that page and give them the',
+  'that drives the person\'s own browser is not a private browser: the browser is',
+  'theirs, though any tab you open with it is still yours to close. If you have no',
+  'private browser, tell the person you cannot read that page and give them the',
   'address.',
   '',
   'The exceptions: a page the person must act on right now, such as a sign-in or a',
   'payment, or a page they ask you to open for them. You may open those in their',
-  'browser, tell them you did, and close them yourself only once they tell you they',
-  'have finished, if you can. Handing a link to their browser (`open`, `start`,',
-  '`Start-Process` or any such command) leaves a tab you have no way to close, so',
-  'do that only for these.',
+  'browser and tell them you did. If you opened it with a tool that can close it,',
+  'close it only once they tell you they have finished. Handing a link to their',
+  'browser (`open`, `start`, `Start-Process` or any such command) leaves a tab you',
+  'have no way to close, so do that only for these, and leave that tab to them.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -742,7 +743,8 @@ function block() {
  *     exceptions are a page they must act on now or ask to have opened, closed
  *     only once they say they are done, if the agent can. Only a tab the agent certainly opened
  *     is closed; an unsure agent leaves it, since it may hold the person's work.
- *     A tool that drives the person's own browser counts as theirs.
+ *     A tool that drives the person's own browser is not a private browser, but a
+ *     tab the agent opens with it is still the agent's to close.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so agents that already exist are
  *     re-offered it through the consented refresh, not only new ones.
