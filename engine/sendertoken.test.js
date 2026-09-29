@@ -139,6 +139,32 @@ test('#570: live() is the detection -- a second run of one agent is VISIBLE, not
   } finally { board.restore(); }
 });
 
+test('#4530: a relaunch from the same launcher replaces its earlier run, and only that launcher\'s', () => {
+  const board = fleet.install([fleet.agent('relaunched', { state: 'idle' })]);
+  try {
+    const remote = sendertoken.mint('relaunched');   // no launcher: a remote agent's, or one minted before #4530
+    const other = sendertoken.mint('relaunched', { launcher: 'supervisor:relaunched-discord' });
+    const first = sendertoken.mint('relaunched', { launcher: 'supervisor:relaunched', replaceLauncher: true });
+    const second = sendertoken.mint('relaunched', { launcher: 'supervisor:relaunched', replaceLauncher: true });
+    assert.equal(sendertoken.resolve(first.token, board.roster).ok, false, 'the previous run from this launcher still resolves');
+    assert.equal(sendertoken.resolve(second.token, board.roster).ok, true);
+    assert.equal(sendertoken.resolve(remote.token, board.roster).ok, true, 'a token with no launcher was swept');
+    assert.equal(sendertoken.resolve(other.token, board.roster).ok, true, 'another launcher\'s token was swept');
+    assert.deepEqual(sendertoken.live('relaunched').sort(), [remote.instance, other.instance, second.instance].sort());
+  } finally { board.restore(); }
+});
+
+test('#4530: a launcher without replaceLauncher still appends, so the tag alone changes nothing', () => {
+  const board = fleet.install([fleet.agent('tagged', { state: 'idle' })]);
+  try {
+    const one = sendertoken.mint('tagged', { launcher: 'supervisor:tagged' });
+    const two = sendertoken.mint('tagged', { launcher: 'supervisor:tagged' });
+    assert.equal(sendertoken.live('tagged').length, 2);
+    assert.equal(sendertoken.resolve(one.token, board.roster).ok, true);
+    assert.equal(sendertoken.resolve(two.token, board.roster).ok, true);
+  } finally { board.restore(); }
+});
+
 test('#570: revoke carries the guarantee mint used to -- a recreated agent inherits nothing', () => {
   /* 🛑 THE SEMANTIC THAT MOVED. #1000 relied on mint rotating. Minting now
      appends, so the creation path MUST revoke. This test is the contract. */

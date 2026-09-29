@@ -137,6 +137,7 @@ fi
 # exit: exiting would have launchd restart us every 30 seconds, and waiting
 # recovers on its own the moment that session ends.
 adopt=
+RUN_INSTANCE=""   # #4530: which run's sender token this supervisor retires when the run ends
 warned=0
 waited=0
 # ⚠️ SEAMS, defaulted to the shipped behaviour: the poll interval exists so
@@ -228,6 +229,101 @@ EOF
   fi
 done
 
+# #4530: where the engine (sendertoken.js) and a node are, for the mint at launch AND the
+# retire when the run ends. One resolver, both callers: the retire also runs on the adopt
+# path, which never enters the launch block below. Sets _app, _eng and NODE_BIN.
+resolve_token_engine() {
+  _app="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
+  # \U0001f6d1 #1139: TWO CANDIDATES, BECAUSE THE COPY THAT RUNS HAS NO `engine/`.
+  # `$_app/engine` is true in a checkout and in the bundle, and FALSE for every
+  # real agent: `installSupervisor` copies this script to SUPPORT_DIR/bin, and
+  # SUPPORT_DIR has `bin/` and nothing else. Measured -- the installed copy
+  # minted 0 while the identical file from a checkout minted 2, same
+  # invocation, same environment, only `dirname $0` differing. So no agent had
+  # ever received a token.
+  #
+  # There is no relative path from Application Support to wherever the app is
+  # installed, so the location has to come FROM THE BOARD. It writes
+  # `engine-path` beside this script in the same refresh that installs it,
+  # which means existing agents are fixed at the next board start with no
+  # plist rewrite -- their launchd jobs are never rewritten, so anything
+  # riding the argument vector would have reached new agents only.
+  _eng=""
+  if [ -n "$_app" ] && [ -f "$_app/engine/sendertoken.js" ]; then
+    _eng="$_app/engine"
+  else
+    _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"
+    if [ -f "$_ptr" ]; then
+      _cand="$(cat "$_ptr" 2>/dev/null || true)"
+      if [ -n "$_cand" ] && [ -f "$_cand/sendertoken.js" ]; then _eng="$_cand"; fi
+    fi
+  fi
+  # #1911: RESOLVE NODE ONCE, for every shell call below that needs it -- the
+  # mint (this block) and the codex-dismiss shim further down (both are in this
+  # same `if [ -z "$adopt" ]` scope, so NODE_BIN reaches both). The bundled node
+  # beside the engine is the ONLY node on a Kosmos-only host: no Homebrew, and
+  # the launchd PATH is just /usr/bin:/bin:/usr/sbin:/sbin. A source checkout
+  # falls through to the PATH node. A bare `node` fails on a user machine -- the
+  # #1911 class -- and the dismiss below used exactly that; one resolver, both
+  # callers, so the next shell wrapper cannot repeat it.
+  #
+  # The bundled node first, the same one install/kosmos uses; each candidate is
+  # tested -x before use, never a guess.
+  #
+  # \U0001f6d1 #1897: DERIVE NODE FROM $_eng, NOT $_app -- this is #1139 one
+  # variable over. $_app is `dirname($0)/..`, which is SUPPORT_DIR for every
+  # real agent (the supervisor is installed to SUPPORT_DIR/bin), so
+  # `$_app/../runtime/bin/node` pointed at ~/Library/Application Support/runtime,
+  # which does not exist. With no `node` on the agent's launchd PATH either,
+  # BOTH candidates were empty and the mint never ran -- no installed agent ever
+  # got a token, on any launch. $_eng is the engine the pointer already resolves
+  # correctly (KOSMOS_HOME/app/engine), and install/kosmos lays runtime beside
+  # app (setup.sh: `for part in bin app runtime`), so the bundled node is
+  # `$_eng/../../runtime/bin/node` -- true in the installed layout AND in the
+  # bundle (app/engine/../../runtime == bundle/runtime). $_eng may be empty (no
+  # engine, no pointer), in which case the bundled candidate expands away and
+  # only the PATH node is tried.
+  NODE_BIN=""
+  for _n in "${_eng:+$_eng/../../runtime/bin/node}" "$(command -v node 2>/dev/null || true)"; do
+    [ -n "${_n:-}" ] && [ -x "$_n" ] && { NODE_BIN="$_n"; break; }
+  done
+}
+
+# The name the board files this agent under, and so the key its sender tokens live
+# under: the session minus a +world suffix, then minus -discord. #1704: the +world strip
+# comes FIRST, because a world id can end in `-discord` (CLEAN_ID allows it), so a
+# -discord strip before the +world parse would mangle `sales-bot+qa-discord`.
+token_roster_name() {
+  _tr="$SESSION"
+  if [ -n "${KOSMOS_WORLD:-}" ]; then _tr="${_tr%+"$KOSMOS_WORLD"}"; fi
+  printf '%s' "${_tr%-discord}"
+  unset _tr
+}
+
+# #4530: retire THIS run's sender token once the run is over, as the Windows supervisor
+# does (win32create.retireRun). Before this, every past launch stayed a valid credential
+# until 32 newer ones pushed it out, so any launch that ever leaked stayed usable.
+# RUN_INSTANCE is the instance this run was minted with (the launch path), or the one the
+# session recorded (the adopt path, where a restarted supervisor took over a live run).
+# Best effort and silent, like the mint: it must never be the reason a supervisor fails.
+# The world's roots are applied here only when the launch block did not already export
+# them (the adopt path): applying them twice would nest one world inside another.
+retire_run_token() {
+  [ -n "${RUN_INSTANCE:-}" ] || return 0
+  if [ -z "${_eng:-}" ] || [ -z "${NODE_BIN:-}" ]; then resolve_token_engine; fi
+  [ -n "${_eng:-}" ] && [ -n "${NODE_BIN:-}" ] || return 0
+  "$NODE_BIN" -e '
+    try {
+      const eng = process.argv[1];
+      if (process.argv[4] !== "1" && process.env.KOSMOS_WORLD) {
+        try { require(eng + "/worlds.js").applyAgentWorldEnv(process.env); } catch (e) { /* the default roots, as the mint falls back */ }
+      }
+      require(eng + "/sendertoken.js").retire(process.argv[2], process.argv[3]);
+    } catch (e) { /* a retire is never worth a failed supervisor */ }
+  ' "$_eng" "$(token_roster_name)" "$RUN_INSTANCE" "${_world_applied:-0}" >/dev/null 2>&1 || true
+  RUN_INSTANCE=""
+}
+
 # --dangerously-skip-permissions is not optional for an unattended agent.
 # Without it the agent starts, looks healthy, and freezes forever on its first
 # permission prompt with nobody there to answer it.
@@ -281,60 +377,7 @@ if [ -z "$adopt" ]; then
     # and today's pane-derived identity. A missing token costs attribution; a broken
     # launch costs the fleet.
     KOSMOS_AGENT_TOKEN=""
-    _app="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
-    # \U0001f6d1 #1139: TWO CANDIDATES, BECAUSE THE COPY THAT RUNS HAS NO `engine/`.
-    # `$_app/engine` is true in a checkout and in the bundle, and FALSE for every
-    # real agent: `installSupervisor` copies this script to SUPPORT_DIR/bin, and
-    # SUPPORT_DIR has `bin/` and nothing else. Measured -- the installed copy
-    # minted 0 while the identical file from a checkout minted 2, same
-    # invocation, same environment, only `dirname $0` differing. So no agent had
-    # ever received a token.
-    #
-    # There is no relative path from Application Support to wherever the app is
-    # installed, so the location has to come FROM THE BOARD. It writes
-    # `engine-path` beside this script in the same refresh that installs it,
-    # which means existing agents are fixed at the next board start with no
-    # plist rewrite -- their launchd jobs are never rewritten, so anything
-    # riding the argument vector would have reached new agents only.
-    _eng=""
-    if [ -n "$_app" ] && [ -f "$_app/engine/sendertoken.js" ]; then
-      _eng="$_app/engine"
-    else
-      _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"
-      if [ -f "$_ptr" ]; then
-        _cand="$(cat "$_ptr" 2>/dev/null || true)"
-        if [ -n "$_cand" ] && [ -f "$_cand/sendertoken.js" ]; then _eng="$_cand"; fi
-      fi
-    fi
-    # #1911: RESOLVE NODE ONCE, for every shell call below that needs it -- the
-    # mint (this block) and the codex-dismiss shim further down (both are in this
-    # same `if [ -z "$adopt" ]` scope, so NODE_BIN reaches both). The bundled node
-    # beside the engine is the ONLY node on a Kosmos-only host: no Homebrew, and
-    # the launchd PATH is just /usr/bin:/bin:/usr/sbin:/sbin. A source checkout
-    # falls through to the PATH node. A bare `node` fails on a user machine -- the
-    # #1911 class -- and the dismiss below used exactly that; one resolver, both
-    # callers, so the next shell wrapper cannot repeat it.
-    #
-    # The bundled node first, the same one install/kosmos uses; each candidate is
-    # tested -x before use, never a guess.
-    #
-    # \U0001f6d1 #1897: DERIVE NODE FROM $_eng, NOT $_app -- this is #1139 one
-    # variable over. $_app is `dirname($0)/..`, which is SUPPORT_DIR for every
-    # real agent (the supervisor is installed to SUPPORT_DIR/bin), so
-    # `$_app/../runtime/bin/node` pointed at ~/Library/Application Support/runtime,
-    # which does not exist. With no `node` on the agent's launchd PATH either,
-    # BOTH candidates were empty and the mint never ran -- no installed agent ever
-    # got a token, on any launch. $_eng is the engine the pointer already resolves
-    # correctly (KOSMOS_HOME/app/engine), and install/kosmos lays runtime beside
-    # app (setup.sh: `for part in bin app runtime`), so the bundled node is
-    # `$_eng/../../runtime/bin/node` -- true in the installed layout AND in the
-    # bundle (app/engine/../../runtime == bundle/runtime). $_eng may be empty (no
-    # engine, no pointer), in which case the bundled candidate expands away and
-    # only the PATH node is tried.
-    NODE_BIN=""
-    for _n in "${_eng:+$_eng/../../runtime/bin/node}" "$(command -v node 2>/dev/null || true)"; do
-      [ -n "${_n:-}" ] && [ -x "$_n" ] && { NODE_BIN="$_n"; break; }
-    done
+    resolve_token_engine
     # ── #1704: THIS AGENT'S KOSMOS ──────────────────────────────────────────
     # The plist set KOSMOS_WORLD for a named world (absent = the default world).
     # Resolve it into this world's store roots ONCE, here, and export them, so
@@ -367,6 +410,9 @@ if [ -z "$adopt" ]; then
           defence, not an expected path. */ }
       ' "$_eng/worlds.js" 2>/dev/null || true)
     fi
+    # #4530: this block has settled the world's roots for this shell (exported, or the
+    # default if it could not), so the retire at the end must not apply them again.
+    _world_applied=1
     # The mint needs BOTH the engine (for sendertoken.js) and a node. No engine
     # means no token rather than a broken one (the control the test asserts).
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ]; then
@@ -379,16 +425,23 @@ if [ -z "$adopt" ]; then
       # FIRST, then -discord -- a world id can end in `-discord` (CLEAN_ID allows
       # it), so a -discord strip before the +world parse would mangle
       # `sales-bot+qa-discord` into `sales-bot+qa`.
-      _roster="$SESSION"
-      if [ -n "${KOSMOS_WORLD:-}" ]; then _roster="${_roster%+"$KOSMOS_WORLD"}"; fi
-      _roster="${_roster%-discord}"
-      KOSMOS_AGENT_TOKEN="$("$NODE_BIN" -e '
+      _roster="$(token_roster_name)"
+      # #4530: tagged with THIS session, replacing the tokens earlier runs of it were
+      # minted: we are here only because no session of this name exists, so every one
+      # of those runs has ended, and until now each stayed a valid credential (up to
+      # 32 per agent). The instance comes back beside the token so this run can retire
+      # its own when it ends (below the supervision loop). Two words: token, instance.
+      _minted="$("$NODE_BIN" -e '
         try {
           const s = require(process.argv[1]);
-          const r = s.mint(process.argv[2]);
-          if (r && r.ok) process.stdout.write(r.token);
+          const r = s.mint(process.argv[2], { launcher: "supervisor:" + process.argv[3], replaceLauncher: true });
+          if (r && r.ok) process.stdout.write(r.token + (r.instance ? " " + r.instance : ""));
         } catch (e) { /* a mint is never worth a failed launch */ }
-      ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)"
+      ' "$_eng/sendertoken.js" "$_roster" "$SESSION" 2>/dev/null || true)"
+      KOSMOS_AGENT_TOKEN="${_minted%% *}"
+      case "$_minted" in *" "*) RUN_INSTANCE="${_minted#* }" ;; esac
+      case "${RUN_INSTANCE:-}" in ''|*[!0-9a-f]*) RUN_INSTANCE="" ;; esac
+      unset _minted
     fi
     # Only a hex token is a token. Anything else -- a stray warning on stdout, a
     # partial write -- is discarded rather than exported, because a malformed
@@ -1015,6 +1068,16 @@ fi
 # it, and the board reads a fact instead of inferring one.
 "$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER" \
   || say "could not record $SESSION's runner -- the board will read it as claude"
+# #4530: which run's sender token this session holds, so the supervisor that sees it end
+# can retire that token even when it is not the one that launched it (a supervisor
+# restarted mid-run adopts the live session and never minted). The instance is a label,
+# not a secret (sendertoken.js), and it dies with the session like the claim above.
+if [ -z "$adopt" ] && [ -n "$RUN_INSTANCE" ]; then
+  "$TMUX_BIN" set-option -t "$SESSION" @kosmos_token_instance "$RUN_INSTANCE" 2>/dev/null || true
+elif [ -n "$adopt" ]; then
+  RUN_INSTANCE="$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_token_instance 2>/dev/null || true)"
+  case "$RUN_INSTANCE" in ''|*[!0-9a-f]*) RUN_INSTANCE="" ;; esac
+fi
 
 # #4417, for an Antigravity agent THIS run launched (the vars below start empty at the top of this script and are
 # set only in its launch arm). AFTER the claim above, on purpose: the board ties a report to an agent only once its session carries
@@ -1062,3 +1125,7 @@ unset _LAUNCH_TOKEN
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   sleep 10
 done
+# #4530: the run is over, so its sender token stops being a credential now rather than
+# when 32 newer launches push it out. Only here, after the session is gone: a supervisor
+# stopped by a signal exits above without retiring, because its run may still be alive.
+retire_run_token

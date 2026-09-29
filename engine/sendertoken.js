@@ -170,20 +170,32 @@ function withSessionLock(sessionName, fn) {
 /**
  * A token for ONE launch of this agent. Returns `{ ok, token, instance }`.
  * Appends: previously minted tokens keep working, which is the point.
+ *
+ * #4530: `opts.launcher` names WHAT launched this run (the Mac supervisor passes
+ * `supervisor:<tmux session>`), recorded on the token. With `opts.replaceLauncher`
+ * the earlier tokens carrying that SAME launcher are dropped in the same locked
+ * write. The supervisor launches a session only when none of that name exists, so
+ * every earlier run it launched there has ended and its token is a stale credential
+ * (Scorpion had 18). Tokens with another launcher or none (a remote agent's, an
+ * adoption's, anything minted before #4530) are untouched, so this is not the
+ * rotation #1000 had: two runs from two launchers still coexist and `live()` still
+ * shows them.
  */
-function mint(sessionName) {
+function mint(sessionName, opts = {}) {
   try { fileFor(sessionName); } catch {
     return { ok: false, because: 'that is not a name we can key a token on' };
   }
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
   const instance = crypto.randomBytes(INSTANCE_BYTES).toString('hex');
+  const launcher = (opts && typeof opts.launcher === 'string' && opts.launcher) ? opts.launcher : null;
+  const replace = Boolean(launcher && opts.replaceLauncher);
   let held;
   try {
     /* #1782: read and write under the lock, so a concurrent launch cannot build
        its write from a list that predates ours and drop this token. */
     held = withSessionLock(sessionName, () => {
-      const tokens = readTokens(sessionName);
-      tokens.push({ token, instance, mintedAt: new Date().toISOString() });
+      const tokens = readTokens(sessionName).filter((t) => !(replace && t.launcher === launcher));
+      tokens.push({ token, instance, mintedAt: new Date().toISOString(), ...(launcher ? { launcher } : {}) });
       writeTokens(sessionName, tokens.slice(-MAX_LIVE));
     });
   } catch (e) {
