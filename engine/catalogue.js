@@ -17,6 +17,10 @@
  *
  * It must not require ./roles at load: roles.js requires this module while it
  * builds ROLES. `memberInstructions` requires it lazily, when roles is complete.
+ *
+ * The data is loaded on first use, and a missing or broken data module THROWS from
+ * the accessor that loads it. roles.js catches that for the roles; a caller of
+ * teams(), team(), memberProblem() or memberInstructions() handles it itself.
  */
 const path = require('node:path');
 
