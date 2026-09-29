@@ -7,6 +7,18 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 . "$REPO/tools/lib/cut-load-guard.sh"
 
+# #4458: the cut's step 3 runs this suite INSIDE the cut's own environment, so a cut launched with
+# KOSMOS_CUT_PARALLEL=1 handed that to the "default is serial" arm and failed its own step 3. Every
+# KOSMOS_ variable the guard reads is cleared here, listed FROM the guard so a variable it gains later is
+# cleared too (a copied list would go stale silently). The arms below then set exactly what each tests.
+_guard_vars="$(grep -oE '\$\{?KOSMOS_[A-Z_0-9]+' "$REPO/tools/lib/cut-load-guard.sh" | tr -d '${' | sort -u)"
+if [ -z "$_guard_vars" ]; then
+  echo "  FAIL  could not list the KOSMOS_ variables tools/lib/cut-load-guard.sh reads; nothing was cleared"
+  echo "test-cut-load-guard: 1 FAILED"
+  exit 1
+fi
+for _v in $_guard_vars; do unset "$_v"; done
+
 fails=0
 ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
@@ -192,6 +204,24 @@ grep -qF 'if kosmos_cut_parallel_ok; then _cut_parallel=1; fi' "$RELSH" \
 grep -qF '#2760-P1 gated-steps region START' "$RELSH" && grep -qF '#2760-P1 gated-steps region END' "$RELSH" \
   && ok "INTEGRATION: release.sh keeps both #2760-P1 region markers (the behavioural test extracts between them)" \
   || bad "INTEGRATION: a #2760-P1 region marker is missing -- tools/test-cut-parallel-region.sh can no longer extract the region"
+
+# #4458 regression: the whole file again with every variable the guard reads set to a value that would
+# break an arm if it leaked through, as a parallel cut's environment does. Once only (the rerun skips this).
+if [ -z "${_CUT_GUARD_HOSTILE_RUN:-}" ]; then
+  _hostile=()
+  for _v in $_guard_vars; do
+    case "$_v" in
+      KOSMOS_CUT_PARALLEL)  _hostile+=("$_v=1") ;;
+      KOSMOS_LOADAVG_RAW)   _hostile+=("$_v=junk") ;;
+      *)                    _hostile+=("$_v=7") ;;
+    esac
+  done
+  if _out="$(env "${_hostile[@]}" _CUT_GUARD_HOSTILE_RUN=1 bash "$0" 2>&1)"; then
+    ok "#4458: the file passes with every guard variable inherited (${#_hostile[@]} set, as a parallel cut has them)"
+  else
+    bad "#4458: an inherited guard variable changed an arm's answer: $(printf '%s\n' "$_out" | grep 'FAIL' | head -3 | tr '\n' ' ')"
+  fi
+fi
 
 echo ""
 if [ "$fails" -eq 0 ]; then
