@@ -211,6 +211,36 @@ async function run() {
       check('ORPHAN: and the result says so', /1 agent now reports to you, because their manager was not created\./.test(t), t);
     } else check('ORPHAN: the panel offers a file', false);
     await p5.close();
+
+    // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
+    // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.
+    const p6 = await page();
+    const puts6 = [];
+    await p6.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created',
+        created: body.members.map((m) => ({ name: m.name === 'head-of-sales' ? 'head-of-sales-2' : m.name, shownAs: m.label })), refused: [] } });
+    });
+    await p6.route('**/api/agent/*/profile', (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      puts6.push({ name, body: r.request().postData() });
+      r.fulfill(name === 'sales-engineer' ? { status: 404, json: { error: 'no agent by that name' } } : { status: 200, json: { ok: true } });
+    });
+    await p6.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { source: 'file', rows: PICTURE_ROWS.map((x) => ({ ...x, why: null })), problems: [] } }));
+    await openPanel(p6);
+    if (await p6.$('#orgchart-file-btn')) {
+      await p6.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await p6.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await p6.click('#orgchart-create');
+      await p6.waitForFunction(() => /Created 4 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await p6.waitForFunction(() => !document.getElementById('orgchart-msg').hidden, null, { timeout: 5000 }).catch(() => {});
+      const m6 = await p6.evaluate(() => document.getElementById('orgchart-msg').textContent);
+      const sorted = puts6.map((x) => x.name + '=' + x.body).sort();
+      check('RENAMED: the reports of a manager created under another name are re-pointed to that name',
+        JSON.stringify(sorted) === JSON.stringify(['account-executive={"reportsTo":"head-of-sales-2"}', 'sales-engineer={"reportsTo":"head-of-sales-2"}']), JSON.stringify(sorted));
+      check('FAILED: an update that failed is named, and nothing is claimed for it', /We could not update who sales-engineer reports to/.test(m6) && !/now reports to you/.test(m6), m6);
+    } else check('RENAMED: the panel offers a file', false);
+    await p6.close();
   } finally {
     await browser.close();
   }

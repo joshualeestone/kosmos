@@ -148,6 +148,27 @@ const colIndex = (ref) => {
   return n - 1;
 };
 
+/* Each <tag ...>...</tag> block's inner text, found by walking with indexOf. A regex with a lazy body rescans to the
+   end of the text for every opener that has no closer, which a crafted sheet can make quadratic on the board's only
+   thread; this stops at the first opener without a closer. */
+function* blocks(text, tag) {
+  const open = '<' + tag;
+  const close = '</' + tag + '>';
+  let at = 0;
+  for (;;) {
+    let i = text.indexOf(open, at);
+    while (i >= 0 && !/[\s>/]/.test(text[i + open.length] || '')) i = text.indexOf(open, i + 1);   // <row, not <rows
+    if (i < 0) return;
+    const gt = text.indexOf('>', i);
+    if (gt < 0) return;
+    if (text[gt - 1] === '/') { at = gt + 1; yield ''; continue; }   // <row/>: an empty block
+    const end = text.indexOf(close, gt);
+    if (end < 0) return;
+    yield text.slice(gt + 1, end);
+    at = end + close.length;
+  }
+}
+
 /* The first sheet of an XLSX as rows of strings. The workbook names its sheets in order; the first
    one's r:id is looked up in the workbook's relationships to find its part. */
 function readXlsx(buf) {
@@ -167,15 +188,16 @@ function readXlsx(buf) {
   if (!sheet) throw new Error('this workbook has no readable first sheet');
   const shared = [];
   const sst = get('xl/sharedStrings.xml');
-  if (sst) for (const m of sst.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+  if (sst) for (const si of blocks(sst, 'si')) {
     /* A rich-text string is several <t> runs; phonetic hints (<rPh>) are not part of the text. */
-    shared.push(xmlText(m[1].replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').replace(/<\/t>\s*<t[^>]*>/g, '')));
+    shared.push(xmlText(si.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').replace(/<\/t>\s*<t[^>]*>/g, '')));
+    if (shared.length > MAX_ROWS * 64) break;
   }
   const rows = [];
-  for (const rm of sheet.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const rowText of blocks(sheet, 'row')) {
     const row = [];
     let next = 0;
-    for (const cm of rm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const cm of rowText.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const tag = '<c' + cm[1] + '>';
       const at = colIndex(attr(tag, 'r'));
       const i = at == null ? next : at;
@@ -230,7 +252,7 @@ function tableToPeople(table) {
     let person = cell(r, 'person');
     if (!person && (col.first != null || col.last != null)) person = [cell(r, 'first'), cell(r, 'last')].filter(Boolean).join(' ');
     if (!title && !person) continue;
-    people.push({ person: plain(person, MAX_PERSON), title: plain(title || person, MAX_TITLE), id: cell(r, 'id'), manager: cell(r, 'manager') });
+    people.push({ person: plain(person, MAX_PERSON), title: plain(title || person, MAX_TITLE), id: plain(cell(r, 'id'), MAX_TITLE), manager: plain(cell(r, 'manager'), MAX_PERSON) });
   }
   return resolve(people, table.length - 1 > MAX_ROWS);
 }
@@ -241,7 +263,7 @@ function resolve(people, truncated) {
   const byId = new Map();
   const byName = new Map();
   people.forEach((p, i) => {
-    if (p.id) byId.set(p.id.toLowerCase(), i);
+    if (p.id) { const k = p.id.toLowerCase(); byId.set(k, byId.has(k) ? -1 : i); }   // -1: two rows share this id
     if (p.person) {
       const k = p.person.toLowerCase();
       byName.set(k, byName.has(k) ? -1 : i);   // -1: two rows share this name
@@ -253,7 +275,7 @@ function resolve(people, truncated) {
     if (!m) return;
     const k = m.toLowerCase();
     let at = byId.has(k) ? byId.get(k) : (byName.has(k) ? byName.get(k) : null);
-    if (at === -1) { rows[i].why = `two people are called ${m}, so we cannot tell which one they report to`; return; }
+    if (at === -1) { rows[i].why = `two people have ${m} in the file, so we cannot tell which one they report to`; return; }
     if (at == null) { rows[i].why = `their manager, ${m}, is not in the file`; return; }
     if (at === i) { rows[i].why = 'the file says they report to themselves'; return; }
     rows[i].reportsTo = at;
@@ -400,6 +422,9 @@ function defaultModelRunner(line) {
         if (result.is_error) { resolve({ ok: false, because: 'Claude could not read it (' + String(result.result || result.subtype || 'error').slice(0, 120) + ')' }); return; }
         resolve({ ok: true, structured: result.structured_output });
       });
+    /* If claude exits before reading the whole request (not signed in, killed at the timeout), writing the rest
+       raises EPIPE on stdin; unhandled, that would take down the board. The exec callback reports the failure. */
+    child.stdin.on('error', () => {});
     child.stdin.end(line);
   });
 }
