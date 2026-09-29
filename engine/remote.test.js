@@ -285,7 +285,10 @@ if (args[0] === 'run') {
     process.on('SIGTERM', () => process.exit(0));
   } else {
   const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
-  fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', address, because: null, pid: process.pid }) + '\\n');
+  const up = { state: 'up', address, because: null, pid: process.pid };
+  if (mode.includes('admits-hooks-string')) up.admits_hooks = 'true';
+  else if (mode.includes('admits-hooks')) up.admits_hooks = true;
+  fs.writeFileSync(statusFile, JSON.stringify(up) + '\\n');
   setInterval(() => {}, 1000);
   process.on('SIGTERM', () => process.exit(0));
   }
@@ -812,6 +815,25 @@ test('#4277: the remembered failure belongs to one tunnel process: a new process
     assert.equal(remote.status().because, 'starting the connection', 'fixture: the new process must not have written yet');
     assert.equal(remote.lastTunnelFailure(), null, 'a new process inherited the old process\'s failure');
     assert.equal(require('./remote-report').build().error, 'starting', 'a fresh tunnel read as stuck');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
+});
+
+test('#4419: status says the connector admits webhooks only when the running connector wrote admits_hooks: true', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9455';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  const upWith = async (mode, port) => {
+    remote.resetForTests();
+    if (mode) process.env.FAKE_TUNNEL_MODE = mode; else delete process.env.FAKE_TUNNEL_MODE;
+    remote.ensure(port);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    return remote.status();
+  };
+  try {
+    assert.equal((await upWith('admits-hooks', 4461)).admitsHooks, true);
+    assert.equal((await upWith('', 4462)).admitsHooks, false, 'an older connector that never writes the field admits nothing');
+    assert.equal((await upWith('admits-hooks-string', 4463)).admitsHooks, false, 'only a real true counts, not the text "true"');
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 

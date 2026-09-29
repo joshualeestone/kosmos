@@ -51154,7 +51154,12 @@ function pjsHooksPaint() {
       ? '<div class="pjs-hook-reveal">'
         + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
         + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
-        + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
+        + '<button class="btn" type="button" data-hook-copy="pjs-hook-url">Copy</button></div>'
+        + (PJS_HOOKS.reveal.publicUrl
+          ? '<p class="fhint" style="margin:10px 0 4px;">From the internet (Zapier, GitHub and the like):</p>'
+            + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-public" value="' + esc(PJS_HOOKS.reveal.publicUrl) + '" aria-label="The internet link for ' + esc(h.name) + '">'
+            + '<button class="btn" type="button" data-hook-copy="pjs-hook-public">Copy</button></div>'
+          : (PJS_HOOKS.reveal.publicWhy ? '<p class="fhint" style="margin:8px 0 0;">' + esc(PJS_HOOKS.reveal.publicWhy) + '</p>' : ''))
         + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
         + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
@@ -51194,7 +51199,7 @@ async function pjsHookAdd() {
     /* Settings moved to another project while this was being made: it belongs to the first one,
        so it is not shown here. Its link can no longer be shown; the person deletes it there. */
     if (PJS_HOOKS.projectId !== forProject) return;
-    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
+    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url, publicUrl: out.publicUrl || null, publicWhy: out.publicWhy || null };
     PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
     msg.textContent = '';
     pjsHooksPaint();
@@ -51259,8 +51264,8 @@ async function pjsHookDelete(id) {
   pjsHooksPaint();
   msg.focus();
 }
-async function pjsHookCopy() {
-  const input = document.getElementById('pjs-hook-url');
+async function pjsHookCopy(which) {
+  const input = document.getElementById(which === 'pjs-hook-public' ? 'pjs-hook-public' : 'pjs-hook-url');
   const said = document.getElementById('pjs-hook-copied');
   if (!input) return;
   let ok = false;
@@ -51272,7 +51277,7 @@ document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.hookCopy) { pjsHookCopy(); return; }
+  if (b.dataset.hookCopy) { pjsHookCopy(b.dataset.hookCopy); return; }
   if (b.dataset.hookDone) { PJS_HOOKS.reveal = null; pjsHooksPaint(); document.getElementById('pjs-hook-add').focus(); return; }
   if (b.dataset.hookDelete) {
     PJS_HOOKS.confirm = b.dataset.hookDelete;

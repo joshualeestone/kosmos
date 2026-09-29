@@ -177,6 +177,28 @@ test('a deleted webhook stops verifying even when the store file\'s stat does no
   } finally { fs.statSync = realStat; }
 });
 
+test('#4419: the internet link is given only when Kosmos Plus is up and the running connector admits webhooks', async () => {
+  const remote = require('./engine/remote');
+  const real = remote.status;
+  const make = async (st) => { remote.status = () => st; try { return (await api(P(), { method: 'POST', body: {} })).json; } finally { remote.status = real; } };
+  try {
+    const on = await make({ state: 'up', address: 'Hers.kosmosplus.com', because: null, admitsHooks: true });
+    const tail = on.url.replace(/^http:\/\/127\.0\.0\.1:\d+/, '');
+    assert.equal(on.publicUrl, 'https://hers.kosmosplus.com' + tail, 'the same id and secret, on this computer\'s public name');
+    assert.equal(on.publicWhy, null);
+    const old = await make({ state: 'up', address: 'hers.kosmosplus.com', because: null, admitsHooks: false });
+    assert.equal(old.publicUrl, null, 'an older connector refuses /hooks/, so no link it would refuse');
+    assert.match(old.publicWhy, /next Kosmos Plus update/);
+    const off = await make({ state: 'off', address: null, because: 'the switch is off' });
+    assert.equal(off.publicUrl, null);
+    assert.match(off.publicWhy, /With Kosmos Plus on/);
+    const odd = await make({ state: 'up', address: 'hers.kosmosplus.com/evil?', because: null, admitsHooks: true });
+    assert.equal(odd.publicUrl, null, 'an address that is not a plain host name is never put in a link');
+    // CONTROL: the local link is there in every case.
+    for (const r of [on, old, off, odd]) assert.match(r.url, /^http:\/\/127\.0\.0\.1:\d+\/hooks\/[0-9a-f]{16}\/[A-Za-z0-9_-]{43}$/);
+  } finally { remote.status = real; }
+});
+
 test('bad input is refused with a sentence and adds nothing', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Input' } });
   const before = projects.get(projectId).tasks.length;

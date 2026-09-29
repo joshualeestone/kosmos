@@ -98,6 +98,23 @@ test('pjsHooksPaint escapes the name everywhere it lands, and shows the link onl
   assert.match(box.innerHTML, /not used yet/);
 });
 
+test('#4419: the revealed row shows the internet link with its own Copy when there is one, else the sentence why', () => {
+  const box = stubBox();
+  const { pjsHooksPaint, PJS_HOOKS } = load(box);
+  PJS_HOOKS.list = [{ id: 'bbbbbbbbbbbbbbbb', name: 'Plain', createdAt: null, lastUsedAt: null }];
+  PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET', publicUrl: 'https://hers.kosmosplus.com/hooks/bbbbbbbbbbbbbbbb/SECRET"><b>', publicWhy: null };
+  pjsHooksPaint();
+  assert.ok(box.innerHTML.includes('id="pjs-hook-public"'), 'no internet link field');
+  assert.ok(box.innerHTML.includes('data-hook-copy="pjs-hook-public"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'), 'each link has its own Copy');
+  assert.ok(!box.innerHTML.includes('"><b>') && box.innerHTML.includes('&quot;&gt;&lt;b&gt;'), 'the internet link is escaped');
+  PJS_HOOKS.reveal = { id: 'bbbbbbbbbbbbbbbb', url: 'http://127.0.0.1:1/hooks/bbbbbbbbbbbbbbbb/SECRET', publicUrl: null, publicWhy: 'This link works for programs on this computer for now.' };
+  pjsHooksPaint();
+  assert.ok(!box.innerHTML.includes('id="pjs-hook-public"'), 'an internet link field with nothing to show');
+  assert.ok(box.innerHTML.includes('works for programs on this computer for now'), 'the reason is not said');
+  // CONTROL: the local link and its Copy are there either way.
+  assert.ok(box.innerHTML.includes('id="pjs-hook-url"') && box.innerHTML.includes('data-hook-copy="pjs-hook-url"'));
+});
+
 test('pjsHooksPaint keeps a half-typed name through a repaint; an untouched row shows the stored name', () => {
   const box = stubBox();
   const { pjsHooksPaint, PJS_HOOKS } = load(box);

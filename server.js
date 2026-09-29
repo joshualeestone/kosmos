@@ -1091,6 +1091,22 @@ const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10
    🔑 The project bucket is keyed by the project AS MADE (id plus createdAt), like the webhooks
    themselves: ids are reused, so a deleted project's spent hour must not fall on a new project
    that happens to share its name. */
+/* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
+   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   otherwise publicWhy says, in words for the page, why there is none. */
+const HOOK_HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+function hookPublicLink(id, secret) {
+  let st = null;
+  try { st = remote.status(); } catch { st = null; }
+  if (!st || st.state !== 'up') {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer. With Kosmos Plus on, you also get a link that works from the internet.' };
+  }
+  if (st.admitsHooks !== true || !HOOK_HOST_RE.test(String(st.address || ''))) {
+    return { publicUrl: null, publicWhy: 'This link works for programs on this computer for now. A link that works from the internet comes with the next Kosmos Plus update.' };
+  }
+  return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
+}
+
 function hookRateProblem(id, projectId, now = Date.now()) {
   const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
   const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);
@@ -16138,7 +16154,7 @@ const server = http.createServer((req, res) => {
         let made;
         try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
         const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
-        sendJson(res, 201, { webhook: made.hook, url });
+        sendJson(res, 201, { webhook: made.hook, url, ...hookPublicLink(made.hook.id, made.secret) });
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
