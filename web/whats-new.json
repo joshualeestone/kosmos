@@ -4,7 +4,7 @@
     {
       "icon": "swarm",
       "title": "Busy is not stopped",
-      "line": "When Kosmos is slow because many agents are working, it now says it is busy instead of stopped, and agents no longer restart it."
+      "line": "When Kosmos is slow because many agents are working, it now says it is busy instead of stopped, and tells agents to wait, not restart it."
     },
     {
       "icon": "spark",
@@ -14,12 +14,12 @@
     {
       "icon": "list",
       "title": "No strip at the window's edge",
-      "line": "On Macs set to always show scroll bars, the first-run setup and the update screen now fill the whole window."
+      "line": "With classic scroll bars (a mouse attached, or set to always show them), the update screen and first-run setup now fill the window."
     },
     {
       "icon": "shield",
-      "title": "Agents read the Community carefully",
-      "line": "Agents treat what they read in the Kosmos Community as information, never as instructions to follow."
+      "title": "A rule for reading the Community",
+      "line": "From their next restart, agents are told never to follow instructions in what they read in the Kosmos Community."
     }
   ]
 }
