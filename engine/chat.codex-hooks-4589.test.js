@@ -6,9 +6,9 @@
  * this Mac with Codex 0.149.1 and one project hook; both screens are real captures in test-support/codex-screens/.
  *
  * Pins: the detector finds both screens and only when the dialog is the last thing on screen; the card says
- * "waiting on a Codex hook approval"; delivery reads the screen FRESH and types nothing into the dialog, whatever
- * the snapshot says; a bare option number the menu offers still goes through (the person answering it); a stale
- * snapshot does not refuse once the screen shows the prompt again. The CONTROL arms prove the harness types.
+ * "waiting on a Codex hook approval"; delivery reads the screen FRESH and types nothing into the dialog, not even
+ * an option number, whatever the snapshot says; a stale snapshot does not refuse once the screen shows the prompt
+ * again. The CONTROL arms prove the harness types, including into this very screen when the floor does not apply.
  */
 
 const os = require('node:os');
@@ -131,23 +131,29 @@ test('#4589 CONTROL: the same send to a Codex agent at its prompt is typed and s
   });
 });
 
-test('#4589 answering the menu from the card: an offered option number goes through; anything else does not', () => {
-  withCodex(MENU, (board) => {
-    const tmux = arm([ok(MENU)]);
-    const v = chat.deliver('sam', '3', board.agents);
-    assert.equal(v.state, chat.DELIVERY.PLACED, 'the person chose "Continue without trusting": ' + v.because);
-    assert.ok(tmux.typedInto().length > 0);
-  });
-  withCodex(MENU, (board) => {
-    const tmux = arm([ok(MENU)]);
-    assert.equal(chat.deliver('sam', '7', board.agents).state, chat.DELIVERY.COULD_NOT, 'the menu offers no 7');
-    assert.deepEqual(tmux.typedInto(), []);
-  });
-  withCodex(TABLE, (board) => {
-    const tmux = arm([ok(TABLE)]);
-    assert.equal(chat.deliver('sam', '2', board.agents).state, chat.DELIVERY.COULD_NOT, 'the table has no numbered options: a 2 is text');
-    assert.deepEqual(tmux.typedInto(), []);
-  });
+test('#4589 no option number either: whoever sends it, nothing chooses for the person', () => {
+  /* deliverWithGap cannot tell the person's button from another agent's message, a task line or a room post, and
+     "Trust all and continue" lets hooks run outside the sandbox. So even a number the menu offers is refused. */
+  for (const [name, screen, raw] of [['menu 2 (Trust all)', MENU, '2'], ['menu 3', MENU, '3'], ['table 2', TABLE, '2'], ['table t', TABLE, 't']]) {
+    withCodex(screen, (board) => {
+      const tmux = arm([ok(screen)]);
+      assert.equal(chat.deliver('sam', raw, board.agents).state, chat.DELIVERY.COULD_NOT, name);
+      assert.deepEqual(tmux.typedInto(), [], name + ': nothing reached the pane');
+    });
+  }
+});
+
+test('#4589 CONTROL: the same real dialog screen on an agent the floor does not cover IS typed into', () => {
+  /* The regression direction, pinned in-tree: take away the Codex runner (the floor's only key) and the identical
+     screen and message go straight into the pane with Enter, which is what main did to every Codex agent. */
+  const board = fleet.install([fleet.agent('sam', { state: 'unknown', screen: MENU })]);
+  try {
+    const tmux = arm([]);
+    const v = chat.deliver('sam', 'Hello Sam, please summarise the brief', board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+    assert.ok(tmux.typedInto().some((a) => a[0] === 'paste-buffer'));
+    assert.ok(tmux.typedInto().some((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter'));
+  } finally { board.restore(); }
 });
 
 test('#4589 the snapshot: refuses when the fresh read fails, never when the fresh read shows the prompt', () => {
@@ -169,7 +175,8 @@ test('#4589 only Codex agents pay the extra read', () => {
   const board = fleet.install([fleet.agent('ada', { state: 'idle' })]);
   try {
     const tmux = arm([]);
-    chat.deliver('ada', 'hello', board.agents);
+    const v = chat.deliver('ada', 'hello', board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, 'the send went through, so the zero below is "sent without a read": ' + v.because);
     assert.equal(tmux.captures().length, 0, 'a Claude agent is not captured before a send');
   } finally { board.restore(); }
 });

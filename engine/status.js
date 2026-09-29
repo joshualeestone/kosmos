@@ -1574,7 +1574,8 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
    🔑 THE DIALOG IS THE LAST THING ON THE SCREEN, and that is what separates it from the same words in an
    agent's tool output: each screen's own footer must be the last non-blank row. The MENU draws at the
    TOP of the pane with the rest blank, so trailing blank rows are dropped first (a fixed "last 25 rows"
-   of the raw capture holds nothing but blanks there). Returns { screen: 'menu'|'table', evidence } or null. */
+   of the raw capture holds nothing but blanks there). Matched to 0.149.1's layout: a later Codex that draws a row
+   below either footer reads as no dialog. Returns { screen: 'menu'|'table', evidence } or null. */
 const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
 const CODEX_HOOK_MENU_FOOTER = /^\s*Press enter to confirm or esc to go back\s*$/;
 const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
@@ -1596,13 +1597,12 @@ function codexHookReview(paneText) {
   }
   return null;
 }
-/* The one sentence for it (the deliver refusal, the typed routes' 409, the card), about the AGENT: what it
-   is stopped on, that typing cannot answer it, and what to do. Trusting hooks is the person's call, so the
-   sentence never recommends an answer. Plain characters: rendered through textContent and as JSON. */
+/* The sentence the delivery refusal gives (engine/chat.js), about the AGENT: what it is stopped on, that typing
+   cannot answer it, and what to do. Trusting hooks is the person's call, so it recommends no answer. Plain
+   characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. Choose in its terminal, or with the buttons on its card when they show: trust the hooks, '
-  + 'or continue without them. Then send this again.';
+  + 'so nothing was typed. Choose in its terminal: trust the hooks, or continue without them. Then send this again.';
 /* True when a card's evidence is this dialog's, as isTrustDialogEvidence is for Claude's: only the Codex hook
    branch of classify writes these rows as needs_you evidence. */
 function isCodexHookEvidence(evidence) {

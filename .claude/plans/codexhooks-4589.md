@@ -18,9 +18,12 @@ test-support/codex-screens/.
 - classify, Codex branch: the dialog first -> needs_you, because "it is waiting on a Codex hook approval",
   evidence = the dialog's row. Before: both screens read "unknown" (measured on main).
 - engine/chat.js deliverWithGap: for a Codex agent, a FRESH capture before typing; either screen -> could_not
-  with the sentence, nothing typed. Covers every sender (person chat, msg, posts, task lines, sweeps, the
-  membership line after create). A bare option number the MENU offers goes through (the person answering it
-  from the card). The snapshot refuses only when the fresh read fails.
+  with the sentence, nothing typed, not even an option number. Covers every sender (person chat, msg, posts,
+  task lines, sweeps, the membership line after create). The snapshot refuses only when the fresh read fails.
+  A channel-reached (Windows) agent is skipped: no tmux pane.
+- Review iteration 1 removed a first-version pass-through for a bare option number: deliverWithGap cannot tell
+  the person's button from another agent's message, and "Trust all" lets hooks run outside the sandbox; the
+  person's real button answer also arrives inside the operator envelope, so it never matched anyway.
 
 ## Decided
 - Refuse-and-keep, not queue-and-send-later: the page records a refused person message in the conversation
