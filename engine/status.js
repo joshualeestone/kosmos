@@ -6298,6 +6298,17 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
+/* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
+   ended) whose `until` is the reset as an ISO time; nothing else writes an automatic idle with an until. Returns the
+   reset in epoch ms while it is still ahead of nowMs, else null. An agent's own `kosmos report idle --until Friday` is
+   not automatic and is not a time, so it never reads as a pause. */
+function quotaPauseUntil(reported, nowMs) {
+  if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
+  const at = typeof reported.until === 'string' ? Date.parse(reported.until) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
+}
+
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
@@ -6486,6 +6497,14 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   // Rule 2, the other direction: it said goodbye and is visibly still here.
   if (reported.state === 'stopped') {
     return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
+  }
+  /* #4588: paused on the account's shared Google quota until its reset (see quotaPauseUntil). The existing
+     rate_limited state, which the board already shows as Paused; the resume sweep (engine/agyquota.js) types a
+     carry-on line into the agent after the reset, and its next automatic working clears this. */
+  const quotaAt = quotaPauseUntil(reported, nowMs);
+  if (quotaAt !== null) {
+    const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: said('paused on its Google quota') + ' Resets at ' + hhmm + '.', evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the
@@ -7960,7 +7979,7 @@ module.exports = {
   setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, quotaPauseUntil, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
