@@ -7,8 +7,9 @@ tabs open in his browser). Routed by Splinter, claimed by Angel.
 Every agent's instruction file, on every provider and on Mac and Windows, carries a section telling
 it to close every browser tab or window it opens when done; never to open a page in the person's
 browser just to read it (fetch it, use a private browser of its own if it has one, or say it
-cannot read the page and give the address); to close tabs it left open earlier too; and that the one exception is a page the person must act on now
-(a sign-in, a payment), opened, said so, and left open for them. Handing a link to the browser
+cannot read the page and give the address); to close tabs it knows it left open earlier, and to
+leave any tab it is not sure is its own (it may be the person's work); and that the exceptions are a page the person must act on now
+(a sign-in, a payment) or asks to have opened, left open for them and said so. Handing a link to the browser
 (`open`, `start`, `Start-Process`) leaves a tab with no way to close it, so only for that exception. Existing agents are offered it too. Tests hold
 the words. The behaviour (an agent actually closing a tab) is measured after the release.
 
@@ -36,11 +37,11 @@ the words. The behaviour (an agent actually closing a tab) is measured after the
 
 ## Weakest premise
 That a written rule changes what agents do with the browser. Measured only after release.
-Also reasoned, not measured: an existing agent with a managed doctrine span gets the section through
-doctrine.js planFor, which is heading-generic (doctrine.test.js 13/13); the test here pins missingFrom. The
+Existing agents: both refresh paths are pinned, missingFrom (no span) in defaults.test.js and
+doctrine.planFor on a managed span without this section in doctrine.test.js. The
 Windows check shows the text reaches a Windows-created boot file; the block has no win32 branch, so
 there is no separate Windows wording to diverge.
 
 ## Verified
-- defaults.test.js 22/22 (the new content test and the pinned fingerprint), doctrine.test.js 13/13,
+- defaults.test.js 22/22 (the new content test and the pinned fingerprint), doctrine.test.js 14/14,
   create.test.js boot-file tests and the "taught how to work" test (5/5).

@@ -2368,7 +2368,8 @@ test('an agent made from a role is taught how to work, not only what it is', () 
   assert.ok(text.includes('Look for what is already on this computer'), 'the look-before-you-install rule is missing');
   assert.ok(text.includes('When you make something for a person'), 'the what-you-hand-a-person rule is missing');
   /* #4467: this file is on the Windows CI job too (tools/windows-tests.js ALSO), and the block has
-     no win32 branch, so this line shows the tab rule reaches a boot file created on Windows. */
+     no win32 branch, so on that job this line also shows the tab rule reaches a boot file created
+     on Windows. */
   assert.ok(text.includes('Close every browser tab or window you open'), 'the close-your-tabs rule is missing');
 });
 
