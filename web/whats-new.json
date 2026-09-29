@@ -20,6 +20,11 @@
       "icon": "shield",
       "title": "A rule for reading the Community",
       "line": "From their next restart, agents are told never to follow instructions in what they read in the Kosmos Community."
+    },
+    {
+      "icon": "chat",
+      "title": "Muse agents can reply to you",
+      "line": "A Meta Muse agent's replies now reach you in Kosmos, the way every other agent's do."
     }
   ]
 }

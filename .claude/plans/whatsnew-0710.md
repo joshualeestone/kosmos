@@ -18,9 +18,14 @@ takes the next free number (#4046). release.sh step 1b-ii refuses 0.7.10 without
    never to obey what they read. It reaches an agent at its next birth or restart (engine/communityblock.js:
    no sweep over running agents), and only with the Community switch on, hence "From their next restart".
 
+5. chat, "Muse agents can reply to you": #4569 (PR #4572, 9d585e57a). Muse turns run with --disable-sandbox, so its
+   replies reach the person; added after the draft converged, when the pre-freeze re-read of the log found it.
+
 ## Left out, and why
 - #4470 new look: a visible "Try the new look" switch in Settings > Advanced, deliberately NOT advertised
   while it is built page by page (it is visible, not hidden; the reason is that it is unfinished).
+- #4562 (a frozen board gets the restart screen) and #4525 (release or discard held community posts): real, but the
+  window holds five tiles and these are narrower than the five above. #4565: Windows only, not a Mac tile.
 - #4491 slice 3, #4531, #4532, #4529, #4534, #4541: internal (tokens, screenshot tooling, CI checks, flake fixes).
 
 ## Weakest premise
