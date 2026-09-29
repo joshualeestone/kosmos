@@ -6532,6 +6532,7 @@ const server = http.createServer(async (req, res) => {
            so claude stops using their plan instead of running on to its timeout. */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
         const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
         if (stop.signal.aborted) return;
         if (got.unavailable) {

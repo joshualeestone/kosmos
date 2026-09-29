@@ -46665,9 +46665,20 @@ function orgchartLoops(rows) {
 /* The preview: each row's title, who it came from (a file), who it reports to (editable), a "Check this"
    line when the reader was not sure, and the agent name last (the #1280 check reads the text after the arrow). */
 let ORGCHART_RESULT_SHOWN = false;   // the box shows a create's result, not a preview
+/* #4559: the most agents one create makes (engine/team.js MAX_TEAM_CAP, pinned equal by web.orgchart-parse-1280.test.js).
+   The person's own Create may raise the usual cap up to it (#2972), so a chart up to this size is made in one go;
+   past it the preview says so instead of painting a list Create would refuse (and a select per row of every row). */
+const ORGCHART_TEAM_MAX = 50;
 function orgchartPaint() {
   ORGCHART_RESULT_SHOWN = false;
   const rows = ORGCHART_PARSED || [];
+  if (rows.length > ORGCHART_TEAM_MAX) {
+    document.getElementById('orgchart-count').textContent = 'This list has ' + rows.length + ' people. Kosmos makes at most '
+      + ORGCHART_TEAM_MAX + ' agents at a time, so remove some or split the file, then preview again.';
+    document.getElementById('orgchart-list').replaceChildren();
+    document.getElementById('orgchart-create').disabled = true;
+    return;
+  }
   const loops = orgchartLoops(rows);
   const open = rows.filter((r, i) => (r.why && !r.confirmed) || loops.has(i)).length;
   const count = document.getElementById('orgchart-count');
@@ -46763,7 +46774,6 @@ async function orgchartSendFile(file, consent, seq) {
     out = await res.json().catch(() => null);
     if (!res.ok) { if (current()) msg.textContent = (out && out.error) || 'We could not read that file.'; return; }
   } catch {
-    if (ctl) { stopBtn.hidden = true; ORGCHART_READ_CTL = null; }
     if (ctl && ctl.signal.aborted) { if (current()) msg.textContent = 'Stopped. Nothing more was read.'; return; }
     if (current()) msg.textContent = 'We could not reach Kosmos to read that file. Try again.';
     return;
@@ -46865,6 +46875,7 @@ document.getElementById('orgchart-usenames').addEventListener('change', (e) => {
 
 document.getElementById('orgchart-preview').addEventListener('click', () => {
   if (ORGCHART_CREATING) return;
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();   // the box's preview replaces a file still being read, so its model call stops
   ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
   document.getElementById('orgchart-consent').hidden = true;   // and a picture still asking to be read is moved past
   ORGCHART_FILE_PENDING = null;
@@ -46938,7 +46949,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     const res = await fetch('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
+      /* cap: the person's own Create raises the usual team cap to this chart's size (#2972 lets the board token do
+         that, never an agent); orgchartPaint already refused a chart past ORGCHART_TEAM_MAX. */
+      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members, cap: Math.min(members.length, ORGCHART_TEAM_MAX) }),
     });
     result = await res.json().catch(() => null);
     /* Still CREATING: the reporting-line fix-ups below are part of this create, and a Preview or a file read
