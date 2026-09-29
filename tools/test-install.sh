@@ -2371,6 +2371,9 @@ D918_NOARGS
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
+# #4449: its app is installed read-only, so a direct delete lifts that first, as a person deleting the folder by
+# hand would have to (a plain rm -rf is refused inside it, and under set -e that ended this whole harness).
+chmod -R u+w "$D918_KHOME_A" 2>/dev/null || true
 rm -rf "$D918_KHOME_A"
 
 # Uninstalling scenario B (a completely different KOSMOS_HOME) must sweep
