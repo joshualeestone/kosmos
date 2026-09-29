@@ -70,6 +70,10 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   result was empty, or when there was no room. The selection is now kept and given back in both cases; it is
   replaced only when words land. NITs: the cut at the cap never splits an emoji (a lone surrogate) and drops a trailing
   space.
+- Review iteration 9 (converged: nothing new at BLOCKER or WARNING). ACCEPTED NITs: a selection given back after an
+  empty or no-room result keeps its text but the highlight collapses to a caret; at the cap the heard words are cut
+  or dropped with no line saying why (safe direction); a multi-part emoji (a flag, a family) can still be cut between
+  its parts at the cap, leaving valid text.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
