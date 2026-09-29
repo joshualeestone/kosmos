@@ -39,6 +39,19 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   syncs before the hand-off, past any fixed time. OK stops that board and everything
   still descended from it (`taskkill /T`), and the box closes by itself if the board
   ends first.
+- **A stuck board is replaced, not reopened (#4543).** Before it hands off, a launch by a
+  person at the desktop checks the board's port. If something holds it and `/api/status`
+  (asked on 127.0.0.1 only) gives no answer at all within 10 s, timing out or refusing the
+  whole time (a board frozen long enough fills its backlog, and then Windows refuses), and
+  what holds it after that wait is a Kosmos board of this user in this session (a `node.exe`
+  in a build's `runtime` folder, with `app\server.js` and `manifest.json` in the build, or
+  beside the logon task's `board-boot.js` and `engine-path`), the launcher holds that process
+  open, ends the `Kosmos\board` task, ends the listener's process tree if it outlives that
+  (measured: a frozen board survives `schtasks /End`, which ends only its `conhost`), and runs
+  the task again. Any answer, a 401, 403 or 500 included, is a board that is alive and is left
+  alone, as is anything that is not a Kosmos board of this user. A launch that sets `PORT`
+  never touches the task, only a stuck Kosmos board on its own port. `--console` and a launch
+  with nobody at the desktop do not check.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
   inside the zip in Explorer, which runs it from a temp folder with no
@@ -57,7 +70,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   CompanyName is still left out. The certificate's subject is now known
   (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
   so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
-  6.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  7.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
