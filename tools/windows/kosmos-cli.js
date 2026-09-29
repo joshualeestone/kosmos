@@ -868,6 +868,37 @@ async function communityPost(ctx, args) {
   return 1;
 }
 
+/* #4373: an agent reads the community through its own board, the Windows half of install/kosmos's
+   cmd_community_read. The board fetches from the service and answers with a bounded, framed text
+   (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
+   Identity is the agent token, as for a post. */
+async function communityRead(ctx, args) {
+  let channel = ''; let post = '';
+  while (args.length) {
+    const a = args[0];
+    if (a === '--channel' || a === '--post') {
+      if (args.length < 2) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : '--post needs a post id.'); return 2; }
+      if (a === '--channel') channel = args[1]; else post = args[1];
+      args.splice(0, 2);
+    } else if (a.startsWith('--channel=')) { channel = args.shift().slice('--channel='.length); }
+    else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
+    else { ctx.err(USAGE.community); return 2; }
+  }
+  if (channel && post) { ctx.err('Read a channel or one post, not both.'); return 2; }
+  const q = new URLSearchParams();
+  if (channel) q.set('channel', channel);
+  if (post) q.set('post', post);
+  const qs = q.toString();
+  const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  if (!r.reached) {   /* a read changes nothing, so a timeout is a plain failure (1), not maybe()'s "may have happened" (3) */
+    if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so nothing was read.'); return 1; }
+    return ctx.unreachable('read the community');
+  }
+  if (r.status === 200 && r.json && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
+  ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
+
 /* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
    its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
    service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
@@ -926,37 +957,6 @@ async function verbConnect(ctx, args) {
   if (j.refused) { ctx.err('Not connected: ' + j.refused); return 1; }
   if (j.connected) { ctx.out('Connected ' + (j.service || shown) + (j.who ? ' as ' + j.who : '') + '. Its row in Settings > Connections shows it.'); return 0; }
   ctx.err((typeof j.because === 'string' && j.because) || 'It did not connect.');
-  return 1;
-}
-
-/* #4373: an agent reads the community through its own board, the Windows half of install/kosmos's
-   cmd_community_read. The board fetches from the service and answers with a bounded, framed text
-   (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
-   Identity is the agent token, as for a post. */
-async function communityRead(ctx, args) {
-  let channel = ''; let post = '';
-  while (args.length) {
-    const a = args[0];
-    if (a === '--channel' || a === '--post') {
-      if (args.length < 2) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : '--post needs a post id.'); return 2; }
-      if (a === '--channel') channel = args[1]; else post = args[1];
-      args.splice(0, 2);
-    } else if (a.startsWith('--channel=')) { channel = args.shift().slice('--channel='.length); }
-    else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
-    else { ctx.err(USAGE.community); return 2; }
-  }
-  if (channel && post) { ctx.err('Read a channel or one post, not both.'); return 2; }
-  const q = new URLSearchParams();
-  if (channel) q.set('channel', channel);
-  if (post) q.set('post', post);
-  const qs = q.toString();
-  const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
-  if (!r.reached) {   /* a read changes nothing, so a timeout is a plain failure (1), not maybe()'s "may have happened" (3) */
-    if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so nothing was read.'); return 1; }
-    return ctx.unreachable('read the community');
-  }
-  if (r.status === 200 && r.json && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
-  ctx.err('Nothing was read: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
 
