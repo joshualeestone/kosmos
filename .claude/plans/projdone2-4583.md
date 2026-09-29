@@ -28,3 +28,12 @@ Three WARNINGs, fixed, each with a test that fails on revert:
 - "Done not set" showed for a folder with no BRIEF.md (adopted folders, older projects) and on the welcome project from day one. Now: no brief says nothing (doneSet null); the welcome brief carries WELCOME_DONE.
 - A done typed for a folder that already had a BRIEF.md was dropped. Now fillDone replaces Kosmos's placeholder, or adds a Done section to a brief without one; a Done section the person wrote is left alone.
 NITs taken: "both have" for two; a saved role is paired with the saved name, never an untied pane's card name; the root-only skip is recorded (t.skip). Accepted: the done note (like #2707's) is posted only at creation; per-read file reads (existsSync + BRIEF.md + a profile per member not running) are small and uncached, a cache keyed by mtime is the fix if it shows.
+
+## Blind review round 2 (Sonnet, separate reviewer)
+Five WARNINGs, fixed, each with a test that fails on revert:
+- fillDone passed the person's words as a replacement string ($& and $' were interpreted). Now a function replacement.
+- The page cleared the warning on any null read, including one that started before the add. Reads are numbered as they start; a null clears it only from a read started after the add.
+- A placeholder quoted inside other text counted. It now counts only as a whole line, for both the badge and fillDone.
+- A Done heading titled another way ("### done looks like (draft)") got a second section. Any level, any case, trailing words count as present.
+- BRIEF.md is read and written only as a regular file under 256 KB (lstat); a symlink or huge brief says nothing and is never written through.
+NITs taken: CRLF briefs keep CRLF; "PM" counts only as a whole role word (not AM/PM, Post-PM). Accepted: read-modify-write is not atomic against a simultaneous edit of BRIEF.md (a create-time, one-off write); a person's own brief with no Done section reads as set (only Kosmos's placeholder means unset).

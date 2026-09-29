@@ -113,6 +113,16 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     await p.evaluate(() => loadProjects());
     await p.waitForTimeout(300);
     ok('coordinators: once dropped, it does not come back without a new add', !/coordinator/i.test(await notice()), await notice());
+    // Review round 2: a repaint on the read from BEFORE the add (coordinators still null) must not clear the warning
+    // before it was ever shown; the next read, which knows about the add, shows it.
+    readSaysTwo = false;
+    await p.evaluate(() => loadProjects());
+    await p.evaluate(() => addMemberToProject('pm-y', document.getElementById('pj-one-msg')));
+    await p.evaluate(() => paintOneProject());   // the stale read: coordinators null
+    readSaysTwo = true;
+    await p.evaluate(() => loadProjects());
+    await p.waitForTimeout(300);
+    ok('coordinators: a stale repaint between the add and the next read does not swallow the warning', (await notice()).includes('Two coordinators on this project'), await notice());
     await p.unroute('**/api/projects');
     await p.unroute('**/api/project/*/agent/*');
 

@@ -177,3 +177,57 @@ test('#4583 round 1: done typed for a folder that already has a brief is not dro
   projects.create({ name: 'Own done', folder: own, done: 'Something else.' });
   assert.equal(brief(own), mine, 'the person\'s own Done section was overwritten');
 });
+
+test('#4583 round 2: a done with $& or $\' is written as typed, never as a replacement pattern', () => {
+  reset();
+  const dir = folder('dollar');
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\nMy notes.\n');
+  projects.create({ name: 'Dollar', folder: dir, done: "Revenue passes $$10k, $& and $' stay" });
+  assert.equal(brief(dir), "# Old\n\n## Done looks like\n\nRevenue passes $$10k, $& and $' stay\n\nMy notes.\n");
+});
+
+test('#4583 round 2: a placeholder quoted inside other text is neither "not set" nor replaced', () => {
+  reset();
+  const dir = folder('quoted');
+  const mine = '# Mine\n\nKosmos writes "' + projects.BRIEF_DONE_PLACEHOLDER + '" in new briefs.\n\n## Done looks like\n\nShipped.\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  assert.equal(projects.doneIsPending(dir), false);
+  projects.create({ name: 'Quoted', folder: dir, done: 'Other.' });
+  assert.equal(brief(dir), mine, 'the quote was rewritten');
+});
+
+test('#4583 round 2: a Done heading the person titled their own way is theirs; CRLF briefs stay CRLF', () => {
+  reset();
+  const own = folder('ownheading');
+  const mine = '# Mine\n\n### done looks like (draft)\n\nWhen it ships.\n';
+  fs.writeFileSync(path.join(own, projects.BRIEF_STUB_FILENAME), mine);
+  projects.create({ name: 'Own heading', folder: own, done: 'Else.' });
+  assert.equal(brief(own), mine, 'a second Done section was appended');
+  const crlf = folder('crlf');
+  fs.writeFileSync(path.join(crlf, projects.BRIEF_STUB_FILENAME), '# Win\r\n\r\nGoal.\r\n');
+  projects.create({ name: 'Crlf', folder: crlf, done: 'Done.' });
+  assert.equal(brief(crlf), '# Win\r\n\r\nGoal.\r\n\r\n## Done looks like\r\n\r\nDone.\r\n');
+});
+
+test('#4583 round 2: a BRIEF.md that is a symlink or too big is not read or written; the read says nothing', () => {
+  reset();
+  const outside = path.join(SANDBOX, 'outside-target.md');
+  fs.writeFileSync(outside, '# Not yours\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n');
+  const linked = folder('linked');
+  const made = projects.create({ name: 'Linked', folder: linked });
+  fs.rmSync(path.join(linked, projects.BRIEF_STUB_FILENAME));
+  fs.symlinkSync(outside, path.join(linked, projects.BRIEF_STUB_FILENAME));
+  assert.equal(projects.get(made.id, []).doneSet, null);
+  assert.equal(projects.fillDone(linked, 'Through the link.'), false);
+  assert.ok(!fs.readFileSync(outside, 'utf8').includes('Through the link.'), 'fillDone wrote through a symlink');
+  const big = folder('big');
+  const madeBig = projects.create({ name: 'Big', folder: big });
+  fs.writeFileSync(path.join(big, projects.BRIEF_STUB_FILENAME), projects.BRIEF_DONE_PLACEHOLDER + '\n' + 'x'.repeat(300 * 1024));
+  assert.equal(projects.get(madeBig.id, []).doneSet, null);
+});
+
+test('#4583 round 2: "PM" counts only as a whole role word; spelled-out forms count', () => {
+  const r = projects.PROJECT_COORDINATOR;
+  for (const yes of ['PM', 'Senior PM', 'Project Management Lead', 'Project-Manager', 'Program Manager', 'PM (delivery)']) assert.ok(r.test(yes), yes);
+  for (const no of ['AM/PM Shift Lead', 'Post-PM Analyst', 'Marketing Manager', 'Product Manager', 'Tech Lead']) assert.ok(!r.test(no), no);
+});

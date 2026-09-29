@@ -1132,8 +1132,11 @@ function describe(project, roster, all) {
        folder is not there to read (its own warning already says so), true is set. */
     /* Review round 1: no BRIEF.md at all says nothing (null), not "Done not set": a folder the person adopted, or a
        project older than the seeded brief, would otherwise be badged with nothing on screen to clear it. */
-    doneSet: (typeof project.folder === 'string' && project.folder && path.isAbsolute(project.folder)
-      && fs.existsSync(path.join(project.folder, BRIEF_STUB_FILENAME))) ? !doneIsPending(project.folder) : null,
+    doneSet: (() => {
+      if (typeof project.folder !== 'string' || !project.folder || !path.isAbsolute(project.folder)) return null;
+      const got = readBriefSafely(project.folder);   // a brief Kosmos will not read (symlink, too big) says nothing either
+      return got.text === null ? null : placeholderLine(got.text) === null;
+    })(),
     /* #4583: the two-coordinator warning as it stands now (null when there is not more than one). The page shows
        it only after an add or a create that brought it on, and drops it once this is null. */
     coordinators: coordinatorWarning({ agents: members }, null),
@@ -2051,11 +2054,15 @@ function fillDone(folder, doneText) {
   try {
     if (!folder || !path.isAbsolute(folder)) return false;
     const file = path.join(folder, BRIEF_STUB_FILENAME);
-    const text = fs.readFileSync(file, 'utf8');
-    const hit = BRIEF_DONE_PLACEHOLDERS.find((ph) => text.includes(ph));
+    const { text } = readBriefSafely(folder);
+    if (text === null) return false;
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    const hit = placeholderLine(text);
     let next = null;
-    if (hit) next = text.replace(hit, doneText);
-    else if (!/^## Done looks like\s*$/m.test(text)) next = text.replace(/\s*$/, '') + '\n\n## Done looks like\n\n' + doneText + '\n';
+    // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
+    if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
+    // Any heading level, any case, trailing words allowed: a Done section the person titled their own way is theirs.
+    else if (!/^#{1,6}[ \t]*done looks like\b/im.test(text)) next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
     if (next === null) return false;
     fs.writeFileSync(file, next, 'utf8');
     return true;
@@ -2068,11 +2075,30 @@ function fillDone(folder, doneText) {
 function doneIsPending(folder) {
   try {
     if (!folder || !path.isAbsolute(folder)) return false;
-    let text;
-    try { text = fs.readFileSync(path.join(folder, BRIEF_STUB_FILENAME), 'utf8'); }
-    catch (err) { return !!(err && err.code === 'ENOENT'); }
-    return BRIEF_DONE_PLACEHOLDERS.some((p) => text.includes(p));
+    const got = readBriefSafely(folder);
+    if (got.missing) return true;
+    if (got.text === null) return false;
+    return placeholderLine(got.text) !== null;
   } catch { return false; }
+}
+
+/* Review round 2: BRIEF.md is read on every project read and written by fillDone, so it must be a REGULAR file (a
+   symlink out of the folder, a FIFO that blocks the synchronous read) of a sane size. {missing} when there is none,
+   {text: null} when it is there but not one Kosmos will read. */
+const BRIEF_MAX_BYTES = 256 * 1024;
+function readBriefSafely(folder) {
+  const file = path.join(folder, BRIEF_STUB_FILENAME);
+  let st;
+  try { st = fs.lstatSync(file); } catch (err) { return (err && err.code === 'ENOENT') ? { missing: true, text: null } : { text: null }; }
+  if (!st.isFile() || st.size > BRIEF_MAX_BYTES) return { text: null };
+  try { return { text: fs.readFileSync(file, 'utf8') }; } catch { return { text: null }; }
+}
+
+/* Review round 2: a placeholder counts only as a WHOLE line (how the stub writes it), so a brief that quotes it inside
+   other text is neither read as unset nor has its quote replaced. Returns the matching placeholder, or null. */
+function placeholderLine(text) {
+  const lines = String(text).split(/\r?\n/).map((l) => l.trim());
+  return BRIEF_DONE_PLACEHOLDERS.find((ph) => lines.includes(ph)) || null;
 }
 
 /* #4583 (the Five Families finding, #4580): two agents with a coordinating role (two Project Managers)
@@ -2097,7 +2123,7 @@ function roleOfMember(m) {
 /* NARROWER than chat.looksLikeManager on purpose (review round 1): that rule only preselects who answers the room, where
    a loose match costs nothing, and it matches "Marketing Manager", "Tech Lead" and "Recruiting Coordinator". Here a
    match tells the person to split the brief and the task queue, so only a role that coordinates the PROJECT counts. */
-const PROJECT_COORDINATOR = /\b(project manager|program manager|project lead|project coordinator|pm)\b/i;
+const PROJECT_COORDINATOR = /\b(project[\s-]+manage(r|ment)|program[\s-]+manager|project[\s-]+lead|project[\s-]+coordinator)\b|(^|[\s(])pm($|[\s)])/i;
 function coordinatorWarning(project, joining) {
   const members = (project && Array.isArray(project.agents)) ? project.agents : [];
   const coords = members.map((m) => ({ m, said: roleOfMember(m) })).filter((x) => x.m && PROJECT_COORDINATOR.test(String(x.said.role || '')));
