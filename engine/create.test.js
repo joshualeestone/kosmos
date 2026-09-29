@@ -1568,17 +1568,14 @@ test('the startup script, actually run, hands the pane its account and its board
     const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv, ...b });
     assert.ok(set.newSession, `${label}: nothing was launched, so the assertions below never ran`);
     const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
-    /* \u26a0\ufe0f #1139: THE SENDER TOKEN RIDES TOO, AND THIS ASSERTION USED TO PASS
-       BECAUSE IT DID NOT. The supervisor resolved the engine as `$0/../engine`,
-       which is false in the installed layout, so the mint was silently skipped
-       and this exact-set check stayed green on the broken behaviour. It is a
-       witness to that defect, not a victim of the fix.
-       Checked by SHAPE and then set aside: the value is fresh per launch, so it
-       cannot be pinned by equality, and the point of the check below is that
-       nothing UNEXPECTED rides -- which still holds, on the remainder. */
+    /* #4497: THE SENDER TOKEN MUST NOT RIDE AS TMUX ENV. The entrypoint path and
+       owner-only token-file path follow the -e pairs as ordinary launch argv;
+       supervisor.agent-token-argv-4497.test.js executes that entrypoint and
+       proves the fresh token reaches every provider. This older assertion now
+       pins the complementary security property at its original seam. */
     const minted = passed.filter((v) => v.startsWith('KOSMOS_AGENT_TOKEN='));
-    assert.equal(minted.length, 1, `${label}: expected exactly one sender token in the pane env: ` + JSON.stringify(passed));
-    assert.match(minted[0], /^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$/, `${label}: the token is not the 32-byte hex the supervisor validates`);
+    assert.equal(minted.length, 0, `${label}: the sender token leaked into tmux argv: ` + JSON.stringify(passed));
+    assert.ok(set.newSession.includes('--pane-entry'), `${label}: the owner-only token-file entrypoint is absent`);
     /* #3953: a codex pane is also handed PATH, with the node its report bridge needs appended to the
        server's PATH. Asserted here by name and shape, then set aside so the exact set below still holds. */
     const paths = passed.filter((v) => v.startsWith('PATH='));
@@ -3545,8 +3542,10 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 8, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity; #3939: +1 muse
-  for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
+  assert.equal(launches.length, 2, 'the supervisor launch seams moved; update this test with them');
+  for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch seam does not pass the pane environment: ' + l);
+  const helperCalls = script.split('\n').filter((l) => /^\s+launch_pane(?!\(\))\b/.test(l));
+  assert.equal(helperCalls.length, 7, 'a provider stopped using the shared pane launch that carries PANE_ENV');
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
   // home reaches the pane the same way CODEX_HOME does.
