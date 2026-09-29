@@ -16,9 +16,10 @@
  * read from a screenshot decoded in the page (the render-room-msgbox-2806 pattern). Chromium only.
  * Not covered: the Kosmos+ navy Plus section, where the ground lives on the body and the root cannot read it (#4542).
  * Scope of the gutter pixels: the harness scrollbar has a thumb and no track, so its gutter shows the canvas even on
- * this long page. On a real classic-scrollbar machine a page that scrolls has the system's scrollbar track in the
- * gutter, which no page colour reaches; the canvas shows there only on a page that does not scroll. So the gutter
- * arms stand in for a page that does not scroll (reasoned, not measured on real hardware).
+ * this long page. That is Windows' own shape: under win32 the page draws a 10px thumb with a transparent track (the
+ * win32 ::-webkit-scrollbar rules in web/index.html), so there the fix reaches scrolling pages too. On a Mac drawing
+ * classic scrollbars, a page that scrolls shows the system's track in the gutter, which no page colour reaches; the
+ * canvas shows there only on a page that does not scroll. (Reasoned from the CSS, not measured on either machine.)
  *
  * Arms, each in light and dark:
  *   - control: the gutter really is 15px, and the page colour it shows would fail the match below (so a green is
@@ -29,7 +30,9 @@
  *     width), and the gutter matches the dimmed page within 3 per channel;
  *   - the dialog closed: the gutter shows the page's own colour again;
  *   - the canvas is left alone for a dialog shown inside a hidden section, and on a machine without the mark;
- *   - while the tour dims, a dialog leaves the tour's canvas alone; on Talk, a dialog leaves the body's height alone;
+ *   - while the tour dims, a dialog leaves the tour's canvas alone; on Talk, a dialog leaves the body's height alone
+ *     (at 1280px, where Talk's body is already the window's height, so the arm pins that the rule skips Talk, not the
+ *     phone layout the skip exists for);
  *   - a dialog on a short page (no spacer, a 1200px window): a pixel below the page content matches one inside it,
  *     so the canvas under a short body is not dimmed twice;
  *   - the boot cover up: no gutter, no scroll, and the cover is under the right edge; hidden, the gutter comes back.

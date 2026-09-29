@@ -24,9 +24,9 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
   the surface. Rejected: dropping the gutter (15px reflow behind a see-through wash on every dialog open).
 - `#boot-cover`: #4494's rule (no gutter, no scroll while up). Rejected: the canvas route, because the cover's ground
   is `--bg`, which the Plus section sets on the body where the root cannot read it (measured 250 vs 19,33,64).
-- Scope (iteration 3): the fix reaches the gutter only where it is reserved but EMPTY, i.e. a page that does not
-  scroll. On a real classic-scrollbar machine a page that scrolls shows the system's scrollbar track there, which no
-  page colour reaches (a scrollbar beside a dialog, as in any app). The harness scrollbar has no track, so its gutter
+- Scope (iteration 3, corrected in 7): on a Mac with classic scrollbars the fix reaches the gutter only where it is
+  reserved but EMPTY (a page that does not scroll; a scrolling page shows the system's track). On Windows the page draws
+  a thumb-only scrollbar with a transparent track, so there the fix reaches scrolling pages too. The harness scrollbar has no track, so its gutter
   arms stand in for the non-scrolling case. Reasoned, not measured on real hardware.
 - Weakest premise: the harness sets `data-scrollbar-classic` itself (the product's measurement reads 0 under a custom
   scrollbar that cannot scroll while measuring). A real classic Mac sets it by measurement.
@@ -34,8 +34,8 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
   pre-existing defect, to be filed); beside a dialog it becomes grey rather than white.
 
 ## Built
-- `web/index.html`: three rules (dialog canvas, Tasks dialog canvas, boot cover).
-- `docs/browser-checks/render-dialog-gutter-4506.js`, gated, README row; reason-grep counts 205->208, 124->126.
+- `web/index.html`: four rules (dialog canvas, dialog body min-height, Tasks dialog canvas, boot cover).
+- `docs/browser-checks/render-dialog-gutter-4506.js`, gated, README row; reason-grep counts 208->211, 126->128 (on main after #4512; first measured 205->208, 124->126).
 
 ## Verified
 - Check (first cut): 30 pass on the branch; on unmodified main red on the dialog (light, dark) and boot-cover arms.
@@ -118,3 +118,17 @@ Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the 
 - On the merged tree: render-dialog-gutter-4506 52 passed, render-layer-gutter-4494 13 passed (the two sets of
   rules do not interfere). The check's header now names render-layer-gutter-4494's harness plainly (it is on main).
 - The #4506 validation run was stopped while still queued (it would have certified the pre-merge base).
+
+### Final validation and iteration 7 (opus)
+- Validation ran (11,915 tests, 0 failures) but the browser-check surface gate (#2518) refused: 8 checks whose tokens
+  the new CSS names (d-sec-talk, panel-tasks, boot-cover, tip-dimming). Ran all 8 on this branch: all pass
+  (render-boot-no-flash against a sandboxed board booted from this tree).
+- BLOCKER (iteration 7) fixed: my first per-check trailers named the checks without `.js`, and the gate matches the
+  basename WITH `.js`, so none counted. The reviewer proved it with a control through the gate's message seam. New
+  trailers carry `.js`.
+- CONVENTION fixed: the scope note said a real classic-scrollbar machine shows the system's track on a scrolling page;
+  on Windows the page's own scrollbar has a transparent track, so the fix reaches scrolling pages there. Corrected in the
+  check header, README and plan.
+- NITs fixed: stale counts and rule count here; the Talk arm's header says it pins the selector, not the phone layout.
+- NIT noted: the Talk min-height skip applies at every width (the tour's is phone-only); between 40 and 56rem Talk's page
+  is taller than the window, so it is harmless.
