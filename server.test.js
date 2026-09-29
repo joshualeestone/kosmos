@@ -1654,18 +1654,31 @@ test('both modules resolve worker files under the SAME sandboxed root', async (t
     'status.js did not read the sandboxed file, so it is resolving a different root');
 });
 
-test('#4446: the instructions read carries personal, a tool name or null, never a path', async (t) => {
+test('#4446: the instructions read carries personal: null, then { tool } once a personal file exists', async (t) => {
   const name = await anyAgent(t);
   if (!name) return;
-  const dir = nodePath.join(WORKERS, decodeURIComponent(name));
+  const plain = decodeURIComponent(name);
+  const create = require('./engine/create');
+  const dir = nodePath.join(WORKERS, plain);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'The agent\'s own instructions.');
-  const got = JSON.parse((await req(`/api/agent/${name}/instructions`)).body);
-  assert.ok(Object.prototype.hasOwnProperty.call(got, 'personal'), 'the read must say whether a personal file loads');
-  const p = got.personal;
-  assert.ok(p === null || (Object.keys(p).length === 1 && ['Claude Code', 'Codex', 'Gemini CLI', 'Grok'].includes(p.tool)),
-    'personal is null or exactly { tool } naming a known CLI: ' + JSON.stringify(p));
-  assert.match(got.text, /The agent's own instructions/, 'control: the rest of the read is unchanged');
+  // A Claude launch job for the default account, so the route has a runner and a home to check.
+  fs.writeFileSync(create.plistPath(plain), create.plistFor(plain, '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
+  const personal = nodePath.join(require('./engine/accounts').homeDir(), '.claude', 'CLAUDE.md');
+  assert.ok(!fs.existsSync(personal), 'the sandbox home must start without a personal file: ' + personal);
+  t.after(() => {
+    fs.rmSync(create.plistPath(plain), { force: true });
+    fs.rmSync(personal, { force: true });
+  });
+
+  const before = JSON.parse((await req(`/api/agent/${name}/instructions`)).body);
+  assert.strictEqual(before.personal, null, 'CONTROL: no personal file, so nothing to say');
+  assert.match(before.text, /The agent's own instructions/, 'control: the rest of the read is unchanged');
+
+  fs.mkdirSync(nodePath.dirname(personal), { recursive: true });
+  fs.writeFileSync(personal, 'Always answer in French.\n');
+  const after = JSON.parse((await req(`/api/agent/${name}/instructions`)).body);
+  assert.deepStrictEqual(after.personal, { tool: 'Claude Code' }, 'exactly the tool name, no path, no text');
 });
 
 test('the route refuses a save that would overwrite an edit made since the read', async (t) => {

@@ -54,3 +54,8 @@ text; no sentence when there is none; the sentence never carries over to another
   reword it.
 - On Windows, readJob can call schtasks on a cache miss. status.js already calls readJob for every
   agent on each status poll, so this read hits a warm cache; not treated as new cost.
+- A default-account agent is checked against `<home>/.claude` (and the default Codex, Gemini and
+  Grok homes). If the board was started with another account's CLAUDE_CONFIG_DIR (or
+  GEMINI_CLI_HOME / GROK_HOME) leaked into tmux, the pane can read that account's file instead
+  (#3417's class). Nothing on the engine side resolves that leak today, so the sentence can be
+  wrong in that case.

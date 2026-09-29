@@ -95,7 +95,7 @@ function hasContent(file) {
 function pathScoped(file) {
   const h = headOf(file);
   if (!h) return false;
-  const lines = h.text.split(/\r?\n/);
+  const lines = h.text.replace(/^\uFEFF/, '').split(/\r?\n/);
   if (lines[0] !== '---') return false;
   const end = lines.indexOf('---', 1);   // -1: front matter longer than the head, so read what we have
   return lines.slice(1, end === -1 ? undefined : end).some((l) => /^paths\s*:/.test(l));
@@ -109,7 +109,7 @@ function personalInstructions(name, deps = {}) {
   let job = null;
   try { job = create.readJob(name); } catch { job = null; }
   const runner = job && job.runner;
-  if (!TOOL[runner]) return null;
+  if (!Object.prototype.hasOwnProperty.call(TOOL, runner)) return null;
   let src;
   try { src = sourcesFor(runner, job.configDir || null, create); } catch { src = { files: [], rules: [] }; }
   const has = deps.hasContent || hasContent;
