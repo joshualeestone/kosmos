@@ -70,7 +70,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
         return {
           signedInShown: vis('plus-si-done'), flowShown: vis('plus-flow'),
           inSection: vis('plus-asks') && sec.contains(asks), topCard: vis('askcard'),
-          rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
+          rows: document.querySelectorAll('#plus-ask-rows .kp-inline').length,   // #4637: one approval card per request
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
           belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
         };
@@ -83,8 +83,8 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       /* CONTROL: on any other view the top card is the compact notice, as before. */
       await page.evaluate(async () => { showTab('agents'); paintAsk(); });
       await page.waitForTimeout(200);
-      const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
-      chk(other.shown && /2 devices are asking to use this Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
+      const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .kp-card').length }));
+      chk(other.shown && /2 devices want to connect/.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the #4637 notice, not the cards', JSON.stringify(other));
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();
     }

@@ -89,12 +89,17 @@ const STATES = {
           open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(),
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
-          reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
-          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent, label: (e.querySelector('.devcode') || { getAttribute: () => '' }).getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: Math.min(...[...e.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().height)), inside: [...e.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right),
+          // #4637: one approval card per request (.kp-inline); an old one says its age ("Asked 3 hours ago") instead of fading.
+          reqs: [...document.querySelectorAll('#plus-ask-rows .kp-inline')].filter((c) => c.querySelector('[data-ask="allow"]')).length,
+          stale: [...document.querySelectorAll('#plus-ask-rows .kp-inline .kp-sub')].filter((e) => /^(.* \u00b7 )?Asked /.test(e.textContent)).length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
+          codes: [...document.querySelectorAll('#plus-ask-rows .kp-code')].map((e) => ({ t: e.textContent, boxes: e.querySelectorAll('.devcode-cell').length,
+            /* #4637: the code once as text (no letter boxes), and nothing between its box and Allow (Mona 09-26, kept). */
+            nextIsAllow: !!(e.closest('.kp-match') && e.closest('.kp-match').nextElementSibling && e.closest('.kp-match').nextElementSibling.getAttribute('data-ask') === 'allow'),
+            h: parseFloat(getComputedStyle(e).fontSize), inside: e.getBoundingClientRect().right <= e.closest('.kp-inline').getBoundingClientRect().right,
             /* #3952 round 2: the code must read against what is actually behind it (a white fill on the navy skin gave
                light on light). Ink of the first box against the first opaque background at or behind it. */
             contrast: (() => {
-              const c = e.querySelector('.devcode-cell'); if (!c) return 0;
+              const c = e;
               const rgb = (v) => (v.match(/[\d.]+/g) || []).map(Number);
               const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
               // Composite every translucent fill from the box outward over the first opaque ground (a background
@@ -117,9 +122,9 @@ const STATES = {
               const ink = rgb(getComputedStyle(c).color);
               const a = lum(ink), b = lum(bg);
               return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
-            })() })),   // #3952: the code in the shared boxes
+            })() })),   // #4637: the code as large text
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
-          leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
+          leftBar: [...document.querySelectorAll('#plus-ask-rows .kp-inline')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
       const t = `[${key}]`;
@@ -210,20 +215,31 @@ const STATES = {
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
-        chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bDeny\b/.test(v.cardText) && !/Not now|Not me/.test(v.cardText), `${t} one sentence, Allow / Deny, no Not now or Not me`, v.cardText);
-        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 4 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, one box per character, inside its card (#3952)`, JSON.stringify(v.codes));
+        // #4637: who wants to connect, the one matching sentence, a gold Allow and a quiet "Not me" (no Deny, no Not now).
+        chk(/Windows browser wants to connect/.test(v.cardText) && /Make sure Windows browser is showing this code/.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bNot me\b/.test(v.cardText) && !/Not now|\bDeny\b/.test(v.cardText), `${t} #4637: who, one sentence, Allow / Not me`, v.cardText);
+        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].boxes === 0 && v.codes[0].h >= 28 && v.codes[0].inside && v.codes[0].nextIsAllow && v.codes[0].contrast.ratio >= 4.5, `${t} #4637: the code once as large text, readable, directly above Allow, inside its card`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
         // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.
         chk(v.inPanel && !v.topCardShown && v.asksAbove && Math.abs(v.panelW - v.flowW) <= 2, `${t} the request sits above the panel at the panel's width, not as a top banner`, JSON.stringify({ inPanel: v.inPanel, top: v.topCardShown, above: v.asksAbove, w: [v.panelW, v.flowW] }));
-        // Elsewhere: one compact notice at the top that links to Kosmos Plus.
+        // Elsewhere: the #4637 notice (who, when, a gold Review), no card of its own.
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);
-        const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
-        chk(other.shown && other.cards === 0 && other.link && /asking to use this Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
+        const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .kp-card').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
+        chk(other.shown && other.cards === 0 && other.link && /Windows browser wants to connect/.test(other.text) && /Review/.test(other.text), `${t} on another view, only the notice with Review`, JSON.stringify(other));
+        // #4637: Review opens the approval sheet right there (not Settings), focus on Allow; Escape closes it, focus back on Review.
         await page.click('#askcard [data-ask="open"]');
         await page.waitForTimeout(400);
-        chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
+        const sheet = await page.evaluate(() => ({ open: !document.getElementById('kp-modal').hidden, fixed: getComputedStyle(document.getElementById('kp-modal')).position === 'fixed',
+          focus: document.activeElement && document.activeElement.getAttribute('data-ask'), code: (document.querySelector('#kp-sheet .kp-code') || {}).textContent || '',
+          label: document.getElementById('kp-sheet').getAttribute('aria-labelledby'), head: (document.getElementById('kp-sheet-h') || {}).textContent || '', onSettings: !document.getElementById('panel-settings').hidden }));
+        chk(sheet.open && sheet.fixed && sheet.focus === 'allow' && sheet.code === 'VR-D6' && sheet.head === 'Windows browser wants to connect' && !sheet.onSettings, `${t} #4637: Review opens the sheet right here, focus on Allow`, JSON.stringify(sheet));
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        const shutS = await page.evaluate(() => ({ open: !document.getElementById('kp-modal').hidden, focus: document.activeElement && document.activeElement.getAttribute('data-ask') }));
+        chk(!shutS.open && shutS.focus === 'open', `${t} #4637: Escape closes the sheet and focus returns to Review`, JSON.stringify(shutS));
+        await page.evaluate(() => { showTab('settings'); settingsGo('plus'); paintAsk(); });
+        await page.waitForTimeout(400);
       }
       if (key === 'one') {
         /* #3978: the rows were rebuilt on every 5-second poll, so focus on Allow was lost. Focus it from
@@ -234,7 +250,7 @@ const STATES = {
         const f = await page.evaluate(() => {
           const b = document.querySelector('#plus-ask-rows [data-ask="allow"]');
           const a = document.activeElement;
-          const ago = document.querySelector('#plus-ask-rows .askwho [data-ask-ago]');
+          const ago = document.querySelector('#plus-ask-rows .kp-sub [data-ask-ago]');
           return { same: !!(b && b.__k3978 === 1), focused: !!(a && a.__k3978 === 1), ago: ago ? ago.textContent : null };
         });
         chk(f.same && f.focused, `${t} #3978: two polls later Allow is the same button and still has keyboard focus`, JSON.stringify(f));
@@ -245,14 +261,15 @@ const STATES = {
            route serves, then put back, so the screenshot below is the two-minute-old request. */
         const firstSeen = st.pending[0].first_seen;
         st.pending[0].first_seen = now() - 2 * 3600;
-        await page.waitForFunction(() => !!document.querySelector('#plus-ask-rows .askreq.stale'), null, { timeout: 12000 }).catch(() => {});
+        const aged = () => [...document.querySelectorAll('#plus-ask-rows .kp-sub')].some((e) => /Asked /.test(e.textContent));
+        await page.waitForFunction(aged, null, { timeout: 12000 }).catch(() => {});
         const h = await page.evaluate(() => {
           const a = document.activeElement;
-          return { stale: !!document.querySelector('#plus-ask-rows .askreq.stale'), allow: !!(a && a.dataset && a.dataset.ask === 'allow' && a.dataset.id === 'd-win'), fresh: !!(a && a.__k3978 !== 1) };
+          return { stale: [...document.querySelectorAll('#plus-ask-rows .kp-sub')].some((e) => /Asked /.test(e.textContent)), allow: !!(a && a.dataset && a.dataset.ask === 'allow' && a.dataset.id === 'd-win'), fresh: !!(a && a.__k3978 !== 1) };
         });
-        chk(h.stale && h.allow && h.fresh, `${t} #3978: a request that fades past the hour is rewritten, and focus comes back to its Allow`, JSON.stringify(h));
+        chk(h.stale && h.allow && h.fresh, `${t} #3978: a request that crosses the hour is rewritten (it says its age, #4637), and focus comes back to its Allow`, JSON.stringify(h));
         st.pending[0].first_seen = firstSeen;
-        await page.waitForFunction(() => !document.querySelector('#plus-ask-rows .askreq.stale'), null, { timeout: 12000 }).catch(() => {});
+        await page.waitForFunction(() => ![...document.querySelectorAll('#plus-ask-rows .kp-sub')].some((e) => /Asked /.test(e.textContent)), null, { timeout: 12000 }).catch(() => {});
         // The compact notice on another view has the same rebuild; its Review button keeps focus too.
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);
@@ -265,8 +282,9 @@ const STATES = {
         await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
       }
       if (key === 'two') {
-        chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
-        chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
+        chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour says its age`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
+        // #4637 (Mona's words table): a request with no name reads "A browser wants to connect", never a bare noun.
+        chk(/A browser wants to connect/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "A browser wants to connect"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the

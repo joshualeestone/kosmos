@@ -57,6 +57,7 @@ render-createnav-2190
 render-detail-header-1841
 render-detail-openai-model-2140
 render-detail-ring-1915
+render-device-connect-4637
 render-disconnect-stop-2570
 render-dm-badges-2863
 render-dm-chatfirst-718

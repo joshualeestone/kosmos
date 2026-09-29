@@ -473,53 +473,86 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      token measured to clear 3:1 non-text contrast (it is deeper than --gold in light). */
   /* #3829: Kosmos+ blue, not gold (the 09-16 ruling: gold is regular Kosmos only); #3a68d8 clears 3:1 as a
      1px line on the light surface (about 5:1) and the dark one (about 3.4:1). */
-  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid #3a68d8;
-             border-radius: 10px;
-             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
-  .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
+  /* #4637 (Mona Lisa's design, Josh 15:12: "not a developer screen"): "another device wants to connect" is a Kosmos+
+     moment, drawn in the Plus panel's own navy and gold (body.plus-active) on the light and the dark board alike.
+     1. The notice (every view but Kosmos Plus): a navy card centred under the header, the device, who and when, and a
+        gold Review that opens the approval sheet right there.
+     2. The approval sheet: the same card the Plus panel shows inline. The code once, large (no letter boxes), a gold
+        Allow, a quiet "Not me", and the connected / kept-out result in place.
+     3. Your devices: one row per device, its icon, a red-outlined Remove, a gold ring on the one just allowed. */
+  .askcard { --kp-ink: #E6EBF7; --kp-ink-2: #9fb0d0; --kp-ink-3: #8fa0c4; --kp-line: #2a3f6b; --kp-gold: #e3b341; --kp-gold-2: #cf9a2c; --kp-gold-ink: #231b06;
+             width: min(640px, calc(100% - 32px)); margin: 14px auto 0; padding: 0; border: 0; background: none; font-size: .875rem; }
+  .kp-notice { display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 14px; border-radius: 16px;
+               background: radial-gradient(120% 140% at 70% 0%, #1c2c4f 0%, #132140 55%, #0b1428 100%); border: 1px solid #2a3f6b;
+               box-shadow: 0 12px 32px rgba(11,20,40,.28); color: #E6EBF7; }
+  .kp-notice .kp-t { flex: 1; min-width: 0; }
+  .kp-notice .kp-t b { display: block; font: 650 15px/1.3 var(--font-ui); color: #E6EBF7; }
+  .kp-notice .kp-t span { display: block; color: #9fb0d0; font-size: 13px; }
+  .kp-devico { flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+               background: rgba(227,179,65,.12); box-shadow: inset 0 0 0 1px rgba(227,179,65,.45); color: #e3b341; }
+  .kp-devico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .kp-brand { display: flex; align-items: center; gap: 7px; color: #e3b341; font: 650 12.5px var(--font-ui); letter-spacing: .01em; }
+  .kp-brand canvas { height: 12px; width: auto; }
+  /* The drawn mark is the wordmark itself (KOSMOS+): the word beside it is then for screen readers only, and shows only
+     when the mark could not be drawn. */
+  .kp-brand canvas[data-drawn] + span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .kp-gold, .kp-gold:hover { border: 0; border-radius: 10px; background: linear-gradient(150deg, #e3b341, #cf9a2c); color: #231b06;
+             font: 650 15px var(--font-ui); padding: 10px 18px; cursor: pointer; box-shadow: 0 6px 18px rgba(227,179,65,.25); }
+  .kp-gold:focus-visible, .kp-quiet:focus-visible, .kp-link:focus-visible { outline: 2px solid #9cc0ff; outline-offset: 2px; }
+  /* The sheet: modal from the notice (#kp-modal), and inline in the Plus panel (.kp-inline). */
+  .kp-modal[hidden] { display: none; }
+  .kp-modal { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; }
+  .kp-scrim { position: absolute; inset: 0; background: rgba(7,12,22,.46); backdrop-filter: blur(2px); }
+  .kp-sheet { position: relative; width: min(420px, calc(100% - 32px)); border-radius: 22px; padding: 26px 28px 22px; text-align: center; color: #E6EBF7;
+              background: radial-gradient(130% 90% at 62% 0%, #1f3158 0%, #15244a 45%, #0e1a34 100%); border: 1px solid #2a3f6b;
+              box-shadow: 0 28px 70px rgba(4,8,18,.55); max-height: calc(100vh - 32px); overflow: auto; }
+  .kp-sheet:focus { outline: none; }
+  .kp-grab { display: none; width: 40px; height: 5px; border-radius: 3px; background: rgba(159,176,208,.35); margin: 0 auto 14px; }
+  .kp-card .kp-brand { justify-content: center; margin: 0 0 18px; }
+  .kp-card .kp-brand canvas { height: 14px; }
+  .kp-bigico, .kp-ok, .kp-no { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; }
+  .kp-bigico { color: #e3b341; background: radial-gradient(circle at 50% 35%, rgba(227,179,65,.18), rgba(227,179,65,.06)); box-shadow: inset 0 0 0 1px rgba(227,179,65,.5); }
+  .kp-bigico svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .kp-ok { background: rgba(63,191,135,.16); box-shadow: inset 0 0 0 1px rgba(63,191,135,.45); color: #5bd39b; }
+  .kp-no { background: rgba(240,135,122,.12); box-shadow: inset 0 0 0 1px rgba(240,135,122,.4); color: #f0877a; }
+  .kp-ok svg, .kp-no svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .kp-card h2 { margin: 0 0 4px; font: 680 21px/1.25 var(--font-ui); letter-spacing: -.01em; color: #E6EBF7; }
+  .kp-card .kp-sub { margin: 0 0 20px; color: #9fb0d0; font-size: 14.5px; }
+  .kp-match { margin: 0 0 18px; padding: 14px 14px 16px; border-radius: 14px; background: rgba(120,150,200,.08); border: 1px solid rgba(120,150,200,.18); }
+  .kp-match p { margin: 0 0 6px; color: #9fb0d0; font-size: 13.5px; }
+  .kp-code { font: 650 30px/1.2 var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace); letter-spacing: .14em; color: #E6EBF7; }
+  .kp-code .kp-dash { color: #8fa0c4; letter-spacing: .02em; }
+  .kp-card .kp-gold { width: 100%; padding: 13px; font-size: 16px; }
+  .kp-quiet { display: block; width: 100%; margin: 8px 0 0; background: none; border: 0; color: #9fb0d0; font: 600 14.5px var(--font-ui); padding: 9px; cursor: pointer; border-radius: 10px; }
+  .kp-quiet:hover { color: #E6EBF7; background: rgba(120,150,200,.08); }
+  .kp-fine { margin: 14px 0 0; color: #8fa0c4; font-size: 12.5px; }
+  .kp-note { margin: 0 0 16px; padding: 10px 12px; border-radius: 12px; text-align: left; font-size: 13.5px; line-height: 1.45; }
+  .kp-note.warn { background: rgba(255,202,85,.10); border: 1px solid rgba(255,202,85,.28); color: #f2dfae; }
+  .kp-note.warn b { color: #ffca55; }
+  .kp-link { display: inline-block; margin-top: 10px; background: none; border: 0; color: #9cc0ff; font: 600 14px var(--font-ui); cursor: pointer; padding: 6px; }
+  .kp-inline { width: 100%; max-width: 420px; margin: 0 0 16px; border-radius: 22px; padding: 26px 28px 22px; text-align: center; color: #E6EBF7;
+               background: radial-gradient(130% 90% at 62% 0%, #1f3158 0%, #15244a 45%, #0e1a34 100%); border: 1px solid #2a3f6b; }
+  @media (max-width: 600px) {
+    .kp-notice { flex-wrap: wrap; padding: 12px; }
+    .kp-notice .kp-gold { width: 100%; }
+    .kp-modal { place-items: end center; }
+    .kp-modal .kp-sheet { width: 100%; border-radius: 24px 24px 0 0; padding: 14px 20px 26px; }
+    .kp-modal .kp-grab { display: block; }
+  }
   /* #718: the Allow card is a decision taken with a thumb, often on the phone being allowed. */
-  @media (hover: none) { .askcard button { min-height: 44px; } }
-  /* #3829 addendum: the same thumb-size buttons where the cards now live on Kosmos Plus (above the panel). */
-  @media (hover: none) { .plus-asks button { min-height: 44px; } }
-  .askcard p { margin: 0; max-width: 64ch; }
-  .askcard p b { color: var(--k-ink); font-weight: 600; }
-  .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
-                   color: var(--k-ink); background: var(--k-sunk, rgba(20,22,26,.05)); padding: 1px 6px; border-radius: 5px; }
-  /* #3829 (Mona Lisa's sketch): one compact card per request. Icon, who and when, one sentence, then
-     the code large in boxes directly above Allow (Kosmos+ blue) / Deny (#3952, Mona Lisa). Older than an hour: faded. */
-  .askreq { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 14px; align-items: center;
-            padding: 12px 14px; margin-top: 8px; border: 1px solid rgba(58,104,216,.55); border-radius: 12px; max-width: 640px; }
-  /* Faded is the border and the icon, not the words: the text and the code stay readable (review). */
-  .askreq.stale { border-color: var(--k-rule); }
-  .askreq.stale .askdev { opacity: .45; }
-  .askdev { width: 40px; height: 40px; border-radius: 10px; background: var(--k-sunk, rgba(20,22,26,.05)); display: grid; place-items: center; grid-row: 1 / span 2; }
-  .askdev svg { width: 22px; height: 22px; stroke: var(--k-ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .askwho b { font-size: 1rem; color: var(--k-ink); }
-  .askwho span { margin-left: 8px; font-size: .8rem; color: var(--k-ink-2); }
-  /* #3952: the code on its own row under who and when (was large at the right), in the shared boxes. */
-  .askcode { grid-column: 2 / span 2; }
-  .askcode .devcode { color: var(--k-ink); }
-  /* No fill of its own: this card is drawn in the Kosmos+ skin (navy, light ink), so the code sits on the card's own
-     ground in the card's own ink, which already reads there (review round 2: a white fill gave light-on-light). */
-  .askcode .devcode-cell { border-color: var(--k-rule); background: transparent; }
-  .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
-  .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
-  .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
-  /* A secondary button on the card never disappears into its ground (the #3796 rule): a visible stroke. */
-  .askcard .btn:not(.uprime) { border: 1px solid rgba(127,140,170,.55); }
-  .askrow { padding: 8px 0; border-top: 1px solid var(--k-rule); }
-  .askrow:first-child { border-top: 0; padding-top: 0; }
-  .askrow .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-  .askrow.done p { color: var(--k-ink); }
-  /* The Settings list: the durable home of the same rows. */
-  .devrow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 0.5px solid var(--separator); flex-wrap: wrap; }
+  @media (hover: none) { .askcard button, .kp-card button, .plus-asks button { min-height: 44px; } }
+  /* The Settings list (#4637 section 3): one row per device. */
+  .devrow { display: flex; align-items: center; gap: 13px; padding: 12px 0; border-top: 1px solid var(--separator); flex-wrap: wrap; }
   .devrow:first-child { border-top: 0; }
-  .devrow .devbody { flex: 1; min-width: 180px; }
-  .devrow .devname { font-weight: 600; color: var(--k-ink); }
+  .devrow .kp-devico { width: 36px; height: 36px; }
+  .devrow .kp-devico svg { width: 19px; height: 19px; }
+  .devrow.kp-new { box-shadow: 0 0 0 1px rgba(227,179,65,.45) inset; border-radius: 12px; margin: 0 -10px; padding: 12px 10px; }
+  .devrow .devbody { flex: 1; min-width: 160px; }
+  .devrow .devname { font-weight: 620; color: var(--k-ink); }
   .devrow .devmeta { font: var(--text-callout) var(--font-ui); color: var(--label-3); }
-  .devrow .devmeta .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); }
   .devrow .acts { display: flex; gap: 8px; align-items: center; }
-  .devrow.pending { background: linear-gradient(90deg, rgba(214,166,46,.10), transparent 40%); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+  .devrow .kp-rm { background: none; border: 1px solid rgba(240,135,122,.55); color: #d9695b; border-radius: 9px; padding: 6px 12px; font: 600 13px var(--font-ui); cursor: pointer; }
+  body.plus-active .devrow .kp-rm { color: #f0877a; }
   .devrow .confirm { width: 100%; font: var(--text-callout) var(--font-ui); color: var(--label-2); }
   .devrow .confirm .acts { margin-top: 6px; }
   .conn[hidden] { display: none; }   /* an author rule would beat the UA hidden */
@@ -10696,6 +10729,16 @@ window.kosmosMeasureScrollbarWidth();
   <h3 id="ask-title"></h3>
   <p id="ask-lead" hidden></p>
   <div id="ask-rows"></div>
+</div>
+<!-- #4637 (Mona Lisa's design): the approval sheet, opened by the notice's Review over the page where the person already
+     is (it no longer sends them to Settings). A bottom sheet on a phone. Painted by paintAsk (kpCard), the same card the
+     Kosmos Plus panel shows inline. It opens only on Review, never by itself. -->
+<div class="kp-modal" id="kp-modal" hidden>
+  <div class="kp-scrim" data-ask="close"></div>
+  <div class="kp-sheet" id="kp-sheet" role="dialog" aria-modal="true" aria-labelledby="kp-sheet-h" tabindex="-1">
+    <div class="kp-grab" aria-hidden="true"></div>
+    <div id="kp-sheet-body" aria-live="polite"></div>
+  </div>
 </div>
 <!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
      cards. Whether this computer can reach a Claude subscription is a single
@@ -41560,6 +41603,110 @@ async function pollAsk() {
   }
   paintAsk();
 }
+/* #4637 (Mona Lisa's words table): who is asking, from the one name the device sends (no new data).
+   "<computer> (Kosmos app)"  -> "<computer> wants to connect", "Kosmos app"
+   "Windows PC · Edge"        -> "Your Windows PC wants to connect", "Edge"   (the web sign-in's kinds, signin.html)
+   "iPhone"                   -> "Your iPhone wants to connect"
+   "Browser" / none           -> "A browser wants to connect"
+   anything else               -> "<name> wants to connect" */
+const KP_KINDS = /^(iPhone|iPad|Android phone|Android tablet|Windows PC|Chromebook|Mac|Linux computer)(?: · (.+))?$/;
+function kpWords(d) {
+  const raw = askKind(d);
+  let m = /^(.+?) \(Kosmos app\)$/.exec(raw);
+  if (m) return { who: m[1], head: m[1], sub: 'Kosmos app', icon: 'computer' };
+  m = KP_KINDS.exec(raw);
+  if (m) return { who: 'your ' + m[1], head: 'Your ' + m[1], sub: m[2] || '', icon: m[1] };
+  if (/^(Browser|Unknown device)$/.test(raw)) return { who: 'this browser', head: 'A browser', sub: '', icon: 'browser' };
+  return { who: raw, head: raw, sub: '', icon: raw };
+}
+function kpIcon(kind) {
+  const k = String(kind || '');
+  if (/phone/i.test(k)) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/></svg>';
+  if (/ipad|tablet/i.test(k)) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="2.5" width="15" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>';
+  if (/windows|linux|chromebook/i.test(k)) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>';
+  if (/browser/i.test(k)) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18M6.5 7h.01M9 7h.01"/></svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.6"/><path d="M2.5 19h19"/></svg>';   // a Mac / a computer
+}
+/* The Kosmos+ mark (the Plus bar's own drawing, kplusBarDrawMark), drawn into its canvas after the paint. */
+function kpBrand() { return '<div class="kp-brand"><canvas class="kp-mark" width="0" height="0" aria-hidden="true"></canvas><span>Kosmos+</span></div>'; }
+function kpDrawMarks(root) {
+  if (!root || typeof kplusBarDrawMark !== 'function') return;
+  for (const cv of root.querySelectorAll('canvas.kp-mark:not([data-drawn])')) {
+    try { kplusBarDrawMark(cv, cv.closest('.kp-card') ? 14 : 12); cv.setAttribute('data-drawn', '1'); } catch { /* the word Kosmos+ is beside it */ }
+  }
+}
+/* The code once, large, with its dash quieter (#4637: text, not the letter boxes). */
+function kpCode(code) {
+  return '<div class="kp-code">' + String(code).split('-').map(askEsc).join('<span class="kp-dash">-</span>') + '</div>';
+}
+/* One request as the approval card, in any of its states. `modal` gives the headline the sheet's label id. */
+function kpCard(d, e, modal) {
+  const w = kpWords(d);
+  const hid = modal ? ' id="kp-sheet-h"' : '';
+  const id = askEsc(d.device_id);
+  if (e && e.state === 'allowed') {
+    return '<div class="kp-card"><div class="kp-ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>' +
+      '<h2' + hid + '>' + askEsc(w.head) + ' is connected</h2><p class="kp-sub">It will open your Kosmos in a moment.</p>' +
+      '<button class="kp-gold" type="button" data-ask="gotit" data-id="' + id + '">Done</button>' +
+      '<button class="kp-link" type="button" data-ask="devices">See your devices</button></div>';
+  }
+  if (e && e.state === 'denied') {
+    /* #3829 review, kept: an OLD request (over an hour, likely the person's own stale sign-in) accuses nobody; the
+       password sentence is for a fresh one they did not make. */
+    const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+    const why = oldAsk ? 'It can ask again by signing in.'
+      : 'If you did not just sign in somewhere, someone has the code we sent to <b>' + askEsc(ASK.email || 'your email') + '</b>. Change that email’s password to stop them.';
+    return '<div class="kp-card"><div class="kp-no"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-3 7.6-7 9-4-1.4-7-4.8-7-9V6z"/><path d="M9 12h6"/></svg></div>' +
+      '<h2' + hid + '>' + askEsc(w.head) + ' was kept out</h2><p class="kp-sub">' + why + '</p>' +
+      '<button class="kp-gold" type="button" data-ask="gotit" data-id="' + id + '">Got it</button></div>';
+  }
+  const old = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+  /* An old request says its age instead of fading (#4637). */
+  const when = old ? 'Asked ' + askAgoSpan(d.first_seen) : askAgoSpan(d.first_seen);
+  const sub = (w.sub ? askEsc(w.sub) + ' · ' : '') + when;
+  const again = d.denied_at ? '<p class="kp-note warn"><b>Asked again.</b> You said no to ' + askEsc(w.who) + ' ' + askAgoSpan(d.denied_at) + '. If it is not yours, change that email’s password; that is what stops it.</p>' : '';
+  const err = e && e.state === 'error' ? '<p class="kp-note warn">' + askEsc(e.because) + '</p>' : '';
+  const match = d.code
+    ? '<div class="kp-match"><p>Make sure ' + askEsc(w.who) + ' is showing this code</p>' + kpCode(d.code) + '</div>'
+    : '<div class="kp-match"><p>Allow only if this is the device in your hand.</p></div>';
+  const label = w.head + (d.code ? ', code ' + d.code : '');
+  return '<div class="kp-card">' + kpBrand() + '<div class="kp-bigico">' + kpIcon(w.icon) + '</div>' +
+    '<h2' + hid + '>' + askEsc(w.head) + ' wants to connect</h2><p class="kp-sub">' + sub + '</p>' + again + err + match +
+    '<button class="kp-gold" type="button" data-ask="allow" data-id="' + id + '" aria-label="' + askEsc('Allow ' + label) + '">Allow</button>' +
+    '<button class="kp-quiet" type="button" data-ask="deny" data-id="' + id + '" aria-label="' + askEsc('Not me: keep ' + label + ' out') + '">Not me</button>' +
+    '<p class="kp-fine">Only allow a device you are signing in on right now.</p></div>';
+}
+/* The sheet's device: the one Review opened on, while it is still pending or showing its result; otherwise the next
+   pending one; otherwise the sheet closes. */
+let KP_MODAL = null;
+function kpModalDevice() {
+  if (!KP_MODAL) return null;
+  const e = ASK.done[KP_MODAL];
+  if (e && e.state !== 'gone') return { d: e.device, e };
+  const d = ASK.devices.find((x) => x.device_id === KP_MODAL);
+  if (d && !e) return { d, e: null };
+  const next = askLive()[0];
+  if (next) { KP_MODAL = next.device_id; return { d: next, e: null }; }
+  return null;
+}
+function kpOpen() {
+  const first = askLive()[0];
+  if (!first) return;
+  KP_MODAL = first.device_id;
+  document.getElementById('kp-modal').hidden = false;
+  paintAsk();
+  const sheet = document.getElementById('kp-sheet');
+  const allow = sheet.querySelector('[data-ask="allow"]');
+  (allow || sheet).focus();
+}
+function kpClose() {
+  const modal = document.getElementById('kp-modal');
+  const was = !modal.hidden;
+  KP_MODAL = null;
+  modal.hidden = true;
+  askWrite(document.getElementById('kp-sheet-body'), '');
+  if (was) { const back = document.querySelector('#askcard [data-ask="open"]'); if (back) back.focus(); }
+}
 function paintAsk() {
   const card = document.getElementById('askcard');
   if (!card) return;
@@ -41567,78 +41714,65 @@ function paintAsk() {
   const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
   const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
   const anything = live.length || doneIds.length;
-  /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
-     other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const panel = document.getElementById('plus-asks');
-  /* #4610 (Josh, 12:50, a new Kosmos+ account in the Mac app): "these should have rendered in the same spot as the
-     login and not above everything". On Kosmos Plus the requests always render in the Plus section (#plus-asks), in
-     every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
-     top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
-     signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
-     card stays the compact "N devices are asking" notice on every other view. */
+  /* #4610 (Josh, 12:50): on Kosmos Plus the requests render in the Plus section (#plus-asks), in every state it is in;
+     every other view gets the notice (#4637: the navy Kosmos+ notice, with Review opening the sheet right there). */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
-  const hide = !anything || inPanel || (!onPlus && !live.length);
-  card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
   if (dot) { if (live.length) dot.setAttribute('data-dot', '1'); else dot.removeAttribute('data-dot'); }
-  const title = document.getElementById('ask-title');
-  const lead = document.getElementById('ask-lead');
-  if (!onPlus) {
-    if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
-    title.textContent = '';
-    lead.hidden = true;
-    const n = live.length;
-    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
-      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
+  document.getElementById('ask-title').textContent = '';
+  document.getElementById('ask-lead').hidden = true;
+  if (inPanel) {
+    /* On Kosmos Plus the cards are inline; a sheet left open from another view closes (its request is here now). */
+    if (KP_MODAL) kpClose();
+    card.hidden = true;
+    askWrite(document.getElementById('ask-rows'), '');
+    if (!anything) { askWrite(document.getElementById('plus-ask-rows'), ''); return; }
+    const out = [];
+    const seen = new Set();
+    for (const d of rows) { seen.add(d.device_id); out.push('<div class="kp-inline">' + kpCard(d, ASK.done[d.device_id], false) + '</div>'); }
+    for (const id of doneIds) { if (!seen.has(id)) out.push('<div class="kp-inline">' + kpCard(ASK.done[id].device, ASK.done[id], false) + '</div>'); }
+    askWrite(document.getElementById('plus-ask-rows'), out.join(''));
+    kpDrawMarks(document.getElementById('plus-ask-rows'));
     return;
   }
-  if (!anything) return;
-  if (!inPanel) { title.textContent = 'Asking to use this Kosmos'; lead.hidden = true; }
-  const out = [];
-  const seen = new Set();
-  const render = (d, e) => {
-    const kind = askKind(d);
-    if (e && e.state === 'allowed') {
-      return '<div class="askrow done"><p>Allowed. Your ' + askEsc(kind) + ' will open Kosmos on its own in a moment.</p></div>';
-    }
-    if (e && e.state === 'denied') {
-      /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
-         does not accuse anyone; the password sentence is for a fresh one they did not make. */
-      const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +
-        '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
-      return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
-        '</b>: change that email\'s password.</p>' +
-        '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
-    }
-    /* #3829 (Josh: "terribly worded"; Mona Lisa's sketch): one compact card per request. The device and
-       how long ago, one sentence, then the code LARGE directly above Allow / Deny (it is what the person checks
-       against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
-    const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
-    return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
-      '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
-      /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
-         against the device in the person's hand (Josh 09-26: "they matched perfectly"). Directly above Allow, nothing
-         between them, so matching and allowing are one glance (Mona Lisa, 09-26). */
-      (d.code ? '<div class="askcode">' + devCodeHtml('', d.code) + '</div>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
-      '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Deny ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Deny</button></div></div>';
-  };
-  for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
-  for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
-  askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
+  askWrite(document.getElementById('plus-ask-rows'), '');
+  /* The notice: only while something is waiting (a finished request says its result in the sheet, not up here). */
+  card.hidden = !live.length;
+  if (!live.length) askWrite(document.getElementById('ask-rows'), '');
+  else {
+    const n = live.length;
+    const w = kpWords(live[0]);
+    const head = n === 1 ? w.head + ' wants to connect' : n + ' devices want to connect';
+    const sub = n === 1 ? (w.sub ? askEsc(w.sub) + ' · ' : '') + askAgoSpan(live[0].first_seen) : 'Review them one at a time';
+    askWrite(document.getElementById('ask-rows'), '<div class="kp-notice"><div class="kp-devico">' + kpIcon(n === 1 ? w.icon : 'computer') + '</div>' +
+      '<div class="kp-t">' + kpBrand() + '<b>' + askEsc(head) + '</b><span>' + sub + '</span></div>' +
+      '<button class="kp-gold" type="button" data-ask="open">Review</button></div>');
+    kpDrawMarks(document.getElementById('ask-rows'));
+  }
+  /* The sheet, when Review opened it. */
+  const modal = document.getElementById('kp-modal');
+  if (modal && !modal.hidden) {
+    const it = kpModalDevice();
+    if (!it) { kpClose(); return; }
+    askWrite(document.getElementById('kp-sheet-body'), kpCard(it.d, it.e, true));
+    kpDrawMarks(document.getElementById('kp-sheet-body'));
+  }
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
-  if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
-  if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
+  if (act === 'open') { kpOpen(); return; }   // #4637: Review opens the sheet right here, not Settings
+  if (act === 'close') { kpClose(); return; }
+  if (act === 'devices') { kpClose(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // "See your devices"
+  if (act === 'gotit') {
+    if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d };
+    /* The sheet moves on to the next request, or closes when none is left. */
+    if (KP_MODAL === id) { const next = askLive()[0]; if (next) KP_MODAL = next.device_id; else kpClose(); }
+    paintAsk(); paintDevices(); return;
+  }
   if (!d) return;
   const verb = act === 'allow' ? 'allow' : 'deny';
   let res = null;
@@ -41654,13 +41788,30 @@ async function askAct(act, id) {
   }
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
-  for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+  for (const rid of ['ask-rows', 'plus-ask-rows', 'kp-sheet-body']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
   paintAsk();
   paintDevices();
 }
 document.getElementById('askcard').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+});
+document.getElementById('kp-modal').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ask]');
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+});
+/* Escape closes the sheet; Tab stays inside it while it is open (it is modal). */
+document.addEventListener('keydown', (e) => {
+  const modal = document.getElementById('kp-modal');
+  if (!modal || modal.hidden) return;
+  if (e.key === 'Escape') { e.preventDefault(); kpClose(); return; }
+  if (e.key === 'Tab') {
+    const f = Array.from(modal.querySelectorAll('button:not([disabled])'));
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 });
 document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
@@ -41709,8 +41860,10 @@ async function paintDevices() {
     const meta = 'let in ' + askEsc(d.allowed_at ? askAgo(d.allowed_at).replace(/^on /, '') : 'today') +
       (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
     const confirming = ASK.confirm === d.device_id;
-    out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
-      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
+    /* #4637: its icon, and a gold ring for a few seconds on the one just allowed. */
+    const fresh = ASK.done[d.device_id] && ASK.done[d.device_id].state === 'allowed';
+    out.push('<div class="devrow' + (fresh ? ' kp-new' : '') + '"><div class="kp-devico">' + kpIcon(kpWords(d).icon) + '</div><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
+      '<div class="acts"><button class="kp-rm" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
       (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away. It can ask again by signing in.' +
         '<div class="acts"><button class="btn" type="button" data-dev="removeyes" data-id="' + askEsc(d.device_id) + '">Remove</button>' +
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
