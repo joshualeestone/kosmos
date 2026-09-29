@@ -404,7 +404,11 @@ if [ -z "$adopt" ]; then
     KOSMOS_AGENT_TOKEN=""
 
   add_launch_secret() {
-    [ -n "${2:-}" ] && SECRET_ENV+=("$1=$2")
+    case "${1:-}" in ''|*[!A-Z0-9_]*|[0-9]*) return 0 ;; esac
+    # One assignment per line. Refuse a malformed inherited value rather than
+    # letting it invent another variable in the child environment.
+    case "${2:-}" in ''|*$'\n'*|*$'\r'*) return 0 ;; esac
+    SECRET_ENV+=("$1=$2")
   }
 
   remove_launch_secret() {

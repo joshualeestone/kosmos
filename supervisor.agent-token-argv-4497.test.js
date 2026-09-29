@@ -205,3 +205,36 @@ test('an unavailable supervisor entry path launches without handing secrets to t
     fs.rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+test('an inherited secret with a newline cannot inject another environment variable', () => {
+  const f = fixture();
+  const evidence = path.join(f.root, 'evidence.txt');
+  const argvRecord = path.join(f.root, 'argv.bin');
+  fs.unlinkSync(path.join(f.root, 'secrets', 'github.token'));
+  try {
+    const result = spawnSync('/bin/bash', [
+      path.join(f.root, 'bin', 'agent-supervisor.sh'), 'agent-newline', path.join(f.root, 'work'),
+      f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        GH_TOKEN: 'held-value\nINJECTED_SECRET=wrong',
+        EVIDENCE: evidence,
+        ARGV_RECORD: argvRecord,
+        MODE_RECORD: path.join(f.root, 'mode.txt'),
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || 'newline control launch failed');
+    const received = fs.readFileSync(evidence, 'utf8').split('|');
+    assert.equal(received[1], '<missing>', 'the malformed inherited GH token is refused');
+    const argv = fs.readFileSync(argvRecord);
+    assert.ok(!argv.includes(Buffer.from('held-value')) && !argv.includes(Buffer.from('INJECTED_SECRET')), 'neither line reaches tmux argv');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
