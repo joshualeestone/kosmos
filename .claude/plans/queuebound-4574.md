@@ -138,7 +138,7 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   (measured: Chicago, UTC and fr_FR all differ): a waiter in another zone or locale deleted a live marker every poll,
   its owner re-marked it every pass, and everyone behind saw endless falls. Two fixes: (1) the start time is written
   in UTC and the C locale; a marker written the older way (local) still matches, since worktrees on older copies of
-  this lib run alongside; (2) a hard ceiling, KOSMOS_WAIT_QUEUE_CEIL_S (default four bounds, 3 hours), ends any queued
+  this lib run alongside; (2) a hard ceiling, KOSMOS_WAIT_QUEUE_CEIL_S (default four bounds, 3 hours; SUPERSEDED by review 13: four bounds plus one per waiter ahead at entry), ends any queued
   wait whatever the heuristic says.
 - (W) behind a hung suite the Nth waiter held about N x 45 min (8 waiters: about 6 hours): the ceiling caps it.
 - (N, taken) the entry clear of a recycled-pid marker is tested; the first notice states the rule and the ceiling.
@@ -167,7 +167,7 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   loop gave up silently after 1 s and wrote a marker known to be stale, shifting the exact call counts. It now waits up
   to 3 s and FAILS BY NAME ("FIXTURE: stand-in waiter never showed as sleep") if the stand-in never execs. Not proven to
   be that failure: three consecutive clean runs after the change, and the next flake will name itself.
-- (N, taken) run-tests.sh names the 3-hour ceiling; an arm pins the default ceiling at four bounds (x5 reds it); the
+- (N, taken) run-tests.sh names the ceiling (its 3-hour wording superseded by review 13); an arm pins the default ceiling at four bounds (x5 reds it); the
   time-zone arm's writer also uses fr_FR, so the locale half of the pin is guarded (dropping LC_ALL=C reds it); the
   refusal's comment says it walks every marker.
 
@@ -189,3 +189,13 @@ Because the two comment edits changed the diff, one more blind round follows.
   and the dead clause is gone.
 - (N, taken) the give-up line reports the wall time since the last fall when that arm fired (was slept seconds).
 - (N, left) KOSMOS_WAIT_QUEUE_CEIL_S=0 gives up at once (documented; as KOSMOS_WAIT_MAX_S=0); ps calls per poll.
+
+## Review iteration 14 (blind, sonnet)
+0 BLOCKER, 2 WARNING, both taken (both SELF: a figure left behind when review 13 changed the ceiling):
+- (W) run-tests.sh still said a queued suite gives up "after 3 hours in any case": it now says four bounds plus one per
+  waiter ahead at entry. My own sweep for "3 hours" missed it at first: the phrase is hard-wrapped across two lines,
+  so the search now uses the short tokens "hours" and "ceiling" over every added line.
+- (W) the plan's round 9 and round 11 records still stated the fixed ceiling as if current: marked SUPERSEDED (kept as
+  history, not rewritten).
+- (N, taken) the first notice says the ceiling grows with the queue ahead at entry.
+- (N, left) the refusal names the first waiter ahead in glob order, as the old code did (the message stays true).

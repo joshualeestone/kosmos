@@ -704,7 +704,8 @@ kosmos_wait_until_clear() {
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2
       if [ "$queue" = 1 ]; then
-        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from the last time a waiter ahead left the queue, and ${ceil}s ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+        local how="KOSMOS_WAIT_QUEUE_CEIL_S"; [ "$ceil_auto" = 1 ] && how="four bounds plus one per waiter ahead when it joined"
+        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from the last time a waiter ahead left the queue, and ${ceil}s (${how}) ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       else
         echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       fi
