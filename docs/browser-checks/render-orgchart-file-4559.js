@@ -177,6 +177,32 @@ async function run() {
       await p3.close();
     }
 
+    // STOP: while a picture is being read, Stop reading ends the request (the board then stops the model call).
+    const pst = await page();
+    let aborted = false;
+    await pst.route('**/api/orgchart/read*', async (r) => {
+      const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
+      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      await new Promise((ok) => setTimeout(ok, 3000));   // a read that takes a while
+      try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { aborted = true; }
+    });
+    await openPanel(pst);
+    if (await pst.$('#orgchart-file-btn')) {
+      await pst.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+      await pst.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+      await pst.click('#orgchart-consent-go');
+      await pst.waitForSelector('#orgchart-read-stop:not([hidden])', { timeout: 5000 }).catch(() => {});
+      const shown = await pst.isVisible('#orgchart-read-stop');
+      await pst.click('#orgchart-read-stop').catch(() => {});
+      await pst.waitForFunction(() => /Stopped/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+      const st = await readPreview(pst);
+      await pst.waitForTimeout(3500);   // past the read's own answer: it must not paint over the stop
+      const after = await readPreview(pst);
+      check('STOP: Stop reading shows during a read and ends it; its late answer paints nothing',
+        shown && /Stopped\. Nothing more was read\./.test(st.msg) && !after.shown && await pst.evaluate(() => document.getElementById('orgchart-read-stop').hidden), JSON.stringify([shown, st.msg, after.shown, aborted]));
+    } else check('STOP: the panel offers a file', false);
+    await pst.close();
+
     // NO CLAUDE
     const p4 = await page();
     const { NO_MODEL } = require('../../engine/orgchartfile');   // the route's own sentence, not a copy

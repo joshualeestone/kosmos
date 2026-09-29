@@ -13948,6 +13948,7 @@ window.kosmosMeasureScrollbarWidth();
           <input type="file" id="orgchart-file" hidden accept=".csv,.tsv,.xlsx,.xls,.numbers,.png,.jpg,.jpeg,.webp,.gif,.pdf,.pptx,.key">
           <span class="rolehelp" id="orgchart-file-note">Or upload your org chart: a CSV or Excel export, a picture of it, or a PDF. You can also drop it on the box above.</span>
         </div>
+        <button class="btn" type="button" id="orgchart-read-stop" hidden>Stop reading</button>
         <div class="orgchart-consent" id="orgchart-consent" role="group" aria-labelledby="orgchart-consent-say" hidden>
           <p id="orgchart-consent-say"></p>
           <div class="importrow">
@@ -46719,6 +46720,7 @@ let ORGCHART_FILE_PENDING = null;
 /* Each chosen or dropped file takes a number; an answer for an older one is dropped, so two quick uploads cannot
    paint the first one's rows over the second. */
 let ORGCHART_FILE_SEQ = 0;
+let ORGCHART_READ_CTL = null;   // the read in flight, while Stop reading is shown
 /* The kinds the board sends to the model (engine/orgchartfile.js MODEL_TYPES; web.orgchart-parse-1280.test.js pins
    the two to the same list). Only decides whether the FIRST ask carries the bytes. */
 const ORGCHART_MODEL_FILE = /\.(png|jpe?g|webp|gif|pdf)$/i;
@@ -46730,8 +46732,14 @@ async function orgchartSendFile(file, consent, seq) {
   msg.hidden = false;
   msg.textContent = consent ? 'Reading your chart. A picture or PDF takes about ten seconds.' : 'Reading ' + file.name + '…';
   let out = null;
+  /* While a picture or PDF is being read, Stop reading ends it: the page drops the request, and the board stops
+     the model call when the request closes (Liu Kang's condition 1: cancel holds after sending too). */
+  const stopBtn = document.getElementById('orgchart-read-stop');
+  const ctl = consent ? new AbortController() : null;
+  if (ctl) { ORGCHART_READ_CTL = ctl; stopBtn.hidden = false; }
   try {
     const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
+      signal: ctl ? ctl.signal : undefined,
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
       /* A picture or PDF is only ASKED about first (who would read it): nothing to send until the person says yes. */
@@ -46740,8 +46748,12 @@ async function orgchartSendFile(file, consent, seq) {
     out = await res.json().catch(() => null);
     if (!res.ok) { if (current()) msg.textContent = (out && out.error) || 'We could not read that file.'; return; }
   } catch {
+    if (ctl) { stopBtn.hidden = true; ORGCHART_READ_CTL = null; }
+    if (ctl && ctl.signal.aborted) { if (current()) msg.textContent = 'Stopped. Nothing more was read.'; return; }
     if (current()) msg.textContent = 'We could not reach Kosmos to read that file. Try again.';
     return;
+  } finally {
+    if (ctl && ORGCHART_READ_CTL === ctl) { stopBtn.hidden = true; ORGCHART_READ_CTL = null; }
   }
   if (!current() || !out) return;
   if (out.needsConsent) {
@@ -46775,6 +46787,7 @@ function orgchartTakeFile(file) {
   orgchartSendFile(file, false, ++ORGCHART_FILE_SEQ);
 }
 document.getElementById('orgchart-file-btn').addEventListener('click', () => document.getElementById('orgchart-file').click());
+document.getElementById('orgchart-read-stop').addEventListener('click', () => { if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort(); });
 document.getElementById('orgchart-file').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';   // choosing the same file again still reads it
