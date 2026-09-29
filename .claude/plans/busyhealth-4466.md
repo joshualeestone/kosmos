@@ -176,6 +176,16 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - The watchdog clears `busy_since` when it attempts a reclaim, so a replacement that is also busy gets its
   own grace instead of relying on THROTTLE x 2 outlasting BUSY_GRACE.
 
+## Review round 16 decisions
+- By design, recorded: `board.started-at` is also written by each launchd `board-run` relaunch, so a board
+  that crash-loops keeps an agent inside the restart cooldown. Only agents are held: a person, and the
+  watchdog (it passes `--force`), recover it as before. A crash-looping board is the case agents must not
+  keep restarting.
+- The transient "stranger" (a board that exits between connect and lsof) is said in the code to be unable
+  to cause a kill: the reclaim path asks lsof again.
+- Deferred again: exit 4 in the usage text (round 13); the Windows guard (round 13); Windows
+  `lastTimedOut` shared state (its invariant is stated where it is read).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
