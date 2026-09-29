@@ -61,3 +61,9 @@ test('MSHOTS_COVER_CONTROL=spill without the allow-card screen is refused: it wo
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /MSHOTS_COVER_CONTROL=spill needs the allow-card screen/);
 });
+
+test('MSHOTS_COVER_CONTROL=spill at the desktop size only is refused: the long code fits there', () => {
+  const r = run(['--sizes', 'desktop', '--screens', 'allow-card'], { MSHOTS_COVER_CONTROL: 'spill' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL=spill needs a phone size/);
+});
