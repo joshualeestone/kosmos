@@ -44,4 +44,4 @@ stranger under a proxy, but change 1 removes the proxy from that path anyway.
 ## Status
 - [x] fix + both arms red-checked; cli 229/229; #3079 reclaim 12/12
 - [x] review round 1 fixed (reclaim bypass + agent-claim arms, red-checked)
-- [ ] rebase onto main after PR #4539 merges; challenge loop; full suite once; PR; merge before the 0.7.10 freeze
+- [x] rebased onto main after #4539; challenge loop CONVERGED at iteration 2 (sonnet, zero NEW); ships in ONE PR with sendsafe-4466 (see that plan's Status and the sendsafe proof)
