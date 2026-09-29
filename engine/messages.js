@@ -137,11 +137,12 @@ const INBOX = 'Inbox';
  *
  * The folder is the agent's, so the agent could have put a link there. A linked worker folder or a
  * linked Inbox is refused (lstat: the spill writes only into real folders, unlike Files, which follows
- * a linked worker folder). Whatever sits at Inbox/<id>.txt is REMOVED first and the file is created
- * fresh with O_EXCL (and O_NOFOLLOW where the platform has it): a symbolic OR a hard link planted
- * at a predictable id then only loses its own name, never its target's contents, on every platform.
- * Same OS user as the agent, so this is care, not a privilege boundary; a swap of the Inbox itself
- * between the check and the create is not closed.
+ * a linked worker folder). The file goes through `securewrite.writeSecret`, the codebase's one
+ * link-safe writer: a fresh 0600 temp created `wx`, then renamed over the name, so a symbolic OR a
+ * hard link planted at a predictable id only loses its name, never its target's contents, and its
+ * win32 path (no O_NOFOLLOW there) is already the audited one. Same OS user as the agent, so this is
+ * care, not a privilege boundary; a swap of the Inbox itself between the check and the write is not
+ * closed.
  *
  * Inbox/.gitignore ignores the whole folder: for a CONNECTED agent the folder is the person's own
  * project, often a git repository, and colleagues' messages must not ride a `git add .` out of it.
@@ -157,10 +158,7 @@ function spillInto(recipient, id, text) {
     if (!fs.lstatSync(dir).isDirectory()) return null;   // lstat: a link is not the agent's folder
     try { fs.writeFileSync(path.join(dir, '.gitignore'), '*\n', { flag: 'wx' }); } catch { /* already there, or not writable: the spill still goes */ }
     const file = path.join(dir, id + '.txt');
-    try { fs.unlinkSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
-    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
-    const fd = fs.openSync(file, flags, 0o600);
-    try { fs.writeSync(fd, text + '\n'); } finally { fs.closeSync(fd); }
+    require('./securewrite').writeSecret(file, text + '\n', 0o600);   // throws on failure: caught below as "no file"
     return file;
   } catch { return null; }
 }

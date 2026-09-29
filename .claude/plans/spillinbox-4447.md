@@ -50,3 +50,8 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
 - **NIT** A linked worker folder is refused, unlike Files. Now written in the comment.
 - **NIT** A crash between the spill and the log can leave a stale `Inbox/mN.txt` that a reused id later replaces for its own recipients only. KEPT: rare, and the stale file is still that agent's own message.
 - **NIT** The retention comment pointed at a note about log rotation. Fixed: it now says what is true.
+
+## Validation (2c5850d0): 1 red, mine
+- The #1732 Windows-coupling audit flagged my hand-rolled `fs.constants.O_NOFOLLOW` open as an unclassified Windows-hostile site.
+- The codebase already has ONE audited link-safe writer, `engine/securewrite.js` (`writeSecret`: a 0600 temp created `wx`, renamed over the name, with win32 handled and pinned). I should have used it from the start. The spill now goes through it; the audit passes (8/8).
+- The planted symbolic and hard link tests still pass (a rename only replaces the name). A mutant with a plain writeFileSync, which follows links, turns the planted-link test red.
