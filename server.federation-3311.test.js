@@ -379,10 +379,19 @@ test('#4649 an own code is still screen-only, like every join', async () => {
   assert.equal(v.status, 403, JSON.stringify(v.json));
 });
 
-test('#4649 own-code: the screen gets a code for its own project that another computer can join with', async () => {
+test('#4649 own-code: the screen gets a code for its own project that another computer can join with', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  remote.kosmosPlus = () => false;
   const c = await post('/api/projects', { name: 'Four Computers' }, SCREEN);
   assert.equal(c.status, 200, JSON.stringify(c.json));
   const id = (c.json.project && c.json.project.id) || c.json.id;
+  // Without Kosmos Plus the coordinator would never seat the room: no code, and no link made.
+  const np = await post('/api/federation/own-code', { project: id }, SCREEN);
+  assert.equal(np.status, 403, JSON.stringify(np.json));
+  assert.equal(np.json.reason, 'not-plus');
+  assert.equal(federation.linkFor(id), null, 'no owner link is made for a code that was not given');
+  remote.kosmosPlus = () => true;
   const r = await post('/api/federation/own-code', { project: id }, SCREEN);
   assert.equal(r.status, 200, JSON.stringify(r.json));
   const parsed = federation.parseOwnCode(r.json.code);

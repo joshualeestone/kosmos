@@ -36,6 +36,8 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const projects = require('../../engine/projects');
 const federation = require('../../engine/federation');
+const remote = require('../../engine/remote');
+remote.kosmosPlus = () => true;   // the own-code route needs Kosmos Plus; the page gate is stubbed the same way below
 
 const fail = [];
 function chk(ok, label, extra) {

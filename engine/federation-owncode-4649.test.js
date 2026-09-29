@@ -62,6 +62,25 @@ test('an owner project that handed out a sealing invite gets no own code (its ro
   assert.equal(federation.ownCodeRefusal('proj-new'), null);
 });
 
+test('an own code always fits under the parse cap, cutting a long name by whole characters', () => {
+  // JSON writes a control character as six bytes, so 200 of them overflow the cap uncut.
+  const code = federation.ownCode('proj-ctl', 'A' + '\u0007'.repeat(199));
+  const got = federation.parseOwnCode(code);
+  assert.ok(got, 'the code parses (length ' + code.length + ')');
+  assert.ok(got.name.startsWith('A') && got.name.length < 200, 'the name was cut to fit: ' + got.name.length);
+});
+
+test('an invite is refused for a project shared with this account\'s other computers (sealing would lock them out; #4658)', async () => {
+  federation.recordLink('proj-ss', { role: 'owner', ref: 'ref-ss', selfShared: true });
+  let called = 0;
+  const stub = { macRequest: async () => { called += 1; return { ok: true, data: { code: 'C', expires_at: 1, invite_id: 'i' } }; } };
+  const out = await federation.invite(stub, { project_ref: 'ref-ss', project_name: 'Mine', invited_kind: 'person' });
+  assert.equal(out.status, 409);
+  assert.equal(out.body.reason, 'self-shared');
+  assert.equal(called, 0, 'nothing was minted');
+  assert.equal(require('./fedseal').isSealedRef('ref-ss'), false, 'the room was not sealed');
+});
+
 test('an invite takes a project name over 128 bytes (the byte bound is for refs only)', async () => {
   const calls = [];
   const stub = { macRequest: async (method, route, body) => { calls.push(body); return { ok: true, data: { code: 'CODE2', expires_at: 1, invite_id: 'inv-2' } }; } };

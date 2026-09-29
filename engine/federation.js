@@ -167,6 +167,7 @@ function nameOk(v) {
    an own room is only ever minted for the caller's OWN account, so this code pasted on
    someone else's computer opens that account's own (empty) room, never this one. */
 const OWN_PREFIX = 'kosmos-own:';
+const OWN_CODE_MAX = 1024;
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
@@ -194,13 +195,17 @@ function ownCode(projectId, projectName) {
     // even before a guest joins (fedseats.ensure).
     recordLink(projectId, Object.assign({}, link, { selfShared: true }));
   }
-  const name = String(projectName || '').slice(0, NAME_MAX);
-  return OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name }), 'utf8').toString('base64url');
+  // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
+  let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name: chars.join('') }), 'utf8').toString('base64url');
+  let code = make();
+  while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
+  return code;
 }
 /** The {ref, name} an own-account code carries, or null for anything else. */
 function parseOwnCode(text) {
   const t = typeof text === 'string' ? text.trim() : '';
-  if (!t.startsWith(OWN_PREFIX) || t.length > 1024) return null;
+  if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
   if (!o || o.v !== 1 || !refOk(o.ref) || typeof o.name !== 'string') return null;
@@ -218,6 +223,14 @@ async function invite(remote, body) {
   // longer than this Mac would keep leaves it.
   if (typeof body.project_desc === 'string' && body.project_desc.length > DESC_MAX) {
     return { status: 400, body: { error: 'that description is longer than ' + DESC_MAX + ' characters' } };
+  }
+  /* A sealing invite seals the room, and this account's other computers joined by own code
+     hold no seal state, so they could no longer read or post there (#4658). An unreadable
+     links record does not block an invite; the paths that read links report it. */
+  let selfShared = false;
+  try { selfShared = Object.values(links()).some((l) => l && l.role === 'owner' && l.selfShared === true && l.ref === body.project_ref); } catch { selfShared = false; }
+  if (selfShared) {
+    return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
   }
   const req = { project_ref: body.project_ref, project_name: body.project_name, invited_kind: kind };
   if (typeof body.project_desc === 'string' && body.project_desc.trim()) req.project_desc = body.project_desc;

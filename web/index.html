@@ -59680,6 +59680,7 @@ function pjFedMessage(body, fallback) {
     'self-join': 'That is your own project, so there is nothing to join.',
     'double-join': 'You are already on that project.',
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
+    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
   };
   return (reason && M[reason]) || fallback;
 }

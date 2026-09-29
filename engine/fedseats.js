@@ -344,6 +344,14 @@ function spawnFor(projectId, edge) {
     // An unreadable link record is not an ending: restart like any other exit.
     if (code === 3 && link) {
       if (link.role === 'owner') {
+        /* The owner's OWN room (no edge) refused for good: stop seating it this session,
+           and say so once, instead of retrying into the same refusal. */
+        if (!cur.edge) {
+          cur.ownRefused = true;
+          say(projectId, 'Your other computers could not be connected to this project. Kosmos will try again the next time it starts.');
+          setStatus(projectId, 'waiting');
+          return;
+        }
         if (!cur.refused) cur.refused = new Set();
         if (cur.edge) cur.refused.add(cur.edge);
         // Kept on the link, so a restart does not try the refused edge again.
@@ -674,7 +682,7 @@ async function ensure(projectId, edges) {
          computers have it to talk to; the room is the one an edge would open. An owner
          never shared that way keeps waiting for a guest, as before, so a post there
          still says nobody has joined instead of going to an empty room. */
-      if (got.none && !link.selfShared) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      if (got.none && (!link.selfShared || s.ownRefused)) { setStatus(projectId, 'waiting'); return 'waiting'; }
       edge = got.none ? { own: link.ref } : got.edge;
     }
     if (s.stopped || s.child) return s.status;

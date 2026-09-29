@@ -15986,6 +15986,11 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        // The coordinator seats an own room only for a Kosmos Plus account, so a code made
+        // without it could never connect, and its owner seat would retry for nothing.
+        let plus = false;
+        try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer.' }); return; }
         let proj = null;
         try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
