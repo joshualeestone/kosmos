@@ -509,6 +509,10 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
+  # #4466: ALWAYS, so the `kosmos` CLI can tell an agent from a person and refuse an agent's
+  # stop/restart of a board that answers (an agent restarted a busy board 140 times in an hour).
+  # Not a secret: the session name. The token above can be absent (a failed mint), this cannot.
+  PANE_ENV+=(-e "KOSMOS_AGENT_SESSION=$SESSION")
   # 🛑 #3417: TRUST THE CLAUDE CONFIG DIR THE PANE ACTUALLY READS. A tmux new-session inherits
   # the shared server's GLOBAL environment (measured on 3.6a, and already handled for HOME,
   # KOSMOS_WORLD + the store roots above). A board cold-started under CLAUDE_CONFIG_DIR=<account>
