@@ -11354,16 +11354,34 @@ test('putting a running agent on a project types one line into its pane, once, a
   });
   chatEngine.setDryRun(false);
   try {
-    // Join: the line is typed, and the response says so.
-    let r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
+    let releaseBusy;
+    let busyStarted;
+    const started = new Promise((resolve) => { busyStarted = resolve; });
+    let pauses = 0;
+    chatEngine.setPauser(() => new Promise((resolve) => {
+      pauses += 1;
+      if (pauses === 1) { releaseBusy = resolve; busyStarted(); } else resolve();
+    }));
+    const busy = chatEngine.deliverAsync('mara', 'the pane is busy first', board.agents);
+    await started;
+    let joinSettled = false;
+    const join = req('/api/project/' + made.id + '/agent/mara', { method: 'POST' })
+      .then((answer) => { joinSettled = true; return answer; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(joinSettled, false, 'the membership notice was refused instead of queued behind the busy pane');
+    releaseBusy();
+    await busy;
+    // Join: the line is queued, typed second, and the response says so.
+    let r = await join;
     assert.equal(r.status, 200, r.body);
     let out = JSON.parse(r.body);
     assert.equal(out.told.state, 'told', out.told.because);
     assert.ok(out.said, 'membership moved and nothing was spoken');
     assert.equal(out.said.state, 'placed', out.said.because);
     let typed = pastedMessages(sends);
-    assert.equal(typed.length, 1, 'the join line was not typed exactly once');
-    assert.match(typed[0], /put you on the project "Pane Line"/);
+    assert.equal(typed.length, 2, 'the busy message and queued join line were not both typed exactly once');
+    assert.match(typed[0], /the pane is busy first/);
+    assert.match(typed[1], /put you on the project "Pane Line"/);
     // Re-adding the same member moves nothing and types nothing.
     sends.length = 0;
     r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
@@ -11380,6 +11398,7 @@ test('putting a running agent on a project types one line into its pane, once, a
     assert.match(typed[0], /took you off the project "Pane Line"/);
     assert.doesNotMatch(typed[0], /post pane-line/);
   } finally {
+    chatEngine.setPauser(null);
     chatEngine.setRunner(null);
   }
 });

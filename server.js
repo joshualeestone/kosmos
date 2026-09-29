@@ -14791,7 +14791,7 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/projects' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -14891,13 +14891,13 @@ const server = http.createServer(async (req, res) => {
         // happened") and create had the same shape.
         let told = [];
         try {
-          told = made.agents.map((a) => {
+          told = await Promise.all(made.agents.map(async (a) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = projects.speakOfMembership(a, made, 'joined', roster);
+            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
-          });
+          }));
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
@@ -15074,14 +15074,14 @@ const server = http.createServer(async (req, res) => {
       // SPEAK the display name, and the roster that resolves the two is already
       // in hand here. `shownAs` falls back to the machine name, because a name
       // we cannot resolve is still the only name we have.
-      told = gone.agents.map((a) => {
+      told = await Promise.all(gone.agents.map(async (a) => {
         const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === a) : null;
         const verdict = projects.syncAgent(a, roster);
         // A running member hears that the project is gone (#304); a stopped
         // one reads it at its next start, and could_not here is that fact.
-        const said = projects.speakOfMembership(a, gone, 'removed', roster);
+        const said = await projects.speakOfMembershipAsync(a, gone, 'removed', roster);
         return { agent: a, shownAs: (card && card.name) || a, ...verdict, said };
-      });
+      }));
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
@@ -15666,7 +15666,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15710,7 +15710,7 @@ const server = http.createServer(async (req, res) => {
         fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
         for (const a of made.agents || []) {
-          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          try { projects.syncAgent(a, roster); await projects.speakOfMembershipAsync(a, made, 'joined', roster); }
           catch { /* membership is recorded; telling the agent is best-effort here */ }
         }
         let project = null;
@@ -16637,7 +16637,7 @@ const server = http.createServer(async (req, res) => {
     // its next start.
     let said = null;
     if (moved && project) {
-      said = projects.speakOfMembership(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
+      said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
     sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
     return;
