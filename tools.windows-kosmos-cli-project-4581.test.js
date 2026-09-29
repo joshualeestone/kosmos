@@ -79,3 +79,9 @@ test('#4581 Windows usage and subcommands', async () => {
     assert.equal(r.calls.length, 0);
   }
 });
+
+test('#4581 round 1 (Windows): an answer that is not JSON exits 1', async () => {
+  const r = await run(['project', 'show', 'ff'], () => ({ status: 502, body: '<html>Bad gateway</html>' }));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /could not read/);
+});

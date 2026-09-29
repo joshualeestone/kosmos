@@ -2679,14 +2679,16 @@ cmd_project() {
       # Raw JSON is the fallback when no node or module can be found.
       _node="$(kosmos_engine_node)" || _node=""
       _mod="$(kosmos_engine_module projectview)"
-      if [ -n "$_node" ] && printf '%s' "$body" | "$_node" -e '
+      if [ -z "$_node" ]; then printf '%s\n' "$body"; exit 0; fi   # no node to render with: the raw answer is still true
+      # An answer that is not JSON (a proxy's error page, a cut-off body) is not a success (review round 1): exit 1.
+      if ! printf '%s' "$body" | "$_node" -e '
         const v = require(process.argv[1]);
-        const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        let d;
+        try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(3); }
         process.stdout.write((process.argv[2] === "list" ? v.renderList(d) : v.renderShow(d)).join("\n") + "\n");
       ' "$_mod" "$sub" 2>/dev/null; then
-        :
-      else
-        printf '%s\n' "$body"
+        say "Kosmos gave an answer we could not read, so nothing is shown."
+        exit 1
       fi
       exit 0
       ;;

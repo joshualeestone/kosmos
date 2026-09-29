@@ -673,11 +673,12 @@ async function projectCreate(ctx, args) {
 
 /* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
    printed by engine/projectview.js, the renderer the Mac command uses, so the two say the same words. */
-async function projectRead(ctx, route, render, what) {
+async function projectRead(ctx, route, render) {
   const r = await ctx.call('GET', route);
   if (!r.reached) return ctx.unreachable('read its projects');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
-  if (!r.json) { ctx.out(String(r.text || '')); return 0; }
+  /* An answer that is not JSON (a proxy's error page, a cut-off body) is not a success (round 1): exit 1. */
+  if (!r.json) { ctx.err('Kosmos gave an answer we could not read, so nothing is shown.'); return 1; }
   let lines;
   try { lines = ctx.engine('projectview')[render](r.json); } catch (_) { ctx.out(String(r.text || '')); return 0; }
   for (const line of lines) ctx.out(line);

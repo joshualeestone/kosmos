@@ -135,7 +135,7 @@ test('#4581 show: folder, goal and done as written, tasks, and each member\'s fa
   assert.ok(by.sam.summary.ageMinutes >= 359, JSON.stringify(by.sam.summary));
   assert.equal(by.ghost.present, false, 'a member that is not running is said so');
   assert.equal(by.ghost.family, null);
-  assert.equal(by.ghost.summary.state, 'none');
+  assert.equal(by.ghost.summary.state, 'nofolder', 'a member we cannot place is not "wrote nothing"');
 });
 
 test('#4581 show: an id is looked up exactly; a garbled or unknown one names no project', async (t) => {

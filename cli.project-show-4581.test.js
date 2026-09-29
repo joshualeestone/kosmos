@@ -48,6 +48,7 @@ function withStub(fn) {
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
       seen.push({ method: req.method, url: req.url, agent: req.headers['x-kosmos-agent-token'] });
+      if (req.url === '/api/project/html/overview') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>Bad gateway</html>'); return; }
       const [status, body] = req.url === '/api/projects/overview' ? [200, LIST]
         : req.url === '/api/project/ff/overview' ? [200, SHOW]
           : [404, { error: 'there is no project by that name' }];
@@ -123,3 +124,10 @@ test('#4581 the usage lines match between install/kosmos and the Windows CLI', (
     assert.ok(mac.includes('say "' + macForm + '"'), 'install/kosmos lacks: ' + line);
   }
 });
+
+test('#4581 round 1: an answer that is not JSON is not a success (exit 1), never printed as if it were', () => withStub(async (env) => {
+  const out = await runCli(['project', 'show', 'html'], env);
+  assert.equal(out.code, 1, out.stdout);
+  assert.match(out.stdout, /could not read/);
+  assert.doesNotMatch(out.stdout, /Bad gateway/);
+}));

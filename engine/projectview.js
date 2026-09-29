@@ -35,11 +35,18 @@ const FUTURE_SLACK_MINUTES = 5;
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
   if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return { ...none, state: 'unreadable' };
+  /* Blind review round 1: "we do not know where this agent's folder is" is not "it wrote no summaries", and the PM
+     role raises a missing summary as a finding, so the two are said apart. The agent's own folder missing is
+     `nofolder`; only a folder that exists with no summaries/ in it is `none`. */
+  try { if (!fs.lstatSync(folder).isDirectory()) return { ...none, state: 'nofolder' }; }
+  catch (e) { return { ...none, state: (e && e.code === 'ENOENT') ? 'nofolder' : 'unreadable' }; }
   const dir = path.join(folder, 'summaries');
   let names;
   try {
     const st = fs.lstatSync(dir);
-    if (!st.isDirectory()) return none;   // a symlink or a file is not the agent's own summaries folder
+    /* A symlink or a file where summaries/ should be: not read (it is not the agent's own folder), and so
+       `unreadable`, never `none`: something is there and we did not look (round 1). */
+    if (!st.isDirectory()) return { ...none, state: 'unreadable' };
     names = fs.readdirSync(dir);
   } catch (e) {
     return (e && e.code === 'ENOENT') ? none : { ...none, state: 'unreadable' };
@@ -107,7 +114,9 @@ function overviewOf(p, roster, o) {
       present: Boolean(m.present),
       family: m.tied ? familyOf(m.runner) : null,
       model: (card && (card.modelName || card.model)) || null,
-      summary: summaryFreshness(folderOf(m.sessionName), opts.now),
+      /* Only for a member tied to its pane (round 1): a stranger's pane holding the name must not have a folder
+         derived from that name reported as this member's summary. */
+      summary: m.tied ? summaryFreshness(folderOf(m.sessionName), opts.now) : { state: 'nofolder', file: null, at: null, ageMinutes: null },
     };
   });
   return {
@@ -189,6 +198,7 @@ const SUMMARY_WORDS = {
   current: (s) => 'current (' + s.file + ', ' + ago(s.ageMinutes) + ')',
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + s.file + ', ' + ago(s.ageMinutes) + ')',
   none: () => 'none yet',
+  nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + s.file + '), so we cannot tell how current it is',
   unreadable: () => 'we could not look',
 };
@@ -205,8 +215,11 @@ function renderShow(payload) {
   if (!p.briefFound) {
     out.push('Brief: there is no readable BRIEF.md in the folder, so no goal or "done" is written down.');
   } else {
-    out.push('Goal (as written in BRIEF.md): ' + (p.goal ? '"' + one(p.goal) + '"' : 'not filled in yet'));
-    out.push('Done looks like (as written in BRIEF.md): ' + (p.done ? '"' + one(p.done) + '"' : 'not filled in yet'));
+    /* Double quotes inside become single (round 1), so the brief's words cannot close the quotation early and read
+       as Kosmos's own; the same rule as a webhook task's words (install/kosmos task list). */
+    const quoted = (t) => '"' + one(t).replace(/["\u201C\u201D]/g, "'") + '"';
+    out.push('Goal (as written in BRIEF.md): ' + (p.goal ? quoted(p.goal) : 'not filled in yet'));
+    out.push('Done looks like (as written in BRIEF.md): ' + (p.done ? quoted(p.done) : 'not filled in yet'));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
   const members = Array.isArray(p.members) ? p.members : [];
