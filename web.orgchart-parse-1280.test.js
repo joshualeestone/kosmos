@@ -166,3 +166,14 @@ test('#4559: the page asks before more than the usual team size, the same size t
   assert.ok(m, 'ORGCHART_TEAM_DEFAULT is gone from the page');
   assert.equal(Number(m[1]), require('./engine/team').DEFAULT_TEAM_CAP);
 });
+
+test('#4559: the page refuses a picture over the same size the board sends to the model', () => {
+  const m = /const ORGCHART_MAX_IMAGE_BYTES = ([^;]+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MAX_IMAGE_BYTES is gone from the page');
+  assert.equal(Function('return (' + m[1] + ')')(), require('./engine/orgchartfile').MAX_IMAGE_BYTES);
+  const img = /\/\\\.\(([^)]+)\)\$\/i\.test\(file\.name\) && file\.size > ORGCHART_MAX_IMAGE_BYTES/.exec(PAGE);
+  assert.ok(img, 'the picture test before the consent box is gone');
+  const { MODEL_TYPES } = require('./engine/orgchartfile');
+  const re = new RegExp('\\.(' + img[1] + ')$', 'i');
+  for (const [ext, t] of Object.entries(MODEL_TYPES)) assert.equal(re.test('x.' + ext), t.block === 'image', '.' + ext);
+});

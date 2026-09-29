@@ -46824,6 +46824,7 @@ async function orgchartSendFile(file, consent, seq) {
 /* The largest file the board will read (engine/orgchartfile.js MAX_BYTES; web.orgchart-parse-1280.test.js pins it).
    Checked here because a body over it is cut off by the board mid-upload, which reads to the page as unreachable. */
 const ORGCHART_MAX_BYTES = 10 * 1024 * 1024;
+const ORGCHART_MAX_IMAGE_BYTES = 5 * 1024 * 1024;   // engine/orgchartfile.js MAX_IMAGE_BYTES, pinned by web.orgchart-parse-1280.test.js
 function orgchartTakeFile(file) {
   if (!file) return;
   if (ORGCHART_CREATING || ORGCHART_UNDO_BUSY) {
@@ -46833,6 +46834,12 @@ function orgchartTakeFile(file) {
     return;
   }
   if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();   // a new file ends the read in progress (and its model call)
+  if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) && file.size > ORGCHART_MAX_IMAGE_BYTES) {
+    const msg = document.getElementById('orgchart-msg');   // before the consent box: a yes could only end in this refusal
+    msg.hidden = false;
+    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.';
+    return;
+  }
   if (file.size > ORGCHART_MAX_BYTES) {
     const msg = document.getElementById('orgchart-msg');
     msg.hidden = false;
@@ -47093,6 +47100,13 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       + ' to you, because their manager was not created.' : '')
       + (unfixed.length ? (orphans.length ? ' ' : '') + 'We could not update who ' + unfixed.join(', ')
         + (unfixed.length === 1 ? ' reports' : ' report') + ' to; change it on ' + (unfixed.length === 1 ? 'its' : 'their') + ' page.' : '');
+  }
+  /* Kosmos's answer did not account for every member once, so no line was checked or moved (a wrong pairing would
+     move a report silently); said, so the person looks rather than trusts it. */
+  if (!paired && created.length) {
+    msg.hidden = false;
+    msg.textContent = (msg.textContent ? msg.textContent + ' ' : '') + 'We could not check who each new agent reports to. '
+      + 'Look at the team in the org view and fix any line that is wrong.';
   }
   listEl.innerHTML =
     created.map((c) => '<li>' + esc(c.shownAs || c.name) + ' <span class="dhint">created</span></li>').join('')

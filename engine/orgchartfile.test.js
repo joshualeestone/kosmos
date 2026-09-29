@@ -491,3 +491,14 @@ test('#4559: the read runs claude on the default account with CLAUDE_CONFIG_DIR 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('#4559: a hand-written CSV with a space before a quoted field reads the quoted field whole', () => {
+  const r = o.parseDelimited('Name, Title, Manager\nAvery Quill, "Head, Sales", \nBo Linden, "Rep", Avery Quill\n');
+  assert.deepEqual(r[1], ['Avery Quill', 'Head, Sales', '']);
+  assert.deepEqual(r[2], ['Bo Linden', 'Rep', 'Avery Quill']);
+});
+
+test('#4559: the model\'s own doubt is kept beside a note the file earned', () => {
+  const r = o.fromModel({ people: [{ person: 'Avery Quill', title: 'CEO', reportsTo: 'Nobody Here', sure: false, why: 'the line is faint' }] });
+  assert.match(r.rows[0].why, /not in the file.*the line is faint/, r.rows[0].why);
+});

@@ -261,6 +261,22 @@ async function run() {
     } else check('CREATE DURING A READ: the panel offers a file', false);
     await pcr.close();
 
+    // UNPAIRED: an answer that does not account for every member moves no line, and says the lines were not checked.
+    const pu = await page();
+    const putsU = [];
+    await pu.route('**/api/team', (r) => { const body = JSON.parse(r.request().postData() || '{}'); r.fulfill({ status: 200, json: { outcome: 'partial', created: body.members.slice(1).map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } }); });
+    await pu.route('**/api/agent/*/profile', (r) => { putsU.push(r.request().url()); r.fulfill({ status: 200, json: { ok: true } }); });
+    await openPanel(pu);
+    if (await pu.$('#orgchart-file-btn')) {
+      await pu.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pu.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pu.click('#orgchart-create');
+      await pu.waitForFunction(() => /could not check who each new agent reports to/.test(document.getElementById('orgchart-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const un = await readPreview(pu);
+      check('UNPAIRED: an answer missing a member moves no reporting line and says they were not checked', putsU.length === 0 && /could not check who each new agent reports to/.test(un.msg), JSON.stringify([putsU.length, un.msg]));
+    } else check('UNPAIRED: the panel offers a file', false);
+    await pu.close();
+
     // MANY: past the usual team size (12), Create asks in words about the load and the bill; Not now sends nothing,
     // and only Start all sends #2972's raise, set to the chart's size (Liu Kang m3436).
     const pm = await page();
@@ -367,6 +383,14 @@ async function run() {
       await pa.setInputFiles('#orgchart-file', { name: 'many.csv', mimeType: 'text/csv', buffer: Buffer.from(many) });
       await pa.waitForFunction(() => /This list has 51 people/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
       const mn = await readPreview(pa);
+      // BIG PICTURE: a picture over what the model takes is refused before the consent box, so a yes cannot end in a refusal.
+      await pa.route('**/api/orgchart/read*', (r) => { reads += 1; r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } }); });
+      const beforePic = reads;
+      await pa.setInputFiles('#orgchart-file', { name: 'big.png', mimeType: 'image/png', buffer: Buffer.alloc(6 * 1024 * 1024, 0x41) });
+      await pa.waitForTimeout(300);
+      const bp = await pa.evaluate(() => ({ msg: document.getElementById('orgchart-msg').textContent, consent: !document.getElementById('orgchart-consent').hidden }));
+      check('BIG PICTURE: a 6 MB picture is refused in the page, before the consent box and any request', reads === beforePic && !bp.consent && /picture is larger than 5 MB/.test(bp.msg), JSON.stringify([reads - beforePic, bp]));
+      await pa.unroute('**/api/orgchart/read*');
       check('TOO MANY: a 51-person file is refused in the preview, with no list and Create off', /This list has 51 people\. Kosmos makes at most 50 agents at a time/.test(mn.count) && mn.rows.length === 0 && mn.createDisabled, JSON.stringify([mn.count, mn.rows.length, mn.createDisabled]));
     } else check('AFTER CREATE: the panel offers a file', false);
     await pa.close();
