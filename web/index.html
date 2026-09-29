@@ -1640,6 +1640,14 @@ html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background
    Only where scrollbars take width (data-scrollbar-classic, set by kosmosMeasureScrollbarWidth): an overlay-scrollbar
    Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
+/* #4542: the same gutter on Settings > Kosmos Plus. body.plus-active paints its navy as a radial-gradient IMAGE and sets
+   its tokens on the body, so the canvas has no colour of its own and the #1309 gutter painted a pure white 15px strip
+   the full height of a navy page (measured 255,255,255 beside 12,21,41). The canvas takes the gradient's OUTER stop,
+   so the strip reads as the gradient's own edge. This is a second copy of that colour: web.plus-gutter-4542.test.js
+   pins it to the body.plus-active gradient's last stop, so the two cannot drift. Rejected: dropping the gutter on
+   Plus (a 15px jump into the section, what #1309 prevents), and moving the Plus tokens to the root (the largest
+   change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not while the tour dims. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
