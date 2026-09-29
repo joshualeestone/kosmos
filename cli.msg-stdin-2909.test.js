@@ -141,7 +141,9 @@ test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no c
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been delivered/);
   assert.doesNotMatch(out.stdout, /saved at/, 'a message that may have landed is not offered for re-sending');
-  assert.equal(seen.length, 1, 'the board did receive it');
+  // #4580: the CLI asks ONCE more after a timeout (the real board keeps one copy of the same send inside
+  // two minutes, so the retry cannot duplicate it); this stub does not fold, so it counts both.
+  assert.equal(seen.length, 2, 'the board received it, and was asked exactly once more');
 }, null, 17000));
 
 test('#2909: a piped msg the board refuses, or one too large to send, is kept', () => withStubBoard(async (port) => {
