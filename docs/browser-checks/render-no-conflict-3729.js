@@ -70,10 +70,10 @@ function chk(ok, label, extra) {
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   /* #4520: first run is marked seen BEFORE any page loads, as the sibling checks do, so its overlay never
-     opens. Dismissing it with one Escape after the page loaded was a race: it closes only when the page's
-     POST to /api/first-run/complete returns, and under load the overlay was still up (or opened late)
-     when this check clicked the Agents toggle, which then timed out behind it. This check is not about
-     first run. */
+     opens. Dismissing it with one Escape after the page loaded was a race: it looked once, and the overlay
+     closes only when the page's own POST to /api/first-run/complete succeeds, so an overlay that opened
+     after the look, or whose POST failed, stayed over the Agents toggle and the click timed out behind it
+     (which path ran was not reproduced). This check is not about first run. */
   const seenRes = await fetch(URL + '/api/first-run/complete', { method: 'POST' });
   chk(seenRes.ok, 'precondition: first run is marked seen before the page loads', 'status ' + seenRes.status);
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -117,10 +117,15 @@ function chk(ok, label, extra) {
         });
       }
       await page.goto(URL + '/', { waitUntil: 'networkidle' });
-      // #4520: the page has decided about first run once its launch cover is down (firstRunBoot lifts it
-      // after frOpen, or after deciding not to open).
-      await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, null, { timeout: 15000 });
-      chk(!(await page.$('#firstrun:not([hidden])')), '[' + platform + '] precondition: first run is not over the board');
+      // #4520: wait for the launch cover to come down (firstRunBoot's finally, or the page's 3 s fallback,
+      // which does not wait for first run to decide). With first run already seen, neither path can open it.
+      let coverDown = true;
+      try {
+        await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, null, { timeout: 15000 });
+      } catch { coverDown = false; }
+      chk(coverDown, '[' + platform + '] precondition: the launch cover came down');
+      chk(!(await page.$('#firstrun:not([hidden]), #fr-choice:not([hidden])')),
+        '[' + platform + '] precondition: neither first run nor its choice screen is over the board');
       // The layout is remembered on the board, so this waits for whichever agent element it draws.
       await page.waitForSelector('.acard, .lrow', { timeout: 15000 });
       await page.evaluate(() => { const b = document.querySelector('[data-layout-switch="tabs"]'); if (b) b.click(); showTab('agents'); });
