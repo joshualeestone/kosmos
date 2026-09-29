@@ -290,17 +290,20 @@ _lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 #     is the identity). An older board has no such route (404, or 403 from its token gate), so any
 #     other answer falls back to the page and its identity match above, unchanged;
 #   - it sets HEALTH_STATE: up | down (nothing listening: connection refused) | stranger (an
-#     answer that is not ours) | busy (connected, but no answer in time, or the reply was cut);
+#     answer that is not ours) | busy (connected, but no answer in time, or the reply was cut) |
+#     unreachable (refused, yet a listener is there: this shell cannot connect, #4636);
 #   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
 #     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
 #   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
-# #4636: THIS SHELL MAY NOT BE ABLE TO CONNECT AT ALL. A connect that fails (curl 7) while lsof shows
-# something LISTENING on the port is not a stopped board: an unrestricted shell always connects to a
-# listening socket, so this shell is blocked (a sandbox that denies even 127.0.0.1). That is HEALTH_STATE
-# unreachable: running, never "not running", never start advice, never a reclaim. A HUNG board is not
-# this: the OS still accepts the connect on its socket, so a hang is a timeout (busy), as before. (A proxy
-# in the way is the other shape of this, handled by the loopback NO_PROXY/no_proxy above, #4466.)
+# #4636: THIS SHELL MAY NOT BE ABLE TO CONNECT AT ALL. A connect to 127.0.0.1 that fails (curl 7) while
+# lsof shows an IPv4 listener on 127.0.0.1:PORT or *:PORT is not a stopped board: an unrestricted shell
+# connects to such a socket, so this shell is blocked (a sandbox that denies even 127.0.0.1, or a local
+# network fault). That is HEALTH_STATE unreachable: never "not running", never start advice, never a
+# reclaim. The listener's command name (lsof, which works where ps is denied) decides the words: node is
+# "Kosmos is running", anything else is "something is listening". A HUNG board is not this: the OS still
+# accepts the connect on its socket, so a hang is a timeout (busy), as before. (A proxy in the way is the
+# other shape of this, handled by the loopback NO_PROXY/no_proxy above, #4466.)
 # Returns 0 only for up. ⚠️ Call it as a plain statement or in `if`, never inside $( ): HEALTH_STATE is
 # a global and would be lost in the subshell.
 HEALTH_STATE=down
@@ -339,11 +342,29 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
     *) HEALTH_STATE=stranger ;;
   esac
 }
-# #4636: the connect failed. Down, unless something listens on the port, in which case this shell is the
-# one that cannot connect. lsof only (it works where ps is denied, as in a network-blocking sandbox); a Mac
-# with no lsof keeps the old reading, down.
+# #4636: the connect failed. Down, unless an IPv4 listener holds 127.0.0.1:PORT or *:PORT, in which case
+# this shell is the one that cannot connect. lsof only (it works where ps is denied, as in a
+# network-blocking sandbox); a Mac with no lsof keeps the old reading, down. IPv4 only: an IPv6-only socket
+# (lsof also shows it as *:PORT) really does refuse a 127.0.0.1 connect, so it is not evidence.
+_UNREACH_CMD=""
 _health_refused() {
-  if port_has_listener; then HEALTH_STATE=unreachable; else HEALTH_STATE=down; fi
+  _UNREACH_CMD="$(_ipv4_listener_command)" || _UNREACH_CMD=""
+  if [ -n "$_UNREACH_CMD" ]; then HEALTH_STATE=unreachable; else HEALTH_STATE=down; fi
+}
+# The command name (lsof's short one, e.g. "node") of an IPv4 listener on 127.0.0.1:PORT or *:PORT, or
+# nothing (return 1). Pipe-free: lsof's output goes to awk through a here-doc.
+_ipv4_listener_command() {
+  _lsof_present || return 1
+  local _l _c
+  _l="$(/usr/sbin/lsof -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fcn 2>/dev/null)" || return 1
+  _c="$(/usr/bin/awk -v port="$PORT" '
+    /^c/ { c = substr($0, 2); next }
+    /^n/ { n = substr($0, 2); if (n == "127.0.0.1:" port || n == "*:" port) { print c; exit } }' <<EOF
+$_l
+EOF
+)"
+  [ -n "$_c" ] || return 1
+  printf '%s' "$_c"
 }
 # A listener that took the connection but did not answer is BUSY only when it is OUR board: a
 # Kosmos server run by this user. A non-Kosmos process, or another account's board, is a stranger,
@@ -444,13 +465,19 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
 }
 # The one message for a verb that needs the board and did not get it (#4466). A busy board is
 # running: telling an agent to start (or restart) it is what turned a slow answer into a blackout.
-# #4636: the words for a board this shell cannot connect to (HEALTH_STATE unreachable).
+# #4636: the words for a board this shell cannot connect to (HEALTH_STATE unreachable). Kosmos only when the
+# listener is node; otherwise what we know: something is listening.
 _unreachable_why() {
-  printf '%s' "this shell cannot connect to it (a sandbox or a network rule is blocking connections to this computer's own address)"
+  printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
+}
+_unreachable_is_node() { case "$_UNREACH_CMD" in node*) return 0 ;; *) return 1 ;; esac; }
+_unreachable_lead() {   # the start of the sentence, up to "but"
+  if _unreachable_is_node; then printf '%s' "Kosmos is running at $URL, but"
+  else printf '%s' "Something (${_UNREACH_CMD:-a program}) is listening on port $PORT, so it may be Kosmos, but"; fi
 }
 say_not_up() {   # <what could not happen, e.g. "nothing can be posted">
   if [ "$HEALTH_STATE" = unreachable ]; then
-    say "Kosmos is running at $URL, but $(_unreachable_why), so $1. Run this from a shell that can reach it; Kosmos does not need a restart."
+    say "$(_unreachable_lead) $(_unreachable_why), so $1. Run this from a shell that can reach it; do not restart Kosmos for this."
   elif [ "$HEALTH_STATE" = busy ]; then
     say "Kosmos is running but too busy to answer (no reply in $(_busy_wait) s), so $1. Wait a minute and try again; it does not need a restart."
   else
@@ -848,9 +875,12 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   if [ "$HEALTH_STATE" = stranger ] && _listener_is_our_board >/dev/null; then HEALTH_STATE=busy; fi
   case "$HEALTH_STATE" in
     unreachable)
-      # #4636: running, but not from here. Nothing an agent starts, stops or restarts from this shell helps.
-      say "Kosmos is running at $URL, but $(_unreachable_why), so an agent may not $_verb it from here. Tell the person who runs this computer if you need it."
-      if [ "$_verb" = start ]; then exit 0; fi
+      # #4636: not from here. Nothing an agent starts, stops or restarts from this shell helps.
+      if [ "$_verb" = start ] && _unreachable_is_node; then
+        say "$(_unreachable_lead) $(_unreachable_why). It is already running, so there is nothing to start."
+        exit 0
+      fi
+      say "$(_unreachable_lead) $(_unreachable_why), so an agent may not $_verb it from here. Tell the person who runs this computer if you need it."
       exit 1 ;;
     up|busy)
       if [ "$_verb" = start ]; then say "Kosmos is already running at $URL"; exit 0; fi
@@ -972,10 +1002,15 @@ cmd_start() {
   # busy: bin/board-watchdog.sh after its 5-minute busy grace, and install/setup.sh right after it stopped
   # the old board itself. The #3079 reclaim below is the only thing that frees a port held by a detached
   # process neither the pidfile nor launchd tracks.
-  # #4636: something listens on the port and this shell could not connect to it. That is a running board
-  # seen from a blocked shell, never a stale one: no reclaim, whatever KOSMOS_RECLAIM_BUSY says.
+  # #4636: something listens on the port and this shell could not connect to it. Never a reclaim from here.
+  # KOSMOS_RECLAIM_BUSY=1 (the watchdog, and setup.sh after it paused the board) means no board of ours should
+  # be serving now, and this shell cannot see whether that is true, so it FAILS: returning 0 would let an update
+  # report success while the old board keeps serving old code.
   if [ "$HEALTH_STATE" = unreachable ]; then
-    say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started or stopped."
+    if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_node; then
+      die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run 'kosmos start' from a shell that can reach it."
+    fi
+    say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
     return 0
   fi
   if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
@@ -1264,7 +1299,7 @@ cmd_stop() {
     die "Kosmos is running at $URL but is busy, and it was not started by this command, so it was left alone. If it stays like this, 'kosmos restart' frees it."
   elif [ "$HEALTH_STATE" = unreachable ]; then
     # #4636: something listens and this shell cannot reach it. Not "not running", and no stop marker.
-    die "Kosmos is running at $URL, but $(_unreachable_why), and it was not started by this command, so it was left alone."
+    die "$(_unreachable_lead) $(_unreachable_why), and it was not started by this command, so it was left alone."
   else
     # #2955: already down, but the user explicitly asked to stop it, so record
     # that intent too -- otherwise the watchdog would "recover" a board the user
@@ -1294,7 +1329,7 @@ cmd_status() {
   elif [ "$HEALTH_STATE" = unreachable ]; then
     # #4636: running, but not from this shell. Exit 5, not 1 ("not running", the start advice) and not 0
     # (nothing here answered): bin/board-watchdog.sh reads 5 as "cannot tell from here" and does nothing.
-    say "Kosmos is running at $URL, but $(_unreachable_why). Run this from a shell that can reach it; Kosmos does not need a restart."
+    say "$(_unreachable_lead) $(_unreachable_why). Run this from a shell that can reach it; do not restart Kosmos for this."
     exit 5
   elif [ "$HEALTH_STATE" = stranger ] && _st_pid="$(_listener_is_our_board)"; then
     # #4466: the listener is the board this install recorded, so it is running; it just did not answer this
@@ -2462,6 +2497,12 @@ cmd_restart() {
   # of stop exits the process outright -- and that is correct here too:
   # a port owned by something we refuse to kill is a port start cannot
   # bind, so continuing would only move the failure one line down.
+  # #4636: a restart from a shell that cannot connect to the board would stop it and then start the new one
+  # inside the same blocked shell, where it cannot be reached either. Refuse before anything is stopped.
+  healthy --once || true
+  if [ "$HEALTH_STATE" = unreachable ]; then
+    die "$(_unreachable_lead) $(_unreachable_why), so it cannot be restarted from here. Nothing was stopped; run 'kosmos restart' from a shell that can reach it."
+  fi
   _KOSMOS_RESTARTING=1
   cmd_stop || true
   # #4466: a busy board of ours that the stop could not reach (nothing tracked it) is reclaimed by this start.

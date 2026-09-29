@@ -152,17 +152,25 @@ STATUS_RC=0
 bash "$KOSMOS_BIN" status >/dev/null 2>&1 || STATUS_RC=$?
 if [ "$STATUS_RC" -eq 0 ]; then
   [ -f "$ALERT" ] && { rm -f "$ALERT" 2>/dev/null || true; log "board healthy again; cleared crash-loop alert"; }
+  rm -f "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null || true   # #4636: an unreachable spell ends here too
   state_put "" "$LAST_KICK" 0             # clear the down streak and the fail count
   exit 0
 fi
 
-# #4636: status exit 5 is "running, but this shell cannot connect to it" (a sandbox or a network rule).
-# The watchdog cannot tell anything about the board from here, and restarting it would not help, so it
-# changes nothing: no down streak, no kick.
+# #4636: status exit 5 is "a listener is there, but this shell cannot connect to it" (a sandbox, a network
+# rule, a local network fault). The watchdog cannot tell anything about the board from here, and restarting
+# it would not help, so it kicks nothing and ends any down streak (a later down reading starts a fresh
+# GRACE). Logged once per spell, not every tick: a marker file holds the spell.
+UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"
 if [ "$STATUS_RC" -eq 5 ]; then
-  log "cannot reach the board from this shell (status exit 5); leaving it alone"
+  if [ ! -f "$UNREACH_MARK" ]; then
+    log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"
+    : > "$UNREACH_MARK" 2>/dev/null || true
+  fi
+  state_put "" "$LAST_KICK" "$FAILS"
   exit 0
 fi
+rm -f "$UNREACH_MARK" 2>/dev/null || true
 
 # --- board is down ----------------------------------------------------------
 NOW="$(now)"

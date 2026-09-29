@@ -22,7 +22,7 @@ new_home() {
 #!/bin/bash
 H="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
-  status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; exit 1 ;;   # 4: #4466 busy
+  status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; [ -f "$H/.stub-unreachable" ] && exit 5; exit 1 ;;   # 4: #4466 busy; 5: #4636 unreachable
   # #4466: like the real CLI: a start on a BUSY board is a no-op "already running", unless the watchdog
   # passes KOSMOS_RECLAIM_BUSY=1, when the #3079 reclaim frees the port and the board comes back.
   start)  echo "start reclaim=${KOSMOS_RECLAIM_BUSY:-}" >> "$H/.stub-start-calls"; echo "$*" >> "$H/.stub-start-args"
@@ -98,6 +98,19 @@ run_wd "$H"
 grep -qx 'start reclaim=' "$H/.stub-start-calls" && ok "CONTROL: a plain down board's start does NOT ask to reclaim" || bad "a plain down start asked to reclaim: $(cat "$H/.stub-start-calls")"
 grep -qx 'start --force' "$H/.stub-start-args" && ok "#4466: the watchdog's start passes --force (it is not an agent)" || bad "watchdog start without --force: $(cat "$H/.stub-start-args" 2>/dev/null)"
 grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
+rm -rf "$H"
+
+# 6u. #4636: UNREACHABLE (status exit 5: a listener is there, this shell cannot connect) with a down streak
+#     already past GRACE: no start, no kickstart, the down streak ended, and ONE log line for two ticks.
+#     Arm 6 above is the control: the same seeded state with status exit 1 does start.
+H="$(new_home)"; : > "$H/.stub-unreachable"
+printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
+run_wd "$H"; run_wd "$H"
+[ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "unreachable (exit 5): no start, no kickstart" || bad "unreachable: $(starts "$H") starts, $(kicks "$H") kicks"
+grep -q '^down_since=$' "$H/logs/board-watchdog.state" && ok "unreachable: the down streak is ended" || bad "unreachable: down streak kept: $(grep down_since "$H/logs/board-watchdog.state")"
+_n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: logged once for two ticks" || bad "unreachable: logged ${_n:-0} times for two ticks"
+rm -f "$H/.stub-unreachable"; run_wd "$H"
+[ ! -f "$H/logs/board-watchdog.unreachable" ] && ok "unreachable: the spell ends when status says something else" || bad "unreachable: its marker outlived the spell"
 rm -rf "$H"
 
 # 6e. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
