@@ -178,7 +178,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(pos.right === 16 && pos.bottom === 16, 'B2 it sits in the bottom-right corner', JSON.stringify(pos));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'bubble-light.png') }); }
 
-    // B2x (#4405, Josh 15:14-15:15): hold the pointer on the bubble about a second and a small circled X shows at its
+    // B2x (#4496, Josh 09-28 15:14-15:15): hold the pointer on the bubble about a second and a small circled X shows at its
     // top-right. The hit area is ONLY the circle: a click just outside it (still inside the X's square box, on the
     // avatar) opens the chat, the circle itself switches the Guide off (Settings > Help), reversibly.
     const xs = async () => page.evaluate(() => {
@@ -240,6 +240,11 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.unroute('**/api/settings', refuseX);
     chk(refusedX === 1 && failed && fs2.on && fs2.focus === 'asb-close' && fs2.bub, 'B2x a failed save keeps the X shown and focused, the bubble stays, and says so', JSON.stringify({ refusedX, failed, ...fs2 }));
     chk((await saOn()) === true, 'B2x and nothing was recorded off');
+    // The message is filled after it is shown (so a screen reader reads it), and the Settings row is not touched.
+    const said = await waitFor(page, () => /could not turn the Kosmos Guide off/.test(document.getElementById('asb-close-msg').textContent), 2000);
+    const rowMsg = await page.evaluate(() => { const m = document.getElementById('asb-row-msg'); return m ? { hidden: m.hidden, text: m.textContent } : null; });
+    chk(said, 'B2x the failure words arrive in the live region');
+    chk(!rowMsg || (rowMsg.hidden && !rowMsg.text), 'B2x the X\'s failure leaves the Settings row\'s message alone', JSON.stringify(rowMsg));
     // A click while a save is already running (the Settings switch mid-save) is a no-op, not a failure: no message.
     await page.evaluate(() => { document.getElementById('asb-close-msg').hidden = true; ASB.turning = true; });
     const busy = await page.evaluate(async () => { document.getElementById('asb-close').click(); await new Promise((r) => setTimeout(r, 300)); return document.getElementById('asb-close-msg').hidden; });
