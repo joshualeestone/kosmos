@@ -36,3 +36,8 @@ Found by Angel on #4446: Grok still reads ~/.cursor/rules/*.md by default (GROK_
 - **How it happened:** after round 1's comment edits I ran my test script (which also runs mutants) piped into `head -4`. Mutant M1 deletes exactly that flag and restores the file after. When head exited, the script was killed by the closed pipe after the mutant was applied but before the restore. I then committed the mutated file with the comment changes.
 - **Fixed:** bin/agent-supervisor.sh restored byte-for-byte from the validated commit 0031b64b (round 1 intended no supervisor change). The full run, output to a file, not piped: 255/255, both mutants red and restored.
 - **The lesson,** recorded in memory: never pipe a script that mutates files into `head` (or anything that can close early). The reviewer caught it because it RAN the test instead of trusting "255/255".
+
+## Review round 3 (opus, blind): 0 BLOCKERs, 0 WARNINGs, 2 NITs. CONVERGED. The reviewer RAN the tests: 255/255.
+- **NIT** The comment understated what the cursor cells stop in a project's own `<cwd>/.cursor`: skills and hooks too, not only rules and mcp.json. Fixed.
+- **NIT** "grok reads 0 and false alike" is in no doc; only '0' for the hooks cell was measured (#3391). Reworded to say exactly that.
+- This branch also addresses #4460 (Angel's card for the same cursor-rules finding, claimed pigeonpete 21:07).

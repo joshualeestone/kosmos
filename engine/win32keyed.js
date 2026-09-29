@@ -67,12 +67,13 @@ const KEY_VAR = Object.freeze({ gemini: 'GEMINI_API_KEY', grok: 'XAI_API_KEY' })
    #4446 (Angel): the same for [compat.cursor], on by default too: without its five cells a grok agent
    loads the person's ~/.cursor rules, skills, agents, mcp.json and hooks (measured in a sandboxed HOME,
    grok 1.0.41: 2 live [cursor] entries to 0). The cursor cells also cover a PROJECT's own
-   <cwd>/.cursor rules and mcp.json, the same trade #4426 made for <dir>/.claude: an agent's context is
+   <cwd>/.cursor rules, skills, mcp.json and hooks.json (its docs, [compat.cursor]), the same trade #4426 made for <dir>/.claude: an agent's context is
    its brief. [compat.codex] has no environment name to set: the configuration guide calls its cells
    reserved and inert, while the reference table says codex hooks and skills are scanned "when present".
    REOPEN THIS if a grok release makes them live: only config.toml could then turn them off.
-   GROK_CLAUDE_HOOKS_ENABLED is '0' because #3391 shipped it that way and measured it; grok reads 0 and
-   false alike, and the cells added since use 'false', the documented spelling. */
+   GROK_CLAUDE_HOOKS_ENABLED is '0' because #3391 shipped it that way and measured that it takes effect (its
+   report hook still fires, the ~/.claude hooks do not); the cells added since use 'false', the spelling the
+   docs give. That '0' works is measured for this one cell, not documented. */
 const GROK_COMPAT_OFF = Object.freeze({
   GROK_CLAUDE_HOOKS_ENABLED: '0',
   GROK_CLAUDE_AGENTS_ENABLED: 'false',
