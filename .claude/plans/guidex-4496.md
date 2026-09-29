@@ -1,0 +1,35 @@
+# guidex-4405 (card kosmos#4496): the Kosmos Guide bubble's hover X
+
+Josh, #admin 09-28 15:14 and 15:15 CDT (verbatim on kosmos#4496): hover the Guide bubble about a second and
+a small circled X shows at its top-right; clicking it turns the Kosmos Guide switch OFF (reversible, deletes
+nothing); the hit area is ONLY the circle, a click anywhere else on the avatar opens the chat.
+
+## Design (decided)
+- A SEPARATE `<button id="asb-close">` beside the bubble (a button cannot hold a button), 20px, border-radius
+  50%, no padding, positioned so its centre sits on the bubble's top-right corner and following a lifted
+  bubble. Hit testing follows border-radius, so a point inside its square box but outside the circle is
+  the avatar.
+- Shown after ASB_CLOSE_HOLD_MS (1000 ms) with the pointer on the bubble, or at once when the keyboard
+  reaches the bubble (so Tab goes on to it); hidden when the pointer leaves both (a 250 ms grace to cross
+  the gap). Never shown without its bubble.
+- The click runs asbSwitchOff(), the ONE switch-off path shared with the Settings > Help switch (the same
+  ASB.turning latch; the X is disabled with the switch while a save runs). A failed save says so in a
+  status line for 5 s; a good one moves focus back to the page.
+- No confirm dialog (Josh: reversible, the switch turns it back on).
+
+## Rejected
+- The X inside the bubble: a nested button is invalid HTML and would forward clicks to the bubble.
+- A larger padded hit target: Josh ruled the hit area tight.
+
+## Weakest premise
+That every engine hit-tests by border-radius (so the square box's corners are the avatar). Measured in the
+browser check in chromium and webkit via elementFromPoint and a real click; not measured on Windows
+WebView2 (Chromium-based, so expected the same).
+
+## Tests
+docs/browser-checks/render-assistant-bubble-3034.js B2x: not shown before a hover; a 0.3 s hover does not
+show it; held a second a 20px X shows on the top-right corner; its aria-label; a point just outside the
+circle (inside its square) is the avatar and a click there opens the chat without switching off; the
+keyboard reaches the bubble, the X shows and Tab goes on to it; a click on the circle hides bubble and X
+and the stored setting reads OFF; switched back ON, the same guide's bubble returns (nothing deleted).
+125/125 on the rebased branch.
