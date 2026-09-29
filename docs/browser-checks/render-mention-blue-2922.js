@@ -296,12 +296,25 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         while ((m = re.exec(html)) !== null) out.push(m[1]);
         return out;
       };
-      return fixtures.map((s) => {
-        const live = keysFrom(pjMentionHighlightHTML(s, set), 'pj-live-mention');
+      /* #4642: pjMentionKeys now hands both highlighters a Map of key -> display name, and a display
+         name or any case of a key names the agent. The same comparison over a Map, with fixtures that
+         only the new tiers resolve (and the controls that must stay plain on both sides). */
+      const map = new Map([['mona', 'Mona'], ['subzero', 'Sub-Zero'], ['renet-tilley', 'Renet Tilley']]);
+      const mapFixtures = [
+        '@Sub-Zero please', '@sub_zero', '@SUBZERO.', '(@SubZero)', '**@Mona**', '@RenetTilley!',
+        '@subzerox', 'Sub-Zero no at', 'a@Sub-Zero', '@Renet', '@Mona&x',
+      ];
+      const run = (s, keys) => {
+        const live = keysFrom(pjMentionHighlightHTML(s, keys), 'pj-live-mention');
         // pjRichSpans on the room path (agentNames supplied) is the posted-message highlighter.
-        const posted = keysFrom(pjRichSpans(s, null, set), 'pjmention');
+        const posted = keysFrom(pjRichSpans(s, null, keys), 'pjmention');
         return { s, live, posted, ok: JSON.stringify(live) === JSON.stringify(posted) };
-      });
+      };
+      const out = fixtures.map((s) => run(s, set)).concat(mapFixtures.map((s) => run(s, map)));
+      // non-vacuous: the Map arm really paints display names on both sides, not just agrees on nothing
+      const painted = out.filter((r) => mapFixtures.includes(r.s) && r.posted.length > 0).length;
+      out.push({ s: '(Map arm paints at least 6 display-name fixtures)', live: [painted], posted: [painted], ok: painted >= 6 });
+      return out;
     });
     for (const r of rows) {
       check(`[differential] live == posted mention classification for ${JSON.stringify(r.s)}`,

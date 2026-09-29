@@ -49,22 +49,24 @@ function arm() {
   };
 }
 
-/* Who each post reached as ADDRESSED ([message from ...]) and as BACKGROUND, by pane. */
-function post(text) {
-  const board = fleet.install([
-    fleet.agent('leo', { state: 'idle' }),
-    fleet.agent('kano', { state: 'idle' }),
-    fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
-    fleet.agent('mara', { state: 'idle' }),
-  ]);
+/* Who each post reached as ADDRESSED ([message from ...]) and as BACKGROUND, by pane. `agents` is the
+   fleet (display names included); `members` is the room. */
+const FLEET = () => [
+  fleet.agent('leo', { state: 'idle' }),
+  fleet.agent('kano', { state: 'idle' }),
+  fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
+  fleet.agent('mara', { state: 'idle' }),
+];
+function post(text, agents = FLEET(), members = MEMBERS) {
+  const board = fleet.install(agents);
   try {
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
     const typed = arm();
-    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, members);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const who = (s) => (/=([a-z]+)-discord:/.exec(s.target || '') || [])[1];
+    const who = (s) => (/=([a-z0-9_-]+)-discord:/.exec(s.target || '') || [])[1];
     const envelopes = typed().filter((s) => s.text.startsWith('['));
-    assert.equal(envelopes.length, 3, 'a room of four fans out to the three others');
+    assert.equal(envelopes.length, members.length - 1, 'the room fans out to everyone but the sender');
     return {
       addressed: envelopes.filter((s) => s.text.startsWith('[message from your colleague')).map(who).sort(),
       background: envelopes.filter((s) => s.text.startsWith('[background from your colleague')).map(who).sort(),
@@ -107,4 +109,36 @@ test('#4642 control: an email-shaped string and an unknown @name address nobody'
 
 test('#4642 control: the exact session name still addresses, as before', () => {
   assert.deepEqual(post('@mara have a look').addressed, ['mara']);
+});
+
+test('#4642 control: two members sharing a normalised name are addressed by neither (ambiguity demotes)', () => {
+  const agents = [
+    fleet.agent('leo', { state: 'idle' }),
+    fleet.agent('subzero', { state: 'idle', displayName: 'Sub-Zero' }),
+    fleet.agent('frost', { state: 'idle', displayName: 'Sub Zero' }),
+    fleet.agent('mara', { state: 'idle' }),
+  ];
+  const room = ['leo', 'subzero', 'frost', 'mara'];
+  const r = post('@Sub-Zero please', agents, room);
+  assert.deepEqual(r.addressed, [], 'an ambiguous mention was promoted to a request');
+  assert.deepEqual(r.background, ['frost', 'mara', 'subzero']);
+  // the exact session name still wins over the ambiguity
+  assert.deepEqual(post('@subzero please', agents, room).addressed, ['subzero']);
+});
+
+test('#4642 control: a display name of an agent NOT in the room adds no alias', () => {
+  const agents = [...FLEET(), fleet.agent('kitana', { state: 'idle', displayName: 'Mara' })];
+  // Mara the display name of kitana, who is not a member, must not make @Mara ambiguous or reach kitana
+  assert.deepEqual(post('@Mara look', agents).addressed, ['mara']);
+  assert.deepEqual(post('@Kitana look', agents).addressed, []);
+});
+
+test('#4642 control: a display name that normalises to under two characters addresses nobody', () => {
+  const agents = [
+    fleet.agent('leo', { state: 'idle' }),
+    fleet.agent('kano', { state: 'idle', displayName: 'K' }),
+    fleet.agent('subzero', { state: 'idle' }),
+    fleet.agent('mara', { state: 'idle' }),
+  ];
+  assert.deepEqual(post('@k and @K. please', agents).addressed, []);
 });

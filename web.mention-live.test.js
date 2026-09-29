@@ -51,7 +51,43 @@ test('a partial or unrecognized @name stays plain (only recognized names blue)',
   // Josh: it turns blue when it RECOGNIZES the name, not while you are still typing it.
   assert.equal(h('hi @mon'), 'hi @mon');
   assert.equal(h('@nobody'), '@nobody');
-  assert.equal(h('@Mona'), '@Mona'); // keys are exact-case, like the backend
+});
+
+/* #4642: the engine now addresses a member by session name OR display name, any case, punctuation
+   ignored, whole @-token only (engine/messages.js resolveMention). The blue has to say the same. */
+const ROOM = new Map([['mona', 'Mona'], ['subzero', 'Sub-Zero'], ['kano', 'Kano'], ['renet-tilley', 'renet-tilley']]);
+const r = (s) => H(s, ROOM);
+test('#4642: any case of a session name is blue, and the typed spelling is kept', () => {
+  assert.equal(h('@Mona'), '<span class="pj-live-mention">@Mona</span>');
+  assert.equal(h('@MONA.'), '<span class="pj-live-mention">@MONA</span>.');
+});
+test('#4642: a display name is blue through the Map, punctuation ignored', () => {
+  assert.equal(r('@Sub-Zero please'), '<span class="pj-live-mention">@Sub-Zero</span> please');
+  assert.equal(r('@sub_zero'), '<span class="pj-live-mention">@sub_zero</span>');
+  assert.equal(r('@SUBZERO-'), '<span class="pj-live-mention">@SUBZERO</span>-');
+  assert.equal(r('@RenetTilley'), '<span class="pj-live-mention">@RenetTilley</span>');
+});
+test('#4642 control: a plain word, a longer token, and an unknown name stay plain', () => {
+  assert.equal(r('kano and Sub-Zero'), 'kano and Sub-Zero');
+  assert.equal(r('@kanobot @subzerox'), '@kanobot @subzerox');
+  assert.equal(r('@Somebody'), '@Somebody');
+  assert.equal(r('email a@kano'), 'email a@kano');
+});
+test('#4642 control: two agents sharing a normalised name are named by neither', () => {
+  const twins = new Map([['sub-zero', 'Sub-Zero'], ['subzero', 'Frost']]);
+  assert.equal(H('@SubZero', twins), '@SubZero');
+  // an exact session name still wins over the ambiguity, as in the engine
+  assert.equal(H('@sub-zero', twins), '<span class="pj-live-mention">@sub-zero</span>');
+  assert.equal(H('@subzero', twins), '<span class="pj-live-mention">@subzero</span>');
+});
+test('#4642 control: a name that normalises to under two characters addresses nobody', () => {
+  assert.equal(H('@k @_ @-', new Map([['kano', 'K'], ['mona', '!!']])), '@k @_ @-');
+});
+test('#4642 control: a word outside the engine token charset is not normalised into a match', () => {
+  // the engine token stops at the accented letter; a wider page rule would promise delivery it never makes
+  const accented = new Map([['zoe', 'Zo\u00eb']]);
+  assert.equal(H('@Zo\u00eb', accented), '@Zo\u00eb');
+  assert.equal(H('@Zoe', accented), '<span class="pj-live-mention">@Zoe</span>');
 });
 
 test('@mona- highlights mona (the backend flags it by stripping the trailing -)', () => {

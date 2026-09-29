@@ -1308,6 +1308,36 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
+/* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery).
+   Exported so web.mention-parity-4642.test.js can hold the page's pjMentionResolve to it. */
+function mentionedMembers(cleaned, recipients, roster) {
+  const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byKey = new Map();   // normalised name -> the members it could mean
+  const alias = (name, member) => {
+    const key = mentionKey(name);
+    if (key.length < 2) return;
+    if (!byKey.has(key)) byKey.set(key, new Set());
+    byKey.get(key).add(member);
+  };
+  for (const member of recipients) alias(member, member);
+  for (const card of Array.isArray(roster) ? roster : []) {
+    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
+  }
+  const resolveMention = (token) => {
+    if (recipients.includes(token)) return token;
+    const stripped = token.replace(/[._-]+$/, '');
+    if (stripped && stripped !== token && recipients.includes(stripped)) return stripped;
+    const hit = byKey.get(mentionKey(token));
+    return hit && hit.size === 1 ? [...hit][0] : null;
+  };
+  const mentioned = new Set();
+  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+    const member = resolveMention(m[2]);
+    if (member) mentioned.add(member);
+  }
+  return mentioned;
+}
+
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -1574,33 +1604,33 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
   const cleaned = chat.cleanMessage(text);
-  /* Addressed is an @mention naming a member. Names match exactly, and
-     the TOKENIZER carries two boundary rules the charset alone gets
-     wrong: a left boundary, because "admin@mara" is an email-shaped
-     string, and promoting it to a request manufactures an ask nobody
-     made (the dangerous direction); and a trailing-punctuation retry,
-     because "have a look @mara." captures "mara." and would silently
-     demote an addressed mention to background. Demotion still arrives
-     marked, promotion is the one to be strict about -- so the left
-     boundary is absolute and the retry only STRIPS, never fuzzes.
-     Everyone else in the room receives the same words marked as
-     background -- the one thing that must not happen is background
-     arriving unmarked. */
-  /* #4642: a member is also addressed by its display name, and neither name is case- or punctuation-sensitive:
-     `@Kano` names `kano`, `@Sub-Zero` names `subzero` (display name "Sub-Zero"). Measured before this: 10 posts in
-     a week named a colleague that way and reached it marked background. Still only the @ form, still a whole
-     token after the same left boundary, so a plain word never addresses and `@kanobot` does not name `kano`. */
-  const mentionKey = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const addressedBy = new Map();
-  const alias = (key, member) => { if (!key) return; if (!addressedBy.has(key)) addressedBy.set(key, new Set()); addressedBy.get(key).add(member); };
-  for (const member of recipients) alias(mentionKey(member), member);
-  for (const card of Array.isArray(roster) ? roster : []) {
-    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(mentionKey(card.name), card.sessionName);
-  }
-  const mentioned = new Set();
-  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    for (const member of addressedBy.get(mentionKey(m[2])) || []) mentioned.add(member);
-  }
+  /* Addressed is an @mention naming a member. The TOKENIZER carries two
+     boundary rules the charset alone gets wrong: a left boundary, because
+     "admin@mara" is an email-shaped string, and promoting it to a request
+     manufactures an ask nobody made (the dangerous direction); and a
+     trailing-punctuation retry, because "have a look @mara." captures
+     "mara." and would silently demote an addressed mention to background.
+     Everyone else in the room receives the same words marked as background
+     -- the one thing that must not happen is background arriving unmarked.
+
+     #4642: a whole @-token names a member in three tiers, first hit wins:
+       1. the token is the member's session name exactly;
+       2. the token less a trailing run of . _ - is, exactly (the retry above);
+       3. its normalised form (lower case, accents and every non-alphanumeric
+          dropped: `Sub-Zero` -> `subzero`) equals the normalised session name
+          or display name of exactly ONE member.
+     Measured before this: in a week, 10 posts named a colleague as `@Kano` or
+     `@Sub-Zero` and reached it marked background. Promotion is still the
+     direction to be strict about, so tier 3 is whole-token equality only (no
+     prefix: `@kanobot` does not name `kano`), needs the @ (a plain word never
+     addresses), ignores keys under two characters, and when two members share
+     a normalised name (sessions `sub-zero` and `subzero`, or two agents shown
+     as "Sub-Zero") it names NEITHER: an ambiguous mention demotes to
+     background, which still arrives, marked. A display name with a space
+     ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
+     page (web/index.html pjMentionResolve) paints blue by this same rule, and
+     web.mention-parity-4642.test.js runs one set of fixtures through both. */
+  const mentioned = mentionedMembers(cleaned, recipients, roster);
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -2485,5 +2515,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests,
+  setRunner, resetForTests, mentionedMembers,
 };
