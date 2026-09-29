@@ -156,6 +156,34 @@ async function read(page) {
           return { wrap: !!(w && !w.hidden), btn: !!(b && !b.hidden && !b.disabled) };
         });
         chk(!(await startShown()).wrap, `${engineName}: control: no Start button while working`);
+        /* #4591 (Josh 2026-09-29 11:47: "his animate green dots are not animating", Mac app): with Reduce Motion
+           on, the dots stopped dead, three level full-green dots, which is what his screenshot shows and reads as
+           frozen. Reduce Motion asks for no MOVEMENT; a fade is not movement. So they still fade in turn, and
+           do not move. Measured on a fresh page that prefers reduced motion, the agent working. */
+        {
+          const rm = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
+          await rm.goto(URL);
+          await rm.waitForSelector('.acard .namego', { timeout: 20000 });
+          await rm.locator('.acard .namego').first().click();
+          await rm.waitForSelector('#d-state .act i', { timeout: 20000 });
+          const f = await rm.evaluate(async () => {
+            const dots = [...document.querySelectorAll('#d-state .act i')];
+            const ops = new Set(), tfs = new Set(), spread = [];
+            for (let k = 0; k < 14; k++) {
+              const cs = dots.map((d) => getComputedStyle(d));
+              cs.forEach((c) => { ops.add(c.opacity); tfs.add(c.transform); });
+              spread.push(Math.max(...cs.map((c) => +c.opacity)) - Math.min(...cs.map((c) => +c.opacity)));
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            return { reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, dots: dots.length,
+              opacities: ops.size, transforms: [...tfs], inTurn: Math.max(...spread) > 0.15 };
+          });
+          chk(f.reduce && f.dots === 3 && f.opacities >= 4 && f.inTurn,
+            `${engineName}: with Reduce Motion on, the working dots still fade, in turn, so Working reads as live`, JSON.stringify(f));
+          chk(f.transforms.every((t) => t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)'),
+            `${engineName}: and they do not move (no translate under Reduce Motion)`, JSON.stringify(f.transforms));
+          await rm.close();
+        }
         setState('stopped');
         await page.waitForTimeout(6500);
         const st = await startShown();
