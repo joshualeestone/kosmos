@@ -104,3 +104,11 @@ The mic path has not been seen working end to end: that needs a person at a Mac 
 The mechanism, entitlement and plist keys are checked in the build and by --kosmos-app-voice-selftest (14/14); the
 page side by web.voice-4409.test.js and the render-voice-4409 browser check. Behaviour is measured on a person's
 Mac after release.
+- Merged origin/main (196 commits) as d4040c653: PR #4536 could not run CI while it conflicted. native-app/main.swift
+  (main's ModeMessageProxy #4356 at the same place as VoiceBridge) and tools/build-kosmos-bundle.sh were resolved as
+  main's file with this branch's own patch re-applied. Every line either side added survives; the merged main.swift
+  type-checks at the macOS floor (rc 0; a type-error control reds). A blind review of the resolution: no BLOCKER or
+  WARNING (both sides' added and removed lines match exactly). ACCEPTED NIT: selftests build a web view with a
+  throwaway delegate, so each makes a VoiceBridge that is never started. After the merge the surface gate also names
+  render-rename-4421 (main's; token d-dmthread): ran alone on d4040c653, 22 PASS; and the bar and voice checks ran
+  alone there too, all clean (voice 14, msgbox 180, room-reply 67, dm-reply 23, reactions 47, dm-tapreact 79).
