@@ -6,6 +6,7 @@
  *
  *   node --test server.community-read-4373.test.js
  */
+require('./test-support/tmpscope'); // kosmos#4273: every temp root below, removed when the file exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
