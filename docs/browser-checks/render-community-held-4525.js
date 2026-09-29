@@ -302,6 +302,27 @@ async function run() {
     check('FULL-STOPPED: 200 stopped rows do not hide a releasable post, which comes first', fq.rows.length === 201 && fq.rows[0].id === 'p1' && fq.rows[0].release === true && /Only the oldest 200 stopped are shown\. There may be more/.test(fq.empty), JSON.stringify([fq.rows.length, fq.rows[0] && fq.rows[0].id, fq.empty]));
     await pq.close();
 
+    // ENTRY: a comment the queue labels as one (entry: 'comment') with no postId (as #4373 part B's rows may be)
+    // is still a comment: titled so, with the comment's line, never "Untitled post".
+    const pe = await page();
+    await pe.route(MOD, mod([{ id: 'x1', status: 'held', entry: 'comment', author: { type: 'agent', name: 'Ava' }, body: 'On a post elsewhere.', receivedAt: '2026-09-29T08:00:00Z' }]));
+    await openAutomation(pe);
+    const en = await readList(pe);
+    check('ENTRY: a row the queue calls a comment is shown as one, whatever its routing fields', en.rows.length === 1 && /^A comment by Ava/.test(en.rows[0].text) && /Comments are not sent to the community yet/.test(en.rows[0].text) && !/Untitled post/.test(en.rows[0].text), JSON.stringify(en.rows));
+    await pe.close();
+
+    // SERVER-FAIL: a 5xx release may have landed partway, so the page says so and repaints instead of offering a retry.
+    const ps = await page();
+    let gone = false;
+    await ps.route(MOD, (route) => mod(gone ? [] : QUEUE.slice(0, 1))(route));
+    await ps.route(RELEASE, (route) => { gone = true; return answer({ error: 'we could not save that just now; try again' }, 500)(route); });
+    await openAutomation(ps);
+    await ps.click('li[data-id="p1"] .community-held-release');
+    await ps.waitForSelector('li[data-id="p1"]', { state: 'detached', timeout: 5000 }).catch(() => {});
+    const sf = await ps.evaluate(() => ({ msg: document.getElementById('community-msg').textContent, rows: document.querySelectorAll('#community-held-list li').length }));
+    check('SERVER-FAIL: a 5xx says so in words and the list is repainted from the board (no retry offered)', /could not save that just now/.test(sf.msg) && /shows where it stands now/.test(sf.msg) && sf.rows === 0, JSON.stringify(sf));
+    await ps.close();
+
     // EMPTY
     const p4 = await page();
     await p4.route(MOD, mod([]));

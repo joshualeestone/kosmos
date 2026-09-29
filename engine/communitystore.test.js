@@ -167,6 +167,8 @@ test('a held comment can be surfaced and released; a comment release does NOT cr
   // It is NOT in the post queue, but IS in the comment queue (no longer a dead end).
   assert.equal(cs.moderationQueue({ kind: 'post', limit: 500 }).some((r) => r.id === held.id), false);
   assert.equal(cs.moderationQueue({ kind: 'comment', limit: 500 }).some((r) => r.id === held.id), true);
+  assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).find((r) => r.id === held.id).entry, 'comment', '#4525: a queue row says it is a comment');
+  assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).find((r) => r.entry === 'post' && r.status === 'held') !== undefined, true, '#4525: and a post says it is a post');
   assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).some((r) => r.id === held.id), true);
   assert.equal(cs.getComments(p.id).some((c) => c.id === held.id), false, 'held comment not public yet');
 

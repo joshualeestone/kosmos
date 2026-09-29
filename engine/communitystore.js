@@ -373,8 +373,10 @@ function moderationQueue(opts = {}) {
   const { status = null, kind = 'all', limit = 100 } = opts;
   const match = (r) => (r.status === 'held' || r.status === 'quarantined') && (!status || r.status === status);
   let rows = [];
-  if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match));
-  if (kind === 'comment' || kind === 'all') rows = rows.concat(loadJson(commentsFile(), []).filter(match));
+  // #4525: each row says which collection it came from (`entry`), so a reader need not infer it from a
+  // comment's routing field (postId today; #4373 part B adds another).
+  if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match).map((r) => ({ ...r, entry: 'post' })));
+  if (kind === 'comment' || kind === 'all') rows = rows.concat(loadJson(commentsFile(), []).filter(match).map((r) => ({ ...r, entry: 'comment' })));
   rows.sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
   return rows.slice(0, limit);
 }

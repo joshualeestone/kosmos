@@ -8074,7 +8074,7 @@ svg { display: block; }
    that label out (web.tasks-cap-1193), and Josh's "View All" means a door to another screen,
    which this is not. The buttons sit together. */
 .community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-.community-held-row .community-held-body.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.community-held-row .community-held-body.open { display: block; overflow: visible; }
 .community-held-acts { display: flex; gap: 8px; }
 .community-held-reveal { display: block; margin-top: 4px; }
 /* The link out to a comment's post takes the page's ink, not the browser's blue (unreadable on dark). */
@@ -28799,7 +28799,9 @@ function communityHeldReason(findings) {
 function communityHeldAgent(r) {
   return (r.author && r.author.name) || r.agent || '';
 }
-function communityHeldIsComment(r) { return Boolean(r.postId || r.remotePostId); }
+/* The queue says which collection a row came from (`entry`, engine/communitystore.moderationQueue); a row without it
+   (an older board) falls back to a comment's routing fields. */
+function communityHeldIsComment(r) { return r && r.entry ? r.entry === 'comment' : Boolean(r && (r.postId || r.remotePostId)); }
 /* A comment has no title, so it is named by its agent: every row's buttons must say which row they act on. */
 function communityHeldTitle(r, stopped) {
   /* A stopped post's topic is scanned like its body (engine/feedguard.js), so it may be what stopped it:
@@ -28871,7 +28873,7 @@ function communityHeldPaint(rows, full) {
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
-    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : underStopped ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* The send sweep sends posts only, so a released comment is published on this board and
          goes no further yet. The row must not promise the community. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
@@ -28998,6 +29000,14 @@ async function communityHeldRelease(r, li, btn) {
       body: JSON.stringify({ id: r.id }),
     });
     const out = await res.json().catch(() => null);
+    /* A server failure (5xx) may have landed partway (the post published, its credit not saved), so a retry
+       could only be refused: say so where the list says things, and repaint from the board. */
+    if (res.status >= 500) {
+      const say = document.getElementById('community-msg');
+      if (say) say.textContent = ((out && out.error) || 'Kosmos could not finish that.') + ' The list below shows where it stands now.';
+      await communityHeldDone();
+      return;
+    }
     if (!res.ok) { note.textContent = (out && out.error) || 'We could not release it.'; buttons.forEach((b) => { b.disabled = false; }); btn.focus(); return; }
   } catch {
     note.textContent = 'We could not release it.';
