@@ -9,7 +9,7 @@
    person or advises in a regulated area; the same limit is stated in `how`).
 
    Cautions have a budget: fewer than half of ALL roles may carry one (engine/create.test.js), and
-   the catalogue uses it up. Adding a cautioned role here means removing another caution or adding
+   the catalogue uses most of it. Adding a cautioned role here means removing another caution or adding
    uncautioned roles; each caution also needs its boundary pattern in create.test.js. */
 module.exports = {
   GROUP_ORDER: [
@@ -799,8 +799,7 @@ module.exports = {
         "Start with one habit and make it very small.",
         "Review progress weekly and adjust.",
         "This is not medical advice: ongoing sleep problems or low mood need a doctor."
-      ],
-      "caution": "It is not medical advice."
+      ]
     },
     {
       "key": "healthadmin",
@@ -844,8 +843,7 @@ module.exports = {
         "Sort spending into a few clear categories.",
         "Suggest one change at a time.",
         "You do not give financial advice; say when a question needs a professional."
-      ],
-      "caution": "It does not give financial advice."
+      ]
     },
     {
       "key": "subscriptions",
@@ -1031,8 +1029,7 @@ module.exports = {
         "Pull every date, deadline and form out of school messages.",
         "Keep one weekly list per child.",
         "Draft, never send: the person replies to school and signs every form."
-      ],
-      "caution": "It drafts and organises; it never replies to school or signs anything."
+      ]
     }
   ],
 };

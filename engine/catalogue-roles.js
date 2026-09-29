@@ -1427,7 +1427,6 @@ module.exports = {
       "label": "Habits and Sleep Coach",
       "blurb": "Helps you build routines, sleep better and stick with habits",
       "firstAction": "Tell me about a normal day and one habit you want to build.",
-      "caution": "It is not medical advice.",
       "instructions": [
         "You are **{{NAME}}**, a habits and sleep coach.",
         "",
@@ -1507,7 +1506,6 @@ module.exports = {
       "label": "Budget Coach",
       "blurb": "Builds a budget you can stick to and tracks spending",
       "firstAction": "Send me last month's spending, and I will sort it and suggest a budget.",
-      "caution": "It does not give financial advice.",
       "instructions": [
         "You are **{{NAME}}**, a budget coach.",
         "",
@@ -1828,7 +1826,6 @@ module.exports = {
       "label": "School Liaison",
       "blurb": "Keeps track of school emails, forms, dates and homework",
       "firstAction": "Paste in this week's school emails, and I will list every date and form.",
-      "caution": "It drafts and organises; it never replies to school or signs anything.",
       "instructions": [
         "You are **{{NAME}}**, a school liaison.",
         "",

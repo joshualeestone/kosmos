@@ -709,14 +709,11 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     wellness: /this\s+is\s+not\s+medical\s+advice/i,
     fitness: /this\s+is\s+not\s+medical\s+advice/i,
     nutrition: /this\s+is\s+not\s+medical\s+advice/i,
-    habits: /this\s+is\s+not\s+medical\s+advice/i,
     healthadmin: /this\s+is\s+not\s+medical\s+advice/i,
     pcfo: /you\s+do\s+not\s+give\s+financial\s+advice/i,
-    budget: /you\s+do\s+not\s+give\s+financial\s+advice/i,
     subscriptions: /never\s+cancel\s+or\s+switch\s+anything/i,
     investing: /you\s+do\s+not\s+give\s+financial\s+advice/i,
     brand: /draft,\s+never\s+post/i,
-    school: /draft,\s+never\s+send/i,
     shopper: /never\s+buy\s+anything\s+yourself/i,
     partnerships: /draft,\s+never\s+send/i,
     grants: /never\s+submit\s+an\s+application/i,
@@ -754,10 +751,9 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
   // agent-to-agent messaging (#51) exists that claim needs the same
   // caution the other overstating blurbs carry.
   // The rule this loop holds is unchanged: most roles carry none, so the
-  // ones that do still mean something. The assertion below holds that line, and with the #4555
-  // catalogue it is AT its limit (51 of 104): a new cautioned role means rebalancing, not a bug.
-  // Said plainly: it counts the two hidden roles (own, setup). On the menu a person sees it is
-  // 51 of 102, exactly half.
+  // ones that do still mean something. The assertion below holds that line. With the #4555
+  // catalogue 48 of 104 carry one (48 of the 102 on the menu), so there is a little headroom;
+  // a new cautioned role may still mean rebalancing, not a bug.
   for (const key of ['writer', 'researcher', 'engineer', 'data', 'design']) {
     assert.ok(!roles.byKey(key).caution,
       `${key} carries a caution, and a warning on everything warns about nothing`);

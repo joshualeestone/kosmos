@@ -360,3 +360,9 @@ test('the builder refuses a broken team and a zero-padded em dash entity before 
   // CONTROL: the real sources pass.
   assert.deepEqual(build.build().problems, []);
 });
+
+test('fewer than half of the roles a person can pick carry a caution (the menu, not counting hidden roles)', () => {
+  const menu = roles.ROLES.filter((r) => r.menu !== false);
+  assert.ok(menu.filter((r) => r.caution).length < menu.length / 2,
+    `${menu.filter((r) => r.caution).length} of ${menu.length} menu roles carry a caution`);
+});
