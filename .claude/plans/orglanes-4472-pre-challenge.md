@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: orglanes-4472
-diff_hash: 952afc321da716a9f89385cb8f97677c8ae23c313f47fc3fffcebc439f5ee075
+diff_hash: 9473b862616e92a141775b68f55b84e297551c854b80e99ba8edc8b9dc8352e4
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T16:16:22Z
+timestamp: 2026-09-29T19:15:46Z
 iterations: 10
 converged: true
 ---
@@ -17,7 +17,9 @@ converged: true
 **Total findings:** 2 BLOCKERs (1 fixed, 1 rejected), 13 WARNINGs, 6 CONVENTIONs (5 fixed, 1 rejected), and about 17 NITs.
 **Fixed:** 12 of 13 WARNINGs, 1 BLOCKER, 5 CONVENTIONs | **Documented as a decision:** 1 (the all-leaf guard on two rings is kept as a precaution, with its measured 4% cost) | **Rejected with a reason:** 2 | **Asked (awaiting user):** 0
 
-**Final validation:** `validation_log_run_or_skip` recorded status clean at 043962c94 (hash 952afc321da7, the same diff as this record), run on Liu Kang's turn behind `heavy-gate --twice --quiet-box` (gate CLEAR at 16:01:24Z, result 16:15:27Z): 11872 tests, 11707 pass, 0 fail, 0 cancelled, 165 skipped; subdir audit passed. Browser check render-org-lanes-4472 GREEN on a board at 043962c94 (least wire-to-face 29.3px desktop, 23.2px phone), RED on #4473.
+**Final validation:** `validation_log_run_or_skip` recorded status clean at 461b40986 (hash 9473b862616e, the same diff as this record), run on Liu Kang's turn behind `heavy-gate --twice --quiet-box` (gate CLEAR at 18:58:26Z, result 19:15:25Z 2026-09-29): 12113 tests, 11898 pass, 0 fail, 0 cancelled, 215 skipped; subdir audit passed. **It ran with KOSMOS_AGENT_TOKEN, KOSMOS_AGENT_SESSION and TMUX_PANE unset, as CI runs** (Liu Kang's rule, m3558, until #4620 merges): since #4466, tools/test-board-watchdog-2955.sh fails from any agent pane (#4619). The run before it, at the same head with the variables set, recorded failed on exactly that file (2 FAILs), which also failed on clean origin/main f80887e31 and passed there with the variables unset; every other test passed. Browser check render-org-lanes-4472 GREEN on a board at 043962c94 (least wire-to-face 29.3px desktop, 23.2px phone), RED on #4473.
+
+**History of this head:** validated clean first at 043962c94 (hash 952afc321da7: 11707 pass, 0 fail). main then took #4525, which also put a browser-check board on port P18, so the branch was rebased onto origin/main (Liu Kang m3546) and render-org-lanes-4472 moved to a new P19 (pick_ports picks 19; README row and plan say P19). No layout or test code changed; the files this branch changes are byte-identical to the merge-based cf35d52c6 that Sub-Zero reviewed.
 
 **Commit ids in iterations 1 to 6 are from before the rebase onto origin/main;** the rebased equivalents are on the branch with the same subjects (range-diff: 10 of 12 identical, 2 differ only in resolved README rows).
 
