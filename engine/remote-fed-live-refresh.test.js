@@ -13,8 +13,9 @@
  *   - flip ON  (false -> true)  within ~one TTL (the customer un-hide);
  *   - flip OFF (true  -> false) within ~one TTL (a lapse/rollback, no new release);
  *   - a fetch that CANNOT determine (null) KEEPS the last-known value -- no flicker;
- *   - it is GLOBAL: NOT gated on enrolment (unlike the per-account standing refresh), because a
- *     non-member board needs the flag to show the signup prompt;
+ *   - it is NOT gated on enrolment (unlike the per-account standing refresh): a board with remote
+ *     access on that is not signed in yet still learns it; but it IS gated on remote access being on
+ *     (kosmos#4649, decided): a board that never opted in makes no call and the flag reads false;
  *   - default FALSE when unknown/unreadable (fail-safe: hidden until the coordinator says live);
  *   - single-flighted, and best-effort (a throwing fetcher never escapes).
  */
@@ -49,7 +50,7 @@ test('refresh: flip ON -- a stale false re-fetches true (the CUSTOMER un-hide, w
   assert.equal(remote.federationLive(), true, 'federation goes live for the customer within a TTL, no env, no re-install');
 });
 
-test('refresh: it is GLOBAL -- it refreshes even when the board is NOT enrolled', async () => {
+test('refresh: NOT gated on enrolment -- a board with remote access on refreshes before it is signed in', async () => {
   unenroll();
   writeSettings({ on: true, fedLive: false, fedLive_at: 1000 });
   let called = false;
@@ -174,4 +175,11 @@ test('#4649 a redirect is refused and a non-JSON answer is ignored (null), even 
     assert.equal(await withMeta({ redirectTo: to }, () => remote.fetchFederationLive()), null, 'a redirect was followed');
   } finally { target.closeAllConnections(); await new Promise((r) => target.close(r)); }
   assert.equal(await withMeta({ html: true }, () => remote.fetchFederationLive()), null, 'a non-JSON answer was parsed');
+});
+
+test('#4649 round 2: a cached true does not outlive remote access being turned off', () => {
+  writeSettings({ on: true, fedLive: true, fedLive_at: 1000 });
+  assert.equal(remote.federationLive(), true, 'control: on, and the coordinator said true');
+  writeSettings({ on: false, fedLive: true, fedLive_at: 1000 });
+  assert.equal(remote.federationLive(), false, 'remote access is off, so a stale true must not show the screens');
 });

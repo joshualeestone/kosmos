@@ -415,8 +415,10 @@ async function fetchFederationLive(opts) {
 }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
-   UNLIKE refreshStandingIfStale this is NOT gated on enrolled(): the flag is global and
-   a non-member board needs it to show the signup prompt. A definite bool updates the
+   Not gated on enrolled() (unlike refreshStandingIfStale): a board with remote access ON that
+   is not signed in yet still learns it. But gated on remote access being ON (kosmos#4649,
+   decided): a board that never opted in makes no call to our servers, so it cannot use the
+   flag for a signup prompt (an open product question on #4649). A definite bool updates the
    cache + resets the clock; a null KEEPS the last-known value and backs the retry off to
    the next TTL. */
 async function refreshFederationLiveIfStale(opts) {
@@ -450,7 +452,10 @@ async function refreshFederationLiveIfStale(opts) {
    AGENT_WORKFORCE_FEDERATION_LIVE env override on top for operator/dev boards. */
 function federationLive() {
   const s = read();
-  return s.ok === true && s.fedLive === true;
+  /* kosmos#4649 round 2: the flag counts only while remote access is ON, the same gate the refresh uses.
+     Otherwise a board that cached true and then turned remote access off would stop asking and keep true
+     forever, out of reach of the coordinator's explicit false. */
+  return s.ok === true && s.on === true && s.fedLive === true;
 }
 /* #4308 (Liu Kang's ruling): an unreadable settings file must stay visible to the person until THEY repair it.
    write() rebuilds the file from read(), and read() of a damaged file is the defaults with on:false, so any
