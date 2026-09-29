@@ -273,9 +273,13 @@ test('task message: a pane held by a stranger is not taken for our agent; an unr
   const realResolve = messagesEngine.resolveSender;
   messagesEngine.resolveSender = () => ({ ok: false, because: 'stubbed: no tmux in the suite' });   // never read this machine's tmux
   projectsEngine.readAll = () => { if (unreadable) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } return [{ id: 'p4491', name: 'p4491', agents: ['mara'] }]; };
+  /* projects.get reads through the module's own readAll, not the export stubbed above, so it is stubbed too: a
+     read after the record must be able to fail here, or the 200 below would prove nothing. */
+  const realGet = projectsEngine.get;
+  projectsEngine.get = (id) => { if (unreadable) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } return realGet(id); };
   tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
   tasksEngine.whoOf = () => [];
-  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; messagesEngine.resolveSender = realResolve; board.restore(); });
+  t.after(() => { projectsEngine.readAll = realAll; projectsEngine.get = realGet; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; messagesEngine.resolveSender = realResolve; board.restore(); });
   const targetOf = (name) => (board.agents.find((c) => c.sessionName === name) || {}).target;
   const strangerTarget = targetOf('poc-agent');
   assert.ok(strangerTarget, 'the fixture gave the stranger no pane target');
