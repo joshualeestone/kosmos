@@ -31130,8 +31130,8 @@ function orgPlace(nodes) {
          trees much bigger than #4473 (review it1: a 1000-agent tree 2.4x). Past the reach, the team keeps the
          spacing radius, as #4473 places it. */
       /* #4499: at each radius the capped window first, and the wide one only where the capped one does not fit: a
-         small team that fits capped keeps the shape it had before #4499 (review it7: a lead with 8 reports fanned 114
-         degrees instead of 75, for no size gain). The wide one is kept only when it passes every check, the
+         small team that fits capped keeps the shape it had before #4499, a lead with 8 reports fanned over 75 degrees
+         (review it7: when the wide window was tried first, that lead fanned over 114 degrees, for no size gain). The wide one is kept only when it passes every check, the
          clearance included. */
       const layBest = (r, ok) => {
         const c = lay(r, [p], false);
