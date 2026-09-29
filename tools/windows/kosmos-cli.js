@@ -956,7 +956,9 @@ async function main(argv, io) {
     unreachable: (what) => {
       /* #4466: busy is not down. A timeout means Kosmos took the connection and did not answer in
          time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
-      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '. Wait a minute and try again; it does not need a restart.');
+      /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
+         board may already have acted, so a retry could make a duplicate. */
+      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '. If that was a change, it may still have happened: check before doing it again. It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
       return 1;
     },

@@ -59,7 +59,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   answers**: it says "already running (busy)". Deliberate: start cannot tell busy from wedged, and killing
   a busy board is this card's bug. (Round 3 corrected this: restart and kickstart do NOT cover a detached
   holder that neither the pidfile nor launchd tracks. So after its 5-minute busy grace the watchdog runs
-  `KOSMOS_WATCHDOG_RECLAIM=1 kosmos start`, which skips the busy early-return and reaches the #3079 reclaim.)
+  `KOSMOS_RECLAIM_BUSY=1 kosmos start`, which skips the busy early-return and reaches the #3079 reclaim.)
 - **`kosmos open`** goes through the same agent guard as start for a down board, and opens a busy board
   instead of waiting out the busy window twice.
 - **`kosmos restart` of a busy board this command did not start** refuses with exit 1 (`die` in cmd_stop
@@ -67,6 +67,16 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - **`setup.sh`'s update-pause `stop --force` on a busy board with no pidfile** leaves that board running,
   the same outcome as on main (which called it "not running" and continued); every Kosmos-started board
   writes a pidfile, so this is the rare hand-started case.
+
+## Review round 6 decisions
+- The reclaim flag is `KOSMOS_RECLAIM_BUSY` (it was named for the watchdog). Its second caller is
+  `install/setup.sh`'s board start: the installer has just stopped the old board, so a Kosmos that still holds
+  the port without answering is a stale build and the #3079 reclaim frees it (a plain start would call it
+  "already running (busy)" and leave the update on a dead board until the watchdog's grace ran out).
+- The Windows busy sentence carries no "try again": the same path serves timed-out WRITES, where the board may
+  already have acted, so it says to check before doing it again.
+- Deferred: with no lsof at all a reclaim-flagged start finds no listener to reclaim and its own start fails on
+  the held port. macOS always has /usr/sbin/lsof, and the failure is a refused start, not a second board.
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
@@ -101,7 +111,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - `server.health-4466.test.js` (4 arms): enforcing board, no token, tiny identity answer; a gated route
   still 403 (control); HEAD; the page premise.
 - `tools.windows-kosmos-cli-busy-4466.test.js` (2 arms): timeout says busy; refused keeps the old line.
-- `tools/test-board-watchdog-2955.sh` arms 6b/6c: busy 60 s no restart (red on the old watchdog), busy
+- `tools/test-board-watchdog-2955.sh` arms 6e/6c/6d: busy 60 s no restart (red on the old watchdog), busy
   400 s recovered.
 - Red-capability measured: on main's `install/kosmos`, 6 of the 10 CLI arms fail and the 4 that should
   hold on both (stopped, stranger, older board, control) pass.

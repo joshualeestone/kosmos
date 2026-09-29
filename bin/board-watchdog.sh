@@ -204,7 +204,7 @@ else
   # #4466: a board that has not answered for the whole busy grace (status exit 4) is wedged, so let
   # `kosmos start` reclaim a silent holder of our port instead of calling it "already running".
   if [ "$STATUS_RC" -eq 4 ]; then
-    KOSMOS_WATCHDOG_RECLAIM=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
+    KOSMOS_RECLAIM_BUSY=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
   else
     bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
   fi

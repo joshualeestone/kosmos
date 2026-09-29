@@ -29,8 +29,8 @@ function harness(throws) {
 test('#4466 Windows: a board that times out is BUSY, with no hint that it is off or needs a restart', async () => {
   const h = harness(Object.assign(new Error('aborted'), { name: 'TimeoutError' }));
   assert.equal(await cli.main(['room', 'proj'], h.io), 1);
-  assert.match(h.err(), /^Kosmos is running but too busy to answer, so we could not read that room\. Wait a minute and try again; it does not need a restart\.$/);
-  assert.doesNotMatch(h.err(), /Is it running|kosmos start|restart it/);
+  assert.match(h.err(), /^Kosmos is running but too busy to answer, so we could not read that room\. If that was a change, it may still have happened: check before doing it again\. It does not need a restart\.$/);
+  assert.doesNotMatch(h.err(), /Is it running|kosmos start|restart it|try again/, 'no retry advice: after a timeout a write may already have landed');
 });
 
 test('#4466 Windows CONTROL: a refused connection still asks whether Kosmos is running', async () => {

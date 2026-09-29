@@ -371,6 +371,7 @@ say_not_up() {   # <what could not happen, e.g. "nothing can be posted">
 }
 # The port answers but not with our page: somebody else lives there.
 port_taken_by_stranger() {
+  _HEALTH_OWNER=""   # a fresh question: the listener may have changed since the last healthy()
   _health_probe 2
   [ "$HEALTH_STATE" = stranger ]
 }
@@ -780,10 +781,11 @@ cmd_start() {
   fi
   # #4466: busy means OUR board holds the port and is working. Starting another would collide with it,
   # and restarting it is the blackout this card is about.
-  # KOSMOS_WATCHDOG_RECLAIM=1 is set only by bin/board-watchdog.sh, after the board has given no answer
-  # for its whole busy grace (5 minutes): by then "busy" means WEDGED, and the #3079 reclaim below is the
-  # only thing that frees a port held by a detached process neither the pidfile nor launchd tracks.
-  if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_WATCHDOG_RECLAIM:-}" != 1 ]; then
+  # KOSMOS_RECLAIM_BUSY=1 comes from two callers that know a silent Kosmos on the port is stale, not
+  # busy: bin/board-watchdog.sh after its 5-minute busy grace, and install/setup.sh right after it stopped
+  # the old board itself. The #3079 reclaim below is the only thing that frees a port held by a detached
+  # process neither the pidfile nor launchd tracks.
+  if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
     say "Kosmos is already running at $URL (busy right now, so it is slow to answer)"
     return 0
   fi

@@ -3714,7 +3714,9 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
 fi
 
 step "Starting Kosmos."
-KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+# #4466: KOSMOS_RECLAIM_BUSY=1 because this installer has just stopped the old board, so a Kosmos that
+# still holds the port without answering is a stale build, not a busy one (the #3079 reclaim frees it).
+KOSMOS_SAY_INDENT="     " KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 ok
 
 # ---- and start it again at every login --------------------------------------

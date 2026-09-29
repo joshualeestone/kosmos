@@ -25,6 +25,8 @@ const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SCRATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-scratch-'));
+test.after(() => fs.rmSync(SCRATCH_HOME, { recursive: true, force: true }));
 const PAGE = '<title>Kosmos</title>Agent Workforce';
 
 function runCli(args, env, timeout = 40000) {
@@ -106,7 +108,8 @@ function baseEnv(port, extra = {}) {
   // The runner's own agent markers are removed FIRST, so a test is a person unless it says otherwise.
   const env = { ...process.env };
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
-  return { ...env, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', ...extra };
+  // A throwaway KOSMOS_HOME by default, so no arm reads this machine's pidfile or board token.
+  return { ...env, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: SCRATCH_HOME, ...extra };
 }
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
@@ -301,7 +304,7 @@ test('#4466 a person RESTART of a busy board this command did not start refuses 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
 
-test('#4466 the watchdog reclaim: only KOSMOS_WATCHDOG_RECLAIM=1 lets `kosmos start` free a port our own silent board holds', () => withBoard('hang', async (port) => {
+test('#4466 the watchdog reclaim: only KOSMOS_RECLAIM_BUSY=1 lets `kosmos start` free a port our own silent board holds', () => withBoard('hang', async (port) => {
   // The stub is a same-user "kosmos...server.js" that never answers: to the CLI, our own busy board.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -310,7 +313,7 @@ test('#4466 the watchdog reclaim: only KOSMOS_WATCHDOG_RECLAIM=1 lets `kosmos st
     const plain = await runCli(['start'], env);
     assert.equal(plain.code, 0, plain.stdout + plain.stderr);
     assert.match(plain.stdout, /already running .*busy/, 'CONTROL: without the flag a busy board is left alone');
-    const reclaim = await runCli(['start', '--force'], { ...env, KOSMOS_WATCHDOG_RECLAIM: '1' });
+    const reclaim = await runCli(['start', '--force'], { ...env, KOSMOS_RECLAIM_BUSY: '1' });
     assert.match(reclaim.stdout, /held by your own stale Kosmos .* Reclaiming it/, 'with the flag the #3079 reclaim runs: ' + reclaim.stdout + reclaim.stderr);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
@@ -347,3 +350,10 @@ test('#4466 an OLDER board of ours answering its page with a 5xx under load is b
   assert.match(out.stdout, /running at .* but is busy/);
   assert.doesNotMatch(out.stdout, /another app/);
 }));
+
+test('#4466 the installer starts the board with KOSMOS_RECLAIM_BUSY=1 (right after its own stop, a silent Kosmos on the port is stale)', () => {
+  const setup = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
+  const starts = setup.split('\n').filter((l) => /"\$KOSMOS_HOME\/bin\/kosmos" start\b/.test(l) && !/^\s*#/.test(l));
+  assert.equal(starts.length, 1, 'expected exactly one board start in setup.sh: ' + JSON.stringify(starts));
+  assert.match(starts[0], /KOSMOS_RECLAIM_BUSY=1 "\$KOSMOS_HOME\/bin\/kosmos" start --force/);
+});
