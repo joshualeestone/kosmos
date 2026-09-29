@@ -434,6 +434,46 @@ test('a CLAUDE pane still pauses before Enter — the pasted bytes must flush or
   });
 });
 
+test('#4468: one pane serialises async deliveries and refuses a synchronous sweep during the gap', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);
+  try {
+    const tmux = arm([]);
+    const releases = [];
+    const starts = [];
+    chat.setPauser(() => new Promise((resolve) => {
+      releases.push(resolve);
+      const started = starts.shift();
+      if (started) started();
+    }));
+
+    let firstStarted;
+    const firstGap = new Promise((resolve) => { firstStarted = resolve; });
+    starts.push(firstStarted);
+    const first = chat.deliverAsync('casey', 'first', board.agents);
+    await firstGap;
+
+    let secondStarted;
+    const secondGap = new Promise((resolve) => { secondStarted = resolve; });
+    starts.push(secondStarted);
+    const second = chat.deliverAsync('casey', 'second', board.agents);
+    const sweep = chat.deliver('casey', 'sweep', board.agents);
+    assert.equal(sweep.state, chat.DELIVERY.COULD_NOT);
+    assert.match(sweep.because, /another message is still being placed/);
+    assert.equal(tmux.setBuffers().length, 1, 'the queued delivery pasted before the first Enter');
+
+    releases.shift()();
+    await secondGap;
+    const wire = tmux.calls.filter((call) => call[0] === 'set-buffer' || call[0] === 'send-keys')
+      .map((call) => call[0] === 'set-buffer' ? `paste:${call[call.length - 1]}` : call[call.length - 1]);
+    assert.deepEqual(wire, ['paste:first', 'Enter', 'paste:second']);
+    releases.shift()();
+    assert.equal((await first).state, chat.DELIVERY.PLACED);
+    assert.equal((await second).state, chat.DELIVERY.PLACED);
+  } finally {
+    board.restore();
+  }
+});
+
 test('the target carries the `=` exact-match pin, which is what stops a send landing on a lookalike session', () => {
   // Measured on tmux 3.6a: with the session killed and a `kchatprobe2` still
   // alive, the pinned form answers "can't find session" instead of typing into

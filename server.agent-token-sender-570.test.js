@@ -101,7 +101,7 @@ test('the post and react routes resolve a token sender through the same helper',
   assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: senderFromAgentToken\(req, body, roster\)/);
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
   assert.match(shared, /if \(sender && !sender\.ok\) return \{ state: 'could_not', because: sender\.because \}/);
-  assert.match(shared, /messages\.sendPost\(\{[^}]*\bsender,/);
+  assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\bsender,/);
   const react = src.slice(src.indexOf("pathname === '/api/react'"), src.indexOf('/api/agent/:name/conversation'));
   assert.match(react, /senderFromAgentToken\(req, body, roster\) \|\| messages\.resolveSender/);
 });
@@ -119,7 +119,7 @@ test('#2908: reply_expected threads route -> sendRoomPostAsAgent -> sendPost, AN
   assert.match(post, /replyExpected: body\.reply_expected/);
   // The shared helper forwards it to sendPost.
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
-  assert.match(shared, /messages\.sendPost\(\{[^}]*\breplyExpected,/);
+  assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\breplyExpected,/);
   // THE DRAIN forwards it too: this arm reds if deliverPost drops entry.body.reply_expected.
   const drain = src.slice(src.indexOf('deliverPost: (entry) =>'), src.indexOf('onExpired:'));
   assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');

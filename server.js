@@ -381,7 +381,7 @@ function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunaway
 // `roster`: the caller's already-fetched snapshot, never a fresh
 // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
 // per agent, and every call site here already has one in scope.
-function heardBy(projectId, t, who, sentence, roster) {
+function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
   /* #3564: a swarm switched off in this project is not told it was given work here. */
@@ -395,10 +395,12 @@ function heardBy(projectId, t, who, sentence, roster) {
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
     + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+  const answer = (sent) => ({ who: name, state: sent.state, because: sent.because || null });
+  const failed = (err2) => answer({ state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') });
   let sent;
-  try { sent = chat.deliver(name, line, roster); }
-  catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-  return { who: name, state: sent.state, because: sent.because || null };
+  try { sent = deliver(name, line, roster); }
+  catch (err2) { return failed(err2); }
+  return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -436,7 +438,7 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -448,17 +450,20 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   let heard;
   if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
-  if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
-    // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
-    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
-    return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
-  }
-  return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
+  const finish = (heardResult) => {
+    if (heardResult && heardResult.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
+    if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
+      // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
+      const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
+    }
+    return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
+  };
+  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();
@@ -2956,7 +2961,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -3005,7 +3010,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  const delivery = messages.sendPost({
+  const delivery = (asynchronousDelivery ? messages.sendPostAsync : messages.sendPost)({
     fromPane,
     sender,
     project: found.id,
@@ -3036,8 +3041,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
     replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
-  federateOut(found.id, delivery, false);
-  return delivery;
+  const finish = (result) => {
+    federateOut(found.id, result, false);
+    return result;
+  };
+  return delivery && typeof delivery.then === 'function' ? delivery.then(finish) : finish(delivery);
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -3889,7 +3897,7 @@ function setupGuideFailing() {
   return null;
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
   if (pathname === null) {
@@ -6791,7 +6799,7 @@ const server = http.createServer((req, res) => {
     }
     const command = '/' + ctx[2];
     let delivery;
-    try { delivery = chat.deliver(name, command, safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
     return;
@@ -6856,7 +6864,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
       delivery,
@@ -6924,7 +6932,7 @@ const server = http.createServer((req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = chat.deliver(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -12910,7 +12918,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -12934,7 +12942,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
           return;
         }
-        const delivery = messages.send({
+        const delivery = await messages.sendAsync({
           fromPane: body.from_pane,
           sender: tokenSender,
           to: body.to,
@@ -12954,7 +12962,7 @@ const server = http.createServer((req, res) => {
      the project record so the engine owns no membership model. */
   if (pathname === '/api/post' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -13011,7 +13019,7 @@ const server = http.createServer((req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
-        const delivery = sendRoomPostAsAgent({
+        const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
           sender: senderFromAgentToken(req, body, roster),
           project: body.project,
@@ -13020,7 +13028,7 @@ const server = http.createServer((req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
-        }, roster);
+        }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -13487,7 +13495,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(dm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -13743,7 +13751,7 @@ const server = http.createServer((req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = chat.deliver(name, body.text, roster, envelope,
+        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
@@ -14813,7 +14821,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/projects' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -14913,13 +14921,13 @@ const server = http.createServer((req, res) => {
         // happened") and create had the same shape.
         let told = [];
         try {
-          told = made.agents.map((a) => {
+          told = await Promise.all(made.agents.map(async (a) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = projects.speakOfMembership(a, made, 'joined', roster);
+            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
-          });
+          }));
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
@@ -15096,14 +15104,14 @@ const server = http.createServer((req, res) => {
       // SPEAK the display name, and the roster that resolves the two is already
       // in hand here. `shownAs` falls back to the machine name, because a name
       // we cannot resolve is still the only name we have.
-      told = gone.agents.map((a) => {
+      told = await Promise.all(gone.agents.map(async (a) => {
         const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === a) : null;
         const verdict = projects.syncAgent(a, roster);
         // A running member hears that the project is gone (#304); a stopped
         // one reads it at its next start, and could_not here is that fact.
-        const said = projects.speakOfMembership(a, gone, 'removed', roster);
+        const said = await projects.speakOfMembershipAsync(a, gone, 'removed', roster);
         return { agent: a, shownAs: (card && card.name) || a, ...verdict, said };
-      });
+      }));
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
@@ -15410,7 +15418,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
           const bad = new Error('that request is not something we can read');
@@ -15457,7 +15465,7 @@ const server = http.createServer((req, res) => {
           }
           replyTo = body.reply_to;
         }
-        const delivery = messages.sendPost({
+        const delivery = await messages.sendPostAsync({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
           replyTo,
@@ -15688,7 +15696,7 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15732,7 +15740,7 @@ const server = http.createServer((req, res) => {
         fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
         for (const a of made.agents || []) {
-          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          try { projects.syncAgent(a, roster); await projects.speakOfMembershipAsync(a, made, 'joined', roster); }
           catch { /* membership is recorded; telling the agent is best-effort here */ }
         }
         let project = null;
@@ -15903,7 +15911,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment(taskMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -15955,7 +15963,7 @@ const server = http.createServer((req, res) => {
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
           if (viaScreen || heardBudgetAllows(made.who, roster)) {
-            heard = heardBy(id, made, made.who, made.sentence, roster);
+            heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
             // not be told once it is back.
@@ -16371,7 +16379,7 @@ const server = http.createServer((req, res) => {
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -16463,7 +16471,7 @@ const server = http.createServer((req, res) => {
         }));
         for (const one of recipients) {
           let outcome;
-          try { outcome = chat.deliver(one, line, roster); }
+          try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
@@ -16489,7 +16497,7 @@ const server = http.createServer((req, res) => {
   if (partMake && req.method === 'POST') {
     const id = decodeSegment(partMake[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16511,7 +16519,7 @@ const server = http.createServer((req, res) => {
         const roster = safeRoster();
         let heard;
         if (screen || heardBudgetAllows(body && body.who, roster)) {
-          heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
+          heard = await heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster, chat.deliverAsync);
           if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
@@ -16530,7 +16538,7 @@ const server = http.createServer((req, res) => {
   if (partAct && req.method === 'POST') {
     const id = decodeSegment(partAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
@@ -16540,7 +16548,7 @@ const server = http.createServer((req, res) => {
           // givePart (module scope): the parts valve for a process caller (#803: a process
           // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
           // on a real move (#304's rule) the pane line against the heard budget.
-          const g = givePart(id, partAct[2], partAct[3], body && body.who, { screen });
+          const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true });
           if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
           if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
           sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
@@ -16659,7 +16667,7 @@ const server = http.createServer((req, res) => {
     // its next start.
     let said = null;
     if (moved && project) {
-      said = projects.speakOfMembership(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
+      said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
     sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
     return;
@@ -16907,7 +16915,7 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(thread[2]);
     if (id === null || name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body;
         try {
           body = JSON.parse(buf.toString('utf8') || '{}') || {};
@@ -16985,7 +16993,7 @@ const server = http.createServer((req, res) => {
          */
         const files = attachments.resolveForMessage(body, 'project', id, 'that attachment is not one this project can send');
         if (!files.ok) throw new Error(files.because);
-        const delivery = chat.deliver(name, body.text, roster, undefined, attachments.wireNote(files.recs));
+        const delivery = await chat.deliverAsync(name, body.text, roster, undefined, attachments.wireNote(files.recs));
         // #2005: file the record under the canonical name (member.sessionName), not
         // the possibly mis-cased URL name -- appendMessage's threadFile requires the
         // exact key, so a mis-cased name would deliver above but fail to record here.
