@@ -6490,6 +6490,8 @@ const server = http.createServer(async (req, res) => {
         const q = new URL(req.url, ROUTING_BASE).searchParams;
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // The consented send carries the file; an empty one would spend a request on nothing.
+        if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
            so claude stops using their plan instead of running on to its timeout. */
         const stop = new AbortController();

@@ -299,7 +299,7 @@ test('a plain .txt is not taken as a spreadsheet (the paste box is for lists)', 
   assert.equal(o.readLocal('people.txt', Buffer.from('Marketing Lead\nEngineer\n')).unsupported, true);
 });
 
-test('the read runs on a named Claude account, never the ambient default (which fails under launchd, #3136)', () => {
+test('readAccount names the board\'s own account when the board runs on one (the consent names it)', () => {
   const was = process.env.CLAUDE_CONFIG_DIR;
   process.env.CLAUDE_CONFIG_DIR = '/tmp/kosmos-test-account-4559';
   try {

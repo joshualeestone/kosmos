@@ -395,6 +395,32 @@ async function run() {
     } else check('AFTER CREATE: the panel offers a file', false);
     await pa.close();
 
+    // LEAVE DURING CREATE: the person leaves the panel while the team is being made. The screen is left alone, but the
+    // reporting-line fix-up (a manager created under another name) still lands, since it corrects data, not the screen.
+    const plc = await page();
+    const putsL = [];
+    await plc.route('**/api/team', async (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      await new Promise((ok) => setTimeout(ok, 1500));   // a create that takes a moment
+      r.fulfill({ status: 200, json: { outcome: 'created',
+        created: body.members.map((m) => ({ name: m.name === 'head-of-sales' ? 'head-of-sales-2' : m.name, shownAs: m.label })), refused: [] } });
+    });
+    await plc.route('**/api/agent/*/profile', (r) => { putsL.push(decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]) + '=' + r.request().postData()); r.fulfill({ status: 200, json: { ok: true } }); });
+    await plc.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { source: 'file', rows: PICTURE_ROWS.map((x) => ({ ...x, why: null })), problems: [] } }));
+    await openPanel(plc);
+    if (await plc.$('#orgchart-file-btn')) {
+      await plc.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await plc.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await plc.click('#orgchart-create');
+      await plc.waitForTimeout(300);
+      await plc.click('#pick-pm');   // leave the panel mid-create
+      await plc.waitForTimeout(2500);   // past the create's answer
+      const sortedL = putsL.slice().sort();
+      check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',
+        JSON.stringify(sortedL) === JSON.stringify(['account-executive={"reportsTo":"head-of-sales-2"}', 'sales-engineer={"reportsTo":"head-of-sales-2"}']), JSON.stringify(sortedL));
+    } else check('LEAVE DURING CREATE: the panel offers a file', false);
+    await plc.close();
+
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.
     const p6 = await page();

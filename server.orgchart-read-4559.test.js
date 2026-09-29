@@ -240,3 +240,12 @@ test('#4559 VERTICAL: the create the page sends (managers first, reportsTo by ag
     fs.rmSync(acct, { force: true });
   }
 });
+
+test('#4559: a consented send with no file is refused before it reaches the model', async () => {
+  const sent = [];
+  orgchartfile.setModelAvailable(() => true);
+  orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
+  const r = await send('chart.png', Buffer.alloc(0), { headers: SCREEN, query: '?consent=1' });
+  assert.equal(r.status, 400, JSON.stringify(r.json));
+  assert.equal(sent.length, 0, 'an empty file reached the model');
+});
