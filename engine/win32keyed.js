@@ -66,8 +66,13 @@ const KEY_VAR = Object.freeze({ gemini: 'GEMINI_API_KEY', grok: 'XAI_API_KEY' })
    sets the same list; a test in create.test.js pins the two equal.
    #4446 (Angel): the same for [compat.cursor], on by default too: without its five cells a grok agent
    loads the person's ~/.cursor rules, skills, agents, mcp.json and hooks (measured in a sandboxed HOME,
-   grok 1.0.41: 2 live [cursor] entries to 0). [compat.codex]'s cells are documented as reserved and
-   inert, with no environment name, so there is nothing to set for them. */
+   grok 1.0.41: 2 live [cursor] entries to 0). The cursor cells also cover a PROJECT's own
+   <cwd>/.cursor rules and mcp.json, the same trade #4426 made for <dir>/.claude: an agent's context is
+   its brief. [compat.codex] has no environment name to set: the configuration guide calls its cells
+   reserved and inert, while the reference table says codex hooks and skills are scanned "when present".
+   REOPEN THIS if a grok release makes them live: only config.toml could then turn them off.
+   GROK_CLAUDE_HOOKS_ENABLED is '0' because #3391 shipped it that way and measured it; grok reads 0 and
+   false alike, and the cells added since use 'false', the documented spelling. */
 const GROK_COMPAT_OFF = Object.freeze({
   GROK_CLAUDE_HOOKS_ENABLED: '0',
   GROK_CLAUDE_AGENTS_ENABLED: 'false',
@@ -354,8 +359,8 @@ function turnEnv(runner, base, configDir, deps) {
     /* The Mac exports the default account's dir as GROK_HOME too, so the dir judged here is
        the dir grok reads. */
     env.GROK_HOME = String(dir);
-    /* Run only its own hooks and AGENTS.md, not the person's Claude Code setup (#4426,
-       agent-supervisor.sh). */
+    /* Run only its own hooks and AGENTS.md, not the person's Claude Code or Cursor setup (#4426,
+       #4446, agent-supervisor.sh). */
     Object.assign(env, GROK_COMPAT_OFF);
     let kind = null;
     try { const who = mod.identityOf(dir); kind = who ? who.authMode : null; } catch { kind = null; }
