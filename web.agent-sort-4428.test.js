@@ -43,8 +43,16 @@ function lift(names) {
 function api() {
   const constants = /const AGENT_SORTS = \[[^\]]*\];\s*const AGENT_SORT_DEFAULT = '[a-z-]+';/.exec(SCRIPT);
   assert.ok(constants, 'the agent sort vocabulary is missing');
-  const body = lift(['agentSortMode', 'agentFirstProject', 'sortAgents']);
-  return new Function(`${constants[0]}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, agentSortMode, agentFirstProject, sortAgents };`)();
+  const modelStart = SCRIPT.indexOf('function modelLine(');
+  const modelEnd = SCRIPT.indexOf('function acctParenthetical(', modelStart);
+  const roleStart = SCRIPT.indexOf('function roleLine(');
+  const roleEnd = SCRIPT.indexOf('/* #4428: the one attention answer', roleStart);
+  assert.ok(modelStart >= 0 && modelEnd > modelStart && roleStart >= 0 && roleEnd > roleStart,
+    'the displayed model or role derivation is missing');
+  const displayed = SCRIPT.slice(modelStart, modelEnd) + SCRIPT.slice(roleStart, roleEnd);
+  const body = displayed + lift(['agentNeedsAttention', 'agentSortMode', 'agentFirstProject', 'sortAgents']);
+  const seam = "const ROLE_TITLES = null; function cardStOf(a) { return { pres: a && a.state === 'stopped' ? 'off' : 'on' }; }";
+  return new Function(`${constants[0]}\n${seam}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, modelLine, roleLine, agentNeedsAttention, agentSortMode, agentFirstProject, sortAgents };`)();
 }
 
 const board = fleet.install(['a', 'ada', 'b', 'bea', 'cam', 'dee', 'missing', 'zed', 'zulu'].map((name) => (
@@ -55,7 +63,7 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const a = (name, extra) => Object.assign({}, board.card(name.toLowerCase()), extra || {});
+const a = (name, extra) => Object.assign({}, board.card(name.toLowerCase()), { profile: {} }, extra || {});
 const projects = [
   { id: 'z', name: 'Zebra', agents: [board.card('bea')] },
   { id: 'a', name: 'Alpha', agents: [board.card('cam'), board.card('bea')] },
@@ -81,32 +89,35 @@ test('#4428: every timestamp sort is newest first, missing last, then name', () 
   assert.deepEqual(sortAgents(rows, 'newest', projects).map((x) => x.name), ['Ada', 'Bea', 'Zulu']);
 });
 
-test('#4428: model groups by provider then model, and incomplete values go last', () => {
-  const { sortAgents } = api();
+test('#4428: model order uses exactly the model text displayed on each card', () => {
+  const { sortAgents, modelLine } = api();
   const rows = [
     a('Missing', { runner: 'claude', modelName: null }),
-    a('Zed', { runner: 'codex', modelName: 'GPT-5' }),
-    a('Bea', { runner: 'claude', modelName: 'Sonnet' }),
-    a('Ada', { runner: 'claude', modelName: 'Opus' }),
+    a('Zed', { runner: 'codex', modelName: null }),
+    a('Bea', { runner: 'claude', modelName: 'Sonnet', state: 'idle' }),
+    a('Ada', { runner: 'claude', modelName: 'Haiku', plannedModelName: 'Opus', state: 'stopped' }),
   ];
+  assert.deepEqual(rows.map(modelLine), ['Made before Kosmos recorded this', 'OpenAI Codex', 'Claude Sonnet', 'Claude Opus']);
   assert.deepEqual(sortAgents(rows, 'model', projects).map((x) => x.name), ['Ada', 'Bea', 'Zed', 'Missing']);
 });
 
-test('#4428: name, needs-you, project and role use one stable missing-last contract', () => {
-  const { sortAgents, agentFirstProject } = api();
+test('#4428: role and needs order use exactly the values and attention shown on cards', () => {
+  const { sortAgents, agentFirstProject, roleLine, agentNeedsAttention } = api();
   const rows = [
     a('Dee', { state: 'idle', role: null }),
     a('Cam', { state: 'working', role: 'Engineer' }),
     a('Bea', { state: 'blocked', role: 'Designer' }),
-    a('Ada', { state: 'needs_you', role: 'Engineer' }),
+    a('Ada', { state: 'connection_lost', reconnect: { phase: 'gave_up' }, role: 'writes docs', profile: { role: 'Analyst' } }),
   ];
+  assert.equal(roleLine(rows[3], null), 'Analyst');
+  assert.equal(agentNeedsAttention(rows[3]), true, 'a gave-up connection carries the card attention marker');
   assert.equal(agentFirstProject(rows[1], projects), 'Alpha');
   assert.equal(agentFirstProject(rows[2], projects), 'Alpha', 'first project means the alphabetically first project, not store order');
   assert.equal(agentFirstProject(rows[0], projects), null);
   assert.deepEqual(sortAgents(rows, 'name', projects).map((x) => x.name), ['Ada', 'Bea', 'Cam', 'Dee']);
   assert.deepEqual(sortAgents(rows, 'needs', projects).map((x) => x.name), ['Ada', 'Bea', 'Cam', 'Dee']);
   assert.deepEqual(sortAgents(rows, 'project', projects).map((x) => x.name), ['Bea', 'Cam', 'Ada', 'Dee']);
-  assert.deepEqual(sortAgents(rows, 'role', projects).map((x) => x.name), ['Bea', 'Ada', 'Cam', 'Dee']);
+  assert.deepEqual(sortAgents(rows, 'role', projects).map((x) => x.name), ['Ada', 'Bea', 'Cam', 'Dee']);
 });
 
 test('#4428: sorting is pure and invalid input remains harmless', () => {
@@ -125,4 +136,9 @@ test('#4428: the persisted control repaints both flat views and hides for the or
   assert.match(SCRIPT, /const shown = sortAgents\(lim \? src\.slice\(0, Number\(lim\)\) : src, AGENT_SORT, PROJECTS\);[\s\S]*shown\.map\(lrow\)/);
   assert.match(SCRIPT, /agentSortVisibility\(\)/);
   assert.match(SCRIPT, /BOARD_LAYOUT === 'org'/);
+  assert.match(SCRIPT, /mode === 'model'[\s\S]*modelLine\(aa\)/);
+  assert.match(SCRIPT, /mode === 'role'[\s\S]*roleLine\(a\.agent \|\| \{\}, ROLE_TITLES\)/);
+  assert.match(SCRIPT, /const needsRank = \(a\) => \{\s*if \(agentNeedsAttention\(a\)\) return 0;/);
+  assert.ok((SCRIPT.match(/agentNeedsAttention\(a\) \? ' data-attn'/g) || []).length >= 6,
+    'grid and list cards no longer share the attention predicate used by the sort');
 });

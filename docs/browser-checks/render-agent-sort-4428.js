@@ -37,7 +37,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       });
       LAST = [
         mk('Dee', { lastTalkedAt: '2026-09-28T09:00:00Z', lastActiveAt: null, createdAt: null }),
-        mk('Cam', { lastTalkedAt: null, lastActiveAt: '2026-09-28T09:00:00Z', createdAt: '2026-09-23T00:00:00Z', runner: 'codex', modelName: 'GPT', state: 'working', role: 'Engineer' }),
+        mk('Cam', { lastTalkedAt: null, lastActiveAt: '2026-09-28T09:00:00Z', createdAt: '2026-09-23T00:00:00Z', runner: 'codex', modelName: null, state: 'working', role: 'Engineer' }),
         mk('Bea', { lastTalkedAt: '2026-09-28T11:00:00Z', lastActiveAt: '2026-09-28T12:00:00Z', createdAt: '2026-09-22T00:00:00Z', runner: 'claude', modelName: 'Sonnet', state: 'blocked', role: 'Designer' }),
         mk('Ada', { lastTalkedAt: '2026-09-28T10:00:00Z', lastActiveAt: '2026-09-28T08:00:00Z', createdAt: '2026-09-21T00:00:00Z', runner: 'claude', modelName: 'Opus', state: 'needs_you', role: 'Engineer' }),
       ];

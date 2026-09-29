@@ -18111,6 +18111,14 @@ function roleLine(a, titles) {
   if (known) return known;
   return parsed.charAt(0).toUpperCase() + parsed.slice(1);
 }
+
+/* #4428: the one attention answer shared by the card/list marker and the
+   Needs-you-first order. A connection Kosmos gave up reconnecting is asking
+   for the same person action as needs_you, even though its raw state differs. */
+function agentNeedsAttention(a) {
+  return !!(a && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')));
+}
 /* ⚠️ ONE encoding of the memory thresholds, because there were four: the
    ring band, the list bar band, the membadge and the heat wash each wrote
    80 (and 60) out by hand, and only the membadge boundary was pinned --
@@ -18675,7 +18683,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18690,7 +18698,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -18736,7 +18744,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18881,7 +18889,7 @@ function lrow(a) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18894,7 +18902,7 @@ function lrow(a) {
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -18953,7 +18961,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -29404,7 +29412,7 @@ function paintOrg() {
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
          in the same cases data-attn does but splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
-      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
+      + (agentNeedsAttention(a) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -29765,8 +29773,8 @@ function sortAgents(list, mode, projects) {
   };
   const byName = (a, b) => cmpText(name(a), name(b)) || a.index - b.index;
   const needsRank = (a) => {
+    if (agentNeedsAttention(a)) return 0;
     const state = a && a.state;
-    if (state === 'needs_you' || state === 'needs_trust') return 0;
     if (state === 'blocked') return 1;
     if (state === 'working' || state === 'restarting') return 2;
     if (state === 'idle') return 3;
@@ -29775,13 +29783,15 @@ function sortAgents(list, mode, projects) {
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
       const aa = a.agent || {}, bb = b.agent || {};
-      const ak = text(aa.runner) && text(aa.modelName) ? `${aa.runner}\u0000${aa.modelName}` : null;
-      const bk = text(bb.runner) && text(bb.modelName) ? `${bb.runner}\u0000${bb.modelName}` : null;
+      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity'
+        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
+      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity'
+        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
       return cmpText(ak, bk) || byName(a, b);
     }
     : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
     : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
-    : mode === 'role' ? (a, b) => cmpText(text(a.agent && a.agent.role), text(b.agent && b.agent.role)) || byName(a, b)
+    : mode === 'role' ? (a, b) => cmpText(text(roleLine(a.agent || {}, ROLE_TITLES)), text(roleLine(b.agent || {}, ROLE_TITLES))) || byName(a, b)
     : (a, b) => {
       const field = mode === 'active' ? 'lastActiveAt' : mode === 'newest' ? 'createdAt' : 'lastTalkedAt';
       return cmpTime(time(a.agent && a.agent[field]), time(b.agent && b.agent[field])) || byName(a, b);

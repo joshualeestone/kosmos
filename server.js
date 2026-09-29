@@ -905,7 +905,6 @@ const assignerSetting = require('./engine/assigner-setting'); // #2619
 const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
-const activityStore = require('./engine/activity');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const activity = require('./engine/activity');
@@ -3374,7 +3373,7 @@ function withAgentSortFields(list, supplied) {
     if (key != null) {
       try {
         const work = supplied && typeof supplied.workFor === 'function'
-          ? supplied.workFor(key) : activityStore.read(key, 'working');
+          ? supplied.workFor(key) : activity.read(key, 'working');
         workAt = work && work.found === true ? at(work.at) : null;
         if (work && work.found === false && work.because
             && work.because !== 'no activity sample has been recorded for this agent and pattern') workReadable = false;
