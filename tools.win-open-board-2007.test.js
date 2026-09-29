@@ -60,13 +60,15 @@ test('the launcher runs the helper and NOT the pre-fix plain open (#2007)', () =
     'the launcher opens the PLAIN url directly - the #2007 bug is back');
   /* #1118: the ONE shell-execute is the board window handing ANOTHER site's link to the person's
      browser. It refuses anything that is not http(s), and both of its callers keep the board's own
-     address in the window, so it can never open the board unsigned. */
+     address in the window, so it can never open the board unsigned. #4381: a connect computer's window
+     also hands it a clicked mail, phone or text link, only one its connect rules sent there
+     (tools.windows-computer-mode-4381.test.js). */
   const shellExecutes = [...LAUNCHER_SRC.matchAll(/UseShellExecute\s*=\s*true/g)].map((m) => m.index);
   assert.equal(shellExecutes.length, 1, 'the launcher shell-executes something other than a link to another site');
-  const opensLinks = LAUNCHER_SRC.indexOf('internal static void OpenInPersonsBrowser(string address)');
+  const opensLinks = LAUNCHER_SRC.indexOf('internal static void OpenInPersonsBrowser(string address, bool decidedByConnectRules)');
   const opensLinksEnd = LAUNCHER_SRC.indexOf('\n    }\n', opensLinks);
   assert.ok(shellExecutes[0] > opensLinks && shellExecutes[0] < opensLinksEnd, 'the shell-execute moved out of OpenInPersonsBrowser');
-  assert.match(LAUNCHER_SRC.slice(opensLinks, shellExecutes[0]), /if \(!IsWebAddress\(address\)\)[\s\S]*?return;/, 'OpenInPersonsBrowser no longer refuses a non-web address first');
+  assert.match(LAUNCHER_SRC.slice(opensLinks, shellExecutes[0]), /if \(decidedByConnectRules && ConnectLinkDecision\(address, true\) != ConnectLink\.Browser\) return;\s*if \(!decidedByConnectRules && !IsWebAddress\(address\)\)[\s\S]*?return;/, 'OpenInPersonsBrowser no longer refuses a non-web address first');
   const callers = [...LAUNCHER_SRC.matchAll(/^.*KosmosLauncher\.OpenInPersonsBrowser\(uri\).*$/gm)].map((m) => m[0]);
   assert.equal(callers.length, 2, 'OpenInPersonsBrowser gained or lost a caller');
   assert.match(LAUNCHER_SRC, /if \(KosmosLauncher\.IsBoardAddress\(uri, port\) \|\| KosmosLauncher\.IsWindowOwnPage\(uri\)\) return;\s*args\.put_Cancel\(1\);\s*BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
