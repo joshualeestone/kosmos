@@ -177,8 +177,10 @@ const SCREENS = [
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
   } },
   /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
-     that box. Turning it on is stored on this run's throwaway board (so asking twice is fine),
-     and no other screen here opens Automation. */
+     that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
+     This board runs server.js's real start, which arms live execution, so the Recommender's
+     sweep would act on the seeded agents while it is on: `after` turns it off once the shot is
+     taken, before any other screen. */
   { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
     const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
       { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
@@ -190,6 +192,10 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
@@ -772,6 +778,11 @@ async function run() {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
+              }
+              /* A screen that changed the board's state puts it back here, whatever happened above,
+                 so no later screen photographs it (#4545). A failure to is a flag on this row. */
+              if (sc.after) {
+                try { await sc.after(page, ctxData); } catch (e) { errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
               /* report.json and report.md travel with the shots: everything this row carries (the
