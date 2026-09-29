@@ -56239,8 +56239,9 @@ function msgRefButton(mid) {
 function msgRefWhen(at) {
   const d = new Date(at);
   if (!at || isNaN(d.getTime())) return '';
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const day = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  /* en-US: the phrase around them is English ("at 2:31 PM on Sep 29"), and a reader's own locale would mix the two. */
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return ' at ' + time + ' on ' + day;
 }
 /* The words copied for one message row, or '' when the row is not a message this can name. */
@@ -56274,10 +56275,11 @@ function msgToast(text) {
     /* A live region that arrives already holding its words is often not announced, so the first one is filled
        a moment after it is in the page. */
     t.hidden = false; t.style.opacity = '0';   // not an empty dark pill while it waits for its words
-    setTimeout(() => { t.textContent = text; t.style.opacity = ''; }, 60);
+    setTimeout(() => { t.textContent = msgToast.words; t.style.opacity = ''; }, 60);   // the LATEST words, if a second copy came first
   } else {
     t.textContent = text;
   }
+  msgToast.words = text;
   t.hidden = false;
   clearTimeout(msgToast.timer);
   msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
@@ -56329,7 +56331,7 @@ function msgMenuOpen(row, x, y) {
       if (!e.target.closest('#msg-menu-copy')) return;
       const r = msgMenuRow(m.msgRef); msgMenuClose(true); msgRefCopy(r);
     });
-    m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') e.preventDefault(); msgMenuClose(e.key === 'Escape'); } });
+    m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); } });
     m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget)) msgMenuClose(false); });
   }
   const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';

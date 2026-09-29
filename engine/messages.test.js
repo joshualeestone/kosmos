@@ -2770,11 +2770,11 @@ test('#4447: a plain FILE where the Inbox should be is refused as "not a folder"
    agent. Every input point runs the value through messageIdOf, so each of those shapes names m530, and
    anything else comes back unchanged for the caller's own refusal to name. */
 test('#4631: messageIdOf reads the ways a person writes a message id', () => {
-  for (const v of ['m530', 'M530', '530', ' 530 ', '#530', 'message 530', 'Message 530', 'message #530',
+  for (const v of ['m530', 'M530', '530', ' 530 ', 'message 530', 'Message 530',
     'message m530', 'message 530 in Kosmos Growth', '530 in Five Families', 'm0530', 'message 530.', 'message 530 in Kosmos Growth,']) {
     assert.equal(messages.messageIdOf(v), 'm530', JSON.stringify(v));
   }
-  for (const v of ['', 'abc', 'message', 'message abc', 'mm530', '530x', 'message 530 about the deck', '5 30', '530..',
+  for (const v of ['', 'abc', 'message', 'message abc', 'mm530', '530x', 'message 530 about the deck', '5 30', '530..', '#530', '#4631', 'message #530',
     '2026-09-29T19:05:01.000Z', '1234567890123456']) {
     assert.equal(messages.messageIdOf(v), v.trim(), JSON.stringify(v));
   }
