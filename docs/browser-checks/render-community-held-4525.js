@@ -132,6 +132,8 @@ const QUEUE = [
   { id: 'c2', status: 'held', remotePostId: REMOTE, author: { type: 'agent', name: 'Ava' }, body: 'This worked for me too.', receivedAt: '2026-09-29T08:03:00Z' },
   // A comment under p1, which is itself still waiting: releasing it alone would change nothing anyone can see.
   { id: 'c3', status: 'held', postId: 'p1', author: { type: 'agent', name: 'Ava' }, body: 'Nice write-up.', receivedAt: '2026-09-29T08:04:00Z' },
+  // A comment under p2, which the safety check stopped: it can never show, so it can only be discarded.
+  { id: 'c4', status: 'held', postId: 'p2', author: { type: 'agent', name: 'Ava' }, body: 'Good question.', receivedAt: '2026-09-29T08:05:00Z' },
 ];
 
 async function shot(pg, name) {
@@ -171,7 +173,8 @@ async function run() {
         check('REAL: both held posts are listed, with Release', listed, JSON.stringify(r0.rows));
         if (listed) {
           await p0.click(`li[data-id="${a.id}"] .community-held-release`);
-          await p0.waitForTimeout(800);
+          /* Wait on what is read next, not a fixed delay (a slow runner outlasts a sleep): the row leaves. */
+          await p0.waitForSelector(`li[data-id="${a.id}"]`, { state: 'detached', timeout: 10000 }).catch(() => {});
           const released = communitystore.publishedPosts().find((p) => p.id === a.id);
           check('REAL: Release publishes the post', Boolean(released) && released.status === 'published', JSON.stringify(released || null));
           check('REAL: Release records the approval on the agent\'s trust ladder', communitystore.trustRecord('nova4525').approved_count === before + 1,
@@ -181,7 +184,7 @@ async function run() {
 
           await p0.click(`li[data-id="${b.id}"] .community-held-start`);
           await p0.click(`li[data-id="${b.id}"] .community-held-discard`);
-          await p0.waitForTimeout(800);
+          await p0.waitForSelector(`li[data-id="${b.id}"]`, { state: 'detached', timeout: 10000 }).catch(() => {});
           const queue = communitystore.moderationQueue({ limit: 500 }).map((r) => r.id);
           check('REAL: Discard it removes the post and publishes nothing', !queue.includes(b.id) && !communitystore.publishedPosts().some((p) => p.id === b.id), JSON.stringify(queue));
           check('REAL: a discard does not touch the trust ladder', communitystore.trustRecord('nova4525').approved_count === before + 1);
@@ -194,7 +197,7 @@ async function run() {
 
     // ROWS, in light and dark
     for (const scheme of ['light', 'dark']) {
-      const p1 = await page({ colorScheme: scheme });
+      const p1 = await page({ colorScheme: scheme, viewport: { width: 1400, height: 1800 } });   // tall enough that the sticky header never covers the box in the shot
       const asked = [];
       await p1.route(MOD, (route) => { asked.push(route.request().url()); return mod(QUEUE)(route); });
       await p1.route(SWITCH, answer(SWITCH_ON));   // the normal state: the REAL arm left this board's switch off
@@ -203,10 +206,10 @@ async function run() {
       const R = (id) => r.rows.find((x) => x.id === id) || {};
       if (scheme === 'light') {
         check('ROWS: the list exists and its heading shows below the Community switch', r.found && r.headShown && r.belowSwitch, JSON.stringify(r));
-        check('ROWS: five rows are listed', r.rows.length === 5, JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: six rows are listed', r.rows.length === 6, JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: the list asks for held and stopped rows separately, each at the route\'s full page (limit=200)',
           asked.length >= 2 && asked.every((u) => /[?&]limit=200\b/.test(u)) && asked.some((u) => /status=held\b/.test(u)) && asked.some((u) => /status=quarantined\b/.test(u)), JSON.stringify(asked));
-        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","c3","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
+        check('ROWS: releasable rows come first, the stopped one after them', JSON.stringify(r.rows.map((x) => x.id)) === '["p1","c1","c2","c3","c4","p2"]', JSON.stringify(r.rows.map((x) => x.id)));
         check('ROWS: with the switch on there is no switch-off note', r.offNote === false);
         check('ROWS: a stopped row keeps its words hidden until asked (it may hold a key)', R('p2').bodyShown === false && R('p2').reveal === true && R('p1').bodyShown === true, JSON.stringify(r.rows.map((x) => [x.bodyShown, x.reveal])));
         const leak = await p1.evaluate(() => {
@@ -218,10 +221,12 @@ async function run() {
           leak.title === 'A post by Nova' && !/lead@example/.test(leak.visible) && !/lead@example|team lead/.test(leak.labels), JSON.stringify(leak));
         check('ROWS: a comment under a post that is still waiting has no Release and says to release the post first',
           R('c3').release === false && R('c3').discard === true && /release the post first, then this comment/.test(R('c3').text), R('c3').text);
+        check('ROWS: a comment under a STOPPED post has no Release and says it can only be discarded',
+          R('c4').release === false && R('c4').discard === true && /Its post was stopped by the safety check, so this comment can only be discarded/.test(R('c4').text), R('c4').text);
         check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));
-        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["c3",false],["p2",false]]', JSON.stringify(r.rows));
+        check('ROWS: Release shows on the held rows and not on the stopped one', JSON.stringify(r.rows.map((x) => [x.id, x.release])) === '[["p1",true],["c1",true],["c2",true],["c3",false],["c4",false],["p2",false]]', JSON.stringify(r.rows));
         check('ROWS: every row can be discarded', r.rows.every((x) => x.discard), JSON.stringify(r.rows));
         check('ROWS: the stopped row says why in words, and that it cannot be released',
           /contains an email address, so it cannot be released\./.test(R('p2').why) && !/email address \(PII\)/.test(R('p2').text), R('p2').why);
@@ -249,16 +254,16 @@ async function run() {
     await p2.route(DISCARD, (route) => { sent.push(route.request().postData()); return answer({ discarded: { id: 'p1' } })(route); });
     await openAutomation(p2);
     await p2.click('li[data-id="p1"] .community-held-start');
-    await p2.waitForTimeout(200);
+    await p2.waitForSelector('li[data-id="p1"] .community-held-ask', { timeout: 5000 }).catch(() => {});
     const k = await readList(p2);
     check('DISCARD: Discard asks inside the row, and Keep it takes focus', k.rows[0].ask === true && /community-held-keep/.test(k.focus), JSON.stringify(k));
     await p2.click('li[data-id="p1"] .community-held-keep');
-    await p2.waitForTimeout(200);
+    await p2.waitForSelector('li[data-id="p1"] .community-held-ask', { state: 'detached', timeout: 5000 }).catch(() => {});
     const kp = await readList(p2);
     check('DISCARD: Keep it closes the ask, sends nothing and puts focus back on Discard', kp.rows[0].ask === false && /community-held-start/.test(kp.focus) && sent.length === 0, JSON.stringify([kp, sent]));
     await p2.click('li[data-id="p1"] .community-held-start');
     await p2.click('li[data-id="p1"] .community-held-discard');
-    await p2.waitForTimeout(400);
+    await p2.waitForFunction(() => !document.querySelector('li[data-id="p1"] .community-held-ask'), null, { timeout: 5000 }).catch(() => {});
     check('DISCARD: Discard it POSTs exactly {id}', sent.length === 1 && sent[0] === JSON.stringify({ id: 'p1' }), JSON.stringify(sent));
     await p2.close();
 
@@ -268,7 +273,7 @@ async function run() {
     await p3.route(RELEASE, answer({ error: 'only a held post can be released' }, 400));
     await openAutomation(p3);
     await p3.click('li[data-id="p1"] .community-held-release');
-    await p3.waitForTimeout(400);
+    await p3.waitForFunction(() => { const n = document.querySelector('li[data-id="p1"] .community-held-note'); return n && !n.hidden && n.textContent !== 'Releasing…'; }, null, { timeout: 5000 }).catch(() => {});
     const f = await p3.evaluate(() => {
       const li = document.querySelector('li[data-id="p1"]');
       const note = li && li.querySelector('.community-held-note');

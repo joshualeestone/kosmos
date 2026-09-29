@@ -8073,7 +8073,7 @@ svg { display: block; }
    "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
    that label out (web.tasks-cap-1193), and Josh's "View All" means a door to another screen,
    which this is not. The buttons sit together. */
-.community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .community-held-row .community-held-body.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .community-held-acts { display: flex; gap: 8px; }
 .community-held-reveal { display: block; margin-top: 4px; }
@@ -28813,7 +28813,7 @@ let COMMUNITY_HELD_EPOCH = 0;
    pins the two equal: below it, the "there may be more" line could never show). */
 const COMMUNITY_HELD_MAX = 200;
 /* Read all shows when the text may run past the four lines .community-held-body clamps it to
-   (-webkit-line-clamp: 4); 240 characters is about four lines at the Settings column's width. */
+   (set from COMMUNITY_HELD_CLAMP_LINES below); 240 characters is about four lines at the Settings column's width. */
 const COMMUNITY_HELD_CLAMP_LINES = 4;
 const COMMUNITY_HELD_READ_ALL_CHARS = 240;
 /* How much of a comment names its buttons for a screen reader: enough to tell two apart. */
@@ -28836,7 +28836,10 @@ function communityHeldPaint(rows, full) {
     const which = full.held && full.stopped ? 'waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped' : full.held ? 'waiting' : 'stopped';
     empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' ' + which + ' are shown. There may be more; they show here as you release or discard these.';
   }
+  /* Posts still waiting, and posts stopped (which can only be discarded): a comment under either would be
+     published under a post nobody can see. */
   const heldPosts = new Set(rows.filter((r) => r.status === 'held' && !communityHeldIsComment(r)).map((r) => r.id));
+  const stoppedPosts = new Set(rows.filter((r) => r.status === 'quarantined' && !communityHeldIsComment(r)).map((r) => r.id));
   rows.forEach((r, at) => {
     const stopped = r.status === 'quarantined';
     const isComment = communityHeldIsComment(r);
@@ -28850,6 +28853,7 @@ function communityHeldPaint(rows, full) {
     /* A comment under a post that is itself still waiting: releasing it now changes nothing anyone can see
        (a comment shows only under a published post), so Release is not offered until the post is released. */
     const underHeld = isComment && !stopped && r.postId && heldPosts.has(r.postId);
+    const underStopped = isComment && !stopped && r.postId && stoppedPosts.has(r.postId);
     const li = document.createElement('li');
     li.className = 'community-mine-row community-held-row';
     li.dataset.id = r.id;
@@ -28858,6 +28862,7 @@ function communityHeldPaint(rows, full) {
     title.textContent = name;
     const body = document.createElement('p');
     body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);   // the one source of the clamp; .open ends it by leaving -webkit-box
     body.textContent = (stopped && !isComment && typeof r.topic === 'string' && r.topic ? r.topic + '\n' : '')
       + (typeof r.body === 'string' ? r.body : '');
     /* A stopped row is stored exactly as the agent wrote it, and what stopped it may be a key or a
@@ -28866,10 +28871,11 @@ function communityHeldPaint(rows, full) {
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
-    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : underStopped ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* The send sweep sends posts only, so a released comment is published on this board and
          goes no further yet. The row must not promise the community. */
-      + (underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+      + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
+        : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
@@ -28879,6 +28885,8 @@ function communityHeldPaint(rows, full) {
     if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
       const a = document.createElement('a');
       a.className = 'community-held-post';
+      /* /post/<id> is the community site's own post page (kosmos-community web/components/PostCard.tsx links
+         '/post/' + post.id), read from that repo on 2026-09-29; this repo cannot import it to pin it. */
       a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
@@ -28900,7 +28908,7 @@ function communityHeldPaint(rows, full) {
     li.append(text);
     const acts = document.createElement('div');
     acts.className = 'community-held-acts';
-    if (!stopped && !underHeld) {
+    if (!stopped && !underHeld && !underStopped) {
       const rel = document.createElement('button');
       rel.className = 'btn community-held-release';
       rel.type = 'button';

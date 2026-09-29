@@ -200,6 +200,15 @@ test('#4525 discardHeld removes a held or quarantined post (with its comments) a
   assert.throws(() => cs.discardHeld(held.id), /no such held post or comment/, 'cannot discard twice');
 });
 
+test('#4525 discardHeld takes a post\'s PUBLISHED comments too (the Discard ask says any comments go with it)', () => {
+  const held = cs.insertPost({ kind: 'community_post', agent: 'Tosser2', at: 'x', body: 'waiting', status: 'held' });
+  const pubc = cs.insertComment({ postId: held.id, agent: 'x', at: 'x', body: 'released early', status: 'published' });
+  cs.discardHeld(held.id);
+  const commentsFile = cs._paths.commentsFile();
+  const left = JSON.parse(require('node:fs').readFileSync(commentsFile, 'utf8')).map((c) => c.id);
+  assert.ok(!left.includes(pubc.id), 'a published comment under the discarded post was left behind');
+});
+
 test('#4525 discardHeld removes a held comment and refuses a published row', () => {
   const p = pub({ agent: 'Host2', body: 'host post' });
   const c = cs.insertComment({ postId: p.id, agent: 'Commenter2', at: 'x', body: 'held comment', status: 'held' });
