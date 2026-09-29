@@ -1063,7 +1063,7 @@ function hookRateProblem(id, projectId, now = Date.now()) {
   for (const [k, v] of HOOK_RATE.byProject) if (k !== projectId && !v.some((t) => now - t < 3600000)) HOOK_RATE.byProject.delete(k);
   const lifts = (list, span) => Math.max(1, Math.ceil((Math.min(...list) + span - now) / 1000));
   if (recent.length >= HOOK_RATE.perMinute) return { because: 'this webhook was called too often; try again in a minute', retryAfterSecs: lifts(recent, 60000) };
-  if (hour.length >= HOOK_RATE.perProjectHour) return { because: 'this project has had ' + HOOK_RATE.perProjectHour + ' tasks from webhooks in the last hour; try again later', retryAfterSecs: lifts(hour, 3600000) };
+  if (hour.length >= HOOK_RATE.perProjectHour) return { because: 'this project has had ' + HOOK_RATE.perProjectHour + ' calls from its webhooks in the last hour; try again later', retryAfterSecs: lifts(hour, 3600000) };
   recent.push(now);
   hour.push(now);
   return null;
@@ -15947,8 +15947,8 @@ const server = http.createServer((req, res) => {
         sendJson(res, 409, { error: 'this project is archived, so its webhooks are paused; unarchive it in Kosmos to take calls again' });
         return;
       }
-      const waiting = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
-      if (waiting >= HOOK_RATE.openMax) {
+      const openFromHooks = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
+      if (openFromHooks >= HOOK_RATE.openMax) {
         res.setHeader('retry-after', '3600');
         sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
         return;

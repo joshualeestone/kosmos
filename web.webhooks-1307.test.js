@@ -138,3 +138,29 @@ test('pjsHooksOpen: a read that lacks the webhook whose link is showing keeps th
   await pg.pjsHooksOpen({ id: 'p' });
   assert.deepEqual(pg.PJS_HOOKS.list.map((h) => h.id), [older.id], 'control: with no link showing, the read is taken as it is');
 });
+
+test('pjsHooksOpen: a good read clears the last read error, and only that', async () => {
+  const box = stubBox();
+  const msg = { textContent: '' };
+  const document = { getElementById: (id) => (id === 'pjs-hooks' ? box : id === 'pjs-hooks-msg' ? msg : null), activeElement: null };
+  const CSS = { escape: (s) => String(s) };
+  let ok = false;
+  const fetch = async () => (ok ? { ok: true, json: async () => ({ webhooks: [] }) } : { ok: false, json: async () => ({ error: 'the webhooks store is busy' }) });
+  // eslint-disable-next-line no-new-func
+  const pg = new Function('document', 'CSS', 'fetch',
+    fnSource('esc') + fnSource('agoWords') + fnSource('asSentence') + fnSource('pjsHooksWhen')
+    + fnSource('pjsHooksPaint') + fnSource('pjsHooksOpen')
+    + 'const PJS_HOOKS = { projectId: "p", list: [], reveal: null, confirm: null, gen: 0, readErr: null };'
+    + 'return { pjsHooksOpen, PJS_HOOKS };')(document, CSS, fetch);
+  await pg.pjsHooksOpen({ id: 'p' });
+  assert.match(msg.textContent, /busy/i, 'CONTROL: the failed read says so');
+  ok = true;
+  await pg.pjsHooksOpen({ id: 'p' });
+  assert.equal(msg.textContent, '', 'the good read takes the stale error away');
+  ok = false;
+  await pg.pjsHooksOpen({ id: 'p' });
+  msg.textContent = 'Deleted Webhook 1.'; // an action's own line, written after the failed read
+  ok = true;
+  await pg.pjsHooksOpen({ id: 'p' });
+  assert.equal(msg.textContent, 'Deleted Webhook 1.', 'a line an action wrote is not wiped by a read');
+});

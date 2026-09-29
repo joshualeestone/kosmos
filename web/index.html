@@ -50963,14 +50963,14 @@ function paintProjectSettings(p) {
 function pjsHooksAfter(projectId) {
   if (PJS_HOOKS.projectId === projectId) pjsHooksOpen({ id: projectId });
 }
-const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
+const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0, readErr: null };
 /* Every webhooks call writes its URL out in full at the call, not through a helper: web.api-routes-3957
    can only check a route the page names literally. */
 async function pjsHooksOpen(p) {
   if (PJS_HOOKS.projectId !== p.id) {
     /* Another project: nothing of the last one may show, even while this read is in flight or if
        it fails (its rows would rename and delete against this project's address). */
-    PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; PJS_HOOKS.list = [];
+    PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; PJS_HOOKS.list = []; PJS_HOOKS.readErr = null;
     document.getElementById('pjs-hooks-msg').textContent = '';
     PJS_HOOKS.projectId = p.id;
     pjsHooksPaint();
@@ -50984,8 +50984,10 @@ async function pjsHooksOpen(p) {
     if (!r.ok || !Array.isArray(body.webhooks)) {
       /* The list stays as it was, like a network failure below: clearing it would drop the row
          whose link is showing. */
-      msg.textContent = asSentence(body.error || 'we could not read this project’s webhooks just now');
+      msg.textContent = PJS_HOOKS.readErr = asSentence(body.error || 'we could not read this project’s webhooks just now');
     } else {
+      if (PJS_HOOKS.readErr && msg.textContent === PJS_HOOKS.readErr) msg.textContent = '';
+      PJS_HOOKS.readErr = null;
       /* The row whose link is showing is never dropped by a read: a read the server answered
          before that webhook was written would otherwise take the only copy of its link with it. */
       const list = body.webhooks.slice();
@@ -50995,7 +50997,7 @@ async function pjsHooksOpen(p) {
     }
   } catch {
     if (mine !== PJS_HOOKS.gen) return;
-    msg.textContent = 'We could not reach Kosmos to read this project’s webhooks.';
+    msg.textContent = PJS_HOOKS.readErr = 'We could not reach Kosmos to read this project’s webhooks.';
   }
   pjsHooksPaint();
 }
