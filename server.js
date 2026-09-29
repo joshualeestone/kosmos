@@ -764,11 +764,11 @@ function boardTokenRefusal(req, tail) {
   const browser = Boolean(req && req.headers && req.headers['sec-fetch-site']);
   if (sent || browser) return account;
   /* Said as "in the request's headers": an agent token in a JSON body is honoured by some handlers but read after
-     this gate, so the gate cannot claim none came. And the advice holds for Kosmos's own commands too: they send the
-     token only when they can read this board's token file, so "use kosmos" is not offered as the whole answer. */
-  return 'no board token or agent token came in this request\u2019s headers, so it was refused (' + account + '). '
-    + 'Kosmos\u2019s own commands send one when they can read this board\u2019s token; '
-    + 'if you are calling the board directly, use a `kosmos` command instead';
+     this gate, so the gate cannot claim none came. Kept short and without its own "refused", because both CLIs
+     print it inside "Kosmos refused that request: ...". The advice holds for Kosmos's own commands too: they
+     send the token only when they can read this board's token file, so that condition is said. */
+  return 'no board token or agent token came in this request\u2019s headers, and ' + account
+    + '. A `kosmos` command sends the token for you when it can read this board\u2019s token file';
 }
 /* #3055: the board-token check for the BROWSER dispatch gate. The board token
    proves SAME-ACCOUNT ownership (#1946), and every world's `board.token` is a

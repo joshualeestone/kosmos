@@ -26,7 +26,7 @@ const { start, server, boardAuthState } = require('./server');
 
 const BOARD = 'BOARDTOKEN_test_4602_0123456789abcdef';
 const ACCOUNT = 'this board belongs to the account that started it; open it with `kosmos open`';
-const MISSING = /^no board token or agent token came in this request\u2019s headers, so it was refused \(/;
+const MISSING = /^no board token or agent token came in this request\u2019s headers, and this board belongs/;
 let base;
 
 test.before(async () => {
@@ -52,7 +52,8 @@ test('#4602 no credential at all: told a token is missing and how one is sent, a
     assert.equal(r.code, 403, m + ' ' + p);
     assert.match(r.error, MISSING, m + ' ' + p + ': ' + r.error);
     assert.ok(r.error.includes(ACCOUNT), 'the account clause is kept word for word: ' + r.error);
-    assert.match(r.error, /if you are calling the board directly, use a `kosmos` command instead$/);
+    assert.match(r.error, /A `kosmos` command sends the token for you when it can read this board\u2019s token file$/);
+    assert.ok(!/refused/.test(r.error), 'the CLIs already say "refused"; the error must not say it again: ' + r.error);
   }
 });
 
@@ -65,6 +66,8 @@ test('#4602 a token that was sent and does not match: the account sentence exact
   assert.deepEqual(staleCookie, { code: 403, error: ACCOUNT }, 'a stale cookie from another account counts as sent');
   const cookieNoBrowser = await call('GET', '/api/projects', { cookie: 'kosmos_board=another-accounts-token' });
   assert.deepEqual(cookieNoBrowser, { code: 403, error: ACCOUNT }, 'a cookie counts as sent without the browser header too');
+  const emptyHeader = await call('GET', '/api/projects', { 'x-kosmos-board-token': '' });
+  assert.match(emptyHeader.error, MISSING, 'an EMPTY board-token header is nothing sent, as the gate treats it');
   const queryToken = await call('GET', '/api/projects?token=wrong');
   assert.deepEqual(queryToken, { code: 403, error: ACCOUNT }, 'a token in the query counts as sent');
 });
