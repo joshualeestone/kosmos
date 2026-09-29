@@ -107,3 +107,15 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
 - (N, left) the give-up line's "waiting Ns" is the whole wait (can exceed the bound, next to "no waiter ahead left for
   Ns"); the wording arm runs with nobody ahead (it pins the retired signal, not the count); the refusal walks every
   marker twice a poll.
+
+## Review iteration 7 (blind, opus)
+0 BLOCKER, 1 WARNING, taken:
+- (W) nothing pinned that churn BEHIND a waiter never restarts its bound; only the shared helper protected it. New arm:
+  one waiter ahead that never leaves, one with a later time whose marker comes and goes each call: gives up at call 3.
+  Control: counting every suitewait marker instead reds it (it restarted 4870 times and started anyway).
+- (N, taken) a dead run's marker under this run's (recycled) pid is cleared on entry, so the first pass cannot read this
+  run as already queued; the refusal reads the first waiter ahead with a read, not head -1 (no "Broken pipe" in its
+  message); the note is reflowed and no longer says every false restart costs a harness (a failed ps does not).
+- (N, taken) the re-mark arm's comment names calls 2, 3 and 4, and drops a redundant condition.
+- (N, left) the front waiter's give-up line ("no waiter ahead left") is true but empty for it; the line above names the
+  real blocker.
