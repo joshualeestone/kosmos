@@ -45,7 +45,8 @@ const parse = (s) => {
      render-reload-toast reads it). Unread, every control on such a container measured null and failed
      as "no separation" without a number, so the check could neither pass nor catch a real defect there. */
   const c = String(s).match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)/);
-  return c ? { r: c[1] * 255, g: c[2] * 255, b: c[3] * 255, a: c[4] === undefined ? 1 : +c[4] } : null;
+  const ch = (v) => Math.min(1, Math.max(0, +v)) * 255;   // an out-of-gamut component is clamped, never 306
+  return c ? { r: ch(c[1]), g: ch(c[2]), b: ch(c[3]), a: c[4] === undefined ? 1 : +c[4] } : null;
 };
 const over = (f, b) => ({ r: f.r * f.a + b.r * (1 - f.a), g: f.g * f.a + b.g * (1 - f.a), b: f.b * f.a + b.b * (1 - f.a), a: 1 });
 const L = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
@@ -79,6 +80,10 @@ function selfCheck() {
     ['rgba(0,0,0,0)', 'rgb(255,255,255)', 1],      // transparent == the ground
     ['rgba(0,0,0,1)', 'rgb(255,255,255)', 21],     // opaque == solid
     ['rgba(20,22,26,0.26)', 'rgb(255,255,255)', 1.78],
+    // #4433 review: the color(srgb) form (a color-mix() background) is validated too, channels 0 to 1.
+    ['color(srgb 0 0 0)', 'color(srgb 1 1 1)', 21],
+    ['color(srgb 0.0784 0.0863 0.102 / 0.26)', 'rgb(255,255,255)', 1.78],
+    ['color(srgb 1.5 1 1)', 'rgb(255,255,255)', 1],   // clamped: an out-of-gamut white is white
   ];
   // ⚠️ AND THE TRANSPARENT-BACKGROUND CASE, which the new button path actually
   // feeds and which the list above never exercised: a check validated only on

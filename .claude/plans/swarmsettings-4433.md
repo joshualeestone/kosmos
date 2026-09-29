@@ -110,3 +110,16 @@ That removing Stop now from the phone chat header costs nothing important. A per
 - **NIT** The limit had no unit. It now reads "6,000,000 tokens" (the check's four token-mode pins updated).
 - **NIT** No phone shot of the view itself. Added: swarm-settings-4433-phone-view-dark.png, where the cards stack.
 - swarm-ui-3564: 115 pass. Web tests 113/113, section test 1/1.
+
+## After the PR: CI's browser-checks went red on render-fields (2026-09-28 22:30)
+- 8 FAILs, in both engines and both themes: d-swarm-stop and d-swarm-keep "claim a boundary that does not separate" them from #d-swarm-confirm, with "fill null". The .swconfirm box is a color-mix() background, which computes to `color(srgb ...)`, and render-fields' parser read only rgb()/rgba(). Every control on it measured null. So this was the instrument, not the design, but it also meant the check could not catch a real defect there.
+- Fixed in render-fields.js: parse reads color(srgb r g b [/ a]), as render-reload-toast already does. Local run on the frozen commit: all page checks passed, 0 buttons with no separation.
+- ⚠️ My first local run said nothing. The driver freezes the COMMITTED HEAD, and my fix was uncommitted, so it reproduced CI exactly. It was re-run after a local commit, with the freeze path checked.
+- Mutant: d-swarm-keep painted the box's own colour with no border. It fails with a real number ("fill 1:1") in each engine and theme. Restored by reset to the fix commit; the tree was checked clean.
+- Design, recorded: d-swarm-keep sits under 3:1 (one more in the check's "under WCAG 3:1" count, which it reports and does not fail). Kept: the check's 1.1 bar asks for any separation, and the under-3:1 set is the product-wide question already recorded for Josh.
+
+## Review of the parser fix (opus, blind): 0 BLOCKERs, 3 WARNINGs, 1 NIT
+- **WARNING** selfCheck did not cover the new form. Fixed: three color(srgb) pairs (black/white 21, a 0.26 alpha 1.78, an out-of-gamut white 1). Mutant dropping the *255 scaling: the self-check fails.
+- **WARNING** A translucent box is composited over itself, so it measures as opaque. KEPT: it predates this change (rgba boxes too), and no button sits on a translucent color-mix box today (.tsk-badge and code.t hold none). REOPEN CONDITION: a button on a `color-mix(..., transparent)` container makes this number wrong; fix ground() to walk to the next opaque ancestor first.
+- **WARNING** Fields and dir() treated null as skip, so color(srgb) fields now join those checks. Intended; said in the PR. The local run passed with them in.
+- **NIT** Components over 1 were not clamped. Fixed. Other colour spaces (display-p3, oklch, none) still read null. KEPT: nothing in index.html emits them.
