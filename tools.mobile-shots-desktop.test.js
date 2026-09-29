@@ -11,7 +11,7 @@ const SCRIPT = path.join(__dirname, 'docs', 'browser-checks', 'mobile-shots.js')
 
 /* MSHOTS_PLAN_ONLY=1 makes the tool stop right after deciding its plan, whatever is installed: no browser, no board. */
 function run(args, env = {}) {
-  return spawnSync(process.execPath, [SCRIPT, ...args], { env: { ...process.env, MSHOTS_PLAN_ONLY: '1', ...env }, encoding: 'utf8', timeout: 60000 });
+  return spawnSync(process.execPath, [SCRIPT, ...args], { env: { ...process.env, MSHOTS_COVER_CONTROL: '', MSHOTS_LEAK_CONTROL: '', MSHOTS_PLAN_ONLY: '1', ...env }, encoding: 'utf8', timeout: 60000 });
 }
 
 test('every requested screen phone-only at the desktop size: exit 2, before a browser starts', () => {
@@ -35,9 +35,9 @@ test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser s
   assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be cmnotice or overlay, not cmnotic/);
 });
 
-for (const name of ['cmnotice', 'overlay']) {
-  test(`control: MSHOTS_COVER_CONTROL=${name} is accepted and the plan is made`, () => {
-    const r = run(['--sizes', 'se', '--screens', 'home', '--themes', 'light', '--engines', 'chromium'], { MSHOTS_COVER_CONTROL: name });
+for (const [name, screen] of [['cmnotice', 'home'], ['overlay', 'allow-card']]) {
+  test(`control: MSHOTS_COVER_CONTROL=${name} on ${screen} is accepted and the plan is made`, () => {
+    const r = run(['--sizes', 'se', '--screens', screen, '--themes', 'light', '--engines', 'chromium'], { MSHOTS_COVER_CONTROL: name });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /planned 1 screen\(s\)/);
   });
@@ -48,4 +48,10 @@ for (const name of ['cmnotice', 'overlay']) {
 test('the Community notice is still built with id="cmnotice", the id the COVERED check reads', () => {
   const html = require('node:fs').readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(html, /const CN_HTML = '<div[^'>]* id="cmnotice"/);
+});
+
+test('MSHOTS_COVER_CONTROL=overlay without the allow-card screen is refused: it would plant nothing and pass', () => {
+  const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'overlay' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL=overlay needs the allow-card screen/);
 });

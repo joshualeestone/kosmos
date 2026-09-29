@@ -943,7 +943,8 @@ for _arm in account:'the throwaway board lists' page:'this screen shows real dat
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
-# kosmos#4524: the two cover checks' controls, control:screen:message. Each run MUST fail its shot
+# kosmos#4524: the two cover checks' controls, control:screen:message (split on the first two colons
+# only, so a message may contain colons). Each run MUST fail its shot
 # with exit 2 AND its own message; a clean exit means that check did not fire.
 #   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).

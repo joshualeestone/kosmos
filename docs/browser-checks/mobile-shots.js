@@ -726,6 +726,10 @@ async function run() {
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
+  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
+  if (COVER_CONTROL === 'overlay' && !screens.some((s) => s.name === 'allow-card')) {
+    throw new Error('MSHOTS_COVER_CONTROL=overlay needs the allow-card screen');
+  }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
