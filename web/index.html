@@ -1917,6 +1917,14 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 button.worldsw-row { border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
 button.worldsw-row:hover { background: var(--k-sunk); }
 button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* kosmos#4648: another computer is a link row (it opens that computer's address in the
+   browser), styled as the Kosmos rows are; the state word sits at the row's end. */
+a.worldsw-row { text-decoration: none; cursor: pointer; }
+a.worldsw-row:hover { background: var(--k-sunk); }
+a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
+.worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -10535,6 +10543,15 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
+             Filled by computersFetch/computersRender when the menu opens; hidden unless the
+             board is signed in to Kosmos+ and the account has another computer. Each other
+             computer is a link that opens its own address in the person's browser, so this
+             window stays this computer and coming back is one click. -->
+        <div class="worldsw-computers" id="worldsw-computers" hidden>
+          <div class="worldsw-sec" id="worldsw-computers-h">Your computers</div>
+          <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
+        </div>
       </div>
     </div>
     <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
@@ -25724,6 +25741,64 @@ function worldswOpen() {
   if (!menu || !btn || !menu.hidden) return;
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  computersFetch().catch(() => {});   // kosmos#4648: the other computers, read fresh on each open
+}
+/* kosmos#4648 (weekend goal #4647): "Your computers" in this menu. The board reads the
+   computers on its Kosmos+ account through the tunnel and measures which are online
+   (engine/account-computers.js); /api/remote/computers answers { ok: false } when there is
+   no list, and the section stays hidden. Rows are built from textContent, never markup.
+   An address is used only if it is a plain DNS name, so nothing in the answer can become a
+   different URL. The monotonic counter keeps a slow read from an EARLIER open from
+   repainting over a newer one. */
+const COMPUTER_ADDRESS_RE = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+let COMPUTERS_GEN = 0;
+async function computersFetch() {
+  const gen = ++COMPUTERS_GEN;
+  let data = null;
+  try {
+    const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+    if (res.ok) data = await res.json();
+  } catch { data = null; }
+  if (gen !== COMPUTERS_GEN) return;
+  computersRender(data);
+}
+function computersRender(data) {
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (!box || !list) return;
+  const rows = (data && data.ok === true && Array.isArray(data.computers))
+    ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && COMPUTER_ADDRESS_RE.test(c.address))
+    : [];
+  // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  list.textContent = '';
+  for (const c of rows) {
+    const row = document.createElement(c.this === true ? 'div' : 'a');
+    row.className = 'worldsw-row';
+    const check = document.createElement('span');
+    check.className = 'worldsw-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = '✓';
+    const nm = document.createElement('span');
+    nm.className = 'worldsw-rowname';
+    nm.textContent = c.name;
+    const st = document.createElement('span');
+    st.className = 'worldsw-state';
+    if (c.this === true) {
+      row.setAttribute('aria-current', 'true');
+      st.textContent = 'This computer';
+    } else {
+      const state = c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected');
+      st.textContent = state;
+      row.href = 'https://' + c.address + '/';
+      row.target = '_blank';
+      row.rel = 'noopener noreferrer';
+      row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+    }
+    row.append(check, nm, st);
+    list.appendChild(row);
+  }
+  box.hidden = false;
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
