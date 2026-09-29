@@ -221,3 +221,14 @@ the second ask's brief unmark is a known, bounded false restart (documented, cap
 _kosmos_pid_started_local could say it is deliberately unpinned (it is the older lib's form; follow-up); the ceiling
 counts one extra waiter when one marked in the same second behind (the safe side).
 Next: the full validation (tools/run-tests.sh) on the final head, through the queue, then the proof.
+
+## After convergence: run-tests.sh stops handing the queue overrides to its tests (2026-09-29 13:06 CDT, suite deadlock)
+Splinter's unstick plan had this branch's full validation run with KOSMOS_TESTS_IGNORE_SUITE=1. Baron found the
+override is INHERITED (an env prefix is inherited exactly like an export) by the #4498 queue tests' own run-tests.sh,
+which then skip the queue and fail ("a plain run did not queue"), so no validation run with the override could pass.
+run-tests.sh now unsets KOSMOS_TESTS_IGNORE_SUITE and KOSMOS_TESTS_IGNORE_HARNESS once this run's wait has read them.
+Arm: a copy of run-tests.sh (one root test file so the coverage gate passes) runs with both set and a stand-in node
+first on PATH, which reports what it inherited. Control: without the unset it reports IGNORE_SEEN=1 HARNESS_SEEN=1.
+The first attempt at the arm never reached node (the stray-file copy stops at the coverage gate; with no test files at
+all bash 3.2's set -u calls the empty list unbound), so a green there would have meant nothing. One more blind round
+follows because this is code after convergence.
