@@ -5,9 +5,10 @@
  * such line, 15: 3, measured by review it19 of #4434). orgPlace now puts the second lane in the first lane's gaps
  * and orgStep keeps a hub line off nearer faces as the chart settles.
  *
- * Up to two full lanes (24 agents) no line need pass a face, and none does: at first paint and at rest. Beyond
- * that it cannot be avoided with every line from one hub (each gap of the first lane has room for one line), so
- * those sizes are not asserted clean here; the plan carries the measurement.
+ * Up to two full lanes (24 agents) no line need pass a face, and none does on a fresh paint at full scale or
+ * squeezed to 0.9, at first paint and at rest. An agent joining a settled chart (the others keep their spots)
+ * leaves at most 2 (measured). Squeezed harder for a narrow phone (0.7), and past 24 agents, near passes cannot
+ * all be avoided with every line from one hub; the plan carries those measurements.
  */
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
@@ -51,20 +52,27 @@ const ORG_PAD_MIN = pageConst('ORG_PAD_MIN');
 
 /* A flat fleet of n from the real card producer (fixture-discipline), laid out by the page's own orgTreeOf. */
 let FLEET = 0;
-function flatFleet(n) {
+function flatCards(n) {
   FLEET += 1;
   const board = fleet.install(Array.from({ length: n }, (_, i) => fleet.agent('f' + FLEET + '_' + i, { state: 'idle' })), { strict: false });
-  try { return place.orgPlace(place.orgTreeOf(board.agents.slice())).placed; } finally { board.restore(); }
+  try { return board.agents.slice(); } finally { board.restore(); }
 }
-/* The physics as a flat chart settles: nodes on their placed spot, the canvas sized and centred as paintOrg does. */
-function settle(placed) {
+const placeOf = (cards) => place.orgPlace(place.orgTreeOf(cards)).placed;
+const flatFleet = (n) => placeOf(flatCards(n));
+/* The physics as a flat chart settles, around a hub at the canvas centre (a flat chart's drawing is near
+   symmetric, so this matches paintOrg's bounding-box centring). `k` is orgFit's squeeze of every radius (a
+   narrow view); `kept` is name -> position relative to the hub, as ORG_POS keeps an agent's spot on a repaint. */
+function settle(placed, k = 1, kept = null) {
   let maxR = 0;
   for (const s of placed.values()) maxR = Math.max(maxR, s.r);
-  const size = Math.round((maxR + ORG_PAD) * 2);
+  const size = k < 1 ? Math.round((maxR * k + ORG_PAD_MIN) * 2) : Math.round((maxR + ORG_PAD) * 2);
   const cx = size / 2; const cy = size / 2;
   const hub = { x: cx, y: cy, vx: 0, vy: 0, fixed: false, size: 52, home: { x: cx, y: cy } };
-  const bodies = [...placed].map(([key, s]) => ({ key, x: cx + Math.cos(s.ang) * s.r, y: cy + Math.sin(s.ang) * s.r,
-    vx: 0, vy: 0, ring: s.r, parentKey: null, parent: null, fixed: false, home: null, rest: 0 }));
+  const bodies = [...placed].map(([key, s]) => {
+    const w = kept && kept.get(key);
+    return { key, x: w ? cx + w.x : cx + Math.cos(s.ang) * s.r * k, y: w ? cy + w.y : cy + Math.sin(s.ang) * s.r * k,
+      vx: 0, vy: 0, ring: s.r * k, parentKey: null, parent: null, fixed: false, home: null, rest: 0 };
+  });
   const box = { lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN };
   let a = 1;
   for (let i = 0; i < sim.ORG_SETTLE_STEPS; i += 1) {
@@ -119,4 +127,26 @@ test('#4502: the second lane sits in the first lane\'s gaps (midway between two 
 
 test('#4502: the physics keeps lines a face plus 4px off (ORG_SIM.clearReach is ORG_FACE_R + 4)', () => {
   assert.equal(sim.ORG_SIM.clearReach, FACE + 4, 'the clearance and the face radius drifted apart');
+});
+
+test('#4502: an agent joining a settled flat chart (the others keep their spots) leaves at most 2 near passes, 6 to 24', () => {
+  let total = 0; const where = [];
+  for (let n = 6; n <= 24; n += 1) {
+    const cards = flatCards(n);
+    const prev = settle(placeOf(cards.slice(0, n - 1)));
+    const kept = new Map(prev.bodies.map((b) => [b.key, { x: b.x - prev.hub.x, y: b.y - prev.hub.y }]));
+    const rest = settle(placeOf(cards), 1, kept);
+    const bad = nearPasses(rest.bodies, rest.hub).length;
+    total += bad;
+    if (bad) where.push(n + ':' + bad);
+  }
+  // Measured 2 (at 23 agents). Before this change, up to 9 per size; with the gentler 0.12 push, 12 in all.
+  assert.ok(total <= 2, 'growth leaves ' + total + ' near passes at rest: ' + where.join(' '));
+});
+
+test('#4502: a chart squeezed to 0.9 for a narrower view is still clean at rest, 5 to 24', () => {
+  for (let n = 5; n <= 24; n += 1) {
+    const rest = settle(flatFleet(n), 0.9);
+    assert.deepEqual(nearPasses(rest.bodies, rest.hub), [], n + ' agents at 0.9: a line runs through a face at rest');
+  }
 });

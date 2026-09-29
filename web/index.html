@@ -29139,7 +29139,7 @@ const ORG_SIM = {
   maxForce: 6,
   minGap: 52,      // two 44px discs plus breathing room
   home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
-  clear: 0.12,     // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
+  clear: 0.6,      // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
   clearReach: 26,  // #4502: how near a line may run to a face before that push starts: ORG_FACE_R + 4 (pinned by a test)
   rest: 0,         // set from ORG_STEP at use
 };
@@ -29412,11 +29412,11 @@ function orgPlace(nodes) {
        needs more than that is split across two distances. */
     const fit = Math.max(4, Math.floor((2 * Math.PI * base) / ORG_MIN_ARC));
     /* #4502: every line runs from the hub, so an outer agent at the angle of an inner one has its line drawn
-       straight through that face and reads as reporting to it. Each lane is spread evenly and then turned to
-       the offset that keeps its lines furthest from every inner face: the second lane lands in the first
-       lane's gaps, so up to two full lanes no line passes within a face of another (ORG_FACE_R). Beyond that
-       it cannot be avoided with lines from one hub (each of the first lane's gaps has room for one line), and
-       the turn keeps the near passes to the fewest it can. */
+       straight through that face and reads as reporting to it. The second lane takes the first lane's gap
+       centres (below), so up to two full lanes no line passes within a face of another (ORG_FACE_R). Lanes
+       further out are spread evenly and turned to the offset that keeps their lines furthest from every inner
+       face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
+       room for one line), and the turn keeps the near passes to the fewest it can. */
     const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
     for (let lane = 0; lane < lanes; lane += 1) {
@@ -29424,7 +29424,7 @@ function orgPlace(nodes) {
       const r = base + lane * 58;
       const step = (Math.PI * 2) / members.length;
       let turn = 0;
-      if (lane > 0) {
+      if (lane > 1) {
         /* A line at angle a clears a face at radius q and angle b when their angles differ by more than the
            half-cone asin(face / q). The turn with the most clearance, searched in small steps across one step. */
         const inner = [];
