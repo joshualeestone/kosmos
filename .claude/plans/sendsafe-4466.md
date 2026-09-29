@@ -73,9 +73,23 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   retry path cannot differ); a shared bash helper for the two retry blocks (two short blocks, each with its own
   retryable codes and budget, commented at each site).
 
+## Review round 4 (fable): 3 WARNINGs + 3 NITs fixed
+- W: the window (2 min) equalled a room post's own 120 s budget, and a row is stamped when its send STARTED, so a
+  slow fan-out that finished near its budget was already outside the window when the agent re-ran the command. The
+  window is 5 minutes now; the quiet-since rule, not the window, is what keeps a real second answer apart. Arm pins
+  the window at no less than twice the post budget.
+- W: quiet-since listened only to OTHER voices, so "yes", "wait, hold on", "yes" folded the change of mind. Any later
+  row in the same pair or room, the sender's own included, now breaks the quiet. Arms for message and post, red.
+- W: nothing pinned "a Mac post that TIMES OUT is not asked again". KOSMOS_POST_TIMEOUT_S (digits only) is a test seam
+  for the 120 s budget; the posthang arm asserts one send and exit 3. Red with 28 added to the post retry.
+- NIT: the Windows retry pause reads the injected env (ctx.env), so tests set it to 0; the suite is 2.6 s again.
+- NIT: an in-flight entry older than the window is ignored and dropped (a delivery that never settles cannot hold
+  every identical retry forever).
+- NIT: the CLAUDE.md #4466 row lists the #4580 test arms.
+
 ## Weakest premise
 An agent that MEANS to send the identical text twice within two minutes, to the same place, answering the same
-message, with nobody else speaking in between, gets one copy. After round 3 that is narrow: the realistic case is a
+message, with nothing said in that conversation in between (by anyone, the sender included), within five minutes, gets one copy. After round 3 that is narrow: the realistic case is a
 nudge repeated into a silent room, and the cost of the other error is a room full of copies.
 
 ## Status

@@ -2882,15 +2882,14 @@ test('#4580: the same words answering a DIFFERENT message are two answers, not o
     armSender('leo-discord');
     arm([ok(), ok(), ok(), ok()]);
     const a1 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
-    const a2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q2.id }, board.agents);
-    assert.equal(a2.duplicate, undefined, 'a second answer was folded into the first: ' + JSON.stringify(a2));
-    assert.notEqual(a2.id, a1.id);
-    // CONTROL: the same answer to the SAME message again is folded.
-    armSender('leo-discord');
-    arm([ok(), ok()]);
+    // CONTROL: the same answer to the SAME message, straight after (a retry), is folded.
     const a1again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q1.id }, board.agents);
     assert.equal(a1again.duplicate, true);
     assert.equal(a1again.id, a1.id);
+    // The same words to a DIFFERENT message are a second answer.
+    const a2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes', inReplyTo: q2.id }, board.agents);
+    assert.equal(a2.duplicate, undefined, 'a second answer was folded into the first: ' + JSON.stringify(a2));
+    assert.notEqual(a2.id, a1.id);
   });
 });
 
@@ -3018,4 +3017,29 @@ test('#4580: a retry of a DELIVERED post is folded even if the person asked a qu
     const fresh = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'something new', askWhichRoom: true }, board.agents, MEMBERS);
     assert.equal(fresh.code, 'which_room', JSON.stringify(fresh));
   });
+});
+
+test('#4580: the sender saying something else in between breaks the quiet ("yes", "wait", "yes" is a change of mind)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm(Array.from({ length: 8 }, () => ok()));
+    const y1 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    messages.send({ fromPane: '%7', to: 'mara', text: 'wait, hold on' }, board.agents);
+    const y2 = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    assert.equal(y2.duplicate, undefined, JSON.stringify(y2));
+    assert.notEqual(y2.id, y1.id);
+  });
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm(Array.from({ length: 8 }, () => ok()));
+    const p1 = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'go ahead' }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'actually, wait for the scan' }, board.agents, MEMBERS);
+    const p2 = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'go ahead' }, board.agents, MEMBERS);
+    assert.equal(p2.duplicate, undefined, JSON.stringify(p2));
+    assert.notEqual(p2.id, p1.id);
+  });
+});
+
+test('#4580: the fold window outlasts a room post\'s own 120 s budget (a row is stamped when its send started)', () => {
+  assert.ok(messages.SEND_DEDUP_WINDOW_MS >= 2 * 120 * 1000, 'a slow post that finished near its budget would already be outside the window');
 });

@@ -941,15 +941,26 @@ function filteredText(from, text) {
    sender as a failure (the reply timed out, or was cut, on a busy board), and the sender re-sends: four of
    five model families filled rooms with copies that way. The sender cannot tell a lost send from a slow
    one, so the board does: a send identical to one the SAME sender made to the SAME place in the last
-   SEND_DEDUP_WINDOW_MS is not sent again, and gets the first one's receipt with duplicate: true. Only
+   SEND_DEDUP_WINDOW_MS (with nothing said in between) is not sent again, and gets the first one's receipt with duplicate: true. Only
    agents' sends (a person's post is never folded). The trade: an agent that MEANS to send the same text
    twice inside the window gets one copy. */
-const SEND_DEDUP_WINDOW_MS = 2 * 60 * 1000;
+// Five minutes, comfortably past a room post's own 120 s budget: a row is stamped when its send STARTED, so a slow
+// fan-out that finished at 110 s must still be inside the window when the agent re-runs the command. The quiet-since
+// rule below, not the window, is what keeps a real second answer from being folded.
+const SEND_DEDUP_WINDOW_MS = 5 * 60 * 1000;
 /* The log row is written only when a send FINISHES, and on a busy board the fan-out can outlast the
    sender's timeout, which is exactly when the retry arrives. So a send still in flight is remembered
    too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
    Keyed by sender, place and text; cleared when the first finishes, either way. */
 const IN_FLIGHT_SENDS = new Map();
+// A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
+// not hold every identical retry forever).
+function inFlightTwin(key) {
+  const pending = IN_FLIGHT_SENDS.get(key);
+  if (!pending) return null;
+  if (Date.now() - (pending.startedAt || 0) > SEND_DEDUP_WINDOW_MS) { IN_FLIGHT_SENDS.delete(key); return null; }
+  return pending;
+}
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
 /* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
    (or nobody to deliver to) is placed; anything else is unconfirmed. */
@@ -960,8 +971,9 @@ function aggregateState(outcomes) {
 // Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
 // hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
 /* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
-   the other side spoke. So a match is folded only while the conversation has been QUIET since it: no row from
-   anyone else, in the same pair or room, after the matched one. */
+   the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
+   match is folded only while the conversation has been QUIET since it: no row at all, from anyone, in the same pair
+   or room, after the matched one. */
 function quietSince(log, matched, isOtherVoice) {
   const i = log.lastIndexOf(matched);
   if (i < 0) return true;
@@ -975,6 +987,7 @@ function asDuplicate(result) {
 // The log keeps a send's state but not the words of its "unconfirmed"; a folded twin says what it knows.
 const FOLDED_UNCONFIRMED = 'this was sent a moment ago and was not confirmed then; it may already be there, so it was not sent again';
 function trackInFlight(key, pending) {
+  pending.startedAt = Date.now();
   IN_FLIGHT_SENDS.set(key, pending);
   const clear = () => { if (IN_FLIGHT_SENDS.get(key) === pending) IN_FLIGHT_SENDS.delete(key); };
   pending.then(clear, clear);
@@ -1113,10 +1126,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. */
   const cleaned = chat.cleanMessage(text);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
-  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && r.from === toName && r.to === from)) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
-  if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
+  const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
+  if (msgTwin) return msgTwin.then(asDuplicate);
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
      budget ALWAYS logs the tell, once per pair per window (the counter
@@ -1582,12 +1596,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
   if (operator !== true) {
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
-    if (samePost && quietSince(log, samePost, (r) => r.kind === 'post' && r.project === projectId && (r.from !== from || r.operator === true))) {
+    if (samePost && quietSince(log, samePost, (r) => r.kind === 'post' && r.project === projectId)) {
       const foldedState = aggregateState(samePost.outcomes);
       return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
     }
     // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
-    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(postKey) : null;
+    const inFlight = asynchronousDelivery ? inFlightTwin(postKey) : null;
     if (inFlight) return inFlight.then(asDuplicate);
   }
 
