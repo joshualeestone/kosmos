@@ -125,6 +125,9 @@ function memberProblem(teamKey, slot, names) {
  * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
  * agent agree (chosenName trims).
  *
+ * The text is EXPLICIT instructions for a built-in role key, which team.vetAgentMember (#4474) refuses
+ * when an agent or the setup guide makes the request; a seeded team is made through the operator path.
+ *
  * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
  *   team, slot or role, a name create refuses, or two seats with the same name.
  */
@@ -137,9 +140,9 @@ function memberInstructions(teamKey, slot, names) {
   // What a `kosmos msg` command must carry: the machine name (lowercase, spaces folded), so a
   // two-word name cannot split into a recipient and the start of the message.
   const handleOf = (x) => create.slugFor(nameOf(x));
-  // The command as this machine can run it (bare `kosmos` is not on a stock install's PATH), the
-  // same derivation the messaging block below teaches (engine/clipath.js).
-  const cli = require('./clipath').kosmosCliShown();
+  // No command path here: this section sits outside any managed block, so a path written into it
+  // would go stale when the install layout changes. It names each teammate's machine name; the
+  // messaging block below (kept current by projects.healColleagues) teaches the command itself.
   const roles = require('./roles');
   const base = roles.instructionsFor(m.role, nameOf(m));
   const lead = leadOf(t);
@@ -148,12 +151,12 @@ function memberInstructions(teamKey, slot, names) {
     lines.push(...wrapLines(`You lead the ${t.label} for the person you work for.`, '', ''));
     lines.push('', 'Your team, and what each of them is here for:', '');
     for (const x of t.members.filter((y) => y !== m)) {
-      lines.push(...wrapLines(`**${nameOf(x)}** (\`${cli} msg ${handleOf(x)} "..."\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
+      lines.push(...wrapLines(`**${nameOf(x)}** (message them as \`${handleOf(x)}\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
     }
     lines.push('');
-    lines.push(...wrapLines(`Brief each of them with the command beside their name, check what comes back before it reaches the person you work for, and keep the team working toward this goal: ${t.project.goal}`, '', ''));
+    lines.push(...wrapLines(`Brief each of them with the msg command from the section on talking to your colleagues, using the name beside theirs; check what comes back before it reaches the person you work for, and keep the team working toward this goal: ${t.project.goal}`, '', ''));
   } else {
-    lines.push(...wrapLines(`You are the ${m.title} on the ${t.label}. You report to **${nameOf(lead)}**, the ${lead.title}: take your work from ${nameOf(lead)}, and send finished work and questions back with \`${cli} msg ${handleOf(lead)} "..."\`.`, '', ''));
+    lines.push(...wrapLines(`You are the ${m.title} on the ${t.label}. You report to **${nameOf(lead)}**, the ${lead.title}: take your work from ${nameOf(lead)}, and send finished work and questions back with the msg command from the section on talking to your colleagues, addressed to \`${handleOf(lead)}\`.`, '', ''));
     const peers = t.members.filter((y) => y !== m && y !== lead).map((y) => `${nameOf(y)} (${y.title})`);
     if (peers.length) lines.push('', ...wrapLines(`Your teammates: ${peers.join(', ')}.`, '', ''));
     lines.push('', ...wrapLines(`The team's goal: ${t.project.goal}`, '', ''));
