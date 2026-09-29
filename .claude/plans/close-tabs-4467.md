@@ -32,7 +32,8 @@ the words. The behaviour (an agent actually closing a tab) is measured after the
   never open a page in the person's browser just to read it (fetch it; for a page that must be
   rendered, the private browser from engine/agentbrowser.js, named by its kosmos-browser tools and
   conditionally, since only Claude agents on Mac and Windows have it; otherwise say you cannot read
-  it and give the address); the one exception, a page they must act on now, opened and said so.
+  it and give the address); the exceptions, a page they must act on now or ask to have opened,
+  opened, left open and said so. Only a tab certainly the agent's own is closed.
 - Not built: the card's optional item 3 (a count of agent-opened tabs). Kosmos keeps no record of
   which tabs an agent opens, so it is not cheap.
 
