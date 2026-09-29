@@ -321,3 +321,12 @@ Because the name fix is code, one more blind round follows.
   restarts until the explicit ceiling).
 - (N, left) a nested run under a live foreign claim no longer inherits an operator's claim override (documented
   deliberate); the refusal names the first waiter ahead in glob order, not the oldest (true either way).
+
+## Review iteration 24 (blind, sonnet): CONVERGED (no finding that needs a change)
+- (W, DEFERRED to the PR text) run-tests.sh now drops an exported override for everything it spawns; the reviewer grepped
+  every reader and found no regression. The PR description says so.
+- (W, DEFERRED) no arm pins "a too-low first count only shrinks the ceiling": it needs a stubbed failing ps on the first
+  pass; the direction is the safe one (gives up sooner) and is documented at the ceiling.
+- (N, left) a hand-edited marker with no pid field would print an integer warning; the notice's "joined" is up to one
+  poll early; the RT2 arm is briefly visible to other agents' guards (commented).
+Next: the full validation on this head, then the proof, PR, merge.
