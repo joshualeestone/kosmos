@@ -288,3 +288,12 @@ Measured: plain and KOSMOS_NO_WAIT=1 both 0 failures.
 - DISCLOSED: my first commit of this round (2a0c56aed) went in with the arm RED. A case pattern's ")" inside a nested $( )
   ends the substitution on bash 3.2, so the arm never ran as written, and I committed without gating on the test's
   exit status. Fixed in 2ad1a172d (the list is built before the command), committed only after both runs passed.
+
+## Review iteration 21 (blind, opus): NITs only
+Taken, one of them on the unsafe side: the .tmp filter matched the full PATH, so a marker directory whose own path held
+".tmp." would skip every real marker (nobody ahead, two suites together). It reads the file NAME now; an arm puts the
+markers under ".../x.tmp.y/markers" and the path form reds it. Also: the live-marker summary line and the list's comment
+(the wait controls a caller sets, not the test probes, which tests pass explicitly) are accurate.
+Left, noted: if this run's own marker can never be written (an unwritable marker dir), every pass after the first skips
+the count, so the bound never restarts and a queued run gives up 2700 s after joining: safe, no worse than before.
+Because the name fix is code, one more blind round follows.
