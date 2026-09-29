@@ -91,3 +91,10 @@ skip had no test) is fixed and the skip itself narrowed to tmux()'s own rule, "d
 directions pinned. Dead constant removed, comments placed and corrected. Noted for a follow-up, out of scope here: only
 the hook dialog's two footers are guarded; other Codex startup prompts (directory trust, which Kosmos pre-answers by
 writing trust_level, and model migration) are not.
+
+## Blind review round 5 (Opus, a separate reviewer, 2026-09-29 13:48) and what changed
+One WARNING, and it was real: Enter on the table opens a THIRD screen, one hook's review, which had never been
+captured. Captured live the same way (test-support/codex-screens/hook-review-hook-0.149.1.txt, path sanitised): its
+footer is "Press t to trust; esc to go back", so a single "t" in a pasted message would have trusted that hook. Now
+recognised (footer at the end of the last rows, plus its own "needs review" line or a "[!] Hook N" row), tested at
+full width and at 30 columns, with the footer-alone and quoted-then-prompt controls; removing the branch fails it.

@@ -1582,6 +1582,11 @@ const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before
 /* The same two footers matched at the END of a joined run of rows, so a wrapped footer still counts (round 1). */
 const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
 const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
+/* Round 5: the THIRD screen, one hook's review, reached by Enter on the table ("enter to review hooks"). Captured on a
+   live pane (test-support/codex-screens/hook-review-hook-0.149.1.txt): its footer is "Press t to trust; esc to go
+   back", so a single "t" typed there trusts that hook. */
+const CODEX_HOOK_ONE_FOOTER_END = /Pressttotrust;esctogoback$/;
+const CODEX_HOOK_ONE_ROW = /^\s*\[!\]\s*Hook\s+\d+\b/;
 /* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
 const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
   + 'there that typed text would answer. Send this again in a moment.';
@@ -1612,6 +1617,14 @@ function codexHookReview(paneText) {
     const wrapped = warning ? null : (joined.match(/(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\./) || [null])[0];
     return { screen: 'table', evidence: (warning || wrapped || 'Press t to trust all; enter to review hooks; esc to close').trim().replace(/^⚠\s*/, '') };
   }
+  if (CODEX_HOOK_ONE_FOOTER_END.test(lastJoined)) {
+    /* Its own "N hook(s) need(s) review" line or a "[!] Hook N" row must be above, so the footer words alone are
+       not enough. */
+    const warning = above.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const hookRow = above.some((r) => CODEX_HOOK_ONE_ROW.test(r));
+    if (!warning && !hookRow) return null;
+    return { screen: 'hook', evidence: (warning || 'Press t to trust; esc to go back').trim().replace(/^⚠\s*/, '') };
+  }
   return null;
 }
 /* The sentence the delivery refusal gives (engine/chat.js), about the AGENT: what it is stopped on, that typing
@@ -1625,7 +1638,8 @@ const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Code
    reads the screen fresh. Its callers are the tests that pin what the card shows. */
 function isCodexHookEvidence(evidence) {
   return typeof evidence === 'string'
-    && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence));
+    && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence)
+      || /^Press t to trust; esc to go back$/.test(evidence));
 }
 
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.

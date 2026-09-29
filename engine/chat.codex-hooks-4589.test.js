@@ -31,6 +31,8 @@ const fleet = require('../test-support/fleet');
 const SCREENS = path.join(__dirname, '..', 'test-support', 'codex-screens');
 const MENU = fs.readFileSync(path.join(SCREENS, 'hook-review-menu-0.149.1.txt'), 'utf8');
 const TABLE = fs.readFileSync(path.join(SCREENS, 'hook-review-table-0.149.1.txt'), 'utf8');
+/* Round 5: one hook's review, reached by Enter on the table; its footer is "Press t to trust; esc to go back". */
+const HOOK = fs.readFileSync(path.join(SCREENS, 'hook-review-hook-0.149.1.txt'), 'utf8');
 const IDLE = `╭────────────────────────────────────────────────╮
 │ >_ OpenAI Codex (v0.149.1)                     │
 ╰────────────────────────────────────────────────╯
@@ -269,5 +271,19 @@ test('#4589 round 4: with an injected runner the rule still applies even under d
     chat.setDryRun(true);
     assert.equal(chat.deliver('sam', 'hello', board.agents).because, status.CODEX_HOOK_DIALOG_SENTENCE);
     assert.deepEqual(tmux.typedInto(), []);
+  });
+});
+
+test('#4589 round 5: the per-hook review screen (a single "t" trusts that hook) is recognised and nothing is typed', () => {
+  assert.equal(status.codexHookReview(HOOK).screen, 'hook');
+  assert.equal(status.codexHookReview(narrow(HOOK, 30)).screen, 'hook', 'wrapped at 30 columns');
+  assert.equal(status.codexHookReview('some output\n  Press t to trust; esc to go back'), null, 'the footer words alone are not the screen');
+  assert.equal(status.codexHookReview(HOOK.trimEnd() + '\n\n' + IDLE), null, 'CONTROL: quoted, with the prompt below');
+  withCodex(HOOK, (board) => {
+    const tmux = arm([ok(HOOK)]);
+    const v = chat.deliver('sam', 'the letter t', board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(v.because, status.CODEX_HOOK_DIALOG_SENTENCE);
+    assert.deepEqual(tmux.typedInto(), [], 'typed into one hook\'s review');
   });
 });
