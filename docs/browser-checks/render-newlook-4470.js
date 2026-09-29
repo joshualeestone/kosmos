@@ -69,6 +69,14 @@ const TASKS_PLACE = `(() => {
   return { order, tasksLast: !!last && last.matches('aside.pjcol:not(.pjsplit)'), cols: getComputedStyle(pj3).gridTemplateColumns.split(' ').length };
 })()`;
 
+/* The first member row's state word: whether it is rendered visibly, and its text. */
+const MEMBER_WORD = `(() => {
+  const el = document.querySelector('#pj-one-agents .pj-member .pj-member-st');
+  if (!el) return { shown: false, text: '', present: false };
+  const r = el.getBoundingClientRect();
+  return { shown: getComputedStyle(el).display !== 'none' && r.width > 0, text: el.textContent.trim(), present: true };
+})()`;
+
 (async () => {
   let server, browser;
   try {
@@ -114,6 +122,9 @@ const TASKS_PLACE = `(() => {
       const pjOn = await page.evaluate(TASKS_PLACE);
       chk(pjOn.order === 'members,tasks,files', `${tag} On: Tasks sits in the left box between Members and Files`, JSON.stringify(pjOn));
       chk(width < 1088 ? pjOn.cols === 1 : pjOn.cols === 2, `${tag} On: the project page is ${width < 1088 ? 'one column (narrow)' : 'two columns'}`, JSON.stringify(pjOn));
+      await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
+      const stOn = await page.evaluate(MEMBER_WORD);
+      chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
 
       await page.reload({ waitUntil: 'networkidle' });
@@ -128,6 +139,10 @@ const TASKS_PLACE = `(() => {
       await clearFirstRun(page);
       const back = await page.evaluate(PAGE_STATE);
       const pjOff = await page.evaluate(TASKS_PLACE);
+      await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, proj.id);
+      await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
+      const stOff = await page.evaluate(MEMBER_WORD);
+      chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
       chk(!back.wide, `${tag} no sideways scroll`);
