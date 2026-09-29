@@ -56,6 +56,7 @@ fs.writeFileSync(STUB, `'use strict';
 const http = require('node:http');
 const [health, delayMs] = [process.argv[2], Number(process.argv[3])];
 const PAGE = ${JSON.stringify(PAGE)};
+let slowOnceDone = false;
 const server = http.createServer((req, res) => {
   const reply = () => {
     if (health === 'stranger') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('hello from another app'); return; }
@@ -75,6 +76,12 @@ const server = http.createServer((req, res) => {
   };
   // A busy board is slow at EVERYTHING it serves, the page included (the event loop is shared).
   if (health === 'hang' && req.method === 'GET') return;
+  // A board that answers its health check (the FIRST one slowly, for 'reporthang') and then never answers
+  // the request. Only the first is slow, so the first probe misses and the retry finds the board at once:
+  // a delay on every probe would race the busy budget's whole-second rounding.
+  if (health === 'reporthang' && req.method === 'POST' && req.url.startsWith('/api/report')) return;
+  if (health === 'reporthang' && req.method === 'GET' && !slowOnceDone) { slowOnceDone = true; setTimeout(reply, delayMs); return; }
+  if (health === 'roomhang' && req.url.includes('/room')) return;
   if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
   if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
   reply();
@@ -156,6 +163,37 @@ test('#4466 an --auto report (the hook) gives up on a busy board inside the hook
   assert.equal(person.code, 1, person.stdout + person.stderr);
   assert.match(person.stdout, /no reply in 20 s/);
   assert.ok(person.ms >= 15000, `a report that is not --auto waits the full budget (took ${person.ms} ms)`);
+}));
+
+test('#4466 an --auto report stays inside the hook timeout END TO END: a slow health answer, then a POST that never answers', () => withBoard('reporthang', async (port) => {
+  // The first health probe (2 s) misses a 2.5 s answer and the retry gets one at once; then /api/report
+  // never answers. The POST gets what is left of 12 s, so the command ends near 12 s; with its own 15 s
+  // it took ~17 (red).
+  const env = baseEnv(port, { TMUX_PANE: '%42' });
+  delete env.KOSMOS_BUSY_WAIT;
+  const out = await runCli(['report', 'started', '--auto'], env);
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.ok(out.ms < 15000, `the whole --auto report must end inside the hook's 15 s (took ${out.ms} ms)`);
+  assert.ok(out.ms >= 11000, `the POST must have been given what was left of the budget, not cut short (took ${out.ms} ms)`);
+  assert.match(out.stdout, /did not answer in time, so we could not record that\. It may still have happened: check before doing it again\. It does not need a restart\./);
+  assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
+  assert.match(out.stderr, /busy, retrying/, 'the first probe must have missed, or the arm never measured a slow health answer');
+}, 2500));
+
+test('#4466 a READ that times out after the health check says busy, not "is it running?", and suggests waiting', () => withBoard('roomhang', async (port) => {
+  const out = await runCli(['room', 'proj'], baseEnv(port, { TMUX_PANE: '%42' }));
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /did not answer in time, so we could not read that room\. Wait a minute and try again; it does not need a restart\./);
+  assert.doesNotMatch(out.stdout, /Is it running|may still have happened/);
+}));
+
+test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, not busy (CONTROL: no lsof at all stays busy)', () => withBoard('hang', async (port) => {
+  // lsof RAN and named no listener, though something took the connection: on this Mac non-root lsof
+  // does not see other users' listeners, so this is the shape of another account holding our port.
+  const blind = await bash(`source "${CLI}"; port_listener_owner() { return 1; }; _health_probe 2; echo "state=$HEALTH_STATE"`, baseEnv(port));
+  assert.match(blind.stdout, /state=stranger/, blind.stdout + blind.stderr);
+  const nolsof = await bash(`source "${CLI}"; port_listener_owner() { return 1; }; _lsof_present() { return 1; }; _health_probe 2; echo "state=$HEALTH_STATE"`, baseEnv(port));
+  assert.match(nolsof.stdout, /state=busy/, nolsof.stdout + nolsof.stderr);
 }));
 
 test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {

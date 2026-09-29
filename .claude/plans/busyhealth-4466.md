@@ -124,6 +124,24 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   AGENT_RESTART_COOLDOWN_S (300, was written twice), each with its reason. The header names status exit 4.
 - Deferred again: the dev-path stranger (rounds 7 and 8).
 
+## Review round 12 decisions
+- The whole `--auto` report stays inside AUTO_REPORT_TOTAL_S (12 s): the POST gets what is left after the
+  health check (at least 2 s), so a board that answers health slowly and then sits on the POST cannot
+  hold SessionStart past Claude Code's 15 s. Arm "END TO END", red at 17.6 s with the POST's own 15 s.
+  12, not 13: SECONDS counts whole seconds, and 13 left under a second of room.
+- A listener that our own lsof cannot name is another account's (measured here: non-root lsof sees 13 of
+  23 listening ports), so it is a stranger, not our busy board. Only a Mac with no lsof keeps "cannot
+  tell" (busy). A board that exits between connect and lsof reads stranger for one probe. Arm with the
+  no-lsof control.
+- Every verb whose request fails AFTER the health check passed goes through `say_unreached`: a timeout
+  or cut reply says busy and "does not need a restart" (after a write: "it may still have happened,
+  check first"); a refused connection keeps "Is it running at ...?". 14 sites; the 3 that already treat
+  a timeout as "maybe delivered" (exit 3: send, post, react) are unchanged. #2662's arm (a cut reply on
+  task add) now accepts either sentence: it pins that the failure is reported.
+- `board-run` asks `healthy --once`: busy still exits 0, and a KeepAlive relaunch no longer spends 20 s.
+- An agent's `stop` on a stranger-held port says "Kosmos is not running here" (it said "not answering").
+- Deferred NIT: `lastWasRead` on Windows treats only GET as a read; nothing sends HEAD.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -151,7 +169,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   and the real server's route.
 
 ## Tests
-- `cli.busy-health-4466.test.js` (22 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
+- `cli.busy-health-4466.test.js` (25 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
   `healthy()` verbatim as the CONTROL (says "not running" to the same slow board); stopped = "not
   running" at once; never answers = busy, exit 4, no start advice; stranger; older board fallback;
   agent refusal; 10 rapid agent restarts of a down board go ahead once, a person 10 times, `--force`

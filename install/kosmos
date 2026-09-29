@@ -331,6 +331,12 @@ _health_no_answer() {
   # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
   # and a board this busy is on a machine that cannot spare the sweeps.
   if [ -z "$_HEALTH_OWNER" ]; then _HEALTH_OWNER="$(port_listener_owner 2>/dev/null)" || _HEALTH_OWNER=unknown; fi
+  # Something took the connection, so something listens. A user's own lsof sees every one of that
+  # user's processes, so when lsof RAN and still names no listener, the listener is another account's
+  # (on this Mac, non-root lsof sees 13 of 23 listening ports; the rest are root's and other users'):
+  # a stranger, not our busy board. Only a Mac with no lsof at all keeps "cannot tell", which is busy.
+  # (A board that exits between the connect and the lsof also lands here, for one probe.)
+  if [ "$_HEALTH_OWNER" = unknown ] && _lsof_present; then HEALTH_STATE=stranger; return 0; fi
   [ "$_HEALTH_OWNER" != unknown ] || return 0
   _own="$_HEALTH_OWNER"
   read -r _lpid _luid _lkos <<EOF
@@ -350,10 +356,15 @@ BUSY_PROBE_MAX_S=8
 # An --auto report (a hook's) waits only this long: SessionStart runs one in the foreground under
 # Claude Code's 15 s hook timeout, so it must end inside it with room to print.
 AUTO_REPORT_BUSY_WAIT_S=6
+# ...and the whole --auto report, health check and POST together, stays inside this, leaving that 15 s
+# hook room to print its "reporting is OFF" sentence.
+AUTO_REPORT_TOTAL_S=12
 # An agent may not start (or restart) the board again within this long of its last start: the 140
 # restarts an hour came from agents that each saw "not running". Five minutes covers a slow boot of a
 # busy board. KOSMOS_AGENT_RESTART_COOLDOWN overrides it.
 AGENT_RESTART_COOLDOWN_S=300
+# Whether this Mac has the lsof the ownership check uses. A function so a test can take it away.
+_lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 # KOSMOS_BUSY_WAIT in whole seconds. Anything else is the default: "2.5" would be an arithmetic
 # error under set -e, and the messages must name the wait that was actually used.
 _busy_wait() {
@@ -379,6 +390,20 @@ healthy() {
     if [ "$_t" -gt "$BUSY_PROBE_MAX_S" ]; then _t="$BUSY_PROBE_MAX_S"; fi
     if [ "$_t" -gt "$_left" ]; then _t="$_left"; fi
   done
+}
+# A request that failed AFTER the health check passed (#4466). A timeout or a cut reply is a busy board,
+# not a stopped one, so it must not ask "is it running?" (the question agents answered with a restart).
+# After a WRITE the board may already have acted, so it says to check rather than to try again.
+say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [write]
+  case "${2:-}" in
+    18|28|52|56)
+      if [ "${3:-}" = write ]; then
+        say "Kosmos is running but did not answer in time, so we could not $1. It may still have happened: check before doing it again. It does not need a restart."
+      else
+        say "Kosmos is running but did not answer in time, so we could not $1. Wait a minute and try again; it does not need a restart."
+      fi ;;
+    *) say "We could not reach Kosmos to $1. Is it running at $URL?" ;;
+  esac
 }
 # The one message for a verb that needs the board and did not get it (#4466). A busy board is
 # running: telling an agent to start (or restart) it is what turned a slow answer into a blackout.
@@ -769,7 +794,7 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # Nothing answers: there is nothing for an agent to stop, and cmd_stop would write the deliberate-stop
   # marker, which switches off the watchdog until a person starts Kosmos again.
   if [ "$_verb" = stop ]; then
-    say "Kosmos is not answering, so there is nothing for an agent to stop. If something looks wrong, tell the person who runs this computer."
+    say "Kosmos is not running here, so there is nothing for an agent to stop. If something looks wrong, tell the person who runs this computer."
     exit 0
   fi
   _last="$(cat "$BOARD_STARTED_AT" 2>/dev/null || true)"
@@ -977,7 +1002,9 @@ cmd_board_run() {
   # away (a reboot), and a log line each time would be spam. setup.sh reconciles the
   # fresh-install case to a single supervised board (via `kosmos restart` after
   # bootstrap), so this is the defensive backstop, not the normal path.
-  if healthy; then exit 0; fi
+  # --once: one short probe tells busy from down as well as the full wait would, and a KeepAlive relaunch
+  # over a busy board should not spend 20 s of retries on it (#4466).
+  if healthy --once; then exit 0; fi
   if [ "$HEALTH_STATE" = busy ]; then exit 0; fi   # #4466: our board, busy: never start a second
   # #2956: likewise do not crash-loop against a STRANGER on the port. If a
   # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
@@ -1398,7 +1425,7 @@ cmd_reply() {
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || {
-    say "We could not reach Kosmos to keep that. Is it running at $URL?"
+    say_unreached "keep that" "$?" write
     exit 1
   }
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1849,6 +1876,7 @@ cmd_report() {
   # board's CPU is the last thing to spend on 20 s of retries per event. So a 6 s busy budget (probes of
   # 2 and 4 s) unless the caller set one. A person's or an agent's own report keeps the full wait.
   if [ "$auto" = 1 ] && [ -z "${KOSMOS_BUSY_WAIT:-}" ]; then KOSMOS_BUSY_WAIT="$AUTO_REPORT_BUSY_WAIT_S"; fi
+  local _rep_t0="$SECONDS" _post_m=15
   if ! healthy; then
     say_not_up "this could not be recorded"
     exit 1
@@ -1886,10 +1914,16 @@ cmd_report() {
   # #1970: both tokens go off argv through kosmos_curl (they land in one mode-600
   # @file), so the anti-spoof board token is not itself exposed on argv.
   local _bt; _bt="$(board_token || true)"
-  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/report" \
+  # An --auto report's POST gets what is left of AUTO_REPORT_TOTAL_S (at least 2 s), so a board that
+  # answered its health check slowly cannot then hold the hook past its 15 s timeout.
+  if [ "$auto" = 1 ]; then
+    _post_m=$(( AUTO_REPORT_TOTAL_S - (SECONDS - _rep_t0) ))
+    if [ "$_post_m" -lt 2 ]; then _post_m=2; fi
+  fi
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_post_m" -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
     --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
-    say "We could not reach Kosmos to record that. Is it running at $URL?"
+    say_unreached "record that" "$?" write
     exit 1
   }
   # #1704 PR2: the board is serving another Kosmos. A report is not kept: the
@@ -1938,7 +1972,7 @@ cmd_report_show() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/report?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read your report. Is it running at $URL?"
+    say_unreached "read your report" "$_rc"
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -1999,7 +2033,7 @@ cmd_community() {
   _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/post" \
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to post that. Is it running at $URL?"
+    say_unreached "post that" "$_rc" write
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -2141,7 +2175,7 @@ cmd_room() {
     # failure and the `|| _rrc=$?` would not fire).
     _rbody=$(kosmos_curl "$_rbt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_rproj/room/reopen" 2>/dev/null) || _rrc=$?
     if [ "$_rrc" -ne 0 ]; then
-      say "We could not reach Kosmos to reopen that room. Is it running at $URL?"
+      say_unreached "reopen that room" "$_rrc" write
       exit 1
     fi
     _rcode="${_rbody##*$'\n'}"
@@ -2180,7 +2214,7 @@ cmd_room() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read that room. Is it running at $URL?"
+    say_unreached "read that room" "$_rc"
     exit 1
   fi
   # -w appended "\n<http_code>" as the final line: split it off the body tail.
@@ -2517,7 +2551,7 @@ cmd_task() {
     list)
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to list tasks. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
@@ -2563,7 +2597,7 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
         -H 'content-type: application/json' \
         --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to add that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "add that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of
       # {"error":...}: an unexpected 200 (a proxy page, a future response shape) must NOT read as done.
       case "$body" in
@@ -2578,7 +2612,7 @@ cmd_task() {
       local project num; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to close that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "close that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
       case "$body" in
         '{"task":'*) say "Closed task $num on ${project:-the project}." ;;
@@ -2611,7 +2645,7 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
         --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to mark that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
           if [ "$clear" = true ]; then
@@ -2640,7 +2674,7 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
         -H 'content-type: application/json' \
         --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to send that message. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
         '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
@@ -2705,7 +2739,7 @@ cmd_project() {
         -H 'content-type: application/json' \
         --data "$_data" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then
-        say "We could not reach Kosmos to create that project. Is it running at $URL?"
+        say_unreached "create that project" "$rc" write
         exit 1
       fi
       # {"error":...} covers the 400 (bad field) and the 429 rate valve alike --
@@ -2762,7 +2796,7 @@ cmd_agent() {
   case "$sub" in
     roles)
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
-      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to list the roles. Is it running at $URL?"; exit 1; fi
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
         || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
       ;;
@@ -2789,7 +2823,7 @@ cmd_agent() {
         exit 3
       fi
       if [ "$rc" -ne 0 ]; then
-        say "We could not reach Kosmos to make that agent. Is it running at $URL?"
+        say_unreached "make that agent" "$rc" write
         exit 1
       fi
       # Top-level fields only, never grepped: made (created[0]), or the reason (error, refused[0], because).
