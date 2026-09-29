@@ -1131,6 +1131,9 @@ function describe(project, roster, all) {
     /* #4583: whether the brief says what done looks like: false shows a "Done not set" badge, null means the
        folder is not there to read (its own warning already says so), true is set. */
     doneSet: (typeof project.folder === 'string' && project.folder && fs.existsSync(project.folder)) ? !doneIsPending(project.folder) : null,
+    /* #4583: the two-coordinator warning as it stands now (null when there is not more than one). The page shows
+       it only after an add or a create that brought it on, and drops it once this is null. */
+    coordinators: coordinatorWarning({ agents: members }, null),
     // ⚠️ Deliberately NOT a health summary. It counts what is on screen so the
     // list row can say "1 needs you" the way the page does, and it carries
     // `unseen` beside the counts so a row can never quietly report that
@@ -2055,10 +2058,20 @@ function doneIsPending(folder) {
    on one project negotiated ownership by hand. Returns a warning naming them and suggesting the split
    those PMs chose, or null. Warns, never refuses: a person may want two. "Coordinating" is the rule the
    project room already uses to pick who answers (chat.looksLikeManager). `project` is a projects.get()
-   read; `joining` (a machine name) limits the warning to a change that brought a coordinator in. */
+   read; `joining` (a machine name) limits the warning to a change that brought a coordinator in.
+   A member the read could not tie to a live pane has no `role` there (an agent not running yet, which is
+   the usual case at creation), so its role comes from its saved profile instead: Kosmos's own record,
+   never a pane's word. */
+function roleOfMember(m) {
+  if (m && typeof m.role === 'string' && m.role) return m.role;
+  try {
+    const saved = store.readProfile(m && m.sessionName);
+    return saved && typeof saved.role === 'string' ? saved.role : null;
+  } catch { return null; }
+}
 function coordinatorWarning(project, joining) {
   const members = (project && Array.isArray(project.agents)) ? project.agents : [];
-  const coords = members.filter((m) => m && chat.looksLikeManager(m.role));
+  const coords = members.filter((m) => m && chat.looksLikeManager(roleOfMember(m)));
   if (coords.length < 2) return null;
   if (joining && !coords.some((m) => m.sessionName === joining)) return null;
   const names = coords.map((m) => m.name || m.sessionName);

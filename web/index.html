@@ -20919,7 +20919,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  setIfChanged(rn, op ? pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -49531,6 +49531,19 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
+/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
+   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
+   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
+const PJ_COORD_WARN = new Set();
+function pjCoordNotice(p) {
+  const id = p && p.id;
+  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
+  if (!p.coordinators) { PJ_COORD_WARN.delete(String(id)); return ''; }
+  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
+    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
+    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
+}
+
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
@@ -53687,7 +53700,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNotice(roster, p.id);
+  const notice = pjCoordNotice(p) + pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
@@ -59693,6 +59706,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
+    if (body.coordinators && newProjectId) PJ_COORD_WARN.add(String(newProjectId));   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -59742,6 +59756,7 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
+    if (body.coordinators) PJ_COORD_WARN.add(String(PJ_CURRENT));   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -59845,6 +59860,16 @@ async function pjNoticeRetryClick(e) {
   }
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+/* #4583: Dismiss on the two-coordinator warning, in either notice. */
+function pjCoordDismissClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
+  if (!btn) return;
+  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
+  paintOneProject();
+  paintRailPjNotice();
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the

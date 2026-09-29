@@ -3764,3 +3764,57 @@ test('#2707 CONTROL: a brief-less project with NO agents gets NO note (nobody to
   const room = await req(`/api/project/${made.id}/room?as=text`);
   assert.doesNotMatch(room.body, /not seven/i, 'a project with no agents needs no coordination note');
 });
+
+// ---------------------------------------------------------------------------
+// #4583: what done looks like, asked at creation; and two coordinators warned about
+// ---------------------------------------------------------------------------
+
+test('#4583: a project with a goal but no done, staffed, gets ONE agents-only done note (not the brief note)', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Goal no done', folder: folder('goal-nodone'), agents: ['agent-a'], description: 'Renew the lease.' })).project;
+  assert.equal(made.doneSet, false, 'the read must say done is not set');
+  const notes = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(notes.length, 1, 'expected exactly one note');
+  assert.equal(notes[0].text, projects.DONE_PENDING_NOTE);
+  assert.equal(notes[0].audience, messages.NOTE_AUDIENCE_AGENTS);
+});
+
+test('#4583 CONTROL: done given at creation means no note at all, and the brief carries it', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('goal-done');
+  const made = json(await post('/api/projects', { name: 'Goal and done', folder: dir, agents: ['agent-a'], description: 'Renew the lease.', done: 'The lease is signed.' })).project;
+  assert.equal(made.doneSet, true);
+  assert.equal(messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).length, 0, 'a project with its done set was told to ask');
+  assert.match(fs.readFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), 'utf8'), /## Done looks like\n\nThe lease is signed\./);
+});
+
+test('#4583: a done over 1000 characters is refused with the done box named, and nothing is created', async () => {
+  reset();
+  const res = await post('/api/projects', { name: 'Too long', folder: folder('too-long'), done: 'x'.repeat(1001) });
+  assert.equal(res.status, 400);
+  assert.match(json(res).error, /done looks like/);
+  assert.equal(json(await req('/api/projects')).projects.filter((p) => p.name === 'Too long').length, 0);
+});
+
+test('#4583: two coordinators warn on create and when a second one joins; a non-coordinator joining does not', async () => {
+  reset();
+  const store = require('./engine/store');
+  store.writeProfile('pm-x', { role: 'Project Manager' });
+  store.writeProfile('pm-y', { role: 'Project Manager' });
+  store.writeProfile('dev-z', { role: 'Developer' });
+  try {
+    const both = json(await post('/api/projects', { name: 'Two PMs', folder: folder('two-pms'), agents: ['pm-x', 'pm-y'] }));
+    assert.match(String(both.coordinators), /coordinating role/, 'create with two coordinators did not warn');
+    const one = json(await post('/api/projects', { name: 'One PM', folder: folder('one-pm'), agents: ['pm-x'] }));
+    assert.equal(one.coordinators, undefined, 'CONTROL: one coordinator warned');
+    const joined = json(await post(`/api/project/${one.project.id}/agent/pm-y`));
+    assert.match(String(joined.coordinators), /coordinating role/, 'a second coordinator joining did not warn');
+    const dev = json(await post(`/api/project/${one.project.id}/agent/dev-z`));
+    assert.equal(dev.coordinators, undefined, 'a non-coordinator joining re-warned');
+    assert.equal(dev.project.agents.length, 3, 'the warning must never refuse the add');
+  } finally {
+    for (const n of ['pm-x', 'pm-y', 'dev-z']) store.writeProfile(n, { role: null });
+  }
+});
