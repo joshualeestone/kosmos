@@ -251,6 +251,31 @@ test('task message resolves a tmux %N pane through resolveSender, and refuses a 
   assert.deepEqual(said, ['member']);
 });
 
+test('task message: a pane held by a stranger is not taken for our agent; an unreadable project list is a 503 (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.stranger('poc-agent', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  const said = [];
+  let unreadable = false;
+  projectsEngine.readAll = () => { if (unreadable) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } return [{ id: 'p4491', name: 'p4491', agents: ['mara'] }]; };
+  tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
+  tasksEngine.whoOf = () => [];
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
+  const targetOf = (name) => (board.agents.find((c) => c.sessionName === name) || {}).target;
+  const strangerTarget = targetOf('poc-agent');
+  assert.ok(strangerTarget, 'the fixture gave the stranger no pane target');
+  // Not tied to our agent, so not identified as poc-agent: not refused as a non-member (it stays an unnamed process).
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'from a stranger pane', from_pane: strangerTarget } });
+  assert.equal(r.code, 200, 'a stranger pane was identified as our agent and refused: ' + r.code + ' ' + r.text.slice(0, 160));
+  assert.deepEqual(said, ['from a stranger pane']);
+  // An identified caller whose project list cannot be read is told so (503), and nothing is recorded.
+  unreadable = true;
+  const u = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'while unreadable' } });
+  assert.equal(u.code, 503, 'an unreadable project list was not a 503: ' + u.code + ' ' + u.text.slice(0, 160));
+  assert.deepEqual(said, ['from a stranger pane']);
+});
+
 test('membership is exact for a carded agent, and by key only for a token that resolved without a roster row (#4491 slice 3)', async (t) => {
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   const liveness = require('./engine/liveness');

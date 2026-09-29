@@ -3761,7 +3761,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (removing, restarting or
-   reconfiguring agents, settings, POST /api/agents) are not in this set and keep requiring the
+   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the
    board token. The header only, never `token` in the body: this gate runs before the body is
    read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
@@ -4118,7 +4118,7 @@ const server = http.createServer(async (req, res) => {
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
     // #4491: an agent route, reached with a valid agent token and no board token (see
-    // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
+    // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
@@ -16580,14 +16580,21 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
           return;
         }
-        const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane) || null : null;
+        const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
         const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
         const senderCard = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
         const byKey = !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
         /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded,
-           delivered or valved (so it hears why, not the breaker), as task built refuses it. */
+           delivered or valved (so it hears why, not the breaker), as task built refuses it. ⚠️ Advisory, not a
+           boundary: it applies only to a caller that identifies itself (a token, or a pane tied to an agent); a
+           tokenless, paneless process holding the board token is not refused and is recorded as "An agent". */
         if (!viaScreen && senderCard && senderCard.sessionName) {
-          const stored = projects.readAll().find((x) => x.id === id) || null;
+          let stored = null;
+          try { stored = projects.readAll().find((x) => x.id === id) || null; }
+          catch {
+            sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' });
+            return;
+          }
           if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
             return;
