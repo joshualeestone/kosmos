@@ -38,3 +38,21 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
 - Perturbation per site on a scratch copy: removing the dialog rule reds the Agents dialog arms; removing the Tasks
   rule reds dark Tasks; removing the boot rule reds the four boot arms. A fourth edit (a mask on the #4216 rule) was
   green when removed, so it was dead and is not shipped.
+
+## Challenge loop
+
+### Iteration 1 (opus)
+- BLOCKER, fixed: giving <html> a background stopped the body's background spreading to the window, so on a short
+  page the canvas below the body showed dimmed twice (light 82 vs 35, measured by the reviewer and reproduced).
+  Fix: the tour's own `> body { min-height: 100vh }` while a dialog is up. New short-page arm in the check (1200px
+  window, no spacer); red without the min-height rule (82,83,86 vs 35,37,41), green with it. Dark's band is ~1 unit,
+  so light is the arm that catches it.
+- WARNING, fixed: the dialog rules now apply only under `[data-scrollbar-classic]`, like #4216, so an overlay-scrollbar
+  Mac (no gutter to fix) keeps today's canvas exactly.
+- WARNING, deferred (known residual): a dialog over the tour's dim, or two stacked dialogs, double-dims the page while
+  the gutter gets the single mix, so a lighter strip remains there. Rare, and closer than today's bright strip; CSS
+  cannot count stacked layers.
+- NIT, taken: ignore a shown .rm-back inside a hidden section (`:not([hidden] *)`), so a Plus dialog left open while
+  the section is hidden cannot dim the canvas with nothing on screen.
+- NIT, fixed: the check's comment said dark's strip is "about 6 per channel"; it is 3 to 6.
+- The CSS comment about the navy residual moved to #4542 (filed 07:36, the navy Plus white gutter) and this plan.

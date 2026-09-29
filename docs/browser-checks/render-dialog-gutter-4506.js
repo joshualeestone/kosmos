@@ -20,10 +20,12 @@
  * Arms, each in light and dark:
  *   - control: the gutter really is 15px, and the page colour it shows would fail the match below (so a green is
  *     not a harness with no gutter, and not a page whose dim happens to equal its ground). Dark's strip is faint,
- *     about 6 per channel on main, which is why the tolerance is 3;
+ *     3 to 6 per channel on main, which is why the tolerance is 3;
  *   - a dialog up, on Agents and on Tasks (whose #4216 canvas rule must give way): the board does not move (same
  *     width), and the gutter matches the dimmed page within 3 per channel;
  *   - the dialog closed: the gutter shows the page's own colour again;
+ *   - a dialog on a short page (no spacer, a 1200px window): a pixel below the page content matches one inside it,
+ *     so the canvas under a short body is not dimmed twice;
  *   - the boot cover up: no gutter, no scroll, and the cover is under the right edge; hidden, the gutter comes back.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-dialog-gutter-4506.js
@@ -92,21 +94,22 @@ const width = (page) => page.evaluate(() => {
     server.close();
     process.exit(1);
   }
-  const open = async (scheme, tab) => {
-    const ctx = await browser.newContext({ viewport: { width: W, height: H }, colorScheme: scheme });
+  const open = async (scheme, tab, short) => {
+    const ctx = await browser.newContext({ viewport: { width: W, height: short ? 1200 : H }, colorScheme: scheme });
     // A classic, space-taking scrollbar on every machine (an overlay scrollbar gives the gutter no width).
-    await ctx.addInitScript((bar) => {
+    await ctx.addInitScript(([bar, short]) => {
       document.addEventListener('DOMContentLoaded', () => {
         const st = document.createElement('style');
         st.textContent = '::-webkit-scrollbar { width: ' + bar + 'px; height: ' + bar + 'px; } ::-webkit-scrollbar-thumb { background: #999; }';
         document.head.appendChild(st);
         // A custom scrollbar takes its width only on a page that really scrolls (#4494). A spacer, not a product node.
+        if (short) return;   // the short-page arm: the body stays shorter than the window
         const tall = document.createElement('div');
         tall.dataset.testSpacer = '4506';
         tall.style.height = '3000px';
         document.body.appendChild(tall);
       });
-    }, BAR);
+    }, [BAR, !!short]);
     const page = await ctx.newPage();
     page.on('pageerror', (e) => problems.push('pageerror: ' + e.message));
     await page.goto(base + tab, { waitUntil: 'networkidle' });
@@ -149,6 +152,29 @@ const width = (page) => page.evaluate(() => {
       ok(t + ' the dialog closed: the gutter shows the page colour again', near(p2.gutter, p0.gutter), JSON.stringify({ before: p0, after: p2 }));
       await page.context().close();
     }
+    // ── A dialog on a short page: the body ends above the window's foot, so canvas shows below it. The canvas is
+    // the dimmed ground while a dialog is up, so unless the body fills the window that band is dimmed twice. ──
+    {
+      const t = '[' + scheme + ' short page]';
+      const page = await open(scheme, 'agents', true);
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = false; });
+      await page.waitForTimeout(150);
+      const geo = await page.evaluate(() => ({ body: Math.round(document.body.getBoundingClientRect().height), win: window.innerHeight, main: Math.round((document.querySelector('main') || document.body).getBoundingClientRect().bottom) }));
+      // The body's natural height, without the fix's min-height, so the arm is known to reach a short page.
+      const natural = await page.evaluate(() => { const b = document.body, m = b.style.minHeight; b.style.minHeight = '0px'; const h = b.scrollHeight; b.style.minHeight = m; return h; });
+      ok(t + ' control: the page content ends well above the window foot', natural < geo.win - 200, JSON.stringify({ natural, ...geo }));
+      const url = 'data:image/png;base64,' + (await page.screenshot()).toString('base64');
+      const two = await page.evaluate(async ({ url, natural }) => {
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = url; });
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+        const at = (x, y) => { const d = ctx.getImageData(x, y, 1, 1).data; return [d[0], d[1], d[2]]; };
+        return { inside: at(20, Math.max(10, natural - 20)), below: at(20, img.height - 20) };
+      }, { url, natural });
+      ok(t + ' a dialog up: below the page content is dimmed once, like the page', near(two.below, two.inside), JSON.stringify(two));
+      await page.context().close();
+    }
     // ── The boot cover. ──
     {
       const t = '[' + scheme + ']';
@@ -180,6 +206,6 @@ const width = (page) => page.evaluate(() => {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
+  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; on a short page the band below the content is dimmed once, not twice; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-dialog-gutter-4506: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });

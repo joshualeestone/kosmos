@@ -1643,14 +1643,15 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 /* #4506: a dialog's dim (.rm-back) cannot paint the gutter either, so a bright strip of page showed beside every
    dialog. While one is up the canvas takes the dimmed ground, the way the tour's dim does above: one colour, the
-   dim's rgb(17, 20, 24) at its 0.72 mixed over the root's ground (keep it equal to .rm-back's own background).
+   dim's rgb(17, 20, 24) at its 0.72 mixed over the root's ground (keep it equal to .rm-back's own background), and
+   the body fills the window so that canvas shows only in the gutter (without it a short page showed a band of
+   canvas under the body, dimmed twice). Only where scrollbars take width, as for Tasks above.
    Rejected: dropping the gutter, which moves the board 15px behind a see-through wash on every dialog open (#1309).
-   Any .rm-back, not only the body's children: plus-lost-modal sits inside the Plus section.
-   Known residual: Kosmos+ navy sets its ground on the body, where the root cannot see it, so on the Plus section the
-   gutter beside a dialog mixes from the light or dark ground (a grey strip there, where it was white). */
-html:not([data-layout="consolidated"]):has(.rm-back:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-bg)); }
+   Any shown .rm-back that is not inside a hidden section: plus-lost-modal sits inside the Plus section. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):has(.rm-back:not([hidden]):not([hidden] *)) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-bg)); }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):has(.rm-back:not([hidden]):not([hidden] *)) > body { min-height: 100vh; }
 /* On Tasks the canvas is the surface (#4216 above), and so is the page beside the gutter, so the dim mixes over that. */
-html[data-scrollbar-classic]:not([data-layout="consolidated"]):has(.rm-back:not([hidden])):has(> body > #panel-tasks:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-surface)); }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):has(.rm-back:not([hidden]):not([hidden] *)):has(> body > #panel-tasks:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-surface)); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
