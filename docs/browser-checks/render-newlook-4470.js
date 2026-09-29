@@ -187,6 +187,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
+      const labs = await page.evaluate(`[...document.querySelectorAll('#pj-one-view .pjsplit .dlab')].filter((h) => h.getClientRects().length).map((h) => getComputedStyle(h).textTransform)`);
+      chk(labs.length >= 3 && labs.every((x) => x === 'none'), `${tag} On: the left box's headings are sentence case`, JSON.stringify(labs));
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
