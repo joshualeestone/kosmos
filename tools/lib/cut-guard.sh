@@ -521,10 +521,13 @@ kosmos_refuse_if_suite_live() {
 # waiter is in its second ask only when its own check had just passed (the box was clear), so that false fall needs a
 # harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
 # poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
-# so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
-# the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus one per waiter
-# ahead at entry) ends any queued wait whatever the heuristic says; a healthy deep queue normally stays inside it (an
-# entry count a failed ps made too low shrinks it: the safe side, it gives up sooner).
+# so churn behind it cannot restart its bound. A hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus
+# one per live waiter at entry) ends a FLAPPING wait whatever the heuristic says; a healthy deep queue normally stays
+# inside it (an entry count a failed ps made too low shrinks it: the safe side, it gives up sooner).
+# ⚠️ THE COST, which the ceiling does NOT cap: behind a HUNG suite each waiter ahead that gives up is a fall for the ones
+# behind, so the waiter k deep gives up at about (k+1) bounds (45, 90, 135 minutes...), inside its (4+k)-bound ceiling.
+# Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
+# not one (#4609 tracks the live-count side).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
 # pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
@@ -611,7 +614,11 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 _kosmos_suite_waiters_ahead() {
   local dir f pid mine_ts mine_pid ts
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
-  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
+  # check that the marker exists and this read; otherwise it is read here.
+  if [ $# -ge 2 ]; then mine_ts="$1"; mine_pid="$2"
+  else read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  fi
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
     case "${f##*/}" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter; the NAME only, so a marker dir whose path holds ".tmp." still counts
@@ -699,8 +706,12 @@ kosmos_wait_until_clear() {
       # Once queued, a pass on which this run's own marker is missing (another reader's failed ps removed it during the
       # check) takes no count: without its queue time every waiter, those behind included, would count as ahead, and
       # the next pass would read the drop back as a fall.
-      if [ -z "$ts" ] || [ -e "$(_kosmos_suite_waiter_file "$$")" ]; then
-        ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true
+      # Its own queue time is read ONCE, here, and handed to the helper: empty means the marker is gone this pass.
+      local own_ts="" own_pid=""
+      [ -n "$ts" ] && { read -r own_ts own_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || own_ts=""; }
+      if [ -z "$ts" ] || [ -n "$own_ts" ]; then
+        if [ -n "$ts" ]; then ahead="$(_kosmos_suite_waiters_ahead "$own_ts" "$own_pid" | grep -c .)" || true
+        else ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true; fi
         ahead="${ahead:-0}"
         [ -z "$prev" ] && [ "$ceil_auto" = 1 ] && ceil=$((max * (4 + ahead)))
         if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
