@@ -358,9 +358,9 @@ function forAgent(t, sentence) {
 /* #1307: a task a webhook added waits for a PERSON to give it out. Anyone holding a webhook's link
    writes its words, and giving a task to an agent types them into its pane, where it runs with its
    permissions skipped. So a write not marked as from the screen (made.via) may not put somebody on
-   one: a process (any agent, through the API) is refused, and the Assigner skips them
-   (engine/assigner.js pick). Taking somebody OFF
-   is always allowed. */
+   one, and the Assigner skips them (engine/assigner.js pick). made.via rests on the board's
+   advisory screen check (isViaScreen), which a local process can pass by sending browser headers,
+   so the marks forAgent adds are the protection that holds. Taking somebody OFF is always allowed. */
 function webhookGiveProblem(t, whoKey, made) {
   if (!whoKey || !t || t.addedVia !== 'webhook') return null;
   if (made && made.via === 'screen') return null;
