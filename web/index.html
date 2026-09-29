@@ -9429,6 +9429,25 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjmid { border: 0; background: none; padding: 0; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
+/* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
+   end behind a dot. The state washes go ONLY because the word and dot now carry the state
+   (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
+.pj-member-st { display: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { border: 0; background: none; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--nl-face); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; font-size: .8125rem; color: var(--nl-ink-3); white-space: nowrap; }
+/* The remove minus (hover/focus only) sits OVER the word's place instead of holding a gap at the
+   row's end, and the word steps aside while it shows, so the word lines up with the box's edge. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { position: relative; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-minus { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); margin: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:hover .pj-member-st,
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:has(.pj-minus:focus-visible) .pj-member-st { visibility: hidden; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--nl-ink-4); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="working"]::before { background: var(--nl-green); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="attn"]::before { background: var(--danger); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="idle"]::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-4); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -48513,6 +48532,11 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        membership can use the signal. */
     + (hideState ? '' : pjMemberHasIt(m))
     + '</span>'
+    /* #4470: the new look's drawing puts the state WORD at the row's end (Working, Issue, Idle),
+       from the same stateCopyOf/cardStOf the rest of the app uses. Always in the markup, and
+       display:none unless the new look is on, so today's room column still prints no status
+       text (#3212, Josh 6.72) and a toggle needs no repaint. */
+    + (hideState && present ? '<span class="pj-member-st" data-st="' + esc(cardStOf(liveM).st) + '">' + esc(stateCopyOf(liveM).label) + '</span>' : '')
     /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
        on hover or keyboard focus wherever it is drawn. Project settings
        asks for it too now, the same button and the same confirm modal,
