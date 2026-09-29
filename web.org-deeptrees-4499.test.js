@@ -134,6 +134,8 @@ test('no line within 12px of a face that is not one of its ends, first ring incl
   for (const n of [30, 60, 100]) for (const p of [0.05, 0.33]) for (let seed = 1; seed <= 12; seed += 1) specs.push(['randomTree(' + seed + ', ' + n + ', ' + p + ')', randomTree(seed, n, p)]);
   for (let n = 2; n <= 60; n += 2) specs.push(['lead ' + n, lead(n)]);
   specs.push(['a CEO over 4 x 20', ceo(4, 20)], ['a CEO over 6 x 12', ceo(6, 12)]);
+  /* A crowded first ring, so the push-out itself is exercised: without it this tree passes 5.5px (review it3). */
+  specs.push(['randomTree(1, 250, 0.25)', randomTree(1, 250, 0.25)]);
   for (const [label, spec] of specs) {
     const { pos } = paint(spec);
     const lines = linesOf(pos);
@@ -173,7 +175,10 @@ test('the layout stays within its speed budget: 1000 agents in well under 150ms,
      first-ring search once checked every face for every agent on every lane and took 481ms (review it1; now ~40ms,
      #4472 ~14ms). */
   const flatPlusTeam = [['lead'], ['a', 'lead'], ['b', 'lead'], ['c', 'lead']].concat(Array.from({ length: 1000 }, (_, i) => ['f' + i]));
-  for (const [label, spec] of [['a 1000-agent tree', randomTree(1, 1000, 0.05)], ['1000 agents with no manager and one team', flatPlusTeam]]) {
+  /* And one huge team: a lead with 1000 reports visited every pair of its team on every try (review it3: ~200ms;
+     now ~42ms, #4472 ~92ms). */
+  const bigTeam = [['lead']].concat(Array.from({ length: 1000 }, (_, i) => ['r' + i, 'lead']));
+  for (const [label, spec] of [['a 1000-agent tree', randomTree(1, 1000, 0.05)], ['1000 agents with no manager and one team', flatPlusTeam], ['a lead with 1000 reports', bigTeam]]) {
     const agents = page.orgTreeOf(cards(spec));
     page.orgPlace(agents);
     const ms = [];

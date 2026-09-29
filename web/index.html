@@ -30681,7 +30681,7 @@ function orgPlace(nodes) {
      light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
   const ORG_SHARE_POWER = 0.85;
   const ORG_FIRST_LANE = 58;  // the first ring's lane pitch when it spills (as the flat layout's)
-  const ORG_HUB_CLEAR = 74;   // #4434: no report's line nearer the hub's centre than its radius plus a face's (52 + 22)
+  const ORG_HUB_CLEAR = 74;   // #4499, from #4434's hub test: no report's line nearer the hub's centre than 52 + 22
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
   const ORG_LINE_CLEAR = 12;
@@ -30767,12 +30767,12 @@ function orgPlace(nodes) {
         const need = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * rr)));
         const near = [];   // the blocks that reach within `spare` of the centre
         nb.forEach((f, i) => {
-          const at = nbAt[i];
-          if (Math.abs(f.r - rr) < 1e-9) { if (Math.abs(at) - need < spare) near.push([at - need, at + need]); return; }
+          const off = nbAt[i];
+          if (Math.abs(f.r - rr) < 1e-9) { if (Math.abs(off) - need < spare) near.push([off - need, off + need]); return; }
           const k = ORG_LINE_CLEAR / Math.min(f.r, rr);
-          if (Math.abs(at) - k * (Math.PI / 2) >= spare) return;   // asin(k) <= k pi/2: too far round to block
+          if (Math.abs(off) - k * (Math.PI / 2) >= spare) return;   // asin(k) <= k pi/2: too far round to block
           const w = k >= 1 ? Math.PI / 2 : Math.asin(k);
-          if (Math.abs(at) - w < spare) near.push([at - w, at + w]);
+          if (Math.abs(off) - w < spare) near.push([off - w, off + w]);
         });
         const inside = (t) => near.some(([x, y]) => t > x + 1e-12 && t < y - 1e-12);
         const tries = [0, ...near.flatMap(([x, y]) => [x, y])].filter((t) => Math.abs(t) <= spare).sort((u, v) => Math.abs(u) - Math.abs(v));
@@ -30804,22 +30804,20 @@ function orgPlace(nodes) {
   const gap = roots.length > 1 ? Math.min(...rootSpans.map((sp, i) => (sp + rootSpans[(i + 1) % rootSpans.length]) / 2)) : TAU;
   /* One pixel past the exact equality, so rounding cannot leave the tightest pair blocked there (review it2). */
   const settledBase = Math.max(ORG_R0, ORG_MIN_ARC / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) + 1);
-  let ring = firstRing(ORG_R0);
-  if (ring.fellBack) {
+  let first = firstRing(ORG_R0);
+  if (first.fellBack) {
     /* Bisect for the nearest base that clears (a 1000-agent fleet moved its first ring to ~990px: stepping half a lane
-       at a time was 30 placements and 350ms), then, since clearing is not proven to hold at every larger base, step
-       on from there half a lane at a time: settledBase always clears, so this always ends. */
+       at a time was 30 placements and 350ms). `hi` only ever holds a base that cleared or settledBase, which always
+       clears, so the ring is laid once more there. Clearing need not hold at every larger base, which is why this
+       bisects on what was measured rather than assuming the order. */
     let lo = ORG_R0; let hi = settledBase;
     while (hi - lo > ORG_FIRST_LANE / 2) {
       const m = (lo + hi) / 2;
       if (firstRing(m).fellBack) lo = m; else hi = m;
     }
-    for (let base = hi; ; base = Math.min(base + ORG_FIRST_LANE / 2, settledBase)) {
-      ring = firstRing(base);
-      if (!ring.fellBack || base >= settledBase) break;
-    }
+    first = firstRing(hi);
   }
-  for (const spot of ring.spots) { placed.set(spot.node.agent.sessionName, spot); maxR = Math.max(maxR, spot.r); }
+  for (const spot of first.spots) { placed.set(spot.node.agent.sessionName, spot); maxR = Math.max(maxR, spot.r); }
   // The rings beyond, a generation at a time: each manager's reports inside its window, at the team's own radius.
   let prev = roots;
   while (true) {
@@ -30925,10 +30923,17 @@ function orgPlace(nodes) {
        lays out 5-7x slower than before #4472 (a lead with 1000 reports: ~83ms against ~12ms). Normal fleets stay well
        under 10ms. #4499 visits only angular neighbours here (that lead: ~48ms). */
     const clear = (spots) => {
-      const all = [...spots.values()];
+      /* #4499: by angle, so each check visits only near neighbours (a lead with 1000 reports visited every pair on every
+         try: 200ms). The team lies in one contiguous run of angles round its manager, so a plain sort orders it. */
+      const all = [...spots.values()].sort((u, v) => u.ang - v.ang);
       const xy = all.map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
+      const angs = all.map((s) => s.ang);
+      const rMin = all.reduce((least, s) => Math.min(least, s.r), Infinity);
+      /* Two faces at radius rMin or more, theta apart, are at least 2 rMin sin(theta / 2) apart: past this angle no pair
+         can be nearer than ORG_MIN_ARC. */
+      const apartBy = 2 * Math.asin(Math.min(1, ORG_MIN_ARC / (2 * rMin)));
       for (let i = 0; i < all.length; i += 1) {
-        for (let j = i + 1; j < all.length; j += 1) {
+        for (let j = i + 1; j < all.length && angs[j] - angs[i] < apartBy; j += 1) {
           if (Math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]) < ORG_MIN_ARC) return false;
         }
         // A two-ring slot's arc at the INNER ring (its angle times the inner radius) is its room, in px.
@@ -30937,13 +30942,25 @@ function orgPlace(nodes) {
       /* A line to the outer of two rings starts at the manager, not the hub, so it runs slantwise across the inner
          ring: measured, a lead with 18 reports had one pass 0.2px from an inner face's centre. So each such line
          is measured against every other face in its OWN team, and must clear it by ORG_LANE_SLOT. Faces of other
-         teams get only apart()'s ORG_LINE_CLEAR, and only when that fits (review it2 found 10.55px; #4499). */
+         teams get only apart()'s ORG_LINE_CLEAR, and only when that fits (review it2 found 10.55px; #4499).
+         Only the part of the line at radius rMin - ORG_LANE_SLOT or more can come that near a face of this team,
+         and a face further round than asin(ORG_LANE_SLOT / rMin) from that part's angles is too far (a point at
+         radius q, d radians outside a run of angles, is q sin(d) from all of it). */
+      const around = Math.asin(Math.min(1, ORG_LANE_SLOT / rMin));
+      const firstAt = (x) => { let lo = 0; let hi = angs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (angs[m] < x) lo = m + 1; else hi = m; } return lo; };
       for (let i = 0; i < all.length; i += 1) {
         if (!all[i].lane) continue;
         const m = placed.get(all[i].node.parent);
         const ax = Math.cos(m.ang) * m.r; const ay = Math.sin(m.ang) * m.r;
         const dx = xy[i][0] - ax; const dy = xy[i][1] - ay;
-        for (let j = 0; j < all.length; j += 1) {
+        /* Where the line crosses radius rMin - ORG_LANE_SLOT (the larger root: the manager sits inside it). */
+        const inner = rMin - ORG_LANE_SLOT;
+        const qa = dx * dx + dy * dy; const qb = 2 * (ax * dx + ay * dy); const qc = ax * ax + ay * ay - inner * inner;
+        const disc = qb * qb - 4 * qa * qc;
+        const t0 = disc > 0 ? Math.max(0, Math.min(1, (-qb + Math.sqrt(disc)) / (2 * qa))) : 0;
+        const qAng = m.ang + Math.atan2(Math.sin(Math.atan2(ay + t0 * dy, ax + t0 * dx) - m.ang), Math.cos(Math.atan2(ay + t0 * dy, ax + t0 * dx) - m.ang));
+        const lo = Math.min(qAng, all[i].ang) - around; const hi = Math.max(qAng, all[i].ang) + around;
+        for (let j = firstAt(lo); j < all.length && angs[j] <= hi; j += 1) {
           if (j === i) continue;
           const t = Math.max(0, Math.min(1, ((xy[j][0] - ax) * dx + (xy[j][1] - ay) * dy) / (dx * dx + dy * dy || 1)));
           if (Math.hypot(xy[j][0] - ax - t * dx, xy[j][1] - ay - t * dy) < ORG_LANE_SLOT) return false;
@@ -31011,7 +31028,7 @@ function orgPlace(nodes) {
       const reach = (r) => Math.asin(Math.min(1, (ORG_MIN_ARC + ORG_LINE_CLEAR) / Math.max(r, 1)));
       const teamFaces = faces.filter((f) => {
         const x = Math.abs(rel(f.ang));
-        return x <= halfW || (x <= halfW + Math.PI / 2 && x <= halfW + reach(f.r));
+        return x <= halfW || (x <= halfW + Math.PI / 2 && x <= halfW + reach(f.r));   // reach <= pi/2: skip its asin
       });
       const teamLines = lines.filter((g) => {
         const x = rel(g.angA); const y = rel(g.angB);
@@ -31052,9 +31069,28 @@ function orgPlace(nodes) {
         for (const g of mineLines) for (const h of teamLines) if (h.hi >= g.lo && h.lo <= g.hi && crosses(g, h)) return false;
         if (spots.wide) for (const g of mineLines) if (g.lo < ORG_HUB_CLEAR) return false;
         if (!strict) return true;
+        /* This team's lines past its own faces, by angle: only the part of a line at radius rMin - ORG_LINE_CLEAR or more
+           can come that near one of them, and only a face within asin(ORG_LINE_CLEAR / rMin) of that part's angles (as
+           in clear(); every pair was visited before: a lead with 1000 reports). */
+        const byAng = mine.slice().sort((u, v) => u.ang - v.ang);
+        const angsM = byAng.map((f) => f.ang);
+        const rMin = byAng.reduce((least, f) => Math.min(least, f.r), Infinity);
+        const inner = rMin - ORG_LINE_CLEAR;
+        const around = Math.asin(Math.min(1, ORG_LINE_CLEAR / rMin));
+        const firstAt = (x) => { let lo = 0; let hi = angsM.length; while (lo < hi) { const m = (lo + hi) >> 1; if (angsM[m] < x) lo = m + 1; else hi = m; } return lo; };
         for (const g of mineLines) {
           for (const f of teamFaces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
-          for (const f of mine) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
+          const qa = dx * dx + dy * dy; const qb = 2 * (g.a[0] * dx + g.a[1] * dy); const qc = g.a[0] * g.a[0] + g.a[1] * g.a[1] - inner * inner;
+          const disc = qb * qb - 4 * qa * qc;
+          const t0 = disc > 0 ? Math.max(0, Math.min(1, (-qb + Math.sqrt(disc)) / (2 * qa))) : 0;
+          const qRaw = Math.atan2(g.a[1] + t0 * dy, g.a[0] + t0 * dx);
+          const qAng = g.angB + Math.atan2(Math.sin(qRaw - g.angB), Math.cos(qRaw - g.angB));
+          const lo = Math.min(qAng, g.angB) - around; const hi = Math.max(qAng, g.angB) + around;
+          for (let j = firstAt(lo); j < byAng.length && angsM[j] <= hi; j += 1) {
+            const f = byAng[j];
+            if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          }
         }
         for (const g of teamLines) for (const f of mine) if (near(f, g) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         return true;

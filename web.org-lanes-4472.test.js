@@ -161,7 +161,6 @@ const leads = (count, n) => [].concat(...Array.from({ length: count }, (_, j) =>
   [['L' + j]].concat(Array.from({ length: n }, (_, i) => ['r' + j + '_' + i, 'L' + j]))));
 const ceo = (count, n) => [['ceo']].concat(...Array.from({ length: count }, (_, j) =>
   [['M' + j, 'ceo']].concat(Array.from({ length: n }, (_, i) => ['r' + j + '_' + i, 'M' + j]))));
-const outer = (t) => [...t.pos.values()].filter((p) => p.lane).length;
 
 test('several leads, and a CEO over several managers: even and odd teams both take two rings and shrink (#4472)', () => {
   /* Measured (main / #4473 / now): 4 leads x 30: 1240 / 2558 / 1777; x 31: 1240 / 2630 / 1691.
