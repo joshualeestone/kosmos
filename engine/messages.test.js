@@ -2860,8 +2860,8 @@ test('#4580: a retry that arrives while the first send is STILL delivering waits
   const gate = new Promise((r) => { release = r; });
   let delivered = 0;
   const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
-  const sender = { ok: true, card: { sessionName: 'leo' } };
-  const input = { sender, to: 'mara', text: 'on my way' };
+  armSender('leo-discord');
+  const input = { fromPane: '%7', to: 'mara', text: 'on my way' };
   await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
     const p1 = messages._sendWithDelivery(input, board.agents, slow);
     const p2 = messages._sendWithDelivery(input, board.agents, slow);
@@ -2943,8 +2943,8 @@ test('#4580: a room post retried while the first is STILL delivering waits for i
   const gate = new Promise((r) => { release = r; });
   let delivered = 0;
   const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
-  const sender = { ok: true, card: { sessionName: 'mara' } };
-  const input = { sender, project: 'henderson-lease', text: 'draft is up' };
+  armSender('mara-discord');
+  const input = { fromPane: '%7', project: 'henderson-lease', text: 'draft is up' };
   await withFleet(room3(), async (board) => {
     const p1 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
     const p2 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
@@ -2959,11 +2959,11 @@ test('#4580: a room post retried while the first is STILL delivering waits for i
 
 test('#4580: a folded retry of an UNCONFIRMED send says so in words, instead of dropping the reason', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
-    const sender = { ok: true, card: { sessionName: 'leo' } };
+    armSender('leo-discord');
     const maybe = () => ({ state: chat.DELIVERY.UNCONFIRMED, because: 'typed, with Enter unconfirmed' });
-    const first = messages._sendWithDelivery({ sender, to: 'mara', text: 'maybe there' }, board.agents, maybe);
+    const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'maybe there' }, board.agents, maybe);
     assert.equal(first.state, chat.DELIVERY.UNCONFIRMED);
-    const again = messages._sendWithDelivery({ sender, to: 'mara', text: 'maybe there' }, board.agents, maybe);
+    const again = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'maybe there' }, board.agents, maybe);
     assert.equal(again.duplicate, true);
     assert.equal(again.state, chat.DELIVERY.UNCONFIRMED);
     assert.match(again.because || '', /not confirmed then; it may already be there, so it was not sent again/);
@@ -2974,10 +2974,10 @@ test('#4580: a retry waiting on a first send that FAILED gets the failure, never
   let release;
   const gate = new Promise((r) => { release = r; });
   const failing = () => gate.then(() => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' }));
-  const sender = { ok: true, card: { sessionName: 'leo' } };
+  armSender('leo-discord');
   await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
-    const p1 = messages._sendWithDelivery({ sender, to: 'mara', text: 'will fail' }, board.agents, failing);
-    const p2 = messages._sendWithDelivery({ sender, to: 'mara', text: 'will fail' }, board.agents, failing);
+    const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
+    const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will fail' }, board.agents, failing);
     release();
     const [, b] = await Promise.all([p1, p2]);
     assert.equal(b.state, chat.DELIVERY.COULD_NOT, JSON.stringify(b));

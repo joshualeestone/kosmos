@@ -146,3 +146,14 @@ nudge repeated into a silent room, and the cost of the other error is a room ful
 - [x] challenge loop CONVERGED at iteration 8 (sonnet): zero NEW after dedup (details in the proof)
 - [x] rebased onto origin/main (f80887e31, incl. #4544's agent nudge: it types through chat.deliver, which this change does not touch); focused 234/234 (engine, federation, CLIs, agentnudge) and every CLI + Windows CLI file 327/327
 - [x] SHIPS AS ONE PR WITH noproxy-4466 (Splinter agreed 13:26 CDT): both are #4466 follow-ups, stacked, each converged on its own diff; one PR saves an hour-long CI queue cycle. The full suite runs in PR CI (the local queue is deadlocked until #4574). Weakest premise: a revert takes both.
+
+## After convergence: two CI meta-guard reds (2026-09-29 15:3x)
+PR #4622's macOS node suite (run 36613470088, head 087bf0149) failed two repo meta-guards my focused runs never
+included:
+- engine.reachable.test.js: `_sendWithDelivery` / `_sendPostWithDelivery` were exported test seams that nothing excused.
+  Both are now EXCUSED by name with the reason (the send and post cores with an injected deliver, so two concurrent
+  identical sends can be held in flight; production reaches them through send/sendAsync and post/postAsync).
+- fixture-discipline.test.js: four #4580 tests hand-built the sender's card (`{ card: { sessionName } }`). They now use
+  the file's own sender seam (`armSender('<name>-discord')` + `fromPane`), so the sender is resolved from the real
+  fleet card. Red-checked: with inFlightTwin returning null, both "STILL delivering" tests fail (2/2).
+Lesson (mine, again): focused tests are not the suite; the meta-guards run only in the full suite.
