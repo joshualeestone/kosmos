@@ -181,11 +181,14 @@ function readLatest() {
   if (old !== null && (sign === null || old > sign)) sign = old;
   let note = null;
   if (noteAt !== null) {
-    note = { finish: noteAt, start: null, digests: [], fileUnread: false, vanished: false };
+    /* #4569 review round 1: `saveOnly` when every note at that moment is a sign-in whose save failed (no turn ran,
+       so Meta refused nothing). An unreadable body, or one from before the kind was written, counts as a refusal. */
+    note = { finish: noteAt, start: null, digests: [], fileUnread: false, vanished: false, saveOnly: true };
     for (const n of noteNames) {
       let j;
       try { j = JSON.parse(fs.readFileSync(path.join(eventsFolder(), n), 'utf8')); }
-      catch (e) { if (e && e.code === 'ENOENT') note.vanished = true; note.fileUnread = true; continue; }
+      catch (e) { if (e && e.code === 'ENOENT') note.vanished = true; note.fileUnread = true; note.saveOnly = false; continue; }
+      if (!(j && j.kind === 'save')) note.saveOnly = false;
       const s = Number.isSafeInteger(j && j.start) ? Math.min(j.start, noteAt) : noteAt;
       if (note.start === null || s > note.start) note.start = s;
       if (typeof j.metaDigest === 'string') note.digests.push(j.metaDigest);
@@ -263,7 +266,7 @@ function markKosmosSignedIn(at = Date.now()) {
     nothing refused that one (round 7). Never throws. */
 function markSaveFailed(at = Date.now()) {
   try { fs.rmSync(signedInMarker(), { force: true }); } catch { /* none */ }
-  try { record('note', at, { start: at, metaDigest: null, fileUnread: false }); return true; } catch { return false; }
+  try { record('note', at, { start: at, metaDigest: null, fileUnread: false, kind: 'save' }); return true; } catch { return false; }
 }
 /* Muse's own file store (the file backend, and every non-Mac build): XDG_CONFIG_HOME, else ~/.config. */
 function authFile() {
@@ -296,10 +299,11 @@ function lastSeenWorking() {
   if (t === null && g === null) return null;
   return t !== null && (g === null || t >= g) ? { at: t, from: 'turn' } : { at: g, from: 'sign' };
 }
-/* #4569: Meta refused a turn and nothing since says it works again: the row reads Not connected instead of vanishing. */
+/* #4569: Meta refused a turn and nothing since says it works again: the row reads Not connected instead of vanishing.
+   A sign-in whose save failed is not a refusal (review round 1): no turn ran, and there may never have been a sign-in. */
 function refused() {
   const { note } = latest();
-  return !!note && !signedIn().signedIn;
+  return !!note && !note.saveOnly && !signedIn().signedIn;
 }
 
 let hardCapMs = VERSION_HARD_CAP_MS;

@@ -164,6 +164,7 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { id: 'mine000000000001', state: 'expired', because: 'The code expired before it was approved' }; });
   await tick();
   chk(!(await G('acct-muse-retry-row')).hidden, 'an expired code offers Get a new code');
+  chk((await G('acct-muse-spin')).hidden, 'an expired code stops the spinner: it waits on the person now (#4569 review round 1)');
   chk((await G('acct-muse-code')).hidden, 'the expired code is no longer shown');
   await q(() => document.getElementById('acct-muse-retry').click());
   await settle();
@@ -181,6 +182,7 @@ const chk = (ok, label, extra) => {
   chk(/Signed in to Meta Muse\. You can close this window\./.test(done.line), 'done says so, and that the window can be closed (#4569)', JSON.stringify(done));
   chk(done.go && done.spin && done.say === '', 'done: the button and the spinner are gone, not left under the success line (#4569)', JSON.stringify(done));
   chk(done.close && done.focus === 'acct-add-close', 'done: Close is the primary action and has focus (#4569)', JSON.stringify(done));
+  chk(await q(() => document.getElementById('acct-add-close').getAttribute('aria-describedby') === 'acct-muse-done'), 'done: Close is described by the success line, so a screen reader hears it (#4569 review round 1)');
   chk(await q((b) => window.__accountsPainted > b, before), 'done repaints the accounts');
   chk((await G('acct-muse-cancel-row')).hidden, 'after done, Stop goes');
 
@@ -203,6 +205,11 @@ const chk = (ok, label, extra) => {
   const tryAgain = await q(() => ({ label: document.getElementById('acct-muse-go').textContent, spin: document.getElementById('acct-muse-spin').hidden,
     done: document.getElementById('acct-muse-done').hidden, close: document.getElementById('acct-add-close').classList.contains('uprime') }));
   chk(tryAgain.label === 'Try again' && tryAgain.spin && tryAgain.done && !tryAgain.close, 'a failure offers Try again, with no spinner, no success line and Close back to plain (#4569)', JSON.stringify(tryAgain));
+  // Review round 1: reopened after a failure, the step starts fresh (the label said Try again with no failure shown).
+  await q(() => { closeAcctAdd(); openAcctAdd(); }); await settle();
+  await choose('meta'); await settle();
+  chk(await q(() => document.getElementById('acct-muse-go').textContent === 'Sign in with Meta' && !document.getElementById('acct-add-close').hasAttribute('aria-describedby')),
+    'reopened after a failure, the button reads Sign in with Meta again (#4569 review round 1)');
 
   // A refused start is said in words.
   await q(() => { window.__startAnswer = [400, { ok: false, error: 'Muse Code is not on this computer' }]; document.getElementById('acct-muse-go').click(); });
@@ -650,6 +657,10 @@ const chk = (ok, label, extra) => {
       modelOff: document.getElementById('d-model').disabled,
       accts: [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean),
       acctMsg: document.getElementById('d-account-msg').textContent,
+      // #4569 (Josh): no dead Move control, the provider named Meta Muse (never Meta / Llama), and no "Unknown Model".
+      moveRowHidden: document.getElementById('d-account').parentElement.hidden,
+      provShown: pTrig ? pTrig.textContent.replace(/\s+/g, ' ').trim() : '',
+      runsOn: modelLine(muse),
     };
     // CONTROL: a Claude agent on the same page is offered the Claude accounts.
     const claude = { sessionName: 'c1', runner: 'claude', provider: 'anthropic', account: { dir: c.dir } };
@@ -659,6 +670,7 @@ const chk = (ok, label, extra) => {
     out.claudeProvOff = document.getElementById('d-provider').disabled;
     out.claudeProvMsg = document.getElementById('d-provider-msg').textContent;
     out.claudeAccts = [...document.getElementById('d-account').options].map((o) => o.value).filter(Boolean);
+    out.claudeMoveRowHidden = document.getElementById('d-account').parentElement.hidden;
     CURRENT = null; ACCOUNTS = [];
     return out;
   }, [CLAUDE_ROW]);
@@ -667,6 +679,9 @@ const chk = (ok, label, extra) => {
   chk(musePage.accts.length === 0 && /Meta sign-in through Muse Code, so there is no account to move it to/.test(musePage.acctMsg),
     'agent page, Muse agent: no account to move it to, said', JSON.stringify(musePage));
   chk(musePage.claudeAccts.length >= 1, 'CONTROL: a Claude agent on the same page is offered Claude accounts', JSON.stringify(musePage));
+  chk(musePage.moveRowHidden === true && musePage.claudeMoveRowHidden === false, 'agent page, Muse agent: no empty Move menu is drawn (CONTROL: a Claude agent\'s is) (#4569)', JSON.stringify(musePage));
+  chk(/Meta Muse/.test(musePage.provShown) && !/Llama/.test(musePage.provShown), 'agent page, Muse agent: the provider reads Meta Muse, not Meta / Llama (#4569)', musePage.provShown);
+  chk(musePage.runsOn === 'Meta Muse', 'agent page, Muse agent: Runs on names Meta Muse, not Unknown Model (#4569)', musePage.runsOn);
   chk(musePage.provValue === 'meta' && musePage.provOff === true && musePage.provTrigOff === true && musePage.provGoOff === true
     && musePage.provMsg === 'Moving an agent on Meta Muse to another provider is not offered yet.',
     'agent page, Muse agent: shows Meta, offers no switch off it, and says so', JSON.stringify(musePage));

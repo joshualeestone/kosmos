@@ -18298,6 +18298,8 @@ function modelLine(a) {
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
+  // #4569 (Josh: "Unknown Model"): Muse picks Meta's model itself; the model its turn names, else the provider.
+  if (a.runner === 'muse') return name || 'Meta Muse';
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
      of them is a fault. No launch file at all means there was never anywhere
      to look, no restart will fill it in, and the wording (ruled on card #150)
@@ -26962,6 +26964,7 @@ function museSigninFlow(prefix, opts) {
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
     const sp = el('spin'); if (sp) sp.hidden = true;
     const dn = el('done'); if (dn) dn.hidden = true;
+    if (g) g.textContent = 'Sign in with Meta';   // a reopened step starts fresh (review round 1); a failure relabels after
     if (opts && opts.onReset) opts.onReset();
   }
   /* #4569: a sign-in that failed or ended offers Try again on the same button. */
@@ -26976,6 +26979,7 @@ function museSigninFlow(prefix, opts) {
       if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
     } else clearCode();
     if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
+    const sp = el('spin'); if (sp) sp.hidden = st.state === 'expired';   // #4569: waiting on the person, not on Meta
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
@@ -26996,7 +27000,6 @@ function museSigninFlow(prefix, opts) {
       show(st);
       if (st.state === 'done') {
         finish('');
-        label('Sign in with Meta');
         const dn = el('done');
         if (dn) {
           /* #4569 (Josh): the success line REPLACES the button, never sits under a live one. */
@@ -27071,15 +27074,14 @@ function museSigninWire(flow, prefix) {
   el('cancel').addEventListener('click', () => {
     flow.leave();
     const m = el('say'); if (m) m.textContent = 'Sign-in stopped.';
-    el('go').textContent = 'Sign in with Meta';
     el('go').focus();
   });
 }
 const ACCT_MUSE = museSigninFlow('acct-muse-', {
   onDone: () => paintAccounts(),
   /* #4569 (Josh): once signed in, Close is the thing to press. */
-  onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.focus(); } },
-  onReset: () => { const c = document.getElementById('acct-add-close'); if (c) c.classList.remove('uprime'); },
+  onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
+  onReset: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.remove('uprime'); c.removeAttribute('aria-describedby'); } },
 });
 /* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
 function acctMuseShow(on) {
@@ -43125,6 +43127,10 @@ async function paintAccountPicker(a) {
      listener, which is unaffected, so the feature degrades rather than dies. Named so the
      coupling is known rather than rediscovered. */
   if (!sel || !go) return;
+  /* #4569 (Josh): an empty menu and a Move button that can never be pressed is a dead control, so for an agent
+     with no account to move to, the row is not drawn at all; the line under it says why. */
+  const moveRow = sel.parentElement;
+  if (moveRow) moveRow.hidden = false;
   /* #3568 (review round 7): an Antigravity agent signs in with Google inside its own window and has
      no Kosmos account, so there is nothing to move it to; the keyed branches below would call it a
      key and point at a Settings path that cannot add one. */
@@ -43132,6 +43138,7 @@ async function paintAccountPicker(a) {
     sel.innerHTML = '<option value="" selected></option>';
     sel.disabled = true;
     go.disabled = true;
+    if (moveRow) moveRow.hidden = true;
     if (msg) msg.textContent = a.runner === 'muse'
       ? 'It runs on your Meta sign-in through Muse Code, so there is no account to move it to.'
       : 'It runs on your Google subscription through Antigravity, so there is no account to move it to.';

@@ -215,7 +215,7 @@ test('#3939 3c-1: older events of a kind are pruned; the newest of each stays; n
   assert.equal(names.filter((n) => /-turn-/.test(n)).length, 1, 'older turns were not pruned: ' + names);
   assert.equal(names.filter((n) => /-note-/.test(n)).length, 1, 'older notes were not pruned: ' + names);
   assert.deepEqual(fs.readdirSync(muse.eventsFolder()).filter((n) => n.endsWith('.tmp')), [], 'a temporary file was left');
-  assert.deepEqual(muse.latest(), { turn: T + 30, sign: null, note: { finish: T + 20, start: T + 20, digests: [], fileUnread: false, vanished: false } });
+  assert.deepEqual(muse.latest(), { turn: T + 30, sign: null, note: { finish: T + 20, start: T + 20, digests: [], fileUnread: false, vanished: false, saveOnly: false } });
   clean();
 }));
 
@@ -424,4 +424,20 @@ test('#4569: lastSeenWorking is Kosmos\'s own sign-in or a finished turn, never 
   assert.deepEqual(muse.lastSeenWorking(), { at: T + 20, from: 'sign' });
   clean();
   assert.equal(muse.refused(), false, 'never signed in reads as refused');
+}));
+
+test('#4569 review round 1: a sign-in whose save failed is not a refusal (no turn ran); a refused turn after it is', () => withXdg(() => {
+  clean();
+  muse.markSaveFailed(T);
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: not signed in');
+  assert.equal(muse.refused(), false, 'a failed save read as Meta refusing a turn (a red row for someone never signed in)');
+  muse.markSignedOut(T + 10);
+  assert.equal(muse.refused(), true, 'CONTROL: a refused turn after it is a refusal');
+  clean();
+  place('note', T, '{"start":' + T + '}\n');   // a note from before the kind was written
+  assert.equal(muse.refused(), true, 'an older note without a kind stopped counting as a refusal');
+  clean();
+  place('note', T, '{"start":' + T + ',"kind":"save"}\n'); place('note', T, '{"start":' + T + '}\n');
+  assert.equal(muse.refused(), true, 'a refusal at the same moment as a failed save was hidden by it');
+  clean();
 }));

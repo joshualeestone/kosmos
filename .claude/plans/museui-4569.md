@@ -9,7 +9,11 @@ Card: joshualeestone/kosmos#4569 (claimed:angel), Josh's 10:47 and 10:48 comment
 - Add a provider > Meta: from the click, the button stays in place (off) with a spinner and "Connecting..." beside
   it. Signed in: the button is REPLACED by "✓ Signed in to Meta Muse. You can close this window." and Close is
   the primary action, with focus. Failed or ended: the reason, and the button reads "Try again".
-- The provider menus say "Meta Muse", not "Meta / Llama".
+- The provider menus say "Meta Muse", not "Meta / Llama" (Add a provider, the create form, and an agent's Runs on,
+  which all read the same option text).
+- An agent on Muse: Runs on names "Meta Muse" (or the model its turn names), never "Unknown Model"; and no empty
+  Move menu and dead Move button is drawn (the line under it says there is no account to move it to). The same for
+  an Antigravity agent, which had the same dead row.
 
 ## Decisions
 - Green from Kosmos's own sign-in: it is Meta accepting the sign-in, the same kind of evidence as the ChatGPT
@@ -24,6 +28,10 @@ Card: joshualeestone/kosmos#4569 (claimed:angel), Josh's 10:47 and 10:48 comment
   names only the dropdown.
 - The spinner is added to the first-run Meta sign-in too (same controller); its success stays the row turning
   Connected (that place has no window to close).
+
+- Review round 1: a sign-in whose SAVE failed is not a refusal (no turn ran), so it does not paint the red row; the
+  note records its kind. The button label resets whenever the step is reset; the spinner stops on an expired code
+  (the person has to act); Close is described by the success line for a screen reader.
 
 ## Weakest premise
 That Kosmos's own sign-in finishing means Meta accepted the credential. It is recorded when `muse login` completes
