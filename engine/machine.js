@@ -1698,9 +1698,9 @@ function win32BoardAutostartCheck(opts) {
    but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
    the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent's plist is still
    there, and it is named by the name the person sees (create.spokenName). A stale override is left out and NOT
-   cleaned: this is a read,
-   and `launchctl enable` on a label with no plist is harmless to leave. opts.live(name) and opts.shownName(name)
-   are the seams. */
+   cleaned: this is a read, and a disabled override on a label with no plist is harmless to leave. This path reads
+   the disk per disabled agent (its plist, its profile and perhaps its instructions); the OK path still does not.
+   opts.live(name) and opts.shownName(name) are the seams. */
 function agentAutostartCheck(runner, opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
@@ -1753,9 +1753,13 @@ function agentAutostartCheck(runner, opts) {
     : (n) => { try { return create.jobPresence(n, 'darwin') !== 'no'; } catch { return true; } };
   const shownName = typeof o.shownName === 'function' ? o.shownName
     : (n) => { try { return create.spokenName(n) || n; } catch { return n; } };
-  const concerning = disabledNames
-    .filter((n) => !removedSet.has(create.cleanName(n)) && live(n))
-    .map((n) => shownName(n));
+  const kept = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)) && live(n));
+  const shownAs = kept.map((n) => ({ job: n, shown: shownName(n) }));
+  /* Two agents can share a display name (a copied agent keeps its own): each of those carries its job name too,
+     so "Harbor, Harbor" is never shown for two different agents. */
+  const seen = new Map();
+  for (const x of shownAs) seen.set(x.shown, (seen.get(x.shown) || 0) + 1);
+  const concerning = shownAs.map((x) => (seen.get(x.shown) > 1 && x.shown !== x.job ? x.shown + ' (' + x.job + ')' : x.shown));
   if (concerning.length === 0) return okRow;   // every disabled job is a removed agent's, or a leftover with no agent
 
   concerning.sort((a, b) => a.localeCompare(b));
@@ -1769,7 +1773,8 @@ function agentAutostartCheck(runner, opts) {
       + ' login job switched off right now, so '
       + (one ? 'it will not come back on its own' : 'they will not come back on their own')
       + ' after a restart. You can turn ' + (one ? 'it' : 'them')
-      + ' back on in System Settings, under General then Login Items.' };
+      + ' back on in System Settings, under General then Login Items, where '
+      + (one ? 'it may not be listed by this name.' : 'they may not be listed by these names.') };
 }
 
 function check(opts) {

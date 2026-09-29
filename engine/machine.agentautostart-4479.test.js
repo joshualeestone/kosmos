@@ -72,10 +72,16 @@ test('#4479 an agent with no recorded display name is named as the board names i
   try {
     const got = machine.agentAutostartCheck(printDisabled(['neojob']), { ...DARWIN, removed: { ok: true, names: [] } });
     assert.match(got.detail, /^Neo has its/, 'the row named an agent differently from the board: ' + got.detail);
-  } finally { fs.rmSync(create.plistPath('neojob'), { force: true }); }
+  } finally {
+    fs.rmSync(create.plistPath('neojob'), { force: true });
+    fs.rmSync(create.workerDir('neojob'), { recursive: true, force: true });
+  }
 });
 
 test('#4479 a plist check that cannot look (not "not there") counts the agent as live, the safe direction', () => {
+  /* Works because machine.js calls create.jobPresence through the module object at call time; a destructured
+     import there would make this stub a no-op, and this test would then fail rather than pass falsely (eric has
+     no plist, so the real reader answers 'no' and the row would be OK). */
   const presence = create.jobPresence;
   create.jobPresence = () => 'unknown';
   try {
@@ -83,6 +89,19 @@ test('#4479 a plist check that cannot look (not "not there") counts the agent as
     assert.equal(got.state, machine.STATE.ATTENTION, 'an unreadable check hid a possibly live agent');
     assert.match(got.detail, /^eric has its/);
   } finally { create.jobPresence = presence; }
+});
+
+test('#4479 two agents with one display name are told apart by their job names', () => {
+  for (const n of ['harborone', 'harbortwo']) { fs.writeFileSync(create.plistPath(n), '<plist/>'); store.writeProfile(n, { displayName: 'Twin' }); }
+  try {
+    const got = machine.agentAutostartCheck(printDisabled(['harborone', 'harbortwo']), { ...DARWIN, removed: { ok: true, names: [] } });
+    assert.match(got.detail, /^Twin \(harborone\), Twin \(harbortwo\) have their/, got.detail);
+  } finally { for (const n of ['harborone', 'harbortwo']) fs.rmSync(create.plistPath(n), { force: true }); }
+});
+
+test('#4479 the row does not promise that Login Items lists the agent by this name', () => {
+  const got = machine.agentAutostartCheck(printDisabled(FIXTURE), { ...DARWIN, removed: REMOVED });
+  assert.match(got.detail, /Login Items, where it may not be listed by this name\.$/);
 });
 
 test('#4479 the row is still left out on Windows', () => {
