@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recommender-4545
-diff_hash: 048e67d065a45cf6788328aa70ec7d7cd5ce34b09ff7053f5a6bae8469a5db2c
+diff_hash: e83b35315c2099f2f66bcf08af59f895a945ca48d6dc95c0222c317a07e83b00
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-29T14:10:16Z
@@ -21,6 +21,12 @@ Validation note: a 6.0 run of 15dbf62 was started and stopped before its tests r
 behind another agent's suite, and the iteration 1 fixes were about to change the tree); a run of
 e2d6e99 was stopped the same way for iteration 2's fixes. The one full validation is 6j, on the
 final HEAD 06d3a37 (this proof's hash).
+
+Post-PR (CI): PR #4558's browser-checks job failed the new check's 390px far-end-click arms (the
+guards below the fold on CI's fonts). Fixed in the check only (scroll the row into view), reproduced
+and verified locally at a 500px window (old 32/36, new 36/36). The validation suite (run-tests) does
+not run browser checks, so its pass at 048e67d still covers every file it runs; this hash is the
+branch with that one browser-check change.
 
 ### Per-Iteration Breakdown
 
