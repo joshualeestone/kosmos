@@ -30190,6 +30190,27 @@ function orgPlace(nodes) {
     leaves.set(name, w);
     return w;
   };
+  const ORG_LANE = 58;        // #4472: how much further out a big team's second ring sits (as the flat spill)
+  const ORG_LANE_SLOT = 31;   // #4472: the least room per report in a two-ring team: half ORG_MIN_ARC
+  /* #4472: a manager's reports in the order they are laid out: heaviest and lightest alternating, by leaf count,
+     instead of input order. Each report's share of the window is its leaf count, so a light report gets a sliver:
+     two light ones side by side then set the whole ring's radius, and every ring below stacked on it (measured: the
+     closest pair on nearly every ring of the deep 100-agent trees). Beside a heavy one it borrows half the heavy
+     one's share as room instead. "Light" is the leaf count, not having no reports: a manager of one is as light as
+     a leaf. Ties keep input order. Any order of disjoint sub-slices keeps the sectors, so this cannot cause a
+     crossing. (Giving each report a minimum share instead squeezed the heavy ones, whose windows do not grow
+     with the radius: one tree grew to 548,000px.) */
+  function orgSpread(ks, weightOf) {
+    const byWeight = ks.map((k, i) => ({ k, i, w: weightOf(k) })).sort((a, b) => b.w - a.w || a.i - b.i);
+    const out = [];
+    for (let lo = 0, hi = byWeight.length - 1; lo <= hi; lo += 1, hi -= 1) {
+      out.push(byWeight[lo].k);
+      if (hi > lo) out.push(byWeight[hi].k);
+    }
+    return out;
+  }
+  // #4472: every manager's reports in layout order (orgSpread); the first ring keeps the input order.
+  for (const [name, ks] of kids) if (name) kids.set(name, orgSpread(ks, weigh));
   const TAU = Math.PI * 2;
   const norm = (a) => ((a % TAU) + TAU) % TAU;
   /* The closest two angles in a set, as a chord at radius r: what "do they touch" means on a ring. */
@@ -30242,27 +30263,59 @@ function orgPlace(nodes) {
            with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
            pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
-        const half = Math.min((ps.hi - ps.lo) / 2, cap);
+        /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
+           no longer always centred on the manager. One or two reports keep a centred window (#352: a lone report
+           straight out, a pair either side). */
+        const left = ks.length > 2 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
+        const right = ks.length > 2 ? Math.min(ps.hi - ps.ang, cap) : left;
+        const half = (left + right) / 2;
         const w = ks.reduce((sum, k) => sum + weigh(k), 0);
-        let from = ps.ang - half;
-        for (const k of ks) {
+        /* #4472: a team with no managers in it (every report a leaf) that would crowd one ring takes two
+           staggered ones, alternating, the way the flat layout's first ring spills. Its lines all start at the
+           manager, so they cannot cross each other, and no other line enters its window (the team has no
+           reports below it), so the second ring cannot cause a crossing. Slots stay ORG_LANE_SLOT apart, so a
+           line to the outer ring passes midway between two inner faces rather than through one. A team with
+           a manager in it keeps one ring: an outer line there could sweep across that manager's own window. */
+        const slot = (2 * half) / ks.length;
+        const laned = ks.length > 1 && !ks.some((k) => (kids.get(k.agent.sessionName) || []).length)
+          && 2 * r * Math.sin(slot / 2) < ORG_MIN_ARC;
+        let from = ps.ang - left;
+        ks.forEach((k, i) => {
           const span = (2 * half * weigh(k)) / w;
-          out.set(k.agent.sessionName, { ang: from + span / 2, r, node: k, lo: from, hi: from + span });
+          const lane = laned ? i % 2 : 0;
+          /* #4472: the first and last report's slice runs on to the edge of the manager's slice: room the window
+             did not use, which their own reports may then spread into. The slices still split the manager's
+             slice without overlapping, and each report still sits inside its own, so nothing can cross. */
+          const lo = i === 0 && !laned ? Math.min(from, ps.lo) : from;
+          const hi = i === ks.length - 1 && !laned ? Math.max(from + span, ps.hi) : from + span;
+          out.set(k.agent.sessionName, { ang: from + span / 2, r: r + lane * ORG_LANE, node: k, lo, hi, span, lane, laned });
           from += span;
-        }
+        });
       }
       return out;
+    };
+    /* Whether a ring's spots are clear: no two faces nearer than ORG_MIN_ARC, and in a laned team the slots
+       at least ORG_LANE_SLOT apart (the gap a line to the outer ring passes through). */
+    const clear = (spots) => {
+      const all = [...spots.values()];
+      const xy = all.map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
+      for (let i = 0; i < all.length; i += 1) {
+        for (let j = i + 1; j < all.length; j += 1) {
+          if (Math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]) < ORG_MIN_ARC) return false;
+        }
+        if (all[i].laned && all[i].span * (all[i].r - all[i].lane * ORG_LANE) < ORG_LANE_SLOT) return false;
+      }
+      return true;
     };
     let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
     let spots = lay(r);
     /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
        room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
-    for (let tries = 0; tries < 400 && tightest([...spots.values()].map((s) => s.ang), r) < ORG_MIN_ARC; tries += 1) {
+    for (let tries = 0; tries < 400 && !clear(spots); tries += 1) {
       r = Math.max(r + 8, r * 1.03);
       spots = lay(r);
     }
-    for (const [name, spot] of spots) placed.set(name, spot);
-    maxR = Math.max(maxR, r);
+    for (const [name, spot] of spots) { placed.set(name, spot); maxR = Math.max(maxR, spot.r); }
     prev = ring.map((x) => x.n);
     depth += 1;
   }

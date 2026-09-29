@@ -563,7 +563,9 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
   };
   assert.equal(settleFlat(true).overlapping, 0, 'the flat fleet rests with faces overlapping');
   const carried = settleFlat(false);
-  assert.ok(carried.grew > 2 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
+  /* 1.5, not 2: since #4472 a big team takes two staggered rings, so this tree's canvas is 1.8x the flat one's,
+     not 3x. The control is that the carried positions DO overlap; the size only says the canvases differ. */
+  assert.ok(carried.grew > 1.5 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
 });
 
 test('a tree\'s kept positions move with the canvas on screen, measured by the page itself (#4434, review it13, it15)', () => {
