@@ -14,6 +14,11 @@
 - Also known (review round 30): a choice that becomes connect after the start step reads "will not
   start itself at login" before the end-of-run stop has written the marker; the file names this
   read-then-act window.
+- Also known (review rounds 9 and 33, on the card): a Mac that has run agents and then finds a
+  damaged choice file asks again; if the person picks Connect, `kosmos stop` stops the board but
+  not the agents' tmux sessions, and quitting the app then skips the "agents are running" dialog
+  because a connect Mac has none by design. Zero while the switch is off; #4382 must decide it
+  (stop the agents, or refuse Connect while agents run) before turning the switch on.
 - Everything under "Finished means" below describes the switch ON.
 
 ## Finished means (Liu Kang's plan on the card, and m2433/m2435/m2442)
