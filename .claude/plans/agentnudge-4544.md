@@ -73,3 +73,17 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
 - NIT taken: a source test that the Prompter tick calls prompterTick once and has no other deliver or list write
   (a wiring guard; the behaviour is prompterTick's own tests).
 - NIT taken: a source test that the click handler is attached to #hb-nudges, after the markup.
+
+### Iteration 3 (opus)
+- WARNING fixed: the not-idle states test was refused by the Prompter-reading rule before the card rule (a mutation
+  making nudgeableCard always true passed). It now forces from/to 'idle', and new arms cover a switched-off swarm and a
+  card that is not ours, with a control.
+- WARNING fixed: the Settings hint promised a check-in for every stopped agent and did not say Kosmos messages the
+  agent. New copy (Josh's spec wording): "Every so often, Kosmos checks on your agents that have stopped while they
+  still have tasks to finish. It sends each one a short reminder to pick its work back up, and shows a check-in below
+  so you can look in on it. Everything stays on this computer. On by default." Pinned by a test. Overridable.
+- NIT fixed: the restart limit is about one interval, not two (the Prompter opens a never-seen stall on its 2nd tick).
+- NIT fixed: a direct test that sweepOnce refuses a null roster and says why.
+- NIT fixed: prompterTick reads the projects only when there is a stall.
+- NIT deferred: Agent Communication's copy does not say the same number paces the Prompter's nudges. A separate count
+  at the same number; reversible later if it confuses.

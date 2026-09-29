@@ -39,8 +39,8 @@
  * is not nudged again. One nudge per stall is the card's rule, and a timer that re-armed it would
  * also re-nudge an agent that answered in plain words that it is waiting.
  * Known limit: the book and the hour's log live in memory, as the Prompter's own record does, so a
- * board restart (every release) forgets them and a still-stalled agent is nudged once more, about two
- * intervals after the restart.
+ * board restart (every release) forgets them and a still-stalled agent is nudged once more, about one
+ * interval after the restart (the Prompter opens a never-seen stall on its second tick).
  *
  * #4544 (Josh): the person's check-in lists only these real stalls (withOpenWork), and prompterTick
  * is the whole of what the Prompter's tick does after heartbeat.step, so its gates are tested here.
@@ -195,8 +195,9 @@ function prompterTick(o) {
   try {
     const setting = (o && o.setting) || { on: false };
     const toAsk = (o.outcome && Array.isArray(o.outcome.toAsk)) ? o.outcome.toAsk : [];
+    // Nothing stalled means nothing to filter or nudge, so the projects are read only when there is.
     let records = null;
-    try { const r = o.readProjects(); records = Array.isArray(r) ? r : null; } catch { records = null; }
+    if (toAsk.length) { try { const r = o.readProjects(); records = Array.isArray(r) ? r : null; } catch { records = null; } }
     if (o.shouldWrite(setting.on, o.roster)) {
       const shown = records ? withOpenWork(toAsk, records) : toAsk;
       try { o.write(shown); out.written = shown; } catch { /* best-effort */ }

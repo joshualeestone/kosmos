@@ -212,8 +212,9 @@ test('a card that is not idle is never typed into (every other state the classif
       assert.equal(w.cards.find((c) => c.sessionName === k).state, paneState, 'fixture: the card must read ' + paneState);
       taskOn(w, k, 'a task');
       // Force it into toAsk regardless of the Prompter, so the card rule alone is what refuses.
-      // from 'idle', so the edge rule (which waits a tick after 'working') does not refuse it first.
-      const hb = { toAsk: [{ session: k, from: 'idle', to: paneState }], next: new Map([[k, { open: true }]]) };
+      // Forced as the Prompter reading it idle (from and to 'idle'), so the edge rule and the Prompter-reading
+      // rule do not refuse it first and the card is what refuses.
+      const hb = { toAsk: [{ session: k, from: 'idle', to: 'idle' }], next: new Map([[k, { open: true }]]) };
       assert.equal(pass(w, { hb }).calls.length, 0, paneState + ' card was typed into');
     } finally { w.restore(); }
   }
@@ -353,4 +354,36 @@ test('server.js: the Prompter tick hands everything after heartbeat.step to prom
   // The one delivery is the one prompterTick is given; a second would type outside its gates.
   assert.equal((body.match(/\bdeliver\(/g) || []).length, 1, 'a delivery outside prompterTick');
   assert.equal((body.match(/prompternudge\.write\(/g) || []).length, 1, 'the person\'s list must be written only through prompterTick\'s write');
+});
+
+test('the card rule\'s other two conditions: a switched-off swarm and a card that is not ours are not typed into; control', () => {
+  const w = world([{ name: 'cardrule' }]);
+  try {
+    const k = w.key.cardrule;
+    taskOn(w, k, 'a task');
+    const hb = { toAsk: [{ session: k, from: 'idle', to: 'idle' }], next: new Map([[k, { open: true }]]) };
+    const card = w.cards.find((c) => c.sessionName === k);
+    const withCard = (c) => ({ ...w, cards: w.cards.map((x) => (x.sessionName === k ? c : x)) });
+    assert.equal(pass(withCard({ ...card, swarm: { active: false } }), { hb }).calls.length, 0, 'typed into a switched-off swarm');
+    assert.equal(pass(withCard({ ...card, isNamedOurs: false }), { hb }).calls.length, 0, 'typed into a card that is not ours');
+    assert.equal(pass(w, { hb }).calls.length, 1, 'control: the real card is nudged');
+  } finally { w.restore(); }
+});
+
+test('sweepOnce on an unreadable roster types nothing and says why', () => {
+  let typed = 0;
+  const r = nudge.sweepOnce({ toAsk: [{ session: 'x', from: 'idle', to: 'idle' }], next: new Map(), roster: null, projects: [], deliver: () => { typed += 1; return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.equal(typed, 0);
+  assert.equal(r.skipped, 'roster unreadable');
+});
+
+test('prompterTick reads the projects only when there is a stall to filter or nudge', () => {
+  let reads = 0;
+  const out = nudge.prompterTick({
+    setting: { on: true, intervalMinutes: 15 }, roster: [], outcome: { toAsk: [], next: new Map() },
+    readProjects: () => { reads += 1; return []; }, shouldWrite: () => true, write: () => {}, allowed: () => true, env: {},
+    readLimit: () => ({ on: false }), limitDefaults: { on: true, perHour: 20 }, book: new Map(), sent: [], deliver: () => ({}), DELIVERY,
+  });
+  assert.equal(reads, 0);
+  assert.deepEqual(out.written, [], 'the empty list is still written, which clears the panel');
 });

@@ -180,3 +180,12 @@ test('#4544: the click handler is attached to the check-in panel (delegated, so 
   // The panel is static markup that comes before the script that attaches it.
   assert.ok(PAGE.indexOf('id="hb-nudges"') > 0 && PAGE.indexOf('id="hb-nudges"') < PAGE.indexOf("hbBox.addEventListener('click', prompterNudgeOpen)"));
 });
+
+test('#4544: the Prompter hint says what it now does: only agents with tasks to finish, and a reminder to the agent', () => {
+  const at = PAGE.indexOf('<b>Check on your agents</b>');
+  assert.ok(at > 0, 'the Prompter row was not found');
+  const hint = PAGE.slice(at, PAGE.indexOf('</p>', at));
+  assert.match(hint, /still have tasks to finish/, 'the hint must say the list is only agents with tasks to finish');
+  assert.match(hint, /sends each one a short reminder/, 'the hint must say Kosmos messages the agent');
+  assert.doesNotMatch(hint, /checks which of your agents have stopped\. When one has/, 'the old every-stopped-agent wording is back');
+});
