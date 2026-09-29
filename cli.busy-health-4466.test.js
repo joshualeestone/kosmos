@@ -91,6 +91,16 @@ const server = http.createServer((req, res) => {
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
   // Answers its health check, then cuts each data read (a board too busy to finish the request).
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
+  // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
+  // with the board's duplicate receipt; 'cutalways' cuts every send. Sends are counted in firstFile + '.sends'.
+  if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
+    const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');
+    const n = fsm.readFileSync(firstFile + '.sends', 'utf8').length;
+    req.resume();
+    if (health === 'cutalways' || n === 1) { req.socket.destroy(); return; }
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}'); });
+    return;
+  }
   // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them.
   if (health === 'fastcut') { require('node:fs').appendFileSync(firstFile + '.n', '.'); req.socket.destroy(); return; }
   // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
@@ -410,6 +420,32 @@ test('#4466 start and status: a listener that IS the recorded board is running, 
   // CONTROL: a listener that is NOT the recorded board still gets the stranger sentence from status.
   const other = await bash(stubs(9999) + '; cmd_status', baseEnv(port));
   assert.match(other.stdout, /another app is using port/, other.stdout + other.stderr);
+});
+
+test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'s receipt says it arrived (not "failed")', () => withBoard('cutonce', async (port, firstFile) => {
+  const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
+  const msg = await runCli(['msg', 'mara', 'the lease is signed'], env);
+  assert.equal(msg.code, 0, msg.stdout + msg.stderr);
+  assert.match(msg.stdout, /Placed with mara \(it had arrived the first time; it was not sent twice\)/);
+  assert.match(msg.stderr, /asking once more/);
+  assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'exactly one retry');
+}));
+
+test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', async () => {
+  await withBoard('cutonce', async (port, firstFile) => {
+    const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Posted to proj\. .*it was not posted twice/);
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2);
+  });
+  // CONTROL: every send cut. One retry, then the honest "may still have happened" (never a loop, never "not running").
+  await withBoard('cutalways', async (port, firstFile) => {
+    const out = await runCli(['msg', 'mara', 'on my way'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+    assert.notEqual(out.code, 0);
+    assert.match(out.stdout, /It may still have happened: check before doing it again/);
+    assert.doesNotMatch(out.stdout, /not running|Is it running/);
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'one retry, then stop');
+  });
 });
 
 test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {

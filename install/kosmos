@@ -1482,6 +1482,17 @@ cmd_msg() {
   body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
+  # #4580: a timeout or a cut reply may come AFTER the board delivered. The board keeps one copy of the
+  # same send inside two minutes (engine/messages.js), so asking once more is safe, and turns "maybe"
+  # into the board's real receipt.
+  case "$rc" in
+    18|28|52|56)
+      printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      rc=0
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+        -H 'content-type: application/json' \
+        --data-binary @- 2>/dev/null) || rc=$? ;;
+  esac
   if [ "$rc" -eq 28 ]; then
     say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
     exit 3
@@ -1504,7 +1515,11 @@ cmd_msg() {
   # delivery, unconfirmed means the text may already be in their composer
   # (do NOT re-send), could_not names why.
   case "$body" in
-    *'"state":"placed"'*)      say "Placed with $to." ;;
+    *'"state":"placed"'*)
+      case "$body" in
+        *'"duplicate":true'*) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
+        *) say "Placed with $to." ;;
+      esac ;;
     *'"state":"unconfirmed"'*)
       # The server's own sentence: unconfirmed has two flavors (typed with
       # Enter unconfirmed, or a send that timed out mid-flight) and only
@@ -1843,6 +1858,17 @@ cmd_post() {
   body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
+  # #4580: a cut reply may come AFTER the board kept the post; the board keeps one copy of the same post
+  # inside two minutes, so asking once more is safe. Not after a timeout (28): with a 120 s budget the post
+  # is still being delivered, and the board already folds a repeat that arrives while it is.
+  case "$rc" in
+    18|52|56)
+      printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      rc=0
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+        -H 'content-type: application/json' \
+        --data-binary @- 2>/dev/null) || rc=$? ;;
+  esac
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
@@ -1869,7 +1895,11 @@ cmd_post() {
   # EVERY member got it; unconfirmed means the room is partly reached
   # (the outcomes live in the record for the screens to draw).
   case "$body" in
-    '{"delivery":{"state":"placed"'*)      say "Posted to $project. Everyone on it has it waiting." ;;
+    '{"delivery":{"state":"placed"'*)
+      case "$body" in
+        *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
+        *) say "Posted to $project. Everyone on it has it waiting." ;;
+      esac ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."

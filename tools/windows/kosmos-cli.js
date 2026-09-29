@@ -315,7 +315,13 @@ async function verbMsg(ctx, args) {
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { to, text, from_pane: '' };
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
-  const r = await ctx.call('POST', '/api/msg', body);
+  let r = await ctx.call('POST', '/api/msg', body);
+  // #4580: a timeout or a cut reply may come AFTER the board delivered; the board keeps one copy of the same
+  // send inside two minutes, so asking once more is safe and turns "maybe" into its real receipt.
+  if (!r.reached && !r.refused) {
+    process.stderr.write('  Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n');
+    r = await ctx.call('POST', '/api/msg', body);
+  }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
     const code = ctx.unreachable('send that');
@@ -330,7 +336,7 @@ async function verbMsg(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Placed with ' + to + '.'); return 0; }
+  if (d.state === 'placed') { ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
   keepPiped();
@@ -416,7 +422,13 @@ async function verbPost(ctx, args) {
   /* The board drops a request body over its limit, which would read as unreachable; measured on the
      encoded body, as install/kosmos does. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }
-  const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+  let r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+  // #4580: a CUT reply may come after the board kept the post, so ask once more (the board keeps one copy).
+  // Not after a timeout: with a 120 s budget the post is still being delivered.
+  if (!r.reached && !r.refused && !r.timedOut) {
+    process.stderr.write('  Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n');
+    r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+  }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');
     const code = ctx.unreachable('post that');
@@ -431,7 +443,7 @@ async function verbPost(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
+  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
@@ -1087,7 +1099,9 @@ async function main(argv, io) {
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
       lastTimedOut = timedOut;
-      return { reached: false, timedOut };
+      // #4580: a refused connection means nothing arrived; a reset or a timeout may come after the board kept it.
+      const refused = Boolean(e && e.cause && e.cause.code === 'ECONNREFUSED');
+      return { reached: false, timedOut, refused };
     }
   }
 
