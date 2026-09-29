@@ -3801,7 +3801,7 @@ function panelessCaller(tokenSender) {
   return !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
 }
 function projectHasAgent(stored, name, byKey) {
-  return (stored.agents || []).some((a) => sameAgentName(a, name, byKey));
+  return Array.isArray(stored.agents) && stored.agents.some((a) => sameAgentName(a, name, byKey));
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -16506,7 +16506,7 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen) {
         /* Membership first, so a non-member hears why, not the breaker (review round 15). */
         let proj = null;   // the stored record: agents are names
-        try { proj = projects.readAll().find((x) => x.id === id) || null; }
+        try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
         catch {
           sendJson(res, 503, { error: 'we could not read the projects, so the task was not marked' });
           return;
@@ -16603,7 +16603,7 @@ const server = http.createServer(async (req, res) => {
            agent is told when it cannot be read (503); anyone else is recorded and everyone is told, as before. */
         let memberRecord = null;
         let unreadable = false;
-        try { memberRecord = projects.readAll().find((x) => x.id === id) || null; } catch { unreadable = true; }
+        try { memberRecord = projects.readAll().find((x) => x && x.id === id) || null; } catch { unreadable = true; }
         if (!viaScreen && senderCard) {   // an identified card with no name is refused below, as task built refuses it
           if (unreadable) {
             sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' });

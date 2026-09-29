@@ -184,6 +184,7 @@ test('task message and task built pass the gate with only an agent token; close 
   for (const verb of ['message', 'built']) {
     const p = '/api/project/p4491/task/1/' + verb;
     assert.ok(refusedAtGate(await call('POST', p, { body: {} })), `control: POST ${p} with no credential was not refused`);
+    assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': 'c'.repeat(64) }, body: {} })), `POST ${p} passed the gate with a well-formed token nobody issued`);
     const r = await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
     assert.ok(!refusedAtGate(r), `POST ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
   }
@@ -261,6 +262,35 @@ test('task message resolves a tmux %N pane through resolveSender, and refuses a 
   assert.equal(inside.code, 200, 'control: a member %N pane was not recorded: ' + inside.code + ' ' + inside.text.slice(0, 160));
   assert.deepEqual(asked, ['%7', '%8'], 'the %N pane never reached resolveSender');
   assert.deepEqual(said, ['member']);
+  /* A %N sender is left off its own notification (the tokenless Mac case), and its co-assignee is told. */
+  tasksEngine.whoOf = () => ['mara', 'poc-agent'];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara', 'poc-agent'] }];
+  const self = await send('%8', 'mara to the task');
+  assert.equal(self.code, 200, self.text.slice(0, 160));
+  const told = JSON.parse(self.text).delivered.map((d) => d.agent);
+  assert.ok(!told.includes('mara'), 'a %N sender was notified about its own message: ' + JSON.stringify(told));
+  assert.ok(told.includes('poc-agent'), 'control: the co-assignee was not notified: ' + JSON.stringify(told));
+});
+
+test('task message: a token the board cannot resolve is refused even with a good pane, and nothing is recorded (#4491 slice 3)', async (t) => {
+  /* A bad credential is never swapped for the weaker pane (the stale-token case of the Mac CLI change). */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const said = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara'] }];
+  tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; board.restore(); });
+  const maraTarget = (board.agents.find((c) => c.sessionName === 'mara') || {}).target;
+  const stale = sendertoken.mint('gone-for-good').token;
+  sendertoken.revoke('gone-for-good');
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'stale', token: stale, from_pane: maraTarget } });
+  assert.equal(r.code, 403, 'a stale token with a good pane was not refused: ' + r.code + ' ' + r.text.slice(0, 160));
+  assert.deepEqual(said, [], 'the stale-token message was recorded');
+  /* CONTROL: the same pane with no token is recorded as mara. */
+  const ok = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'by pane', from_pane: maraTarget } });
+  assert.equal(ok.code, 200, 'control: the pane alone was not recorded: ' + ok.text.slice(0, 160));
+  assert.deepEqual(said, ['by pane']);
 });
 
 test('task message: a pane held by a stranger is not taken for our agent; an unreadable project list is a 503 (#4491 slice 3)', async (t) => {

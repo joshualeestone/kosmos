@@ -64,8 +64,9 @@ project.
 ## Tests
 - Gate suite: token-only task message and task built pass the gate; task close with the same token is still
   refused (the pattern does not over-match); no-credential refused.
-- Task message: a token-only member's message is recorded and names the token's agent; a non-member's is refused
-  403 and records nothing (control: the same request from a member is recorded).
+- Task message: a token-only member's message is recorded; a non-member's is refused 403 and records nothing
+  (control: the same request from a member is recorded). The sender is named by its token (the whoami and msg
+  tests cover naming; here a %N sender and a paneless sender are left off their own notification).
 - CLI: `kosmos task message` presents a valid token and nothing for junk/absent (extends the slice 2 CLI test).
 - A %N pane (resolveSender stubbed) is resolved: a non-member refused, a member recorded.
 - Exact vs key: a carded agent is compared exactly (a stored "Mara" refuses the roster's "mara"); a paneless token
