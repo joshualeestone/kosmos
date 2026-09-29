@@ -475,3 +475,41 @@ test('#4353 shUnquoteAll inverts shQuote, including a quote and a space in a pat
   assert.deepEqual(agyhooks.shUnquoteAll(cmd), paths);
   assert.deepEqual(agyhooks.shUnquoteAll('node bridge Stop'), [], 'unquoted words are not paths');
 });
+
+/* ---- #4588: Google's shared Antigravity quota ---- */
+const QUOTA = 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 24m54s.';
+
+test('#4588: quotaResetMs reads the reset from the quota error, in every unit mix', () => {
+  assert.equal(bridge.quotaResetMs(QUOTA), (24 * 60 + 54) * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 2h50m.'), (2 * 3600 + 50 * 60) * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 37m'), 37 * 60 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 1h0m5s'), 3605 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Resets in 9s'), 9000);
+});
+
+test('#4588: quotaResetMs is null for anything that is not the quota with a reset', () => {
+  // CONTROL arms: another error, the quota with no reset named, a reset with no quota, and junk.
+  assert.equal(bridge.quotaResetMs('API error: INTERNAL (code 500)'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED (code 429): Individual quota reached.'), null);
+  assert.equal(bridge.quotaResetMs('Something else. Resets in 5m.'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in soon'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in 0s'), null);
+  assert.equal(bridge.quotaResetMs(undefined), null);
+});
+
+test('#4588: a quota stop is still idle, and carries the reset time in until', () => {
+  const now = Date.parse('2026-09-28T21:47:00Z');
+  const r = bridge.reportFor('Stop', { fullyIdle: true, error: QUOTA }, now);
+  assert.equal(r.state, 'idle', 'the loop has ended: idle, never an automatic blocked (#2456 would hold it past the resume)');
+  assert.equal(r.until, new Date(now + (24 * 60 + 54) * 1000).toISOString());
+  assert.match(r.text, /shared Antigravity quota/);
+  assert.match(r.text, /Resets in 24m54s/, "Google's own words are kept");
+  // CONTROL: any other errored stop keeps its exact old shape (no until at all).
+  assert.deepEqual(bridge.reportFor('Stop', { error: 'boom' }, now), { state: 'idle', text: 'The turn ended with an error: boom' });
+});
+
+test('#4588: the report body sends until only when there is one', () => {
+  assert.equal(bridge.buildBody('idle', 'x', {}, '2026-09-28T22:11:54.000Z').until, '2026-09-28T22:11:54.000Z');
+  assert.equal(bridge.buildBody('idle', 'x', {}).until, '');
+});
+

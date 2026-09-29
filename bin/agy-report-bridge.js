@@ -148,9 +148,24 @@ function readStdin() {
   });
 }
 
+/* #4588: Google's per-account quota, which every agy agent signed in to one account shares. Measured text (a user's
+   0.7.07 board, agy on Google AI Ultra):
+     API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. ... Resets in 24m54s.
+   quotaResetMs returns the wait in ms when the error is that quota AND names a reset, else null. Hours, minutes and
+   seconds are each optional, but at least one must be present. */
+function quotaResetMs(error) {
+  const e = typeof error === 'string' ? error : '';
+  if (!/RESOURCE_EXHAUSTED/.test(e)) return null;
+  const m = /Resets in\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i.exec(e);
+  if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined)) return null;
+  const ms = ((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0)) * 1000;
+  return ms > 0 ? ms : null;
+}
+
 /* The pure event -> report translation, exported for tests. `eventName` is argv[2]; `payload` the
-   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null. */
-function reportFor(eventName, payload) {
+   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null; a quota stop (#4588)
+   adds `until`, the reset as an ISO time counted from `nowMs`. */
+function reportFor(eventName, payload, nowMs) {
   if (eventName === LAUNCH_EVENT) return { state: 'idle', text: '' };   // #4417: up, and no turn has started
   const state = STATE_FOR_EVENT[eventName];
   if (!state) return null; // an event we did not hook is ignored, never guessed at
@@ -173,15 +188,27 @@ function reportFor(eventName, payload) {
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
+    /* #4588: still idle (the loop has ended, and an automatic blocked would outlive the resume, #2456), but the reset
+       travels in `until` so the board can show the pause and resume the agent after it. */
+    const wait = quotaResetMs(payload.error);
+    if (wait !== null) {
+      const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+      return {
+        state,
+        text: "Paused: this Google account's shared Antigravity quota ran out. Kosmos resumes this agent by itself when it resets. "
+          + 'Google said: ' + payload.error.trim(),
+        until: new Date(now + wait).toISOString(),
+      };
+    }
   }
   return { state, text };
 }
 
 /* The /api/report body. `auto: true` is the field the correctness argument rests on (a turn ending
    must not erase a blocked the agent filed deliberately, #1456); asserted by the test. */
-function buildBody(state, text, env) {
+function buildBody(state, text, env, until) {
   const e = env || process.env;
-  return { state, text, on: '', owner: '', until: '', auto: true, from_pane: e.TMUX_PANE || '' };
+  return { state, text, on: '', owner: '', until: until || '', auto: true, from_pane: e.TMUX_PANE || '' };
 }
 
 /* Where the engine is, for the board token and the world header: beside this file in a checkout
@@ -229,7 +256,7 @@ async function main() {
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
-  const mapped = reportFor(eventName, payload);
+  const mapped = reportFor(eventName, payload, Date.now());
   if (!mapped) return;
   if (!shouldSend(mapped.state, Date.now(), process.env)) return;
 
@@ -250,7 +277,7 @@ async function main() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env)), signal: controller.signal,
+    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.until)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
@@ -264,4 +291,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir };
