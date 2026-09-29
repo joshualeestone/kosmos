@@ -319,7 +319,7 @@ test('#4560: a URL override is honoured only for https or this computer, so a ke
   const name = 'AGENT_WORKFORCE_ORGCHART_TEST_URL';
   const def = 'https://api.example.com/v1';
   process.env[name] = 'http://evil.example.com/v1'; assert.equal(keys.urlFrom(name, def), def);
-  process.env[name] = 'https://proxy.example.com/v1'; assert.equal(keys.urlFrom(name, def), 'https://proxy.example.com/v1');
+  process.env[name] = 'https://proxy.example.com/v1'; assert.equal(keys.urlFrom(name, def), def, 'an https host other than this computer is ignored too');
   process.env[name] = 'http://127.0.0.1:9/v1'; assert.equal(keys.urlFrom(name, def), 'http://127.0.0.1:9/v1');
   process.env[name] = 'not a url'; assert.equal(keys.urlFrom(name, def), def);
   delete process.env[name]; assert.equal(keys.urlFrom(name, def), def);

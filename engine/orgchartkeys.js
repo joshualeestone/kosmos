@@ -15,9 +15,8 @@
  * names real employees, so every request says `store: false`. Each still keeps what is sent for a while for abuse
  * checks whatever `store` says (KEEPS below, which the consent box shows).
  *
- * The provider URLs can be overridden by AGENT_WORKFORCE_ORGCHART_*_URL, for the tests' stub server. An override is
- * honoured only for https, or plain http to this computer (127.0.0.1 or localhost), so it cannot send a real key
- * in the clear. A redirect is refused, never followed: a key or the file must not reach a host it was not sent to.
+ * The provider URLs can be overridden by AGENT_WORKFORCE_ORGCHART_*_URL, for the tests' stub server, and ONLY to this
+ * computer (127.0.0.1 or [::1]): no override can send a real key and the file to another host. A redirect is refused, never followed: a key or the file must not reach a host it was not sent to.
  *
  * 🔑 THE KEY. Read from its account folder only when a read is sent (readApiKey), sent only in a header, and never
  * put in a URL, argv, a log line, an error or anything returned. Errors are built from the status code and the
@@ -28,14 +27,14 @@ const MAX_ANSWER_BYTES = 4 << 20;   // a real answer is a few kilobytes
 /* A cap on what the model may generate, reasoning included, because the read is billed to the person's key: well
    past a large chart's answer (2000 people is about 200 KB of JSON), so it only stops a runaway. */
 const MAX_OUTPUT_TOKENS = 64000;
-/* An override honoured only for https, or plain http to this computer (the tests' stub server). */
+/* An override honoured only to this computer (the tests' stub server): an address, not the name `localhost`, which
+   a hosts file can point elsewhere. Any other override is ignored, so the key only ever goes to its provider. */
 function urlFrom(envName, fallback) {
   const v = process.env[envName];
   if (!v) return fallback;
   try {
     const u = new URL(v);
-    // An address, not the name `localhost`, which a hosts file can point elsewhere.
-    if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === '[::1]'))) return v;
+    if ((u.protocol === 'http:' || u.protocol === 'https:') && (u.hostname === '127.0.0.1' || u.hostname === '[::1]')) return v;
   } catch { /* not a URL */ }
   return fallback;
 }
@@ -204,7 +203,6 @@ let accountsFn = defaultAccounts;
 /** Tests only: replace the account list ([{provider, dir, account}]); null restores the real one. */
 function setAccounts(fn) { accountsFn = typeof fn === 'function' ? fn : defaultAccounts; }
 
-/* The key reader this computer would use, or null. */
 /* The reader, and when there is none, why (a switched-off provider IS connected, Gemini alone say), from ONE look
    at the accounts, so the refusal is about the same list the choice was. */
 function pick() {
@@ -262,10 +260,11 @@ function refusal(p, status, body) {
 /**
  * Read one file with a key reader. Returns { ok: true, structured } or { ok: false, because }, like the Claude
  * runner. `signal` aborts the request (the person stopped the read or left the page).
+ *
+ * A failed read leaves one line in the board's log (CLAUDE.md, logging at boundaries), as the Claude path does. The
+ * line is the sentence the person sees, which is built from the status and a known provider error code only, so it
+ * carries no key and no file (the key-leak test captures the console to keep that true).
  */
-/* A failed read leaves one line in the board's log (CLAUDE.md, logging at boundaries), as the Claude path does. The
-   line is the sentence the person sees, which is built from the status and the provider's error code only, so it
-   carries no key and no file (the key-leak test captures the console to keep that true). */
 async function read(reader, prompt, name, media, buf, signal) {
   const got = await readOnce(reader, prompt, name, media, buf, signal);
   if (!got.ok) {
@@ -335,7 +334,8 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   try { body = JSON.parse(raw); } catch { body = null; }
   if (!res.ok) return { ok: false, because: refusal(p, res.status, body) };
   if (!body || (body.status && body.status !== 'completed')) {
-    return { ok: false, because: p.name + ' did not finish reading the chart' + (body && body.status ? ' (' + String(body.status).replace(/[^a-z_]/g, '') + ')' : '') + '. Try a clearer picture, or a CSV or Excel export.' };
+    const st = body && ['incomplete', 'failed', 'cancelled', 'in_progress', 'queued', 'requires_action'].includes(body.status) ? ' (' + body.status + ')' : '';
+    return { ok: false, because: p.name + ' did not finish reading the chart' + st + '. Try a clearer picture, or a CSV or Excel export.' };
   }
   const got = p.answer(body);
   if (got.refused) return { ok: false, because: p.name + ' declined to read this chart. Try a CSV or Excel export.' };
