@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarmsettings-4433
-diff_hash: 961bd5eb2c54ca754fa611493dd1c696dcbb05cf4b5a96bebc7a62183e9a8863
+diff_hash: d8a5cf9b211e7cb5c0820dce76886d2c8a7b096b2bfb8688a8e254000b72c365
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T02:10:16Z
-iterations: 8
+timestamp: 2026-09-29T04:00:50Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** Yes (iteration 8 found no issues)
-**Total findings:** 24 (1 BLOCKER, 11 WARNINGs, 0 CONVENTIONs, 12 NITs; summed from the lines below)
-**Fixed:** 1 BLOCKER, 11 WARNINGs, 9 NITs | **Kept:** 3 NITs (reasons below and in the plan) | **Asked (awaiting user):** 0
+**Iterations:** 10
+**Converged:** Yes (iteration 10 raised no BLOCKER or WARNING; iteration 8 had found no issues before CI's browser-checks red reopened the loop)
+**Total findings:** 30 (1 BLOCKER, 14 WARNINGs, 0 CONVENTIONs, 15 NITs; summed from the lines below)
+**Fixed:** 1 BLOCKER, 12 WARNINGs, 10 NITs | **Kept:** 2 WARNINGs, 5 NITs (reasons below and in the plan) | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -103,3 +103,26 @@ converged: true
 - **Nits:** the limit reads "... tokens"; the link sits left under the cards (not inside the radio card: accessibility); a phone view shot.
 - Validation PASSED on 966c50d7 (11459 tests, 0 fail). swarm-ui-3564: 115 pass. Web tests 113. Section test 1.
 
+### After the PR: CI's browser-checks red (render-fields) and iterations 9 and 10
+- CI: 8 FAILs in both engines and themes, d-swarm-stop and d-swarm-keep "fill null". The .swconfirm box is a color-mix() background, computed as `color(srgb ...)`, which render-fields' parser could not read. Fixed in the parser (4491bd66). Local run on the frozen commit: all page checks passed. Mutant (d-swarm-keep the box's own colour, no border): red with "fill 1:1".
+
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 1 NIT
+- [WARNING] selfCheck did not cover the color(srgb) form. Fixed: three pairs. Mutant dropping the *255 scaling fails the self-check.
+- [WARNING] A translucent box is composited over itself. KEPT: predates this change; no button sits on one today. The reopen condition is in the plan.
+- [WARNING] Fields and dir() now measure color(srgb) boxes they used to skip. KEPT as intended; stated in the PR; the local run passed with them in.
+- [NIT] Channels over 1 were not clamped. Fixed.
+**Self-generated:** 0
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [NIT] The clamp's lower bound is dead code (the pattern cannot match a minus sign). KEPT: harmless, and a change would reset validation.
+- [NIT] Alpha is not clamped. KEPT: Chrome never serialises an alpha over 1.
+- The reviewer re-scored every self-check pair and three mutations (no *255, alpha ignored, clamp dropped); each mutation is caught.
+**Self-generated:** 0
+
+### Final validation, after iterations 9 and 10
+- Validation PASSED on 3c5deba7 (stack typescript, 11459 tests, 0 fail, build passed), hash d8a5cf9b211e.
+- render-fields passed on the frozen commit 3c5deba7 (checked by its freeze path).
