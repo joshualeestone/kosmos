@@ -231,7 +231,10 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     let noteLanded = null;
     if (!item.retry) {
       asked = item.peers.filter((p) => send(p.session, peerAskText(item)) === DELIVERY.PLACED);
-      try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked })) !== false; } catch { noteLanded = false; }
+      /* #4423: the note's facts (who is stuck, who was asked, by session) ride beside its sentence, so the room can
+         name them as they are called when it is read, not as they were called when it was written. */
+      const rec = { stuck: item.session, asked: asked.map((p) => p.session), because: item.because };
+      try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked }), { recommender: rec }) !== false; } catch { noteLanded = false; }
     }
     const verdict = send(item.session, playbookText({ ...item, asked }, setting));
     markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);

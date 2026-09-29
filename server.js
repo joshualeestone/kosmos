@@ -2973,6 +2973,28 @@ function guideMaskedRows(rows, wholeThread) {
    engine/messages.js; the same mask applies there, keyed on the resolved sender. */
 messages.setSenderTextFilter(guideMasked);
 
+/* #4423: a room note in the words it would have if written NOW. A recommender note keeps its facts by session
+   (`rec`, messages.roomNote), so its sentence is re-made with each agent's current name (readIdentity: the recorded
+   name, whatever the provider); every other note, and any written before notes kept their facts, is its text.
+   `names` is one room read's cache (session -> identity), so a room with many notes reads each agent once. If any
+   name would be only the bare id (no record and no readable brief), the sentence as written is kept: it named them
+   properly then, and the id is the thing this card exists to keep off the screen. */
+function noteTextNow(m, names) {
+  const r = m && m.rec;
+  if (!r || typeof r.stuck !== 'string' || !Array.isArray(r.asked) || typeof r.because !== 'string') return (m && m.text) || null;
+  const cache = names instanceof Map ? names : new Map();
+  const idOf = (s) => {
+    if (!cache.has(s)) { let id = null; try { id = readIdentity(s); } catch { id = null; } cache.set(s, id); }
+    return cache.get(s);
+  };
+  const people = [r.stuck, ...r.asked].map(idOf);
+  if (people.some((id) => !id || id.derived !== true || !id.displayName)) return m.text || null;
+  try {
+    return recommender.roomNoteText({ name: people[0].displayName, because: r.because,
+      asked: people.slice(1).map((id) => ({ name: id.displayName })) });
+  } catch { return m.text || null; }
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
@@ -15377,6 +15399,7 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
@@ -15398,7 +15421,7 @@ const server = http.createServer(async (req, res) => {
           : m.kind === 'external'
           ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
-          ? { kind: 'note', text: m.text || null, at: m.at }
+          ? { kind: 'note', text: noteTextNow(m, noteNames), at: m.at }
           : m.kind === 'post'
           ? (() => {
               /* #2255: the post's reactions, replayed from the reaction events in
@@ -17885,7 +17908,7 @@ function start(port = PORT) {
           const members = setting.on ? recommender.membersFrom(projects.readAll()) : new Map();
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
-            roomNote: (projectId, text) => messages.roomNote(projectId, text),
+            roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
           });

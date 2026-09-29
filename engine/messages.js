@@ -629,8 +629,13 @@ const NOTE_AUDIENCE_AGENTS = 'agents';
 function roomNote(projectId, text, opts) {
   try {
     const audience = opts && opts.audience === NOTE_AUDIENCE_AGENTS ? { audience: NOTE_AUDIENCE_AGENTS } : {};
+    /* #4423: a recommender note keeps its facts by session (`rec`), so the room route re-words it with the names
+       as they are when it is read. Kept only in this shape; `text` stays the sentence as written. */
+    const r = opts && opts.recommender;
+    const rec = (r && typeof r.stuck === 'string' && r.stuck && Array.isArray(r.asked) && typeof r.because === 'string')
+      ? { rec: { stuck: r.stuck, asked: r.asked.filter((x) => typeof x === 'string' && x), because: r.because } } : {};
     appendLog({ kind: 'note', from: 'kosmos', to: String(projectId), project: String(projectId),
-      text: String(text), at: new Date().toISOString(), ...audience });
+      text: String(text), at: new Date().toISOString(), ...audience, ...rec });
     return true;
   } catch { return false; }
 }
