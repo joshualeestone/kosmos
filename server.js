@@ -1524,7 +1524,7 @@ function whoamiFor(card, known, live) {
              with `configDir` falsy), and cheaper to close than to keep true. */
           name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
-          keyTail: null,   // #4603: present in all three constructions (the parity test below them)
+          keyTail: null,   // #4603
         },
         from: 'process',
       };
@@ -1696,12 +1696,11 @@ function whoamiFor(card, known, live) {
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
-    /* #4603 (#4580 item 12, the Grok agent: "whoami cannot name the Grok model, even when the session is Grok 4.6"):
-       for a runner the live reader cannot read (Grok, Gemini, Antigravity: runningas knows claude and codex), the
-       card already carries the model its own session file names (status.js: groksession / geminisession / agy
-       readers -> card.model), which is what the board shows. Take it rather than say "we cannot tell". Only for a
-       non-Claude runner: for Claude the transcript above is the fresher witness and wins. */
-    if (foreignRunner && card && typeof card.model === 'string' && card.model) {
+    /* #4603 (#4580 item 12): a non-Claude agent the live reader did not answer for takes the model on its card,
+       which is what the board shows for it. Only when the card's own runner IS the resolved runner: after a provider
+       switch the launch job already names the new runner while the running pane (and so the card and its model)
+       is still the old one, and pairing the two would name the old model under the new runner. */
+    if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
       return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.SCRAPED }, from: 'session' };
     }
     /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
@@ -12367,9 +12366,8 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
-        /* #4603: the xAI and Google rows too, as the status route passes them: accountForAgent matches a keyed row
-           only for an agent of that provider (and a folder only to its own folder), so a Claude or Codex agent's
-           answer cannot change, and a Grok or Gemini agent is no longer looked up in the Claude list alone. */
+        /* #4603: the xAI and Google account rows too, so a Grok or Gemini agent is not looked up in the Claude list
+           alone. (/api/status still passes the Claude list only.) */
         const known = (() => {
           const rows = [];
           for (const lister of [() => accounts.list(), () => grokAccounts.list(), () => geminiAccounts.list()]) {

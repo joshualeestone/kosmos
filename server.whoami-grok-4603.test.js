@@ -26,8 +26,10 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_GROK_HOME = path.join(SANDBOX, 'home', '.grok');
+process.env.AGENT_WORKFORCE_GEMINI_HOME = path.join(SANDBOX, 'home', '.gemini');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 fs.mkdirSync(process.env.AGENT_WORKFORCE_GROK_HOME, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_GEMINI_HOME, { recursive: true });
 
 const srv = require('./server');
 const { start, server, whoamiFor, sentenceForWhoami, setLiveReader } = srv;
@@ -41,10 +43,11 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; setLiveReader(NO_LIVE); });
 test.after(() => { setLiveReader(null); try { server.close(); } catch { /* ignore */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-function grokJob(name, configDir) {
-  fs.writeFileSync(create.plistPath(name), create.plistFor(name, '/opt/homebrew/bin/grok', '/opt/homebrew/bin/tmux', null, configDir || null, 'grok'), 'utf8');
-  assert.equal(create.readJob(name).runner, 'grok', 'the plist this test wrote does not read back as grok');
+function job(name, runner, bin) {
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, bin, '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
+  assert.equal(create.readJob(name).runner, runner, 'the plist this test wrote does not read back as ' + runner);
 }
+function grokJob(name) { job(name, 'grok', '/opt/homebrew/bin/grok'); }
 
 test('#4603 the sentence names Grok and Gemini by their product names', () => {
   assert.match(sentenceForWhoami(null, null, 'grok'), /^This is a Grok agent, and /);
@@ -91,4 +94,37 @@ test('#4603 through the route: a default-account Grok agent on an xAI key is nam
   const named = await ask();
   assert.match(named.because, /This is a Grok agent, and it runs on the API key ending in ABCD/, named.because);
   assert.equal(named.account && named.account.keyTail, 'ABCD');
+});
+
+test('#4603 after a provider switch (job says grok, the running pane is still Claude) the old model is not named', (t) => {
+  const board = fleet.install([fleet.agent('swap', { state: 'idle' })]);
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('swap')); } catch { /* */ } });
+  grokJob('swap');
+  const real = board.agents.find((a) => a.name === 'swap');
+  assert.equal(real.runner, 'claude', 'CONTROL: the card still describes the running Claude pane');
+  const out = whoamiFor(Object.assign({}, real, { model: 'claude-opus-5' }), [], NO_LIVE());
+  assert.equal(out.resolvedRunner, 'grok');
+  assert.equal(out.model, null, 'a Claude model was named under the Grok runner: ' + JSON.stringify(out.model));
+});
+
+test('#4603 a Codex agent the live reader missed takes its own card model when the card agrees', (t) => {
+  const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything' })]);
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody')); } catch { /* */ } });
+  job('cody', 'codex', '/opt/homebrew/bin/codex');
+  const real = board.agents.find((a) => a.name === 'cody');
+  const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], NO_LIVE());
+  assert.equal(out.model && out.model.id, 'gpt-5.6-sol', JSON.stringify(out.model));
+  assert.equal(out.source.model, 'session');
+});
+
+test('#4603 through the route: a default-account Gemini agent on a key is named by its last four', async (t) => {
+  const board = fleet.install([fleet.agent('gem', { state: 'idle', runner: 'gemini', command: 'node' })]);
+  const keyFile = path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME, '.kosmos-gemini-apikey');
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('gem')); } catch { /* */ } try { fs.unlinkSync(keyFile); } catch { /* */ } });
+  job('gem', 'gemini', '/opt/homebrew/bin/gemini');
+  fs.writeFileSync(keyFile, 'gemini-test-key-WXYZ', { mode: 0o600 });
+  const tok = sendertoken.mint('gem');
+  assert.ok(tok.ok, tok.because);
+  const got = await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json();
+  assert.match(got.because, /This is a Gemini agent, and it runs on the API key ending in WXYZ/, got.because);
 });

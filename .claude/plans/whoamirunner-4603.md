@@ -11,13 +11,18 @@ the session is Grok 4.6 on a connected xAI subscription."
 
 ## Done
 - runnerDisplayName: Grok, Gemini.
-- whoamiFor model: after the transcript (Claude only) and the live read, a non-Claude agent takes card.model, source 'session'.
+- whoamiFor model: after the transcript (Claude only) and the live read, a non-Claude agent takes card.model, source
+  'session', only when card.runner equals the resolved runner (after a provider switch the job names the new runner
+  while the card still describes the old pane and its model). This also applies to Codex when the live read misses
+  (review round 1): a Codex agent whose card agrees now names its card model instead of "we cannot tell".
 - The route's account list adds grokaccounts and geminiaccounts rows (accountForAgent matches a keyed row only for an
   agent of that provider, so Claude and Codex answers cannot change).
 - keyTail carried in all three account constructions (parity test) and a sentence rung: "the API key ending in ABCD".
 
 ## Decided
 - Reuse the card's model rather than a new session read in whoami: one reader, and the words match the board.
+- /api/status still passes the Claude account list only, so the board's per-agent account for a Grok agent stays empty
+  while whoami names it. Not changed here: widening /api/status touches every card render; a follow-up if wanted.
 - OpenAI rows are NOT added to the list: Codex answers are pinned by many tests and were not asked about.
 
 ## Weakest premise
