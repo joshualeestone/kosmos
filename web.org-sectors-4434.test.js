@@ -591,6 +591,10 @@ test('in a tree, a body outside the box comes in at most ORG_GLIDE_MAX a step; a
   sim.orgStep([t.out], t.hub, 0.02, box);
   assert.ok(1600 - t.out.x <= sim.ORG_GLIDE_MAX + 1e-9 && t.out.x < 1600, 'a tree body 642px outside moved ' + (1600 - t.out.x).toFixed(0) + 'px in one step');
   // Outside on both axes: the whole move is capped, not each axis (review it17: 56.6px per step).
+  // Outside on y only (below a canvas that shrank): the cap still applies (review it19).
+  const yo = mk({ dx: 120, dy: 0 }); yo.out.x = 500; yo.out.y = 1600;
+  sim.orgStep([yo.out], yo.hub, 0.02, box);
+  assert.ok(Math.hypot(500 - yo.out.x, 1600 - yo.out.y) <= sim.ORG_GLIDE_MAX + 1e-9 && yo.out.y < 1600, 'a tree body outside only on y moved ' + (1600 - yo.out.y).toFixed(0) + 'px in one step');
   const c = mk({ dx: 120, dy: 0 }); c.out.y = 1600;
   sim.orgStep([c.out], c.hub, 0.02, box);
   const moved = Math.hypot(1600 - c.out.x, 1600 - c.out.y);
