@@ -31267,6 +31267,7 @@ let CURRENT = null;
    load against a refetch + list-rebuild flicker on every return to Instructions. Reset per open
    (below) so reopening an agent gets a fresh list; a skill ADD refreshes it on its own path. */
 let SKILLS_LOADED_FOR = null;
+const SKILLS_LOAD_TICKET = {};   // #4550: per list, the newest load's ticket (see loadSkills)
 /* #2574: the project a detail view was opened FROM (a project-member click), so
    detail-back returns to that project instead of All agents. null for every
    other opener. */
@@ -33887,7 +33888,7 @@ function openDetail(sessionName, section, fromProject) {
      agent just left paints nothing even when this open lands on Talk (no load of its own to supersede it). */
   { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = '';
     const sm = document.getElementById('d-skills-msg'); if (sm) sm.textContent = '';
-    if (typeof SKILLS_LOAD_TICKET === 'object') SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
+    SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
     // Clear the previous agent's rows now, not when the fetch returns: a click in between would
@@ -35324,11 +35325,16 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
    The list is whatever the runtime's folder holds right now; painting from
    anything else would let the screen disagree with what a session loads. */
-/* #4550 review: the NEWEST load of a list is the only one that may paint it. An agent's Skills
-   list loads whenever Profile opens, so switching agents quickly can leave an older fetch in
-   flight, and its answer arriving last would paint agent A's skills (each row's Remove aimed at
-   A's URL) on agent B's page. Each call takes a ticket per list; a stale answer paints nothing. */
-const SKILLS_LOAD_TICKET = {};
+/* #4550 review: the agent Skills list only ever shows the agent ON SCREEN. It loads whenever
+   Profile opens, so switching agents can leave work in flight (a list load, a Remove, an Add),
+   and an answer for agent A landing on agent B's page would list A's skills with Remove buttons
+   aimed at A. Two guards, checked after every await: the list's ticket (the newest load wins,
+   and openDetail retires a load in flight), and skillsListIsFor, that the URL is the agent now
+   open. The global Settings list is not per agent, so only the ticket applies to it. */
+function skillsListIsFor(listId, url) {
+  if (listId !== 'd-skills-list') return true;
+  return !!CURRENT && url === '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills';
+}
 async function loadSkills(url, listId, msgId) {
   /* Header only, no body text (Josh, 2026-08-23 20:01: "this page could get
      really gigantic... just have only the header"). Each row carries its
@@ -35336,8 +35342,9 @@ async function loadSkills(url, listId, msgId) {
      the consent, and looking away resets it. */
   const box = document.getElementById(listId);
   const msg = document.getElementById(msgId);
+  if (!skillsListIsFor(listId, url)) return;   // a reload for an agent no longer on screen
   const ticket = (SKILLS_LOAD_TICKET[listId] = (SKILLS_LOAD_TICKET[listId] || 0) + 1);
-  const stale = () => SKILLS_LOAD_TICKET[listId] !== ticket;
+  const stale = () => SKILLS_LOAD_TICKET[listId] !== ticket || !skillsListIsFor(listId, url);
   msg.textContent = 'Looking\u2026';
   try {
     const got = await (await fetch(url, { cache: 'no-store' })).json();
@@ -35361,9 +35368,10 @@ async function loadSkills(url, listId, msgId) {
         try {
           const res = await fetch(url + '/' + encodeURIComponent(sk.key), { method: 'DELETE' });
           const out = await res.json();
+          if (!skillsListIsFor(listId, url)) return;   // the person moved to another agent meanwhile
           if (!res.ok) { msg.textContent = pjSentence(out.because || 'we could not remove it'); rm.disabled = false; return; }
           loadSkills(url, listId, msgId);
-        } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
+        } catch { if (!skillsListIsFor(listId, url)) return; msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
       });
       rm.addEventListener('blur', () => { armed = false; rm.textContent = 'Remove'; rm.classList.remove('armed'); });
       row.append(n, rm);
@@ -35379,17 +35387,22 @@ function wireSkillAdd(btnId, nameId, bodyId, msgId, urlFor, saidFor) {
     const name = document.getElementById(nameId).value.trim();
     const body = document.getElementById(bodyId).value;
     msg.textContent = 'Adding\u2026';
+    /* #4550 review: the agent and the sentence are taken at the click, and nothing is written back
+       if the person has moved to another agent by the time the answer comes. */
+    const url = urlFor(), said = saidFor();
+    const here = () => btnId !== 'd-skill-add' || skillsListIsFor('d-skills-list', url);
     try {
-      const res = await fetch(urlFor(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, body }) });
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, body }) });
       const out = await res.json().catch(() => null);
+      if (!here()) return;
       if (!res.ok || !out || out.ok === false) { msg.textContent = pjSentence((out && out.because) || 'we could not add that skill'); return; }
       document.getElementById(nameId).value = ''; document.getElementById(bodyId).value = '';
-      msg.textContent = saidFor();
+      msg.textContent = said;
       /* The list is the receipt: repaint it so the new skill appears where
          it will be read from. */
       if (btnId === 'g-skill-add') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
       else if (CURRENT) loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
-    } catch { msg.textContent = 'We could not reach Kosmos to add that skill.'; }
+    } catch { if (here()) msg.textContent = 'We could not reach Kosmos to add that skill.'; }
   });
 }
 wireSkillAdd('g-skill-add', 'g-skill-name', 'g-skill-body', 'g-skill-add-msg',
