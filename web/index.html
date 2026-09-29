@@ -6789,6 +6789,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    false with nobody editing it.) Removing the stranded separator (the previous round) fixed the
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
+/* #4556 design shots: the role menu at 16px on a phone, so iOS does not zoom when it is tapped (the Swarm screen
+   opens on it). */
+@media (max-width: 600px) { #rolesel { font-size: 16px; } }
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
@@ -46482,6 +46485,9 @@ function paintPathOptions() {
   const swarmPath = CREATE_PATH === 'swarm';
   document.getElementById('pick-pm').hidden = swarmPath;
   document.getElementById('pick-import').hidden = !OWN_ROLE || swarmPath;
+  /* #4556 design shots: with no Project Manager above it (the Swarm path), "another" has nothing to follow. */
+  const listName = document.querySelector('#pick-list .p2n');
+  if (listName) listName.textContent = swarmPath ? 'Pick a role' : 'Pick another role';
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
 }

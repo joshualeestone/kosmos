@@ -121,9 +121,10 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 }).catch(() => {});
       const k2 = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, imp: !document.getElementById('pick-import').hidden,
         orgRadio: !!document.getElementById('pick-orgchart'), back: !document.getElementById('create-path-back').hidden,
+        listName: document.querySelector('#pick-list .p2n').textContent,
         title: document.getElementById('cstep-role-title').textContent }));
       ok(t + ' K2 Single: Project Manager and import are offered, the org chart is not, and Back shows',
-        k2.pm && k2.imp && !k2.orgRadio && k2.back && k2.title === 'What should this agent do?', JSON.stringify(k2));
+        k2.pm && k2.imp && !k2.orgRadio && k2.back && k2.title === 'What should this agent do?' && k2.listName === 'Pick another role', JSON.stringify(k2));
       await page.click('#pick-pm');
       await page.click('#role-next');
       await page.waitForSelector('#cstep-name:not([hidden])', { timeout: 8000 }).catch(() => {});
@@ -140,8 +141,12 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.click('#cstep-kind [data-path="swarm"]');
       await page.waitForTimeout(200);
       const k4 = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, imp: !document.getElementById('pick-import').hidden,
-        list: !!document.querySelector('input[name="rmode"][value="list"]:checked'), title: document.getElementById('cstep-role-title').textContent }));
+        list: !!document.querySelector('input[name="rmode"][value="list"]:checked'), title: document.getElementById('cstep-role-title').textContent,
+        listName: document.querySelector('#pick-list .p2n').textContent, selFont: parseFloat(getComputedStyle(document.getElementById('rolesel')).fontSize) }));
       ok(t + ' K4 Swarm: no Project Manager and no import; it opens on the role menu', !k4.pm && !k4.imp && k4.list && k4.title === 'What should this swarm do?', JSON.stringify(k4));
+      // Design shots: with no Project Manager above it, "another" had nothing to follow; and a phone menu under 16px zooms on iOS.
+      ok(t + ' K4 Swarm: the menu option reads "Pick a role", not "Pick another role"', k4.listName === 'Pick a role', k4.listName);
+      if (width <= 600) ok(t + ' K4 Swarm: the role menu is at least 16px on a phone', k4.selFont >= 16, String(k4.selFont));
       await page.click('#role-next');
       await page.waitForSelector('#cstep-name:not([hidden])', { timeout: 8000 }).catch(() => {});
       const k4b = await page.evaluate(() => { const box = document.getElementById('create-kind');
