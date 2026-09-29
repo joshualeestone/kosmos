@@ -1641,6 +1641,16 @@ html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background
    Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
+/* #4506: a dialog's dim (.rm-back) cannot paint the gutter either, so a bright strip of page showed beside every
+   dialog. While one is up the canvas takes the dimmed ground, the way the tour's dim does above: one colour, the
+   dim's rgb(17, 20, 24) at its 0.72 mixed over the root's ground (keep it equal to .rm-back's own background).
+   Rejected: dropping the gutter, which moves the board 15px behind a see-through wash on every dialog open (#1309).
+   Any .rm-back, not only the body's children: plus-lost-modal sits inside the Plus section.
+   Known residual: Kosmos+ navy sets its ground on the body, where the root cannot see it, so on the Plus section the
+   gutter beside a dialog mixes from the light or dark ground (a grey strip there, where it was white). */
+html:not([data-layout="consolidated"]):has(.rm-back:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-bg)); }
+/* On Tasks the canvas is the surface (#4216 above), and so is the page beside the gutter, so the dim mixes over that. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):has(.rm-back:not([hidden])):has(> body > #panel-tasks:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-surface)); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
@@ -9625,6 +9635,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 #boot-cover { position: fixed; inset: 0; z-index: 70; background: var(--bg);
   display: flex; align-items: center; justify-content: center; }
 #boot-cover[hidden] { display: none; }
+/* #4506: the tab layout's scrollbar gutter (#1309) is a strip the fixed cover cannot paint, so while it is up the page
+   reserves none and does not scroll, as for the restart screen. The cover is opaque, so the 15px this moves the board
+   happens behind it. Rejected: the canvas-colour route the dialogs take, because the cover's ground is --bg and the
+   Plus section sets that on the body, where the root cannot read it. */
+html:has(> body > #boot-cover:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 #boot-cover .boot-spin { width: 26px; height: 26px; border-radius: 50%;
   border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
   animation: boot-spin 0.8s linear infinite; }
