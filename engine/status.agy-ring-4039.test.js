@@ -103,6 +103,8 @@ test('#4039: the pane sweep routes an agy pane to readAgyContext and its model t
   const src = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
   assert.match(src, /: isAgyPane \? readAgyContext\(pane\.name, agySess\)/, 'an agy pane no longer reaches readAgyContext');
   assert.match(src, /const agySess = \(isNamedOurs\(pane\) && isAgyPane\) \? readAgySession\(pane\.name\) : null;/);
-  assert.match(src, /model: \(tied && agySess && agySess\.found && agySess\.model\) \|\| null/);
+  // #4416: the model is chosen per runner; the agy arm reads its own conversation (sessModel requires found).
+  assert.match(src, /: isAgyPane \? \{ model: sessModel\(agySess\) \}/);
+  assert.match(src, /const sessModel = \(x\) => \(x && x\.found && typeof x\.model === 'string' && x\.model\) \|\| null;/);
   assert.doesNotMatch(src, /Kosmos cannot read how much of its memory an Antigravity agent has used yet/, 'the old refusal is back');
 });

@@ -47,7 +47,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const sel = document.getElementById('d-model');
     if (!sel) return { error: '#d-model is missing' };
     const settle = () => new Promise((res) => setTimeout(res, 40));
-    const agent = { sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: 'o3' };
+    const agent = { sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelId: 'o3' };
     // paintOpenaiDetailModel bails unless CURRENT is the agent it is painting.
     CURRENT = { sessionName: 'oa1' };
 
@@ -76,7 +76,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'The everyday choice.' },
       { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' },
     ] }) });
-    paintOpenaiDetailModel({ ...agent, plannedModelName: 'gpt-4o-2024-08-06' }, 'oa1');
+    paintOpenaiDetailModel({ ...agent, plannedModelId: 'gpt-4o-2024-08-06' }, 'oa1');
     await settle();
     const snapshotPinned = {
       injectedRow: /value="gpt-4o-2024-08-06"/.test(sel.innerHTML),
@@ -87,7 +87,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
     // NOT LISTABLE
     window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an API key' }) });
-    paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
+    paintOpenaiDetailModel({ ...agent, plannedModelId: '' }, 'oa1');
     await settle();
     const msg = document.getElementById('d-model-msg') || {};
     // #2802: the not-an-api-key (ChatGPT subscription) state must be ACTIONABLE,
@@ -138,7 +138,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // asserts the model row survives, populated, with no parking message.
     let sequence = { ran: false };
     if (typeof paintModelPicker === 'function' && typeof paintProviderPicker === 'function') {
-      const seqAgent = { sessionName: 'oa2', isNamedOurs: true, provider: 'openai', runner: 'codex', account: { dir: '/home/.codex' }, plannedModelName: 'o3' };
+      const seqAgent = { sessionName: 'oa2', isNamedOurs: true, provider: 'openai', runner: 'codex', account: { dir: '/home/.codex' }, plannedModelId: 'o3' };
       CURRENT = { sessionName: 'oa2', runner: 'codex' };
       window.fetch = async (url) => {
         if (String(url).indexOf('/api/accounts/openai/models') !== -1) {
@@ -177,7 +177,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     {
       CURRENT = { sessionName: 'oa1' };
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
-      paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ ...agent, plannedModelId: '' }, 'oa1');
       await settle();
       const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
 
@@ -185,13 +185,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
         { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' },
       ] }) });
-      paintOpenaiDetailModel({ ...agent, plannedModelName: 'o3' }, 'oa1');
+      paintOpenaiDetailModel({ ...agent, plannedModelId: 'o3' }, 'oa1');
       await settle();
       const hidByListableRepaint = (document.getElementById('d-model-connect') || {}).hidden === true;
 
       // re-show (not-listable) so (b) also starts from a visible button.
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
-      paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ ...agent, plannedModelId: '' }, 'oa1');
       await settle();
       const reShown = (document.getElementById('d-model-connect') || {}).hidden === false;
 
@@ -200,7 +200,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       const openDetailUsable = (typeof openDetail === 'function' && typeof LAST !== 'undefined' && Array.isArray(LAST));
       let hidByClaudeSwitch = false;
       if (openDetailUsable) {
-        const claudeAgent = { sessionName: 'cl1', name: 'ClaudeOne', isNamedOurs: true, provider: 'anthropic', account: { dir: '', isDefault: true }, plannedModelName: 'sonnet' };
+        const claudeAgent = { sessionName: 'cl1', name: 'ClaudeOne', isNamedOurs: true, provider: 'anthropic', account: { dir: '', isDefault: true }, plannedModelId: 'sonnet' };
         LAST.length = 0; LAST.push(claudeAgent);
         openDetail('cl1', 'model');
         await settle();
@@ -221,11 +221,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       // pre-show via an OURS not-listable paint, so we prove the not-ours paint
       // HIDES a visible button rather than merely never showing it.
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
-      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelId: '' }, 'oa1');
       await settle();
       const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
       // now the SAME not-an-api-key because, but a NOT-OURS agent (usable === false).
-      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: false, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: false, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelId: '' }, 'oa1');
       await settle();
       const cb = document.getElementById('d-model-connect');
       const mm2 = document.getElementById('d-model-msg') || {};
@@ -249,11 +249,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     {
       CURRENT = { sessionName: 'oa1' };
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
-      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelId: '' }, 'oa1');
       await settle();
       const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
       window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: "this account's API key was rejected by OpenAI (401)" }) });
-      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelId: '' }, 'oa1');
       await settle();
       const cb = document.getElementById('d-model-connect');
       siblingReasonGate = {

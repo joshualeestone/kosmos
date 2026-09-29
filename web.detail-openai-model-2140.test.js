@@ -6,15 +6,15 @@
  * /api/accounts/openai/models fetch. The point is the bug Josh flagged: an OpenAI
  * agent's detail page must NEVER show Claude models (the Claude flow matches by
  * label against CREATE_MODELS). Asserts: LISTABLE shows the account's models with
- * "Let OpenAI choose" first and the agent's CURRENT model (a.plannedModelName, which
+ * "Let OpenAI choose" first and the agent's CURRENT model (a.plannedModelId, #4416, which
  * for OpenAI is the raw id) pre-selected, no Claude; NOT LISTABLE shows the single
  * "OpenAI picks its own model for now" option, no Claude, with the reason on the msg.
  *
  * ⚠️ THE AGENT CARDS ARE REAL, from test-support/fleet, never a hand-written
  * stand-in (fixture-discipline.test.js refuses one, rightly). fleet gives the
  * engine snapshot's sessionName + isNamedOurs; the OpenAI-only fields the SERVER
- * card stage adds -- provider, account, plannedModelName, runner -- are spread on
- * (all verified server-emitted: server.js emits plannedModelName/account/runner on
+ * card stage adds -- provider, account, plannedModelId, runner -- are spread on
+ * (all verified server-emitted: server.js emits plannedModelId/account/runner on
  * the agent card). Sandbox before the fleet require, as every fixture consumer does.
  *
  *   node --test web.detail-openai-model-2140.test.js
@@ -68,7 +68,7 @@ function realCards() {
 const CARDS = realCards();
 
 /* An OpenAI agent card: a real engine card + the fields the SERVER card stage
-   adds for a codex agent. `provider`/`account`/`plannedModelName` are all
+   adds for a codex agent. `provider`/`account`/`plannedModelId` are all
    producer-emitted; this spreads them onto the real base rather than inventing
    a card. */
 function openaiAgent(base, extra) {
@@ -111,7 +111,7 @@ async function run({ agent, fetchOk, fetchBody }) {
 
 test('#2140 S2 LISTABLE: the detail picker shows the account models + "Let OpenAI choose", NEVER a Claude model, current pre-selected', async () => {
   const r = await run({
-    agent: openaiAgent(CARDS.ours, { plannedModelName: 'o3' }),
+    agent: openaiAgent(CARDS.ours, { plannedModelId: 'o3' }),
     fetchOk: true,
     fetchBody: { ok: true, models: [
       { key: 'gpt-5-codex', provider: 'openai', label: 'GPT-5-codex', arg: 'gpt-5-codex', why: 'x' },
@@ -140,7 +140,7 @@ test('#2140 S2 default-codex (isDefault account) sends an EMPTY dir so the route
   // exercises the branch under test (an isDefault account must send an empty
   // dir), but it is now a hand-made shape rather than one the product produces.
   const r = await run({
-    agent: openaiAgent(CARDS.ours, { account: { dir: '/home/.claude', isDefault: true }, plannedModelName: 'o3' }),
+    agent: openaiAgent(CARDS.ours, { account: { dir: '/home/.claude', isDefault: true }, plannedModelId: 'o3' }),
     fetchOk: true,
     fetchBody: { ok: true, models: [{ key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' }] },
   });
@@ -158,7 +158,7 @@ test('#2191 S2 current-not-in-(collapsed)-list -> the current model is injected 
      it. The original intent survives: it still never pre-selects a DIFFERENT
      model (it must not silently swap the snapshot pin for its collapsed alias). */
   const r = await run({
-    agent: openaiAgent(CARDS.ours, { plannedModelName: 'gpt-4o-2024-08-06' }),
+    agent: openaiAgent(CARDS.ours, { plannedModelId: 'gpt-4o-2024-08-06' }),
     fetchOk: true,
     fetchBody: { ok: true, models: [
       { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'x' },
@@ -174,7 +174,7 @@ test('#2191 S2 current-not-in-(collapsed)-list -> the current model is injected 
 
 test('#2140 S2 NOT LISTABLE: single "OpenAI picks its own model for now" option, no Claude, reason on the msg', async () => {
   const r = await run({
-    agent: openaiAgent(CARDS.ours, { plannedModelName: '' }),
+    agent: openaiAgent(CARDS.ours, { plannedModelId: '' }),
     fetchOk: true,
     fetchBody: { ok: false, because: 'this sign-in cannot list models yet; it is not an API key' },
   });
@@ -188,7 +188,7 @@ test('#2140 S2 NOT LISTABLE: single "OpenAI picks its own model for now" option,
 
 test('#2140 S2 not-ours agent: the box shows no Claude model and says Kosmos did not start it', async () => {
   const r = await run({
-    agent: openaiAgent(CARDS.stranger, { plannedModelName: 'o3' }),
+    agent: openaiAgent(CARDS.stranger, { plannedModelId: 'o3' }),
     fetchOk: true,
     fetchBody: { ok: true, models: [{ key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'x' }] },
   });

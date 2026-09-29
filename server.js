@@ -2519,8 +2519,8 @@ function markGuide(rows, guideName) {
     a.isGuide = Boolean(guideName) && a.sessionName === guideName;
     if (!a.isGuide) continue;
     a.role = roles.GUIDE_TITLE;
-    /* Claude only: plannedModelName is read as a model id by the OpenAI picker, and the page already names
-       another runner ("OpenAI Codex") when no model is known. */
+    /* Claude only: every other runner's card already names its provider when no model is known ("OpenAI Codex",
+       "Gemini", "Grok"), and a Gemini or Grok job's pinned default is named by plannedFor. */
     if (!a.modelName && !a.plannedModelName && (!a.runner || a.runner === 'claude')) {
       a.plannedModelName = 'Claude (its default model)';
     }
@@ -4359,8 +4359,10 @@ const server = http.createServer(async (req, res) => {
         // would prefer the job for it while this never populated the field, so
         // "Will start on" would silently stop appearing.
         if (a.modelName && a.state !== STATE.STOPPED) return null;
-        const arg = create.plannedModelArg(a.sessionName);
-        return arg ? modelDisplayName(arg) : null;
+        /* #4416: ONE read of the job, on either platform (create.plannedModelOf). A Gemini or Grok job with no model
+           starts on the launcher's pinned model, marked as the default rather than a choice. */
+        const planned = create.plannedModelOf(a.sessionName);
+        return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -4467,6 +4469,11 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
+        /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
+           plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
+           plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
+           Codex only: that is the one picker keyed on it, and the read costs a launch-file read per poll. */
+        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelId(a.sessionName) : null,
         /* Which Claude account this agent runs on, read from its startup file
            and resolved to something a person recognises. `null` means the
            default account, which is what an absent key has always meant.
@@ -4629,6 +4636,8 @@ const server = http.createServer(async (req, res) => {
                  leftover shape and keeps that sentence. */
               const unseen = !create.jobMissing(k.name) && k.folder
                 && runningNow.has(k.name);
+              /* #246/#2811's runner for this row, read once: the `runner` field below and #4416's plannedModelId both use it. */
+              const rowRunner = runnerOfCard({ sessionName: k.name, runner: null });
               return {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
@@ -4763,6 +4772,7 @@ const server = http.createServer(async (req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
+                plannedModelId: rowRunner === 'codex' ? create.plannedModelId(k.name) : null,   // #4416: the raw id, for the OpenAI picker (codex only, as on the roster)
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
@@ -4811,7 +4821,7 @@ const server = http.createServer(async (req, res) => {
                    of the two: the plist is the launch truth, as this file says
                    everywhere else, and the profile is the fallback when there is
                    no job to read. */
-                runner: runnerOfCard({ sessionName: k.name, runner: null }),
+                runner: rowRunner,
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
