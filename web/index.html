@@ -16884,7 +16884,8 @@ window.kosmosMeasureScrollbarWidth();
     </div>
 
     <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
-         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here. -->
+         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here.
+         #4610 (Josh, 12:50): here in every Plus state, including right after sign-in, never across the top. -->
     <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
       <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
       <div id="plus-ask-rows"></div>
@@ -41173,10 +41174,13 @@ function paintAsk() {
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const panel = document.getElementById('plus-asks');
-  /* Review (#3829): "above the panel" only exists while the connected panel (#plus-flow) is showing. In the
-     not-enrolled or sign-in states there is no panel to sit above, so the full cards stay in the top card. */
-  const flow = document.getElementById('plus-flow');
-  const inPanel = onPlus && !!panel && !!flow && !flow.hidden;
+  /* #4610 (Josh, 12:50, a new Kosmos+ account in the Mac app): "these should have rendered in the same spot as the
+     login and not above everything". On Kosmos Plus the requests always render in the Plus section (#plus-asks), in
+     every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
+     top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
+     signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
+     card stays the compact "N devices are asking" notice on every other view. */
+  const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;

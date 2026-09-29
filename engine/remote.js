@@ -1138,6 +1138,7 @@ async function setupComplete(code, name) {
   if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
+  if (result.ok && macIdHere() !== before) forgetPendingSnapshot();   // #4610
   // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
   // while it was out; a register that fails leaves the pending relaunch for the next tick.
   if (result.ok) { registerTakesOver(); ensure(localPort); }
@@ -1158,6 +1159,40 @@ async function setupComplete(code, name) {
 const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
+/* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
+   pending snapshot. pending.json is the running tunnel's last answer for the OLD identity, and it stays until the new
+   tunnel's first poll rewrites it (up to 5s, and longer if that poll fails: a failed poll keeps the last file,
+   kosmos-relay devices.rs). Called at every place the identity changes (setupComplete, cancelledAfter,
+   signinRegister), after the old tunnel is stopped so it cannot rewrite it. A missing snapshot already reads as
+   nothing waiting (pendingDevices). */
+function forgetPendingSnapshot() {
+  try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
+}
+/* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
+   behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
+   (every session is one) and registering the Mac records no grant for it, so it waited for an Allow from the person
+   who had just signed in. It is granted here, through the same Allow the person's button uses (deviceAllow), and
+   never shown (pendingDevices leaves it out).
+   🔑 SCOPED TO THIS COMPUTER BY A VALUE ONLY THIS BOARD HOLDS: remote.json's device_id, which this board minted
+   itself for its own sign-in (signinStart) and never takes from a request, not a name or label a device sends, so a
+   remote device cannot claim it. Every other device still asks.
+   Retried from pendingDevices while the snapshot still lists it (a failed call, or a register still in flight when
+   it first ran), at most once a minute and never two at once. */
+let selfAllowAt = 0;
+let selfAllowing = false;
+const SELF_ALLOW_RETRY_MS = 60000;
+function allowSelfQuietly() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id || selfAllowing || !enrolled()) return false;
+  if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
+  selfAllowing = true;
+  selfAllowAt = Date.now();
+  Promise.resolve()
+    .then(() => deviceAllow(id, thisComputerDeviceName()))
+    .catch(() => null)
+    .finally(() => { selfAllowing = false; });
+  return true;
+}
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -1167,8 +1202,15 @@ function pendingDevices() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  /* #4610 (Josh, 12:50: "This computer (Kosmos app)" asked him to approve it): this Mac's OWN in-app sign-in is a
+     device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
+     stays pending for good. It is never a request: the app's window loads the board on this computer, not through
+     Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
+  const self = typeof settings.device_id === 'string' ? settings.device_id : '';
+  if (self && list.some((d) => d && String(d.device_id) === self)) allowSelfQuietly();   // Josh's ruling above
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => !self || String(d.device_id) !== self)
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
@@ -1504,7 +1546,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
-    if (macIdHere() !== before) fedSetStanding('');
+    if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
   }
   return SIGNIN_CANCELLED;
 }
@@ -1891,7 +1933,11 @@ async function signinRegister(name) {
      Unless the person pressed that off while this register was out: that stands. */
   // A new identity: a tunnel still running the old one (or started on it) stops,
   // so ensure() below brings it up on the new key and certificate.
-  if (macIdHere() !== before) stopChild();
+  if (macIdHere() !== before) { stopChild(); forgetPendingSnapshot(); }   // #4610
+  /* #4610 (Josh's ruling): grant this Mac's own sign-in now. After this call returns, so the register's in-flight
+     flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
+  selfAllowAt = 0;
+  setImmediate(allowSelfQuietly);
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
@@ -1967,7 +2013,7 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); selfAllowAt = 0; selfAllowing = false; stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically

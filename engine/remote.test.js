@@ -2727,3 +2727,67 @@ test('#3827: the hosted assistant is refused while this computer is being forgot
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
 });
+
+/* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "This computer (Kosmos app)" asked him
+   to approve it, and the new account was shown an older request. */
+test('#4610 this Mac\'s own in-app sign-in is never listed as a request; another device still is (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('selfmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'the sign-in minted no device id, so the arm below measures nothing');
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: self, name: 'Josh Mac (Kosmos app)', first_seen: 1756000000, code: 'W6-M4' },
+    { device_id: 'dev-safari', name: 'Mac · Safari', first_seen: 1756000100, code: 'VR-D6' },
+  ] }));
+  const got = remote.pendingDevices();
+  assert.deepEqual(got.devices.map((d) => d.device_id), ['dev-safari'], 'this Mac asked to approve itself');
+  remote.setOn(false);
+});
+
+test('#4610 a new identity drops the old account\'s pending snapshot; the same identity keeps it (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const pend = () => nodePath.join(DATA_ROOT, 'remote', 'pending.json');
+  const plant = () => fs.writeFileSync(pend(), JSON.stringify({ devices: [{ device_id: 'dev-old', name: 'Old account phone', first_seen: 1756000000, code: 'K7-3M' }] }));
+  const signIn = async (name, code) => { await remote.signinStart('her@example.com'); await remote.signinVerify('her@example.com', code); return remote.signinRegister(name); };
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  plant();
+  assert.equal(remote.pendingDevices().devices.length, 1, 'CONTROL: the planted snapshot reads before any change');
+  /* The same name is the same identity (the fake keeps mac-<name>): nothing is dropped. */
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  assert.ok(fs.existsSync(pend()), 'a re-register of the SAME identity threw away a live snapshot');
+  /* A different name is a new identity at the coordinator: the old snapshot goes. */
+  const before = fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8');
+  assert.equal((await signIn('newuser', '111111')).ok, true);
+  assert.notEqual(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8'), before, 'the fake did not change identity, so the arm measures nothing');
+  assert.ok(!fs.existsSync(pend()) || !JSON.parse(fs.readFileSync(pend(), 'utf8')).devices.some((d) => d.device_id === 'dev-old'),
+    'the new account was still shown the old account\'s request');
+  remote.setOn(false);
+});
+
+test('#4610 Josh\'s ruling: a sign-in grants THIS Mac\'s own device at once, by the id this board minted; no other device is granted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const already = allows().length;
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('grantmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'no device id was minted, so there is nothing to grant');
+  await until(() => allows().length > already, 'the automatic Allow for this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(already), [self], 'the grant went to something other than this Mac\'s own minted id');
+  /* A snapshot listing this Mac and another device: the other one is left for the person, never granted here. */
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-stranger', name: 'This computer (Kosmos app)', first_seen: 1756000000, code: 'AA-11' },
+  ] }));
+  remote.pendingDevices();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!allows().includes('dev-stranger'), 'a device that only CALLS itself "This computer (Kosmos app)" was granted');
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['dev-stranger'], 'a stranger with the self label was hidden');
+  remote.setOn(false);
+});
