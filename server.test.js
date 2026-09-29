@@ -293,7 +293,7 @@ function pastedMessages(calls) {
   return msgs;
 }
 
-test('#4468: status answers while a 25-recipient room post keeps its paste-to-Enter gaps', async (t) => {
+test('#4468: status answers during a 25-recipient post, and concurrent posts never merge', async (t) => {
   const chat = require('./engine/chat');
   const messages = require('./engine/messages');
   const projects = require('./engine/projects');
@@ -312,14 +312,38 @@ test('#4468: status answers while a 25-recipient room post keeps its paste-to-En
   });
 
   messages.setRunner(() => ({ ok: true, session: 'load0-discord' }));
-  chat.setRunner((args) => ({
-    ran: true, spawnFailed: false, status: 0,
-    out: args[0] === 'display-message' ? '2.1.212\t\t0\n' : '', err: '',
-  }));
+  const paneEvents = new Map();
+  const buffers = new Map();
+  chat.setRunner((args) => {
+    if (args[0] === 'set-buffer') buffers.set(args[args.indexOf('-b') + 1], args[args.length - 1]);
+    if (args[0] === 'paste-buffer') {
+      const target = args[args.indexOf('-t') + 1];
+      const buffer = args[args.indexOf('-b') + 1];
+      if (!paneEvents.has(target)) paneEvents.set(target, []);
+      paneEvents.get(target).push(`paste:${buffers.get(buffer) || ''}`);
+    }
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') {
+      const target = args[args.indexOf('-t') + 1];
+      if (!paneEvents.has(target)) paneEvents.set(target, []);
+      paneEvents.get(target).push('Enter');
+    }
+    return {
+      ran: true, spawnFailed: false, status: 0,
+      out: args[0] === 'display-message' ? '2.1.212\t\t0\n' : '', err: '',
+    };
+  });
   chat.setDryRun(false);
   const gaps = [];
+  let releaseFirstGap;
+  let firstGapStarted;
+  const firstGap = new Promise((resolve) => { firstGapStarted = resolve; });
   chat.setPauser((ms) => new Promise((resolve) => {
     gaps.push(ms);
+    if (gaps.length === 1) {
+      releaseFirstGap = resolve;
+      firstGapStarted();
+      return;
+    }
     setTimeout(resolve, 5);
   }));
 
@@ -328,18 +352,40 @@ test('#4468: status answers while a 25-recipient room post keeps its paste-to-En
     name: 'Load Room 4468', folder,
     agents: specs.map((s) => s.name), roster: made.agents,
   });
+  let postSettled = false;
   const post = postJson('/api/post', {
     project: project.id, text: 'status must stay responsive', from_pane: '%4468',
-  });
-  const statusDuringPost = req('/api/status').then((answer) => ({ kind: 'status', answer }));
-  const postDone = post.then((answer) => ({ kind: 'post', answer }));
-
-  const first = await Promise.race([statusDuringPost, postDone]);
-  assert.equal(first.kind, 'status', 'the post held the event loop until all 25 delivery gaps finished');
-  assert.equal(first.answer.status, 200);
-  const delivered = await postDone;
-  assert.equal(JSON.parse(delivered.answer.body).delivery.state, chat.DELIVERY.PLACED);
+  }).then((answer) => { postSettled = true; return answer; });
+  await firstGap;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(postSettled, false, 'the route ignored the asynchronous paste gap');
+  const statusDuringPost = await Promise.race([
+    req('/api/status'),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('status waited behind the room post')), 500)),
+  ]);
+  assert.equal(statusDuringPost.status, 200);
+  releaseFirstGap();
+  const delivered = await post;
+  assert.equal(JSON.parse(delivered.body).delivery.state, chat.DELIVERY.PLACED);
   assert.equal(gaps.length, 25, 'one unchanged paste-to-Enter gap per recipient');
+
+  paneEvents.clear();
+  const firstPost = postJson('/api/post', {
+    project: project.id, text: 'first concurrent post', from_pane: '%4468',
+  });
+  const secondPost = postJson('/api/post', {
+    project: project.id, text: 'second concurrent post', from_pane: '%4468',
+  });
+  const both = await Promise.all([firstPost, secondPost]);
+  assert.ok(both.every((answer) => JSON.parse(answer.body).delivery.state === chat.DELIVERY.PLACED));
+  assert.equal(paneEvents.size, 25);
+  for (const [target, events] of paneEvents) {
+    assert.equal(events.length, 4, `${target} did not get exactly two paste/Enter pairs`);
+    assert.match(events[0], /^paste:/);
+    assert.equal(events[1], 'Enter', `${target} received another paste before the first Enter`);
+    assert.match(events[2], /^paste:/);
+    assert.equal(events[3], 'Enter', `${target} received an Enter out of order`);
+  }
 });
 
 // #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape

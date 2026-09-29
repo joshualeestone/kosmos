@@ -205,6 +205,7 @@ function setDryRun(on) {
  */
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
+const deliveryQueues = new Map();
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -232,6 +233,7 @@ function resetForTests() {
   pauser = null;
   channel = null;
   DRY_RUN = true;
+  deliveryQueues.clear();
 }
 
 /**
@@ -1490,11 +1492,34 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
 }
 
 function deliver(sessionName, raw, roster, envelope, trailer) {
+  const card = resolveCard(roster, sessionName);
+  const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
+  if (target && deliveryQueues.has(target)) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: 'another message is still being placed in its window, so this one was not typed',
+      at: new Date().toISOString(), paneState: null, paneNote: null,
+    };
+  }
   return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
 }
 
 async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
-  return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
+  const card = resolveCard(roster, sessionName);
+  if (!card || card.isNamedOurs !== true) {
+    return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
+  }
+  const target = paneTarget(card);
+  const before = deliveryQueues.get(target) || Promise.resolve();
+  const delivery = before.catch(() => {}).then(() => deliverWithGap(
+    sessionName, raw, roster, envelope, trailer, true,
+  ));
+  deliveryQueues.set(target, delivery);
+  try {
+    return await delivery;
+  } finally {
+    if (deliveryQueues.get(target) === delivery) deliveryQueues.delete(target);
+  }
 }
 
 /**
