@@ -46405,7 +46405,7 @@ function tcPaint() {
   const runningN = TC.members.filter((m) => m.seen === 'running').length;
   go.hidden = TC.started;
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
-  go.disabled = false;
+  go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
   document.getElementById('tc-project').disabled = TC.started;
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
@@ -46537,7 +46537,11 @@ async function tcRunOnce(gen) {
     try {
       const res = await fetch('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s.spec) });
       out = await res.json().catch(() => null);
-    } catch (err) { out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + ')' }; }
+    } catch (err) {
+      /* Round 4: the create may have landed before the connection dropped, so say so: Try again then
+         answers "already an agent called ..." and the agent is on the board. */
+      out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + '). It may have been made anyway: look for it on your board before trying again.' };
+    }
     if (gen !== TC_GEN) return;
     if (out && out.outcome === 'created') {
       m.state = 'made'; m.seen = null;
