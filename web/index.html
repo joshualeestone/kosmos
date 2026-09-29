@@ -30248,9 +30248,9 @@ function orgPlace(nodes) {
     for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
     if (!ring.length) break;
     const inner = Math.max(...prev.map((n) => placed.get(n.agent.sessionName).r));
-    const lay = (r) => {
+    const lay = (r, team) => {
       const out = new Map();
-      for (const p of prev) {
+      for (const p of team) {
         const ks = kids.get(p.agent.sessionName) || [];
         if (!ks.length) continue;
         const ps = placed.get(p.agent.sessionName);
@@ -30307,15 +30307,34 @@ function orgPlace(nodes) {
       }
       return true;
     };
-    let r = Math.max(ORG_R0 + depth * ORG_STEP, inner + ORG_STEP);
-    let spots = lay(r);
-    /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
-       room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
-    for (let tries = 0; tries < 400 && !clear(spots); tries += 1) {
-      r = Math.max(r + 8, r * 1.03);
-      spots = lay(r);
+    /* #4472: each team at its own radius, just outside its manager, pushed out only until its own faces and
+       every face already placed clear each other. One shared radius per ring let a single crowded team push the
+       whole ring out, and every ring below stacked on it. Teams keep their own slices and every line still runs
+       away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
+    const placedXY = () => [...placed.values()].map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
+    let others = placedXY();
+    for (const p of prev) {
+      if (!(kids.get(p.agent.sessionName) || []).length) continue;
+      const ps = placed.get(p.agent.sessionName);
+      const apart = (spots) => {
+        if (!clear(spots)) return false;
+        for (const s of spots.values()) {
+          const x = Math.cos(s.ang) * s.r; const y = Math.sin(s.ang) * s.r;
+          for (const o of others) if (Math.hypot(x - o[0], y - o[1]) < ORG_MIN_ARC) return false;
+        }
+        return true;
+      };
+      let r = Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP);
+      let spots = lay(r, [p]);
+      /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
+         room (a flat +8px for 400 tries stopped at 3200px and left a 500-report team overlapping: review it2). */
+      for (let tries = 0; tries < 400 && !apart(spots); tries += 1) {
+        r = Math.max(r + 8, r * 1.03);
+        spots = lay(r, [p]);
+      }
+      for (const [name, spot] of spots) { placed.set(name, spot); maxR = Math.max(maxR, spot.r); }
+      others = placedXY();
     }
-    for (const [name, spot] of spots) { placed.set(name, spot); maxR = Math.max(maxR, spot.r); }
     prev = ring.map((x) => x.n);
     depth += 1;
   }
