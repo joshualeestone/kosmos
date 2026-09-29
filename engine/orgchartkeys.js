@@ -10,8 +10,13 @@
  *
  * Every provider fact below is from its own current docs (2026-09-29; sources on #4560's plan and in the PR),
  * not from memory: the endpoint, the model id, the inline file shape, the JSON-schema field, where the answer is,
- * and `store`. All three providers STORE a request by default (OpenAI and xAI 30 days, Google 55 days paid), and
- * an org chart names real employees, so every request says `store: false`.
+ * `store` and `max_output_tokens`. All three providers keep a request's saved state by default, and an org chart
+ * names real employees, so every request says `store: false`. Each still keeps what is sent for a while for abuse
+ * checks whatever `store` says (KEEPS below, which the consent box shows).
+ *
+ * The provider URLs can be overridden by AGENT_WORKFORCE_ORGCHART_*_URL, for the tests' stub server. An override is
+ * honoured only for https, or plain http to this computer (127.0.0.1 or localhost), so it cannot send a real key
+ * in the clear. A redirect is refused, never followed: a key or the file must not reach a host it was not sent to.
  *
  * 🔑 THE KEY. Read from its account folder only when a read is sent (readApiKey), sent only in a header, and never
  * put in a URL, argv, a log line, an error or anything returned. Errors are built from the status code and the
@@ -19,6 +24,19 @@
  */
 
 const MAX_ANSWER_BYTES = 4 << 20;   // a real answer is a few kilobytes
+/* A cap on what the model may generate, reasoning included, because the read is billed to the person's key: well
+   past a large chart's answer (2000 people is about 200 KB of JSON), so it only stops a runaway. */
+const MAX_OUTPUT_TOKENS = 64000;
+/* An override honoured only for https, or plain http to this computer (the tests' stub server). */
+function urlFrom(envName, fallback) {
+  const v = process.env[envName];
+  if (!v) return fallback;
+  try {
+    const u = new URL(v);
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && (u.hostname === '127.0.0.1' || u.hostname === 'localhost'))) return v;
+  } catch { /* not a URL */ }
+  return fallback;
+}
 const TIMEOUT_MS = 120 * 1000;      // as the Claude read (orgchartfile MODEL_TIMEOUT_MS)
 let timeoutMs = TIMEOUT_MS;
 /** Tests only: a shorter timeout; null restores the real one. */
@@ -68,7 +86,7 @@ const PROVIDERS = {
   openai: {
     name: 'OpenAI',
     model: 'gpt-6-astra',
-    url: () => process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL || 'https://api.openai.com/v1/responses',
+    url: () => urlFrom('AGENT_WORKFORCE_ORGCHART_OPENAI_URL', 'https://api.openai.com/v1/responses'),
     headers: (key) => ({ authorization: 'Bearer ' + key }),
     // OpenAI's vision guide: PNG, JPEG, WEBP and non-animated GIF; PDFs through input_file.
     reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'image/gif': 1, 'application/pdf': 1 },
@@ -79,6 +97,7 @@ const PROVIDERS = {
       return {
         model: this.model,
         store: false,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
         input: [{ role: 'user', content: [file, { type: 'input_text', text: prompt }] }],
         text: { format: { type: 'json_schema', name: 'org_chart', schema: STRICT_SCHEMA, strict: true } },
       };
@@ -88,12 +107,13 @@ const PROVIDERS = {
   google: {
     name: 'Google Gemini',
     model: 'gemini-3.8-flash',
-    url: () => process.env.AGENT_WORKFORCE_ORGCHART_GEMINI_URL || 'https://generativelanguage.googleapis.com/v1beta/interactions',
+    url: () => urlFrom('AGENT_WORKFORCE_ORGCHART_GEMINI_URL', 'https://generativelanguage.googleapis.com/v1beta/interactions'),
     // In a header, never the ?key= query string the key check uses: a URL can end up in a log.
     headers: (key) => ({ 'x-goog-api-key': key }),
     // Google's image guide lists PNG, JPEG, WEBP, HEIC and HEIF (not GIF, which its API spec lists: not relied on).
     reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'application/pdf': 1 },
     body(prompt, media, buf) {
+      // No output cap here yet: where Gemini takes one is not confirmed from its docs, and Gemini is off (m3688).
       return {
         model: this.model,
         store: false,
@@ -115,7 +135,7 @@ const PROVIDERS = {
   xai: {
     name: 'xAI Grok',
     model: 'grok-4.7',
-    url: () => process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL || 'https://api.x.ai/v1/responses',
+    url: () => urlFrom('AGENT_WORKFORCE_ORGCHART_XAI_URL', 'https://api.x.ai/v1/responses'),
     headers: (key) => ({ authorization: 'Bearer ' + key }),
     // xAI's docs: image input is jpg/jpeg or png; a PDF only by public URL or an uploaded file, and attaching one
     // turns on a document-search tool, so it is not read here.
@@ -124,6 +144,7 @@ const PROVIDERS = {
       return {
         model: this.model,
         store: false,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
         input: [{ role: 'user', content: [{ type: 'input_image', image_url: dataUrl(media, buf), detail: 'high' }, { type: 'input_text', text: prompt }] }],
         text: { format: { type: 'json_schema', name: 'org_chart', schema: STRICT_SCHEMA, strict: true } },
       };
@@ -255,6 +276,7 @@ async function read(reader, prompt, name, media, buf, signal) {
         headers: { 'content-type': 'application/json', ...p.headers(key) },
         body: JSON.stringify(p.body(prompt, media, buf)),
         signal: ctl.signal,
+        redirect: 'error',   // never follow: the key and the file go only to the host they were sent to
       });
     } catch {
       // The message of a network error can carry the URL; nothing of it is returned.
@@ -299,4 +321,4 @@ async function read(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

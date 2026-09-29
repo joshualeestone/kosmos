@@ -443,7 +443,7 @@ const MODEL_TYPES = {
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
-const NO_MODEL = 'Reading a picture or PDF needs Claude, or an OpenAI, Gemini or Grok key, connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
+const NO_MODEL = 'Reading a picture or PDF needs Claude, or an OpenAI or Grok key, connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 const MODEL_TIMEOUT_MS = 120000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;

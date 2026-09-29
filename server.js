@@ -6535,7 +6535,10 @@ const server = http.createServer(async (req, res) => {
         const reader = orgchartfile.currentReader();
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) }); return; }
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
-        if (q.get('reader') !== orgchartfile.readerId(reader)) {
+        /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
+           id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
+        const handed = q.has('reader') ? q.get('reader') : (orgchartfile.readerId(reader) === 'claude' ? 'claude' : null);
+        if (!reader || handed !== orgchartfile.readerId(reader)) {
           sendJson(res, 409, { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
           return;
         }

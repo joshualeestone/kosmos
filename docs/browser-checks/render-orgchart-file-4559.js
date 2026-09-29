@@ -15,7 +15,7 @@
  *             - Read it sends the file again with consent=1; an unsure line shows "Check this: <why>" and
  *               Create stays disabled until Looks right (or a new manager is chosen);
  *             - making a reporting loop by hand names it and disables Create again.
- *   NO READER the "needs Claude, or an OpenAI, Gemini or Grok key" answer is shown and nothing else happens.
+ *   NO READER the "needs Claude, or an OpenAI or Grok key" answer is shown and nothing else happens.
  *   ORPHAN    a manager the team create refuses: the person under them is put under you (PUT profile
  *             reportsTo '') and the result says so.
  * Light and dark screenshots of the picture preview with its Check this line (SHOT_DIR).
@@ -344,7 +344,7 @@ async function run() {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await p4.waitForTimeout(500);
       const u = await readPreview(p4);
-      check('NO READER: says Claude or an OpenAI, Gemini or Grok key is needed and offers CSV, Excel or typing; no consent box, no preview', /needs Claude, or an OpenAI, Gemini or Grok key/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
+      check('NO READER: says Claude or an OpenAI or Grok key is needed and offers CSV, Excel or typing; no consent box, no preview', /needs Claude, or an OpenAI or Grok key/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
     } else check('NO READER: the panel offers a file', false);
     await p4.close();
 

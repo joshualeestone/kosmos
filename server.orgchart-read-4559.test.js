@@ -190,7 +190,7 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.json.unavailable, true);
   assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
-  assert.match(r.json.problems[0], /OpenAI, Gemini or Grok key.*A CSV or Excel export works with any provider/);
+  assert.match(r.json.problems[0], /OpenAI or Grok key.*A CSV or Excel export works with any provider/);
   assert.equal(sent.length, 0);
 });
 
@@ -293,4 +293,21 @@ test('#4560: with no Claude but a key-connected provider, the consent names that
     const gem = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
     assert.match(gem.json.problems[0], /Kosmos does not send an org chart to Gemini/, 'a Gemini-only person is told why (m3688)');
   } finally { keys.setAccounts(null); orgchartfile.setModelRunner(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
+});
+
+test('#4560: a consented send with no reader behind it is refused; a page from before #4560 (no reader id) may go on only to Claude', async () => {
+  const sent = [];
+  orgchartfile.setModelAvailable(() => true);
+  orgchartfile.setModelRunner(async (line, signal, file) => { sent.push(file.reader); return { ok: true, structured: { people: [] } }; });
+  const post = (q) => fetch(base + '/api/orgchart/read' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': 'chart.png', ...SCREEN }, body: fs.readFileSync(path.join(FIX, 'chart.png')) });
+  try {
+    orgchartfile.setReaderForTest(() => null);
+    assert.equal((await post('?consent=1')).status, 409, 'no reader at all, availability faked on: refused');
+    assert.equal((await post('?consent=1&reader=')).status, 409);
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
+    assert.equal((await post('?consent=1')).status, 200, 'an old page (no reader id) and Claude: as before');
+    orgchartfile.setReaderForTest(() => ({ kind: 'key', provider: 'xai', dir: '/x', account: null }));
+    assert.equal((await post('?consent=1')).status, 409, 'an old page never showed a key provider\'s consent');
+    assert.equal(sent.length, 1, 'only the Claude send reached the runner');
+  } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
 });

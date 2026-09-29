@@ -94,6 +94,7 @@ for (const [provider, name, bytes] of CASES) {
     const p = keys.PROVIDERS[provider];
     assert.equal(body.model, p.model);
     assert.equal(body.store, false, 'every provider stores a request by default; an org chart names real people');
+    if (provider !== 'google') assert.equal(body.max_output_tokens, keys.MAX_OUTPUT_TOKENS, 'the read is billed to the key: its output is capped');
     for (const k of ['tools', 'functions', 'tool_choice', 'function_call']) assert.ok(!allKeys(body).has(k), `a ${k} field was sent`);
     // The key: in the one header the provider reads, and nowhere else (not the URL, not the body).
     if (provider === 'google') assert.equal(req.headers['x-goog-api-key'], KEY);
@@ -291,4 +292,36 @@ test('#4560: an answer over the cap is refused as it arrives; a finished answer 
   reply = () => ({ status: 200, body: { status: 'completed', output: [{ type: 'reasoning' }] } });
   const empty = await o.readWithModel('chart.png', PNG);
   assert.match(empty.problems[0], /finished without the list we asked for/);
+});
+
+test('#4560: a redirect is refused, never followed: the key and the file reach no other host', async () => {
+  const other = [];
+  const second = http.createServer((req, res) => { let raw = ''; req.on('data', (c) => { raw += c; }); req.on('end', () => { other.push({ headers: req.headers, raw }); res.writeHead(200); res.end('{}'); }); });
+  await new Promise((ok) => second.listen(0, '127.0.0.1', ok));
+  try {
+    for (const provider of ['openai', 'google', 'xai']) {
+      only(provider);
+      reply = () => ({ status: 307, body: {} });
+      // The stub answers 307 with a Location on another host.
+      const orig = server.listeners('request')[0];
+      server.removeAllListeners('request');
+      server.on('request', (req, res) => { req.resume(); res.writeHead(307, { location: 'http://127.0.0.1:' + second.address().port + '/steal' }); res.end(); });
+      try {
+        const r = await o.readWithModel('chart.png', PNG);
+        assert.equal(r.rows.length, 0);
+        assert.ok(r.problems[0] && !r.problems[0].includes(KEY), provider + ': ' + r.problems[0]);
+      } finally { server.removeAllListeners('request'); server.on('request', orig); }
+    }
+    assert.equal(other.length, 0, 'a redirect was followed: ' + JSON.stringify(other.map((x) => Object.keys(x.headers))));
+  } finally { second.close(); }
+});
+
+test('#4560: a URL override is honoured only for https or this computer, so a key never goes out in the clear', () => {
+  const name = 'AGENT_WORKFORCE_ORGCHART_TEST_URL';
+  const def = 'https://api.example.com/v1';
+  process.env[name] = 'http://evil.example.com/v1'; assert.equal(keys.urlFrom(name, def), def);
+  process.env[name] = 'https://proxy.example.com/v1'; assert.equal(keys.urlFrom(name, def), 'https://proxy.example.com/v1');
+  process.env[name] = 'http://127.0.0.1:9/v1'; assert.equal(keys.urlFrom(name, def), 'http://127.0.0.1:9/v1');
+  process.env[name] = 'not a url'; assert.equal(keys.urlFrom(name, def), def);
+  delete process.env[name]; assert.equal(keys.urlFrom(name, def), def);
 });
