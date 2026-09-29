@@ -1,7 +1,7 @@
 {"version":"0.7.08","highlights":[
   {"icon":"list","title":"Sort your agents","line":"The Agents grid and list can be sorted by name, model, role or project, by who needs you, or by recent activity."},
-  {"icon":"tasks","title":"Webhooks add tasks","line":"A project's settings have Webhooks: calling a webhook's link adds a task to the project for a person."},
-  {"icon":"spark","title":"Each agent's real model","line":"Every agent's model is now shown by its real name, in plain language."},
-  {"icon":"chat","title":"A rename reaches the whole page","line":"Renaming an agent changes its name everywhere on its page straight away."},
-  {"icon":"swarm","title":"Steadier with many agents","line":"Kosmos stays responsive while it delivers a message to many agents at once."}
+  {"icon":"tasks","title":"Webhooks add tasks","line":"A project's settings have Webhooks: calling a webhook's link adds a task that waits for you to hand out."},
+  {"icon":"spark","title":"Real model names","line":"Gemini, Grok and OpenAI agents now show their model by its real name, in plain language."},
+  {"icon":"chat","title":"A rename reaches the agent's page","line":"Renaming an agent now changes its name across its page: the title, its messages and the working line."},
+  {"icon":"chat","title":"Steadier with many agents","line":"Kosmos stays responsive while it delivers a message to many agents at once."}
 ]}
