@@ -348,3 +348,15 @@ test('the picker still opens on the same first role: the merge keeps Project Man
   // The page recommends the first menu role; the catalogue must not move the default.
   assert.equal(roles.ROLES.filter((r) => r.menu !== false)[0].key, 'pm');
 });
+
+test('the builder refuses a broken team and a zero-padded em dash entity before writing', () => {
+  const src = () => structuredClone(require('../tools/catalogue/teams-source'));
+  const noLead = src(); noLead.teams[0].members[0].slot = 'chief';
+  assert.ok(build.build({ teamsSource: noLead }).problems.some((p) => /exactly one lead/.test(p)));
+  const tooFew = src(); tooFew.teams[0].members = tooFew.teams[0].members.slice(0, 4);
+  assert.ok(build.build({ teamsSource: tooFew }).problems.some((p) => /4 or 5 reports/.test(p)));
+  const padded = src(); padded.teams[1].members[1].focus = ['Keep &#08212; the list.'];
+  assert.ok(build.build({ teamsSource: padded }).problems.some((p) => /em dash/.test(p)));
+  // CONTROL: the real sources pass.
+  assert.deepEqual(build.build().problems, []);
+});

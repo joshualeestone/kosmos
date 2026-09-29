@@ -68,7 +68,8 @@ function instructions(r) {
  *  writes a typed backslash-u escape as \\u2014, which still contains the escape spelling. */
 function emDashIn(value) {
   const blob = JSON.stringify(value);
-  return EM_DASHES.some((s) => blob.includes(s));
+  // Plus zero-padded numeric entities, the way tools/check-post-body.js matches them.
+  return EM_DASHES.some((s) => blob.includes(s)) || /&#0*8212;|&#x0*2014;/i.test(blob);
 }
 
 /**
@@ -116,6 +117,12 @@ function build(src = {}) {
     const rk = t.kind + '#' + t.rank;
     if (seenRanks.has(rk)) problems.push(`${seenRanks.get(rk)} and ${t.key} share ${t.kind} rank ${t.rank}`);
     seenRanks.set(rk, t.key);
+    const leads = t.members.filter((m) => m.slot === 'lead').length;
+    if (leads !== 1) problems.push(`${t.key}: needs exactly one lead slot, has ${leads}`);
+    const reports = t.members.length - leads;
+    if (reports < 4 || reports > 5) problems.push(`${t.key}: needs 4 or 5 reports, has ${reports}`);
+    if (new Set(t.members.map((m) => m.slot)).size !== t.members.length) problems.push(`${t.key}: a slot repeats`);
+    for (const m of t.members) if (!Array.isArray(m.focus)) problems.push(`${t.key}/${m.slot}: focus must be a list`);
     const members = t.members.map((m) => {
       const a = { ...m.avatar, id: `${t.key}-${m.slot}`, image: null };
       const title = lowerLabel(m.title);

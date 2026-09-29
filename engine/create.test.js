@@ -756,6 +756,8 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
   // The rule this loop holds is unchanged: most roles carry none, so the
   // ones that do still mean something. The assertion below holds that line, and with the #4555
   // catalogue it is AT its limit (51 of 104): a new cautioned role means rebalancing, not a bug.
+  // Said plainly: it counts the two hidden roles (own, setup). On the menu a person sees it is
+  // 51 of 102, exactly half.
   for (const key of ['writer', 'researcher', 'engineer', 'data', 'design']) {
     assert.ok(!roles.byKey(key).caution,
       `${key} carries a caution, and a warning on everything warns about nothing`);
