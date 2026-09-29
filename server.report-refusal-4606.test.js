@@ -99,3 +99,15 @@ test('#4606 CONTROL: the right board token still lets a report through (the word
     assert.equal(r.json.recorded, true, r.text);
   });
 });
+
+// Review round 1: a board token can also arrive by cookie or `?token=` (boardauth.presentedToken), and a wrong one there
+// is still a token that was sent: today's words, not "no token came".
+test('#4606 CONTROL: a wrong board token by cookie or by ?token= also keeps today\'s words', async () => {
+  boardAuthState.on = true;
+  await withLeo(async () => {
+    const byCookie = await ROUTES[0].go({ cookie: 'kosmos_board=not-the-token' });
+    assert.equal(becauseOf(byCookie), ROUTES[0].words, byCookie.text);
+    const byQuery = await call('POST', '/api/report?token=not-the-token', { body: { state: 'idle', from_pane: '%3' } });
+    assert.equal(becauseOf(byQuery), ROUTES[0].words, byQuery.text);
+  });
+});

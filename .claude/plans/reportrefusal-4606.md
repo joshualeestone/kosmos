@@ -8,3 +8,6 @@ Covers POST /api/report, GET /api/report and POST /api/reply (their `denyBecause
 
 ## Tests
 server.report-refusal-4606.test.js (7): each route tokenless (new sentence, own sentence follows, still refused), each route with a wrong board token (today's words exactly), the right board token still records. Mutation (sentence removed): 3 fail. Neighbours: #1968 loopback, #4602, and every test naming "account that started it" pass.
+
+## Blind review round 1 (Opus, separate reviewer): nothing above NIT. Converged.
+Taken: the wrong-token control now also sends the token by cookie and by ?token= (a header-only check fails it). Accepted: #4602 says "in this request's headers" and adds the token-file hint, this says "with this request" (exact here, because the body's agent token is read on this path); `report show --text` prints the sentence raw, lowercase first letter, as it did before; an empty board-token header counts as none sent.
