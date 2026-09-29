@@ -18226,7 +18226,20 @@ function taskLine(a, opts) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
+/* #4569 fix 4 (the write-up on Josh's Muse agent: "Working, 14 messages waiting"): a busy Muse agent's queue, in
+   Kosmos's own words, never quoted (it is Kosmos's count, not the agent's words). The person's messages always run
+   first, so "yours is next" says where theirs sits. '' without a count. */
+function waitingLine(w) {
+  if (!w || !Number.isSafeInteger(w.n) || w.n < 1) return '';
+  const n = w.n; const yours = Number.isSafeInteger(w.yours) && w.yours > 0 ? Math.min(w.yours, n) : 0;
+  const base = n + (n === 1 ? ' message waiting' : ' messages waiting');
+  if (!yours) return base;
+  if (yours === n) return base + (n === 1 ? ', yours' : ', all yours');
+  return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
+}
 function stateReason(a, opts) {
+  /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
+  if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard

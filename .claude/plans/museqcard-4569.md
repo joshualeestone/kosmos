@@ -1,30 +1,38 @@
-# museqcard-4569: a busy Muse agent's card says how many messages wait, and how many are the person's
+# museqcard-4569: a busy Muse agent's card says how many messages wait, and whether the person's is next
 
-Card: joshualeestone/kosmos#4569, Priya's second write-up, fix 4 ("Working, 14 messages waiting" on the card,
-and where the person's own message sits). Built on museq-4569 (PR #4604), which gave the queue its order.
+Card: joshualeestone/kosmos#4569, the 11:57 write-up's fix 4 ("Working, 14 messages waiting" on the card, and
+where the person's own message sits). Built on museq-4569 (PR #4604), which gave the queue its order.
 
 ## Finished looks like
-While a Muse turn runs with messages waiting, the agent's card and page read Working with the line
-"N messages waiting" plus ", K of them yours" / ", all yours" / ", it is yours" when the person's messages are among
-them (they always run first, so the count of theirs says where their message sits). The line updates within about
-2 s of the queue changing and clears when the queue empties or the agent goes idle.
+While a Muse turn runs with messages waiting, the agent's card, list row and agent page read Working with the line
+"15 messages waiting, yours is next" (or "..., yours are next", "..., all yours", "..., yours", or just
+"N messages waiting" when none are the person's). It updates within about 1.5 s of the queue changing and clears
+when the queue empties or the agent goes idle.
 
 ## Decisions
-- The front reports it the way Muse already reports working/idle: through bin/agy-report-bridge.js, in a
-  `kosmosNote` payload field agy's own hooks never send. The board shows a working report's reason as the card's
-  quoted line (engine/status.js keeps `reported.because`), so no page change is needed.
-- One report per settled burst (NOTE_EVERY_MS 1.5 s): each report starts a node process, and 14 room posts arrive
-  in a burst.
-- The bridge's once-a-minute working throttle now compares the line too, so a new count is not held back as a
-  repeat; a marker from before this change (no text) compares as an empty line.
-- Rejected: a new board route or card field (a second path for one sentence the report already carries).
+- The count travels as its own field, `waiting: { n, yours }`: musefront -> bin/agy-report-bridge.js (payload
+  `kosmosWaiting`, which agy's own hooks never send) -> POST /api/report -> selfreport (kept only on a working report,
+  whole numbers, yours <= n) -> status (carried while that working report is fresh) -> the card field `waiting`.
+- The page words it (web/index.html waitingLine), unquoted, in stateReason ahead of every other rule. Review round 1
+  measured that a working agent's reported REASON is hidden on the card, list and agent page by ruling (#986,
+  #3271), so the first version (the line as the report's text) showed nowhere; and the quote marks would have said
+  the agent said it, when it is Kosmos's count.
+- "yours is next" because the person's messages always run first (#4604), which answers "where does mine sit".
+- One report per 1.5 s window at most (each report starts a node process); the bridge's once-a-minute working
+  throttle compares the count too, so a new count is not held back as a repeat.
+- Rejected: the report's free text (hidden by ruling, and wrongly quoted); a new board route (the report already
+  goes to the board every turn).
 
 ## Weakest premise
-That the quoted line reads right on the card for Muse (the quote style means "the agent said this"; here the Muse
-front says it on the agent's behalf). Not browser-checked: the line is the existing report-reason slot.
+That the line reads right in the card's task slot at every width: measured on the page's own taskLine / stateReason
+source, not in a browser (a stub harness for a Muse card with a queue does not exist yet).
 
 ## Tests
-engine/musefront.test.js: a burst of 14 posts and one of the person's is ONE report ("15 messages waiting, 1 of
-them yours"), then each turn's own count, then idle; "all yours" / "it is yours"; nothing after idle; the reporter's
-payload; the bridge puts the note on working only (control: agy's payload says nothing) and throttles by text
-(control: the same line within a minute is held).
+- engine/musefront.test.js: a burst of 14 posts and one of the person's is ONE report ({ n: 15, yours: 1 }), then
+  each turn's own count, then idle; counts follow the person's messages; nothing after idle; the reporter's payload;
+  the bridge carries the count on working only and throttles by count (controls).
+- engine/selfreport.waiting-4569.test.js: kept and read back; idle, text, yours > n, zero, fraction not kept; an
+  emptied queue clears; status carries it on a fresh working report only (control: no count; a stale report).
+- server.report-readback-2709.test.js: the route passes the count through and drops a bad one.
+- web.muse-waiting-4569.test.js: the card / list / agent page line, called with noQuote as they call it, and without;
+  no count, a nonsense count, or a non-working state shows nothing.

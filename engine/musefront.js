@@ -123,8 +123,7 @@ const DIGEST_MAX = 40;
    session ("already in use", muserun.BUSY). The note is tried again this many times, this far apart, before it
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
-/* #4569 fix 4: how long the front waits before telling the board a new waiting count, so a burst of room posts is
-   one report (each report starts a node process), not one per post. */
+/* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
 const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
 const MUSE_BUSY = 'Muse Code is still working on this agent\'s last turn';   // muserun.BUSY; a drift turns the busy-retry test red
@@ -152,25 +151,25 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
 
   const settle = () => { if (!running && !queue.length) { const w = waiters; waiters = []; w.forEach((f) => f()); } };
 
-  /* #4569 fix 4 (Priya's write-up: "Working, 14 messages waiting"): the line the card shows under Working while
-     messages wait, from the queue as it is now. '' when nothing waits. Stop notes are the person's own stop. */
-  function waitingNote() {
+  /* #4569 fix 4 (the write-up: "Working, 14 messages waiting" on the card): what waits, as the board carries it,
+     { n, yours }, or null when nothing waits. Stop notes count as the person's own. The page words it. */
+  function waiting() {
     const n = queue.length;
-    if (!n) return '';
-    const yours = queue.filter((t) => kindOf(t) === 'operator' || STOP_NOTES.has(t)).length;
-    return n + (n === 1 ? ' message waiting' : ' messages waiting')
-      + (yours ? (yours === n ? (n === 1 ? ', it is yours' : ', all yours') : ', ' + yours + ' of them yours') : '');
+    if (!n) return null;
+    return { n, yours: queue.filter((t) => kindOf(t) === 'operator' || STOP_NOTES.has(t)).length };
   }
+  const keyOf = (w) => (w ? w.n + '/' + w.yours : '');
   let noteTimer = null;
-  let noteSent = '';
-  /* Tell the board the count while a turn runs, once things settle for noteEveryMs. */
+  let noteSent = null;
+  /* Tell the board the count while a turn runs. A fixed window, not a debounce: the first change starts it, later
+     ones inside it ride along, so a stream of posts is at most one report per noteEveryMs (each starts a process). */
   function noteSoon() {
     if (noteTimer) return;
     noteTimer = setTimeout(() => {
       noteTimer = null;
       if (!running) return;
-      const note = waitingNote();
-      if (note !== noteSent) { noteSent = note; report('working', note); }
+      const w = waiting();
+      if (keyOf(w) !== keyOf(noteSent)) { noteSent = w; report('working', w); }
     }, noteEveryMs);
     if (noteTimer.unref) noteTimer.unref();
   }
@@ -201,7 +200,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       while (queue.length) {
         const prompt = next();
         stopNoteRunning = STOP_NOTES.delete(prompt);
-        noteSent = waitingNote();
+        noteSent = waiting();
         report('working', noteSent);
         const beat = setInterval(() => report('working', noteSent), workingEveryMs);
         if (beat.unref) beat.unref();
@@ -223,7 +222,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        if (!queue.length) { noteSent = ''; report('idle'); }
+        if (!queue.length) { noteSent = null; report('idle'); }
         write(PROMPT);
       }
     } finally {
@@ -360,14 +359,14 @@ function makeReporter(o = {}) {
   const env = o.env || process.env;
   const bridge = o.bridge || env.KOSMOS_MUSE_BRIDGE || path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
   const EVENT = { working: 'PreInvocation', idle: 'Stop' };
-  return (state, note) => {
+  return (state, waitingNow) => {
     const ev = EVENT[state];
     if (!ev) return;
     try {
       const child = spawn(o.node || process.execPath, [bridge, ev], { stdio: ['pipe', 'ignore', 'ignore'], env });
       child.on('error', () => { /* a missed report must never stop a turn */ });
-      // #4569 fix 4: the waiting line rides in the payload; agy's own payloads never carry this field.
-      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(note ? { kosmosNote: String(note) } : {})); }
+      // #4569 fix 4: the queue rides in the payload; agy's own payloads never carry this field.
+      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(waitingNow ? { kosmosWaiting: waitingNow } : {})); }
       if (child.unref) child.unref();
     } catch { /* same */ }
   };

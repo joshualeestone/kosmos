@@ -12821,6 +12821,7 @@ const server = http.createServer(async (req, res) => {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
+          waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           on: body.on,
           owner: body.owner,
           until: body.until,

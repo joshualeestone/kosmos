@@ -132,6 +132,15 @@ function isAutoPermissionWait(standing) {
     && standing.by === 'auto';
 }
 
+/* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
+function waitingOf(state, w) {
+  if (state !== 'working' || !w || typeof w !== 'object') return undefined;
+  const n = w.n; const yours = w.yours;
+  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return undefined;
+  if (!Number.isSafeInteger(yours) || yours < 0 || yours > n) return undefined;
+  return { n, yours };
+}
+
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -261,6 +270,9 @@ function record(sessionName, entry) {
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
+    /* #4569 fix 4: a busy Muse agent's queue, { n, yours } (whole numbers, yours <= n), on a working report only.
+       Kosmos's own count, never the agent's words, so the page says it as a fact rather than quoting it. */
+    waiting: waitingOf(state, entry.waiting),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of
        them disagreeing read as one agent changing its mind. The route fills
@@ -392,6 +404,7 @@ function read(sessionName) {
   return {
     found: true,
     state: latest.state,
+    waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
     because: latest.because || null,
     on: latest.on || null,
     owner: latest.owner || null,
