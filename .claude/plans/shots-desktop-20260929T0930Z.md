@@ -50,3 +50,11 @@ SANCTIONED WAY TO TAKE SCREENSHOTS FOR A PR"), and it has phone sizes only.
 - The console line and report.md agree: both say n/a where the phone audits did not run.
 - My first version of the refusal also claimed "no screen matched --screens"; that cannot happen (parseArgs refuses
   an unknown screen first), so the claim and its test case are gone.
+
+## Review round 4 (opus), fixed
+- My round-3 wording said `--sizes desktop` "adds" a computer screen; `--sizes` REPLACES the default list, so that
+  run shoots desktop only. The header and README now say what the flag does instead of making a claim about it.
+- The refusal test matches only the exact missing-module text (a checkout path containing "playwright" can no
+  longer fail it); the allow-card status line left the README (it would go stale; #4524 is recorded above).
+- Not changed: the control depends on Playwright not resolving from the repo (true today: no node_modules/playwright).
+  If it ever becomes a repo dependency, that test needs a different control. Recorded here rather than fixed.

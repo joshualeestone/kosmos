@@ -4,9 +4,9 @@
  * Both native apps are shells around the board's web UI, so "does it fit on a
  * phone" is a question about web/index.html at phone sizes. This boots a
  * THROWAWAY board with seeded sample data, drives it to named screens, and
- * shoots every screen at four phone sizes by default (--sizes desktop adds a
- * computer screen), in light and dark, in Chromium and WebKit. It flags
- * horizontal overflow on the way.
+ * shoots every screen at four phone sizes by default, in light and dark, in
+ * Chromium and WebKit. --sizes replaces that list and also accepts `desktop`
+ * (1280x800). It flags horizontal overflow on the way.
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]

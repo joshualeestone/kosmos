@@ -20,7 +20,7 @@ test('every requested screen phone-only at the desktop size: exit 2, before a br
   const r = run(['--sizes', 'desktop', '--screens', 'nav-menu', '--themes', 'light', '--engines', 'chromium']);
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /no shot would be taken/);
-  assert.doesNotMatch(r.stderr, /playwright/i);
+  assert.doesNotMatch(r.stderr, /Cannot find module 'playwright'/);
 });
 
 test('control: a run with a shot to take gets past the check (and stops at loading Playwright, hidden here)', () => {
