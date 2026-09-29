@@ -201,19 +201,23 @@ const SCREENS = [
       await page.waitForTimeout(200);
     }
     if (hit) throw new Error('the Allow button is not seen: ' + hit);
-    /* #4568: the code's boxes must sit inside the request card (.askreq) they belong to, within its padding. The
-       page-level overflow audit cannot see this: the row runs past the card, not past the page. */
+    /* #4568: every laid-out request card's (.askreq) code boxes must sit inside that card's padding. The page-level
+       overflow audit cannot see this: the row runs past the card, not past the page. */
     const spill = await page.evaluate((sel) => {
-      const card = document.querySelector(sel).closest('.askreq');
-      if (!card) return 'no .askreq card around the Allow button';
-      const cs = getComputedStyle(card), r = card.getBoundingClientRect();
-      const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
-      const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
-      const cells = [...card.querySelectorAll('.devcode-cell')];
-      if (!cells.length) return 'no code boxes in the card';
-      const out = cells.map((c) => c.getBoundingClientRect()).filter((b) => b.right > right + 0.5 || b.left < left - 0.5);
-      return out.length ? out.length + ' of ' + cells.length + ' code boxes leave the card, the last by '
-        + Math.round(Math.max(...out.map((b) => b.right - right))) + 'px' : '';
+      const laidOut = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      const cards = [...new Set([...document.querySelectorAll(sel)].filter(laidOut).map((b) => b.closest('.askreq')))];
+      if (!cards.length || cards.includes(null)) return 'no .askreq card around a laid-out Allow button';
+      for (const card of cards) {
+        const cs = getComputedStyle(card), r = card.getBoundingClientRect();
+        const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+        const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+        const cells = [...card.querySelectorAll('.devcode-cell')];
+        if (!cells.length) return 'no code boxes in a request card';
+        const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
+        const out = over.filter((d) => d > 0.5);
+        if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
+      }
+      return '';
     }, allow);
     if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },

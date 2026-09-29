@@ -924,7 +924,8 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
-# (kosmos#4524), and a shot fails if the one-time Community notice covers it. The full
+# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if the
+# one-time Community notice covers it. The full
 # sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
   --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
@@ -943,20 +944,21 @@ for _arm in account:'the throwaway board lists' page:'this screen shows real dat
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
-# kosmos#4524: the two cover checks' controls, control:screen:message (split on the first two colons
+# kosmos#4524, #4568: the controls for three checks, control:screen:message (split on the first two colons
 # only, so a message may contain colons). Each run MUST fail its shot
 # with exit 2 AND its own message; a clean exit means that check did not fire.
 #   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
 #   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
+#             At se only on purpose: at the desktop size the code is capped at 1.6rem and the same code fits.
 for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
       --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
     case "$rc:$out" in
-      2:*"$3"*) echo "cover control $1: the covered shot failed with exit 2, as it must"; exit 0 ;;
+      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
-    echo "FAIL  cover control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
+    echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done
 
