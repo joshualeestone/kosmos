@@ -77,6 +77,8 @@ const MEMBER_WORD = `(() => {
   return { shown: getComputedStyle(el).display !== 'none' && r.width > 0, text: el.textContent.trim(), present: true };
 })()`;
 
+const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
+
 (async () => {
   let server, browser;
   try {
@@ -125,6 +127,17 @@ const MEMBER_WORD = `(() => {
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOn = await page.evaluate(MEMBER_WORD);
       chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
+      const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
+      const cb = await page.evaluate(COMPOSER_BG);
+      chk(cb === GREY[theme], `${tag} On: the composer is the drawing's grey`, cb);
+      if (theme === 'light' && width === 1280) {
+        /* Chosen Dark on a light machine: the generated forced-dark composer rules sit later in the
+           sheet than the new look's, so this is the arm where a tie would go the wrong way. */
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+        const cbForced = await page.evaluate(COMPOSER_BG);
+        chk(cbForced === GREY.dark, `${tag} On + chosen Dark: the composer is the dark grey`, cbForced);
+        await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+      }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
 
       await page.reload({ waitUntil: 'networkidle' });

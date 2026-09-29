@@ -9472,6 +9472,12 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjmid { border: 0; background: none; padding: 0; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
 :root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
+/* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
+   no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
+   AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox { margin-left: 0; margin-right: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox:not(.dragging) { background: var(--nl-grey); }
 /* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
    end behind a dot. The state washes go ONLY because the word and dot now carry the state
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
