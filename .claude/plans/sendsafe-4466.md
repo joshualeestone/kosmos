@@ -10,7 +10,7 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
 
 ## Changes
 1. engine/messages.js (shared by the live routes and the outbox drain): a send identical to one the SAME agent made
-   to the SAME place (room, or recipient for a direct message) in the last SEND_DEDUP_WINDOW_MS (2 minutes) is not
+   to the SAME place (room, or recipient for a direct message) in the last SEND_DEDUP_WINDOW_MS (5 minutes) is not
    sent again; the reply is the first one's receipt with `duplicate: true`. A send still IN FLIGHT is remembered too
    (a busy board's fan-out can outlast the sender's timeout, and the log row is written only when it finishes), so a
    retry arriving meanwhile waits for the first one's receipt. Agents only: a person's post is never folded. The
@@ -94,8 +94,18 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   token": red with the msg retry's token removed (the stub saw [token, -]). Windows needed no change: its retry
   repeats the same ctx.call, headers included.
 
+## Review round 5 (sonnet): 2 WARNINGs fixed, 1 confirmed not real (commented), NITs tidied
+- W: the plan and the CLI comments still said "two minutes" after the window became five. Reworded everywhere.
+- W: quiet-since used LOG POSITION only, but rows are appended at finish, so a reply that started after the first
+  copy could sit before it and be missed. A row now breaks the quiet if it is later in the log OR started strictly
+  later than the match (same-millisecond rows are ordered by the log). Errs toward sending. Arm, red.
+- NOT REAL (commented): "the message fold has no person guard". Only agents reach sendWithDelivery (the sender is
+  always an agent card: /api/msg and the outbox drain); a person's direct messages go through chat, not here.
+- NITs: comment order above asDuplicate, a stray blank line, the posthang comment; the 31 s worst case of a msg
+  that times out twice is already written at the #2909 arm.
+
 ## Weakest premise
-An agent that MEANS to send the identical text twice within two minutes, to the same place, answering the same
+An agent that MEANS to send the identical text twice within five minutes, to the same place, answering the same
 message, with nothing said in that conversation in between (by anyone, the sender included), within five minutes, gets one copy. After round 3 that is narrow: the realistic case is a
 nudge repeated into a silent room, and the cost of the other error is a room full of copies.
 

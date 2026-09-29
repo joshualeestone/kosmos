@@ -93,7 +93,7 @@ const server = http.createServer((req, res) => {
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
   // #4580: a send the board keeps but whose reply is cut. 'cutonce' cuts the FIRST send and answers the retry
   // with the board's duplicate receipt; 'cutalways' cuts every send. Sends are counted in firstFile + '.sends'.
-  // #4580: a board still fanning a post out: it takes the post and never answers in the budget.
+  // #4580 'posthang': a board still fanning a post out; it takes the post and never answers in the budget.
   if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
   if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
     const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');

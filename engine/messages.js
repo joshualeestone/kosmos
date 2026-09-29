@@ -968,18 +968,26 @@ function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   return states.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
 }
-// Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
-// hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
 /* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
    the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
    match is folded only while the conversation has been QUIET since it: no row at all, from anyone, in the same pair
    or room, after the matched one. */
 function quietSince(log, matched, isOtherVoice) {
+  // A row counts as "since" if it is later in the log OR started after the match: rows are appended when a
+  // send finishes, so on a busy board a reply that started later can sit BEFORE the match. Either one breaks the
+  // quiet, which errs toward sending (a real answer is never lost to the fold).
   const i = log.lastIndexOf(matched);
-  if (i < 0) return true;
-  for (let j = i + 1; j < log.length; j++) if (log[j] && isOtherVoice(log[j])) return false;
+  const t0 = Date.parse(matched.at);
+  for (let j = 0; j < log.length; j++) {
+    const r = log[j];
+    if (!r || r === matched || !isOtherVoice(r)) continue;
+    // Strictly later start: rows stamped in the same millisecond are ordered by the log, not by the clock.
+    if (j > i || (Number.isFinite(t0) && Date.parse(r.at) > t0)) return false;
+  }
   return true;
 }
+// Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
+// hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
 function asDuplicate(result) {
   if (!result || typeof result !== 'object') return result;
   return result.state === chat.DELIVERY.PLACED || result.state === chat.DELIVERY.UNCONFIRMED ? { ...result, duplicate: true } : result;
@@ -1123,7 +1131,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   }
 
   /* #4580: the same send again (sender, recipient, text and the message it answers) is folded into the first,
-     BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. */
+     BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. Only agents reach
+     this function (the sender is always an agent's card: /api/msg and the outbox drain), so no person guard is
+     needed here, unlike the post path. */
   const cleaned = chat.cleanMessage(text);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
   if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
@@ -1634,7 +1644,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       };
     }
   }
-
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for
