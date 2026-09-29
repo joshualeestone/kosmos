@@ -164,7 +164,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     while (kept.length > 1 && kept.reduce((n, t) => n + t.length + 1, 0) > DIGEST_MAX_CHARS) kept.shift();
     const left = all.length - kept.length;
     return '[Kosmos: ' + all.length + ' room posts arrived while you were busy, all background, none addressed to you.'
-      + (left ? ' The ' + left + ' oldest are left out; run kosmos room to read them if you need to.' : '')
+      + (left ? ' The ' + left + ' oldest are left out; they are in that project\'s room (kosmos room <project-id>) if you need them.' : '')
       + ' Read them together; answer only if one needs you.]\n' + kept.join('\n');
   }
 
@@ -216,7 +216,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       let at = 0;
       while (at < queue.length && (kindOf(queue[at]) === 'operator' || STOP_NOTES.has(queue[at]))) at++;
       queue.splice(at, 0, text);
-      if (running) write('(queued first: a message from your operator; Muse is still on the last message)\n');
+      if (running) write('(queued ahead of other waiting messages: a message from your operator; Muse is still on the last message)\n');
     } else {
       queue.push(text);
       if (running) write('(queued: Muse is still on the last message)\n');

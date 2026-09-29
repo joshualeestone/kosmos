@@ -40,8 +40,8 @@ This PR is the write-up's fixes 1-3, in the Muse front only. Fix 4 (show the que
 - Review round 6: Escape during a busy retry's wait cancels the note (it is not run after all, and the pane says
   Stopped); the stop handle is cleared as each attempt returns, so nothing reads as running during the wait. A test
   pins musefront's spellings of muserun.BUSY and STOPPED.
-- Known and accepted (round 3 NIT): a project name containing "]" makes a room-wide stop read as an ordinary
-  message; it still goes first.
+- Round 3 raised a project name containing "]" cutting the envelope early; round 9 measured it cannot happen
+  (engine/messages.js shows the project id instead of such a name).
 
 ## Weakest premise
 That Muse frees a killed turn's session within about two seconds (the busy retries); measured only against a fake
@@ -60,4 +60,5 @@ messages between two stops are named (control: none in between adds no note; "ho
 second note waits once and stays ahead of the person's next message. Rounds 5-7: a stop note refused as busy
 is retried and runs (control: an ordinary busy message is not retried); a second stop counts a colleague's dropped
 message; Escape during a retry's wait cancels the note; a stop typed in that wait gets a fresh note that does not
-claim a turn was ended.
+claim a turn was ended. Round 8: fake busy turns hand over onStop as muserun does; the retry limit (1 + 4 tries,
+then the reason) and two stops in one read are pinned.

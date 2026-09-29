@@ -262,7 +262,7 @@ test('#4569: a message from the person runs before waiting room posts, behind on
   h.f.feed(COL('can you check X') + '\r');
   h.f.feed(OP('first from Josh') + '\r');
   h.f.feed(OP('second from Josh') + '\r');
-  assert.match(h.out(), /queued first: a message from your operator/);
+  assert.match(h.out(), /queued ahead of other waiting messages: a message from your operator/);
   h.pending[0](OK('done'));
   await within(h.f.drained(), 'the queue did not drain');
   assert.deepEqual(h.calls.map((c) => c.prompt), ['long job', OP('first from Josh'), OP('second from Josh'), COL('can you check X')],
@@ -368,7 +368,7 @@ test('#4569 review round 1: a digest carries at most 40 posts, the newest, and s
   for (let n = 1; n <= 45; n++) h.f.feed(BG(n) + '\r');
   h.pending[0](OK('done')); await h.f.drained();
   const d = h.calls[1].prompt;
-  assert.match(d, /^\[Kosmos: 45 room posts arrived while you were busy, all background, none addressed to you\. The 5 oldest are left out; run kosmos room to read them if you need to\./);
+  assert.match(d, /^\[Kosmos: 45 room posts arrived while you were busy, all background, none addressed to you\. The 5 oldest are left out; they are in that project's room \(kosmos room <project-id>\) if you need them\./);
   assert.ok(!d.includes('thanks 5\n') && d.includes('thanks 6\n') && d.endsWith('thanks 45'), 'not the newest 40');
   assert.equal(h.calls.length, 2);
 });
