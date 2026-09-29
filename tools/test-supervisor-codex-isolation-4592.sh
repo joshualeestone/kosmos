@@ -148,13 +148,16 @@ SELFLINK_HOME="$SB/selflink-codex"
 mkdir -p "$SELFLINK_HOME" "$DATA_PARENT/Kosmos/codex-homes"
 printf '%s\n' 'selflink-fixture' > "$SELFLINK_HOME/auth.json"
 ln -s "$SELFLINK_HOME" "$DATA_PARENT/Kosmos/codex-homes/selflinkprobe"
+rm -f "$ARGS"
 CODEX_HOME="$SELFLINK_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
   STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
-  bash "$SB/bin/agent-supervisor.sh" selflinkprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/selflink.log" 2>&1 || true
-if [ "$(cat "$SELFLINK_HOME/auth.json" 2>/dev/null)" = selflink-fixture ]; then
-  ok "a runtime-home self-link cannot remove the selected account credential"
+  bash "$SB/bin/agent-supervisor.sh" selflinkprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/selflink.log" 2>&1
+SELFLINK_RC=$?
+if [ "$SELFLINK_RC" -ne 0 ] && [ ! -e "$ARGS" ] \
+  && [ "$(cat "$SELFLINK_HOME/auth.json" 2>/dev/null)" = selflink-fixture ]; then
+  ok "a runtime-home self-link refuses launch and preserves the account credential"
 else
-  bad "the runtime-home self-link removed or changed the selected account credential"
+  bad "the runtime-home self-link reached tmux or changed the account credential"
 fi
 
 # A second agent on the same account gets a different runtime home. This is the

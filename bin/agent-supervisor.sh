@@ -879,8 +879,10 @@ if [ -z "$adopt" ]; then
       fi
     else
       # Fail closed on isolation. Codex may report that its home is unwritable,
-      # but it must never fall back to the person's plugin-bearing home.
-      say "$SESSION: could not prepare its private Codex home"
+      # but it must never launch against a symlink to the person's plugin-bearing
+      # home or against a path whose ownership and mode Kosmos could not set.
+      say "$SESSION: could not prepare its private Codex home; the agent was not started"
+      exit 1
     fi
     EFFECTIVE_CODEX_HOME="$_codex_runtime_home"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
