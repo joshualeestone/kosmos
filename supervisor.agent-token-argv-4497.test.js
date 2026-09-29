@@ -53,6 +53,10 @@ function fixture() {
     '        *) break ;;',
     '      esac',
     '    done',
+    '    if [ "${2:-}" = --pane-entry ]; then',
+    '      (stat -f %Lp "$3" 2>/dev/null || stat -c %a "$3" 2>/dev/null) > "$MODE_RECORD"',
+    '    fi',
+    '    [ -n "${REFUSE_LAUNCH:-}" ] && exit 9',
     '    "$@"',
     '    rc=$?',
     '    [ "$print_pane" -eq 1 ] && printf "%%4497\\n"',
@@ -69,6 +73,7 @@ for (const provider of PROVIDERS) {
     const f = fixture();
     const evidence = path.join(f.root, 'evidence.txt');
     const argvRecord = path.join(f.root, 'argv.bin');
+    const modeRecord = path.join(f.root, 'mode.txt');
     try {
       const result = spawnSync('/bin/bash', [
         path.join(f.root, 'bin', 'agent-supervisor.sh'),
@@ -87,6 +92,7 @@ for (const provider of PROVIDERS) {
           HOME: f.root,
           EVIDENCE: evidence,
           ARGV_RECORD: argvRecord,
+          MODE_RECORD: modeRecord,
           AGENT_WORKFORCE_HOME: f.root,
           AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
         },
@@ -99,9 +105,41 @@ for (const provider of PROVIDERS) {
       assert.ok(argv.includes(Buffer.from('--pane-entry')), 'the pane uses the secret-file entrypoint');
       assert.ok(!result.stdout.includes(TOKEN) && !result.stderr.includes(TOKEN), 'the token is absent from supervisor logs');
       const secretDir = path.join(f.root, 'data', 'launch-secrets');
+      assert.equal(fs.readFileSync(modeRecord, 'utf8').trim(), '600', 'the token file is owner-only before the pane reads it');
+      assert.equal(fs.statSync(secretDir).mode & 0o777, 0o700, 'the token directory is owner-only');
       assert.deepEqual(fs.readdirSync(secretDir), [], 'the consumed token file is removed');
     } finally {
       fs.rmSync(f.root, { recursive: true, force: true });
     }
   });
 }
+
+test('a refused tmux launch removes the unconsumed token file without logging it', () => {
+  const f = fixture();
+  const argvRecord = path.join(f.root, 'argv.bin');
+  const modeRecord = path.join(f.root, 'mode.txt');
+  try {
+    const result = spawnSync('/bin/bash', [
+      path.join(f.root, 'bin', 'agent-supervisor.sh'), 'agent-refused', path.join(f.root, 'work'),
+      f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        EVIDENCE: path.join(f.root, 'unused-evidence.txt'),
+        ARGV_RECORD: argvRecord,
+        MODE_RECORD: modeRecord,
+        REFUSE_LAUNCH: '1',
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+      },
+    });
+    assert.notEqual(result.status, 0, 'the launch refusal reaches the supervisor');
+    assert.ok(!result.stdout.includes(TOKEN) && !result.stderr.includes(TOKEN), 'the failed launch does not log the token');
+    assert.deepEqual(fs.readdirSync(path.join(f.root, 'data', 'launch-secrets')), [], 'the EXIT trap removes the unconsumed token file');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
