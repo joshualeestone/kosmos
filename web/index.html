@@ -46241,12 +46241,23 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, members:[{slot,title,name,state,why,made}], projectNew }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom}], newProjectName, project, started, running, again, watching }
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
 async function openTeamCreate(key) {
   openCreate();
   cstep('team');
+  /* Round 2: reopening mid-run bumped TC_GEN, so an in-flight create's answer was dropped and that agent
+     existed with no row, no portrait and no project tell. A running team is resumed, never reset. */
+  if (TC && (TC.running || TC.watching)) {
+    tcPaint();
+    if (TC.key !== key) {
+      const msg = document.getElementById('tc-msg');
+      msg.hidden = false;
+      msg.textContent = 'Kosmos is still making ' + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
+    }
+    return;
+  }
   const gen = ++TC_GEN;
   TC = null;
   const msg = document.getElementById('tc-msg');
@@ -46319,7 +46330,9 @@ function tcPaint() {
     const input = document.createElement('input');
     input.className = 'tc-name'; input.type = 'text'; input.value = m.name; input.maxLength = 64;
     input.setAttribute('aria-label', 'Name for the ' + m.title);
-    input.disabled = m.state === 'made' || m.state === 'creating';
+    /* Round 2: once the run starts only a FAILED row's name can change. A name edited on a waiting row
+       would be shown while the agent is made from the spec read at the start of the pass. */
+    input.disabled = TC.started ? m.state !== 'failed' : false;
     input.addEventListener('input', () => { m.name = input.value; });
     const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
     /* Round 1: "Made" said more than create's answer means (the job was accepted, not that the agent is
@@ -46498,9 +46511,18 @@ async function tcRunOnce(gen) {
    not_tried on purpose). So, exactly as the single create does after it: poll /api/status for up to 30s,
    and for each member that appears, set its portrait, re-run its project tell, and mark it running. */
 let TC_WATCH_MS = 30000;   // let, not const: a browser check shortens it to run the timeout arm fast
+/* ONE watcher (round 2): a retry after a run ended started a second one, and both then set the same
+   portrait and re-told the same project. A run that ends while one is watching asks it to go on longer.
+   It stops when the step is reset (TC or TC_GEN changes), not when the person merely looks away. */
 async function tcWatch(gen) {
-  const until = Date.now() + TC_WATCH_MS;
-  while (TC && gen === TC_GEN && Date.now() < until) {
+  if (!TC) return;
+  if (TC.watching) { TC.watchUntil = Date.now() + TC_WATCH_MS; return; }
+  TC.watching = true;
+  TC.watchUntil = Date.now() + TC_WATCH_MS;
+  try { await tcWatchLoop(gen); } finally { if (TC && gen === TC_GEN) { TC.watching = false; tcPaint(); } }
+}
+async function tcWatchLoop(gen) {
+  while (TC && gen === TC_GEN && Date.now() < TC.watchUntil) {
     const waiting = TC.members.filter((m) => m.state === 'made' && m.seen !== 'running');
     if (!waiting.length) return;
     await new Promise((r) => setTimeout(r, 2000));
@@ -46509,6 +46531,7 @@ async function tcWatch(gen) {
     try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) agents = (await res.json()).agents || []; } catch { /* next round */ }
     if (!TC || gen !== TC_GEN) return;
     for (const m of waiting) {
+      if (m.seen === 'running') continue;   // re-checked: the list was read before the await
       const found = agents.find((a) => a.sessionName === m.made.name);
       if (!boardCanSeeIt(found)) continue;
       m.seen = 'running';

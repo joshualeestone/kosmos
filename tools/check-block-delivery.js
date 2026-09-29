@@ -87,6 +87,9 @@ function hasContent(name) {
     /* ⚠️ MEMBERSHIP, NOT UNIVERSAL. An agent outside every project is RIGHT to
        lack this, so a raw count reads fifteen correct absences as a failure. */
     case 'projects': return safe(() => (projects.readAll() || []).length > 0);
+    /* #4557: a seeded team member's brief, written ONCE at birth and never re-synced. Per agent, never
+       empty where it exists; who is entitled is decided below. */
+    case 'team':     return true;
     default: return null;
   }
 }
@@ -115,6 +118,10 @@ function entitled(name, agents, text) {
       return leads;
     } catch { return null; }
   }
+  /* #4557: BIRTH-ONLY, NOT UNIVERSAL. Only an agent made from a seeded team carries it, and nothing but
+     that birth writes it, so the file is the only record: entitled exactly where it was written. Its
+     absence is therefore never STALE (nothing later is supposed to add it). */
+  if (name === 'team') return agents.filter((a) => String(text[a] || '').includes(projects.TEAM_START));
   if (name !== 'projects') return agents;
   try {
     const members = new Set();

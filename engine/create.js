@@ -512,7 +512,10 @@ function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
 
 /* #4557: the block a seeded team member's brief rides in, inside its role's standard instructions. */
 function teamBlockBody(brief) {
-  return '## Your team\n\n' + String(brief).trim() + '\n';
+  /* Neutralised like every other value that lands in a managed block (round 2): a brief carrying any
+     kosmos marker would make the NEXT splices find two candidate spans, refuse as ambiguous, and leave
+     the agent silently without its reports/colleagues blocks. */
+  return '## Your team\n\n' + require('./projects').neutralise(String(brief).trim()) + '\n';
 }
 
 function spokenName(clean) {
@@ -4254,7 +4257,7 @@ function createAgentInner(opts) {
     }
     // The template with the brief in it must fit the same cap every boot file does, measured the way the
     // write step composes it, or create would mint a file the app's own editor refuses to read back.
-    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, String((opts && opts.name) || '')) || '',
+    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, shown) || '',
       teamBlockBody(wantTeam), require('./projects').TEAM_START, require('./projects').TEAM_END);
     if (Buffer.byteLength(composed, 'utf8') > require('./instructions').MAX_BYTES) {
       return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
