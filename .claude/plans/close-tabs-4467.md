@@ -5,10 +5,12 @@ tabs open in his browser). Routed by Splinter, claimed by Angel.
 
 ## Finished looks like
 Every agent's instruction file, on every provider and on Mac and Windows, carries a section telling
-it to close every browser tab or window it opens when done, to fetch a page rather than open it in
-the person's browser, to open the person's browser only when they must see or act, and to say so
-when it opened a tab it has no way to close. Existing agents are offered it too. Tests hold the
-words. The behaviour (an agent actually closing a tab) is measured after the release reaches agents.
+it to close every browser tab or window it opens when done; never to open a page in the person's
+browser just to read it (fetch it, use its own private browser if it has one, or say it cannot read
+the page and give the address); and that the one exception is a page the person must act on now
+(a sign-in, a payment), opened, said so, and left open for them. `open`/`start` leave a tab with no
+way to close it, so they are only for that exception. Existing agents are offered it too. Tests hold
+the words. The behaviour (an agent actually closing a tab) is measured after the release.
 
 ## Decisions
 - One NEW `###` section in `engine/defaults.js` BLOCK, "Close the browser tabs you open", placed
@@ -22,7 +24,7 @@ words. The behaviour (an agent actually closing a tab) is measured after the rel
   created agent's boot file and is on the Windows CI list. Rejected: the same line in
   win32codexreply.e2e.test.js, which is skipped on Mac and excluded from Windows CI, so it would
   never run.
-- Copy names both `open` (Mac) and `start` (Windows) for the no-handle case.
+- Copy names both `open` (Mac) and `start` (Windows) as the way that leaves a tab with no handle.
 - Three paragraphs: the rule (close what you open, nothing "for later", the exception flagged);
   never open a page in the person's browser just to read it (fetch it; for a page that must be
   rendered, the private browser from engine/agentbrowser.js, named by its kosmos-browser tools and
