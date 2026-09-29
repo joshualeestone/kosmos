@@ -223,22 +223,60 @@ test('task message refuses an agent that is not on the project, before recording
   assert.equal(said.length, 2);
 });
 
-test('membership compares agent names by their key, so a stored spelling still matches its token (#4491 slice 3)', async (t) => {
+test('task message resolves a tmux %N pane through resolveSender, and refuses a non-member by it (#4491 slice 3)', async (t) => {
+  /* The tokenless Mac CLI sends $TMUX_PANE (%N), which no roster target equals, so the handler asks
+     messages.resolveSender. Stubbed here: tmux is not running in the suite. */
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   const realAll = projectsEngine.readAll;
   const realSay = tasksEngine.say;
   const realWho = tasksEngine.whoOf;
+  const realResolve = messagesEngine.resolveSender;
   const said = [];
-  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['Mara'] }];
+  const asked = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara'] }];
   tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
   tasksEngine.whoOf = () => [];
-  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
-  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'stored as Mara' } });
-  assert.equal(r.code, 200, 'a member stored under another spelling was refused: ' + r.code + ' ' + r.text.slice(0, 160));
-  /* CONTROL: a different agent is still refused against the same record. */
-  const other = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'not mara' } });
-  assert.equal(other.code, 403);
-  assert.deepEqual(said, ['stored as Mara']);
+  messagesEngine.resolveSender = (pane, roster) => {
+    asked.push(pane);
+    const name = pane === '%7' ? 'poc-agent' : pane === '%8' ? 'mara' : null;
+    const card = name && roster.find((c) => c.sessionName === name);
+    return card ? { ok: true, card } : { ok: false, because: 'no such pane' };
+  };
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; messagesEngine.resolveSender = realResolve; board.restore(); });
+  const send = (pane, text) => call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text, from_pane: pane } });
+  assert.equal((await send('%7', 'outsider')).code, 403, 'a non-member %N pane was not refused');
+  const inside = await send('%8', 'member');
+  assert.equal(inside.code, 200, 'control: a member %N pane was not recorded: ' + inside.code + ' ' + inside.text.slice(0, 160));
+  assert.deepEqual(asked, ['%7', '%8'], 'the %N pane never reached resolveSender');
+  assert.deepEqual(said, ['member']);
+});
+
+test('membership is exact for a carded agent, and by key only for a token that resolved without a roster row (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  const liveness = require('./engine/liveness');
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  const realAlive = liveness.alive;
+  let stored = ['Mara'];
+  const said = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: stored }];
+  tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
+  tasksEngine.whoOf = () => [];
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));   // a live agent with no roster row
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; liveness.alive = realAlive; board.restore(); });
+  const send = (tok, text) => call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': tok }, body: { text } });
+  // A carded agent is compared exactly: "Mara" on the record is not the roster's "mara".
+  assert.equal((await send(sendertoken.mint('mara').token, 'carded')).code, 403, 'a look-alike stored name admitted a carded agent');
+  // A paneless token names its agent by store.safeKey, so it is matched by key: "Ghost" on the record is "ghost".
+  stored = ['Ghost'];
+  const ghost = sendertoken.mint('ghost').token;
+  const r = await send(ghost, 'paneless');
+  assert.equal(r.code, 200, 'a paneless member was refused: ' + r.code + ' ' + r.text.slice(0, 160));
+  // CONTROL: the same paneless agent against a record without it is refused, so the 200 above is the key match.
+  stored = ['Mara'];
+  assert.equal((await send(ghost, 'not on it')).code, 403);
+  assert.deepEqual(said, ['paneless']);
 });
 
 test('task built refuses a token-only agent that is not on the project (#4491 slice 3)', async (t) => {

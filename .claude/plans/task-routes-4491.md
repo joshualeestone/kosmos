@@ -22,6 +22,22 @@ rebased onto main when #4521 merges.
 - Task built's own guards are unchanged: the person's mark can only be changed from the screen, and a token
   holder is never the screen (isViaScreen is false whenever a token is presented).
 
+- Caller resolution in task message now mirrors task built: the token's card, else a pane that IS a roster target,
+  else messages.resolveSender (the CLI sends tmux's %N). Before, only an exact roster target was recognised, so a
+  tokenless Mac caller was never identified (and was notified about its own message).
+- Names compare EXACTLY (the stored record and the roster spell them the same), and by store.safeKey only for a token
+  that resolved without a roster row (`paneless`), whose name IS the key. Rejected: key comparison for everyone
+  (review round 1): it admits look-alikes (Mara vs mara, "Ma ra") and refuses all-non-ASCII names. The sender is left
+  off its own notification by the same rule.
+- Membership is checked BEFORE the rate valve (as task built does), so a non-member hears why, not the breaker.
+  Accepted costs: a valved caller now pays the roster read (and a tmux lookup for a %N pane) before its 429; an
+  unreadable roster answers 503 before the 429; a membership 403 is not counted by the valve (it records and
+  delivers nothing, so there is nothing to spam).
+- Behaviour change for Mac agents, stated: `kosmos task message` now presents the agent token, so a stale or
+  unresolvable token is refused (403) instead of falling back to the pane, and an unreadable roster answers 503.
+  This matches msg, post, react and task built (a bad credential is never swapped for a weaker one); the supervisor
+  mints a fresh token at every launch.
+
 ## Weakest premise
 That no legitimate agent messages a task on a project it is not a member of. Task built has refused that since
 its own review; a coordinator-style agent that relays into other projects' tasks would now be refused on
@@ -34,4 +50,8 @@ project.
 - Task message: a token-only member's message is recorded and names the token's agent; a non-member's is refused
   403 and records nothing (control: the same request from a member is recorded).
 - CLI: `kosmos task message` presents a valid token and nothing for junk/absent (extends the slice 2 CLI test).
+- A %N pane (resolveSender stubbed) is resolved: a non-member refused, a member recorded.
+- Exact vs key: a carded agent is compared exactly (a stored "Mara" refuses the roster's "mara"); a paneless token
+  matches its key (stored "Ghost" admits "ghost"), with a control.
+- Valve order (valve suite): with the cap spent, a non-member hears 403 and a member still hears 429.
 - The 570 pin: the pattern list pinned exactly, like the set.

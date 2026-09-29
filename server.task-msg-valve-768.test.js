@@ -48,7 +48,7 @@ test.before(async () => {
   win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  const roster = fleet.install([fleet.agent('mona', { state: 'idle' })]).agents;
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('outsider', { state: 'idle' })]).agents;   // outsider is on no project (#4491)
   const a = projects.create({ name: 'Alpha' });
   projects.addAgent(a.id, 'mona', roster);
   const made = tasks.create(a.id, { sentence: 'A task', who: 'mona' }, roster);
@@ -92,6 +92,18 @@ test('win32-cli-verbs: a request presenting a VALID agent token is valved even w
   const r = await post({ 'x-kosmos-agent-token': minted.token, 'sec-fetch-site': 'same-origin', origin: base });
   assert.equal(r.status, 429, 'an agent token with a browser header skipped the task-message valve');
   assert.match((await r.json()).error, /pausing agent task messages/);
+});
+
+test('#4491 slice 3: with the cap spent, an agent that is not on the project hears 403 (why), not 429 (the breaker)', async () => {
+  /* The cap is spent by the tests above. Membership is checked before the valve, as task built does. */
+  const outsider = sendertoken.mint('outsider');
+  assert.equal(outsider.ok, true, outsider.because);
+  const r = await post({ 'x-kosmos-agent-token': outsider.token });
+  assert.equal(r.status, 403, 'a non-member heard the breaker instead of why: ' + r.status);
+  assert.match((await r.json()).error, /not on this project/);
+  /* CONTROL: a member at the same moment still hears the breaker, so the 403 is membership, not a broken valve. */
+  const member = await post({ 'x-kosmos-agent-token': sendertoken.mint('mona').token });
+  assert.equal(member.status, 429);
 });
 
 test('#3959: with the cap set to 0, agent task messages are refused as switched off, with no retry time', async () => {

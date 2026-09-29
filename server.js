@@ -3783,13 +3783,20 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
-/* #4491 slice 3: is this agent on the project, per its stored record (agents are names)? Both sides go through
-   store.safeKey, because a token that resolves without a roster row names its agent by that key, not by the
-   stored spelling. A name that has no key is never a member. Shared by task message and task built. */
-function projectHasAgent(stored, name) {
+/* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
+   `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
+   name is store.safeKey's, not the stored spelling, so that one compares keys. Shared by task message and task
+   built, for membership and (task message) for leaving the sender off its own notification. */
+function sameAgentName(a, b, byKey) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a === b) return true;
+  if (!byKey) return false;
   const key = (n) => { try { return store.safeKey(n); } catch { return null; } };
-  const want = key(name);
-  return want !== null && (stored.agents || []).some((a) => key(a) === want);
+  const ka = key(a);
+  return ka !== null && ka === key(b);
+}
+function projectHasAgent(stored, name, byKey) {
+  return (stored.agents || []).some((a) => sameAgentName(a, name, byKey));
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -16493,7 +16500,7 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen) {
         /* Membership first, so a non-member hears why, not the breaker (review round 15). */
         const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
-        if (card && proj && !projectHasAgent(proj, card.sessionName)) {
+        if (card && proj && !projectHasAgent(proj, card.sessionName, !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless))))) {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
@@ -16529,9 +16536,10 @@ const server = http.createServer(async (req, res) => {
      agents assigned to the task. Body { text, from_pane? }. tasks.say validates
      (empty -> 400, missing project/task -> 404) and records it via engine/taskchat.js
      (the read side is the /activity route above). Delivery goes to the assignees only
-     (Josh, 2026-09-12), through chat.deliver, and the sender (when it is a known agent,
-     resolved from from_pane) is excluded so it is not notified about its own message --
-     the same exclusion the room does (engine/messages.js sendPost filters `from`). */
+     (Josh, 2026-09-12), through chat.deliver, and the sender (when it is a known agent: its token, else its pane)
+     is excluded so it is not notified about its own message -- the same exclusion the room does
+     (engine/messages.js sendPost filters `from`). #4491 slice 3: an identified agent that is not on the project
+     is refused (403) before anything is recorded, valved or delivered. */
   const taskSay = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/message$/);
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
@@ -16575,11 +16583,12 @@ const server = http.createServer(async (req, res) => {
         const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane) || null : null;
         const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
         const senderCard = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
+        const byKey = !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
         /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded,
            delivered or valved (so it hears why, not the breaker), as task built refuses it. */
         if (!viaScreen && senderCard && senderCard.sessionName) {
           const stored = projects.readAll().find((x) => x.id === id) || null;
-          if (stored && !projectHasAgent(stored, senderCard.sessionName)) {
+          if (stored && !projectHasAgent(stored, senderCard.sessionName, byKey)) {
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
             return;
           }
@@ -16628,7 +16637,7 @@ const server = http.createServer(async (req, res) => {
         const senderName = clean(senderCard && senderCard.sessionName);
         /* #3564: a swarm switched off in this project is not told about its tasks. */
         const offHere = projects.swarmOffSet(id);
-        const others = senderName ? named.filter((m) => m !== senderName) : named;
+        const others = senderName ? named.filter((m) => !sameAgentName(m, senderName, byKey)) : named;
         const recipients = others.filter((m) => !offHere.has(String(m)));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
