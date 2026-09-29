@@ -168,6 +168,22 @@ else
   bad "the second agent did not receive its own runtime home"
 fi
 
+# The installed engine pointer is what gives the copied supervisor its shared
+# runtime-home derivation. Without it, launching with CODEX_HOME= would make
+# real Codex 0.149.1 fall back to ~/.codex and restore the person's plugins.
+# Refuse before tmux instead.
+rm -f "$SB/bin/engine-path" "$ARGS"
+CODEX_HOME="$PERSON_HOME" AGENT_WORKFORCE_DATA="$DATA_PARENT" \
+  STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" noengineprobe "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/noengine.log" 2>&1
+NOENGINE_RC=$?
+if [ "$NOENGINE_RC" -ne 0 ] && [ ! -e "$ARGS" ] \
+  && grep -Fq 'could not resolve its private Codex home; the agent was not started' "$SB/noengine.log"; then
+  ok "a missing engine or node refuses the Codex launch instead of passing an empty home"
+else
+  bad "a missing engine or node reached tmux or was not explained (rc $NOENGINE_RC)"
+fi
+
 [ "$FAILS" -eq 0 ] && { echo "test-supervisor-codex-isolation-4592: OK"; exit 0; }
 echo "test-supervisor-codex-isolation-4592: $FAILS FAILED"
 exit 1
