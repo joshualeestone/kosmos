@@ -221,10 +221,6 @@ function checkFiles() {
    pane -- and wiring a never-run check mid-release is the red-gate trade this
    file's header describes.) */
 const NOT_WIRED = {
-  'render-unread-edge-3743.js':
-    'paused with the feature (#4418, Josh 2026-09-28): the gold unread edge is switched off '
-    + '(UNREAD_EDGE_ON false in web/index.html), and this check asserts the edge is drawn. '
-    + 'web.unread-edge-off-4418.test.js holds it off; rewire this when the switch goes back on.',
   'render-conn-url.js':
     'never run: a Playwright paint+geometry check of the sign-in step fallback '
     + "link (#1209 overlap), driving the page's own frPaintConnect. Wiring needs "

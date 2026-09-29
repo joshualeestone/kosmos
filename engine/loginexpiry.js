@@ -28,7 +28,7 @@
  *    FAIL SOFT everywhere: an unreadable/absent credential yields no advisory, never a throw.
  */
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const DEFAULT_SERVICE = 'Claude Code-credentials';
 const DAY_MS = 86400000;
@@ -53,6 +53,11 @@ function serviceNameFor(ccd) {
   return `${DEFAULT_SERVICE}-${hex}`;
 }
 
+/* The keychain read, one definition for both readers below: its arguments and its bound. stdio keeps stderr off
+   the sync reader's inherited output; execFile keeps stderr in its own buffer and never prints it. */
+const KEYCHAIN_READ = (service) => ['find-generic-password', '-s', service, '-w'];
+const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
+
 /* Default keychain reader. Returns the raw credential body (JSON string) or null.
  * NEVER logs it; stderr is discarded so a "not found" is a quiet null. */
 function readCredDefault(service) {
@@ -62,14 +67,18 @@ function readCredDefault(service) {
     // runs SYNCHRONOUSLY inside snapshot() on the single-threaded board; an unanswered prompt would
     // freeze /api/status for every agent, not just this feature. A bounded wait fails soft to null
     // instead. Mirrors the ps eww call's timeout in status.js.
-    return execFileSync('security', ['find-generic-password', '-s', service, '-w'], {
-      encoding: 'utf8',
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    return execFileSync('security', KEYCHAIN_READ(service), KEYCHAIN_OPTS);
   } catch {
     return null;
   }
+}
+
+/* The same read, asynchronous, for a caller that must not block the board (#3997, claudeloginlive): one
+ * definition of the command and its timeout. Resolves the raw body or null; never rejects. */
+function readCredAsync(service) {
+  return new Promise((resolve) => {
+    execFile('security', KEYCHAIN_READ(service), KEYCHAIN_OPTS, (err, stdout) => resolve(err ? null : stdout));
+  });
 }
 
 /* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or
@@ -174,6 +183,6 @@ function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
 }
 
 module.exports = {
-  serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
+  serviceNameFor, refreshExpiryFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };

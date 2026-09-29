@@ -364,6 +364,21 @@
    consciously overridden here on his call, and the field still reads
    through its border. */
 #pj-settings-view, #pj-add-view { --field-fill: var(--k-surface); }
+/* #1307: a project's webhooks in its settings. */
+.pjs-hooks { display: grid; gap: 8px; margin-top: 8px; }
+.pjs-hooks:empty { display: none; }
+.pjs-hook { border: 1px solid var(--k-rule); border-radius: 10px; padding: 10px 12px; background: var(--k-surface); }
+.pjs-hook-top { display: flex; gap: 10px; align-items: center; }
+.pjs-hook-top .tk-inp { flex: 1 1 auto; min-width: 0; }
+.pjs-hook-when { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 0; }
+.pjs-hook-reveal { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.pjs-hook-reveal p { margin: 0 0 8px; font-size: .875rem; color: var(--k-ink); }
+.pjs-hook-reveal .frow { display: flex; gap: 8px; align-items: center; }
+.pjs-hook-reveal input { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: .8125rem; }
+.pjs-hook-reveal code { font-family: var(--font-mono); font-size: .8125rem; }
+.pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
+.tkcard-from { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
+/* .tsk-from sits in a Tasks row's meta line and takes that line's span style on purpose. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -674,6 +689,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-box-top > .acct-connected,
 .acct-box-top > .acct-none,
 .acct-box-top > .acct-unverified,
+.acct-box-top > .acct-loginok,
 .acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
@@ -726,13 +742,17 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
    with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
    left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
-   in its title. */
+   in its title. Calm neutral (.acct-loginok, #3997 ruling C) = an idle Claude sign-in whose login date Kosmos read
+   from its stored login: not amber (nothing is wrong) and not green (nothing answered). */
 .acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
 .acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
 .acct-unknown { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
+.acct-loginok { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
+  font-weight: 600; color: var(--label); white-space: normal; }
+.acct-loginok .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-reauth,
 .acct-disconnect,
 .acct-check,
@@ -3737,6 +3757,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
    the same placement the relocated Tasks panel uses. The agents list stays the rail beside it. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-agents { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+/* #4377: the full projects page in the consolidated display column, placed like the Agents view. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-projects { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+.cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
+.cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
 .cons-agents-lay { display: inline-flex; gap: 6px; margin: 0 0 var(--space-5) 0; }
 .cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
@@ -3935,7 +3960,7 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-anc .pj-anc-sep { opacity: .55; }
 .pj-dots { display: inline-flex; gap: 2px; flex: none; }
 .pj-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--gold, #d6a62e); opacity: .9; }
-body.consolidated .pj-anc { justify-content: flex-start; }
+body.consolidated :where(#pj-list) .pj-anc { justify-content: flex-start; }   /* #4377: the rail only; the full projects grid keeps it centred */
 /* #2487: the detail-page parent trail (above the name) and the sub-projects
    section (between the head and the members/files/tasks grid). The rows are the
    same open-on-click buttons the cards are, at a lighter weight. */
@@ -3985,7 +4010,7 @@ html[data-layout="consolidated"] body.consolidated #pj-one-view .pj-crumbrow { d
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row { margin-left: calc(var(--pj-depth, 0) * 22px); }
 /* #2929: the fold caret is hidden everywhere by default; only the consolidated
    rail rule below turns it on. So the wide list and the grid never show one. */
-#pj-list .pjtreefold { display: none; }
+#pj-list .pjtreefold, #pj-full-list .pjtreefold { display: none; }   /* #4377: the copy is a grid; the fold belongs to the tree */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px solid var(--k-rule); }
 /* Hide the chip ONLY on rows the indent already places (.child). A child whose
    parent is archived/dangling falls back to depth 0 with no indent and no
@@ -4494,8 +4519,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      ground colour stays and the affordance reads in both themes (--k-rule). */
   html[data-layout="consolidated"] body.consolidated .lrow:hover { box-shadow: inset 0 0 0 1.5px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
-  html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row:hover { background: var(--k-surface); box-shadow: none; }
   /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
      side ground with a hairline ring, stronger than hover and persistent,
      so the rail always answers "which one am I looking at". */
@@ -4528,7 +4553,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      just want it to be a white area to indicate that that project is selected."
      ⇒ The white ground IS the selection now. The inset 3px was the left bar and
      the 0 0 0 1px was the stroke; both go, the background stays. */
-  html[data-layout="consolidated"] body.consolidated .pj-row.open { background: var(--k-sel, var(--k-surface)); }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row.open { background: var(--k-sel, var(--k-surface)); }
   /* 🛑 AND THE SAME IDEA HAS TO SURVIVE THE THEME, WHICH IT DID NOT.
      Measured on the real page, selected ground against the column behind it:
        light   rgb(255,255,255) on rgb(243,241,236)   12 units apart
@@ -4792,9 +4817,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      count, the sort and the view toggle are for the full-width tab. */
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .stats, html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .viewctl { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { margin: 0 0 8px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { box-shadow: none; } /* #3126: dead `padding: 8px 10px` removed (overridden by the tightened .pj-row padding later in this block) */
-  html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { box-shadow: none; } /* #3126: dead `padding: 8px 10px` removed (overridden by the tightened .pj-row padding later in this block) */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
   /* #980: stretch, not start -- the projects rail and the open project
      both run the panel's full height, so the columns and their rules
@@ -5006,7 +5031,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      of #pj-list's own asgrid/list class, is the fix -- not a new
      truncation rule, the existing one from :2096 was already right. */
   html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { height: auto; align-items: stretch; text-align: left; padding: 5px 10px; } /* #3126: tighter vertical padding (was 8px) */
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { height: auto; align-items: stretch; text-align: left; padding: 5px 10px; } /* #3126: tighter vertical padding (was 8px) */
   /* ⚠️ FIRST ATTEMPT put the name and pill side by side (matching the tab
      view's own row, and how #879 solved this same class of bug there) --
      measured wrong: at the rail's real width a short name ("Book Launch")
@@ -5017,9 +5042,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      to truncate against, which is the actual fix -- also closer to the
      real mock, which never puts a status pill beside the title in this
      rail at all. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { order: 1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { order: 1; }
   /* #2929 (Josh, 6.59 QA): the consolidated projects rail reads as an openable
      file structure -- each row indented by its tree depth, a fold caret on any
      parent, a folded branch's descendants hidden. This supersedes the earlier
@@ -5087,7 +5112,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
      ("4 agents"). The narrow rail has no room for the face icons the tab
@@ -5102,9 +5127,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
                                 90.2px -> 86.2px, and they STILL wrapped apart.
      ⇒ The goal is "get a whole lot more of them displayed", so a restructure
      that does not put them on one line has no payoff to justify its risk. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { display: block; margin-top: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces > [aria-hidden] { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces { display: block; margin-top: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces > [aria-hidden] { display: none; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { margin-left: 0; }
   /* 🔑 ONE TYPE SCALE (kosmos#1191). Josh: the project name matches the agent
      name, and the status pill and the agent count match the agent's TITLE.
      Measured before, at 1600 wide:
@@ -5114,9 +5139,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      "Nothing running" read louder than a person's actual role. That inversion is
      what he meant by "much, much smaller", and it is why this is hierarchy
      rather than taste. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname b { font-size: .8125rem; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { font-size: .625rem; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname b { font-size: .8125rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { font-size: .625rem; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { font-size: .625rem; }
   /* 🔑 TWO LINES, WITH THE STATUS ON THE AGENTS LINE (kosmos#1303 E). Josh: "the
      title / right below it, three agents / on the same line as the three agents,
      in the same font size, the status... That way we can tighten up these
@@ -5134,11 +5159,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      Josh did not ask about. A rule scoped to this layout cannot.
      📌 `.pj-warn` spans both columns so a bad-folder warning keeps a line of its
      own rather than being squeezed beside the status. */
-  html[data-layout="consolidated"] body.consolidated .pj-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: contents; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjname { grid-column: 1 / -1; grid-row: 1; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjfaces { grid-column: 1; grid-row: 2; margin-top: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { grid-column: 2; grid-row: 2; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcard-h { display: contents; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjname { grid-column: 1 / -1; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjfaces { grid-column: 1; grid-row: 2; margin-top: 0; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { grid-column: 2; grid-row: 2; }
   /* 🛑 THE TWO THINGS THAT ACTUALLY COST THE HEIGHT, both MEASURED after two
      wrong guesses of mine (a row gap, then a line-height, neither of which was
      it): the count is an INLINE element that WRAPPED to two lines in a rail this
@@ -5146,10 +5171,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      6px of vertical padding that belong to the TILE layout, where it sits at the
      top right with room around it. Neither is visible in the CSS for this view;
      both came from the computed box. */
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { margin-top: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; align-items: baseline; }
-  html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjpill { margin-top: 0; padding-top: 0; padding-bottom: 0; white-space: nowrap; align-items: baseline; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
 
-  html[data-layout="consolidated"] body.consolidated .pj-row .pj-warn { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pj-warn { grid-column: 1 / -1; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
      the files" -- Files sits in .pjsplit, stacked under Members in the
@@ -9202,8 +9227,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
    .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
    moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
-#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT */
-#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg, #firstrun #fr-muse-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT; #3939 3c-4: Meta Muse too */
+#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox, #firstrun #fr-muse-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* #2241 sibling for the SETTINGS add-provider success (#acct-success-box): the same
    gold-wash check-row box as first-run's .fr-connbox, but scoped here because .fr-connbox
@@ -13162,7 +13187,22 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div class="dhint" id="fr-grok-msg" role="status" aria-live="polite"></div>
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm off" id="fr-meta-row"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon" id="fr-meta-soon">Coming soon</span><button class="connect-b" type="button" id="fr-meta-connect" aria-expanded="false" aria-controls="fr-muse-flow" aria-label="Connect Meta Muse" hidden>Connect</button></div>
+                <!-- #3939 3c-4: Meta Muse on this step, only where Muse is switched on (GET /api/muse says enabled); otherwise the
+                     row above stays "Coming soon" and none of this shows. The same sign-in controller as Add a provider
+                     (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
+                <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
+                  <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
+                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button></div>
+                  <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
+                  </div>
+                  <p class="dhint" id="fr-muse-code" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-muse-retry-row" hidden style="margin-top:8px;"><button class="btn uprime" id="fr-muse-retry" type="button">Get a new code</button></div>
+                  <div class="frow" id="fr-muse-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-muse-cancel" type="button">Stop this sign-in</button></div>
+                  <p class="dhint" id="fr-muse-say" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <div class="dhint" id="fr-muse-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="deepseek" role="img" aria-label="DeepSeek"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 1.5 27 20.1" fill="currentColor"><path d="M26.5174 3.39471C26.235 3.2567 26.1137 3.52006 25.9487 3.65346C25.8923 3.69659 25.8446 3.75294 25.7969 3.80469C25.3846 4.24516 24.9027 4.53439 24.2737 4.49989C23.3536 4.44814 22.5682 4.73737 21.8735 5.44119C21.7258 4.57349 21.2353 4.0554 20.4889 3.72304C20.0985 3.55054 19.7034 3.37746 19.4297 3.00197C19.2388 2.73459 19.1865 2.43673 19.091 2.14289C19.0301 1.96579 18.9697 1.78466 18.7656 1.75418C18.5442 1.71968 18.4574 1.90541 18.3705 2.06067C18.0232 2.69549 17.8887 3.39471 17.9019 4.10313C17.9324 5.6965 18.6051 6.96556 19.9421 7.86834C20.0939 7.97184 20.133 8.07535 20.0852 8.22658C19.9938 8.53766 19.8857 8.83955 19.7903 9.15063C19.7293 9.34901 19.6384 9.39271 19.4257 9.30588C18.692 8.9994 18.0583 8.54571 17.4982 7.99772C16.5477 7.07827 15.6881 6.06336 14.6162 5.26869C14.3644 5.08296 14.1125 4.91045 13.8521 4.746C12.7584 3.68394 13.9952 2.81164 14.2816 2.70814C14.5812 2.60003 14.3857 2.22857 13.4179 2.23317C12.4502 2.2372 11.5646 2.56151 10.4359 2.99335C10.2708 3.05832 10.0972 3.10547 9.91951 3.14457C8.8954 2.95022 7.83162 2.90709 6.72069 3.03245C4.62877 3.26533 2.95777 4.25436 1.72954 5.94261C0.254043 7.97184 -0.0932678 10.2777 0.33167 12.6824C0.778458 15.2171 2.07225 17.3153 4.06008 18.9558C6.12152 20.6567 8.49577 21.4905 11.2047 21.3306C12.8498 21.2358 14.6812 21.0155 16.7473 19.2669C17.2682 19.5262 17.8151 19.6297 18.7219 19.7074C19.4205 19.7723 20.0933 19.6729 20.6143 19.5648C21.4302 19.3923 21.3739 18.6367 21.0789 18.4981C18.6874 17.3843 19.2124 17.8374 18.7351 17.4706C19.9501 16.033 21.8063 13.4776 22.379 9.99821C22.4353 9.61409 22.5072 9.073 22.4986 8.76192C22.494 8.57216 22.5377 8.49856 22.7545 8.47671C23.3536 8.40771 23.935 8.24383 24.4692 7.94999C26.0188 7.10357 26.6439 5.71318 26.7911 4.04678C26.8129 3.79204 26.7865 3.52869 26.5174 3.39471ZM13.0143 18.3946C10.6964 16.5724 9.5722 15.9726 9.10816 15.9985C8.67402 16.0244 8.75222 16.5212 8.84768 16.8449C8.94773 17.1646 9.07768 17.3849 9.25996 17.6655C9.38589 17.8512 9.47272 18.1272 9.13404 18.3348C8.38766 18.7965 7.08985 18.1796 7.0289 18.1491C5.51833 17.2595 4.25559 16.0853 3.36546 14.4793C2.50581 12.9337 2.0067 11.2753 1.92447 9.50542C1.90262 9.07818 2.02855 8.92695 2.45406 8.84932C3.01413 8.74582 3.59144 8.72397 4.15093 8.80619C6.51656 9.15178 8.53027 10.2092 10.2185 11.8848C11.1822 12.8388 11.9114 13.979 12.6623 15.0929C13.461 16.2757 14.3201 17.4027 15.4144 18.3268C15.8008 18.6505 16.109 18.8966 16.404 19.0783C15.5144 19.1778 14.0297 19.1991 13.0143 18.3958V18.3946ZM14.1252 11.2489C14.1252 11.0591 14.277 10.9079 14.4679 10.9079C14.511 10.9079 14.5501 10.9165 14.5852 10.9292C14.6329 10.9464 14.6766 10.9723 14.7111 11.0114C14.7721 11.0718 14.8066 11.158 14.8066 11.2489C14.8066 11.4386 14.6548 11.5899 14.4639 11.5899C14.273 11.5899 14.1252 11.4386 14.1252 11.2489ZM17.5759 13.0188C17.3545 13.1096 17.1331 13.1873 16.9203 13.1959C16.5903 13.2131 16.2303 13.0791 16.0348 12.9153C15.7312 12.6605 15.5139 12.5179 15.423 12.0734C15.3839 11.8837 15.4057 11.5899 15.4402 11.4214C15.5185 11.0585 15.4316 10.8257 15.1757 10.614C14.9676 10.4415 14.7025 10.3938 14.4115 10.3938C14.3029 10.3938 14.2034 10.3461 14.1292 10.3076C14.0079 10.2472 13.9078 10.096 14.0033 9.91023C14.0338 9.84985 14.1815 9.70322 14.216 9.67734C14.6111 9.45251 15.0665 9.52612 15.488 9.6946C15.8784 9.85445 16.174 10.1477 16.5989 10.5623C17.033 11.0631 17.1112 11.2011 17.3585 11.5772C17.554 11.871 17.7317 12.1729 17.8536 12.5185C17.9272 12.7341 17.8317 12.9107 17.5759 13.0188Z"/></svg></span><div class="llm-w"><b>DeepSeek</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -14919,6 +14959,20 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn" id="pjs-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
         <button class="btn" type="button" disabled title="Not yet: people outside Kosmos will be able to join a project in a later version">Add an external person</button>
         <button class="btn" type="button" disabled title="Not yet: agents outside Kosmos will be able to join a project in a later version">Add an external agent</button>
+      </div>
+    </div>
+
+    <!-- #1307 (Josh, 2026-08-28): "below project members... a button to create a new webhook. It
+         should prepopulate a name for the webhook and display the webhook URL... change the name...
+         and a copy button". Each action saves on its own, like the members above (not Save changes).
+         The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
+    <div class="field" id="pjs-hooks-field">
+      <span class="flabel" id="pjs-hooks-label">Webhooks</span>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. The link works for programs on this computer.</p>
+      <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
+      <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
+      <div class="frow" style="margin-top: var(--space-4)">
+        <button class="btn" id="pjs-hook-add" type="button"><span aria-hidden="true">+</span> New webhook</button>
       </div>
     </div>
 
@@ -18310,7 +18364,7 @@ function memWhy(ctx) {
  * as an unhelpful sentence; this one shows up as a confident number.
  *
  * `limitFor` returns `assumed: true` for every model nobody has watched hit its
- * ceiling — today Opus 5, Sonnet 5 and Fable 5, all assumed at 1M — and the
+ * ceiling (today every Opus, Sonnet and Fable model except the measured Opus 4.8, all assumed at 1M), and the
  * engine even writes the wording ("measured, against a limit we have assumed
  * rather than watched") and sets `ceilingAssumed`. `grep assumed web/index.html`
  * matched one unrelated comment. The rule the assumption was allowed under is
@@ -18778,23 +18832,31 @@ function lrowRing(a) {
 /* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
    88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
    MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
-   lrowRing; on the detail screen the MEMORY panel carries the unknown case (this
-   ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
+   lrowRing, with one exception below (#3739); on the detail screen the MEMORY panel
+   carries the unknown case (this ring is aria-hidden, and #3501 removed the detail's
+   .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
-  if (pct === null) return '';
   const R = 47, C = 2 * Math.PI * R;
-  const band = memBand(pct);
+  /* #3739 (Josh, 0.6.94: "it renders with no context ring"): the setup guide is shown before its first session,
+     so while the engine says it has not started one (context.notYet, the Memory box's own "not yet" state) its
+     page draws the empty track. Only then: a reading of unknown size (noCeiling), no record (neverRecorded), a
+     stopped guide (no context) and every other agent still draw nothing, as the Memory box beside it says. */
+  const fresh = pct === null && a.isGuide === true && !!(a.context && a.context.notYet === true);
+  if (pct === null && !fresh) return '';
+  const track = `<circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>`;
+  const fill = pct === null ? ''
+    : `<circle class="gf ${memBand(pct)}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>`;
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
-    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
-    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
+    ${track}${fill ? '\n    ' + fill : ''}
   </svg>`;
 }
 /* #2576: the SAME context gauge for the org-chart node, scaled by CSS to sit
    just outside the 44px node face (.onode .oring, inset -5px) where the state arc
    used to. Same reading (pctOf) and band (memBand) as lrowRing, detailRing, the
    cards and the MEMORY panel, so every surface agrees; unknown context (pct null)
-   draws nothing, matching them. Geometry mirrors detailRing (viewBox 100, r47,
+   draws nothing, matching them (detailRing's one exception, a guide that has not
+   started, is its own page's; the guide has no org node). Geometry mirrors detailRing (viewBox 100, r47,
    sw4); the .oring CSS box does the scaling down to node size. */
 function orgRing(a) {
   const pct = pctOf(a.context);
@@ -21454,7 +21516,11 @@ function showTab(tab) {
   // so it always closes the Agents view; the board is what the consolidated tabs arrive at.
   CONS_AGENTS_OPEN = false;
   placeAgentsPanel(cons);
-  if (cons) consNavLight('projects');
+  // #4377: a tab switch closes the full projects page too; the board lights no nav item (a lit
+  // Projects means the full projects page is in the column).
+  CONS_PROJECTS_OPEN = false;
+  { const cp = document.getElementById('panel-cons-projects'); if (cp) cp.hidden = true; }
+  if (cons) consNavLight(null);
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -23305,8 +23371,21 @@ async function paintAccounts(opts) {
     /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
        structured verdict, not a match on its sentence: review round 4). */
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
+    /* #3997 (ruling C): an idle Claude sign-in whose login date Kosmos read from its stored login. Calm and
+       neutral, with the date; it turns green when an agent uses it or Check now answers. */
+    const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
+    // The year too when it is not this one (review iteration 3): a login can run for close to a year. The viewer's
+    // own calendar on purpose, so it can read a day off near midnight UTC (see the plan); not a UTC string.
+    const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, new Date(loginUntil).getFullYear() === new Date().getFullYear()
+      ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const loginOkWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.' : '';
     let connBadge;
-    if (badge === 'working') {
+    if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
+      // Only with the server's switch on (Josh's call): the same words, in green.
+      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (badge === 'signed_in_unverified' && loginDate) {
+      connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
@@ -26483,9 +26562,12 @@ function museOffered() {
   const opt = museMetaOption();
   return !!opt && !opt.disabled;
 }
-const ACCT_MUSE = (() => {
+/* #3939 3c-4: one sign-in controller per place it is drawn: Add a provider (acct-muse-*) and the first-run
+   Meta row (fr-muse-*). `prefix` names its elements; `opts.onDone` repaints that place after a sign-in. Only one
+   place is usable at a time (first run makes the rest of the page inert), and each stops its own sign-in by id. */
+function museSigninFlow(prefix, opts) {
   let id = null; let poll = null; let gen = 0; let retrying = false;
-  const el = (x) => document.getElementById('acct-muse-' + x);
+  const el = (x) => document.getElementById(prefix + x);
   const say = (t) => { const m = el('say'); if (m) m.textContent = t; };   // named 'say': the surface gate maps the usual name to other checks
   const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
   // Each address written out whole (#3957 reads every page fetch's URL as a literal).
@@ -26545,7 +26627,7 @@ const ACCT_MUSE = (() => {
       if (st.state === 'done') {
         finish('');
         say('Signed in to Meta Muse.');
-        try { await paintAccounts(); } catch { /* the row repaints on the next visit */ }
+        try { if (opts && opts.onDone) await opts.onDone(); } catch { /* the place repaints on the next visit */ }
         return;
       }
       if (st.state === 'failed' || st.state === 'stopped') {
@@ -26599,7 +26681,19 @@ const ACCT_MUSE = (() => {
     if (was) post('stop', { id: was }).catch(() => { /* the engine's own limit ends it regardless */ });
   }
   return { start, retry, leave, reset, get active() { return !!id; } };
-})();
+}
+/* The three buttons of one place, wired to its controller. */
+function museSigninWire(flow, prefix) {
+  const el = (x) => document.getElementById(prefix + x);
+  el('go').addEventListener('click', () => flow.start());
+  el('retry').addEventListener('click', () => flow.retry());
+  el('cancel').addEventListener('click', () => {
+    flow.leave();
+    const m = el('say'); if (m) m.textContent = 'Sign-in stopped.';
+    el('go').focus();
+  });
+}
+const ACCT_MUSE = museSigninFlow('acct-muse-', { onDone: () => paintAccounts() });
 /* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
 function acctMuseShow(on) {
   const flow = document.getElementById('acct-muse-flow');
@@ -26613,12 +26707,94 @@ function acctMuseShow(on) {
   }
   flow.hidden = !on;
 }
-document.getElementById('acct-muse-go').addEventListener('click', () => ACCT_MUSE.start());
-document.getElementById('acct-muse-retry').addEventListener('click', () => ACCT_MUSE.retry());
-document.getElementById('acct-muse-cancel').addEventListener('click', () => {
-  ACCT_MUSE.leave();
-  const m = document.getElementById('acct-muse-say'); if (m) m.textContent = 'Sign-in stopped.';
-  document.getElementById('acct-muse-go').focus();
+museSigninWire(ACCT_MUSE, 'acct-muse-');
+/* #3939 3c-4: Meta Muse on the first-run model step. The row is today's "Coming soon" unless Muse is switched
+   on here (the Create form's read, museCreateAsk / MUSE_CREATE); then it offers Connect, which opens the same
+   sign-in as Add a provider under the row, or says Muse Code is not on this computer (Kosmos does not install
+   it). Signed in, the row reads Connected with the gold box, like Gemini's and Grok's. */
+const FR_MUSE = museSigninFlow('fr-muse-', { onDone: async () => {
+  await frPaintMeta({ fresh: true });
+  if (MUSE_CREATE && MUSE_CREATE.ready) return;
+  /* The sign-in finished but the read after it did not confirm it (it failed, or answered before Muse
+     caught up): the panel goes away rather than say "Signed in" beside a live Sign in button. */
+  frMuseCollapse();
+  const msg = document.getElementById('fr-muse-msg');
+  if (msg) { msg.className = 'dhint'; msg.textContent = 'Signed in to Meta. It shows here as connected once Kosmos can check it again.'; }
+} });
+museSigninWire(FR_MUSE, 'fr-muse-');
+/* Put the panel away and stop its sign-in. Focus inside it goes to Connect, or to the line under the row when
+   Connect is down (a disabled button cannot hold focus). */
+function frMuseCollapse() {
+  const flow = document.getElementById('fr-muse-flow');
+  const btn = document.getElementById('fr-meta-connect');
+  try { FR_MUSE.leave(); } catch { /* frGo can run before FR_MUSE is defined: nothing is running yet */ }
+  if (!flow) return;
+  if (!flow.hidden && flow.contains(document.activeElement)) {
+    const msg = document.getElementById('fr-muse-msg');
+    if (btn && !btn.hidden && !btn.disabled) btn.focus();
+    else if (msg) { msg.tabIndex = -1; msg.focus(); }
+  }
+  flow.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+async function frPaintMeta(opts) {
+  const row = document.getElementById('fr-meta-row');
+  const btn = document.getElementById('fr-meta-connect');
+  if (!row || !btn) return;
+  /* fresh: after a sign-in, a read that started before it would answer "signed out", so wait it out and ask
+     again. A failed read keeps the last answer (MUSE_CREATE is never cleared here). */
+  if (opts && opts.fresh && MUSE_CREATE_ASKING) { try { await MUSE_CREATE_ASKING; } catch { /* the next read decides */ } }
+  await museCreateAsk();   // never rejects: a failed read leaves MUSE_CREATE as it was
+  const m = MUSE_CREATE;
+  const live = !!(m && m.on);
+  row.classList.toggle('on', live); row.classList.toggle('off', !live);
+  const mark = row.querySelector('.pmark');
+  if (mark) { mark.classList.toggle('live', live); mark.classList.toggle('dim', !live); }
+  const soon = document.getElementById('fr-meta-soon'); if (soon) soon.hidden = live;
+  const msg = document.getElementById('fr-muse-msg');
+  if (!live) {
+    frMuseCollapse();
+    btn.hidden = true;
+    if (msg) { msg.className = 'dhint'; msg.textContent = ''; }
+    return;
+  }
+  const ready = m.ready === true;
+  btn.hidden = false;
+  btn.innerHTML = ready ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
+  btn.disabled = ready;
+  btn.classList.toggle('is-connected', ready);
+  btn.setAttribute('aria-disabled', String(ready));
+  btn.setAttribute('aria-label', ready ? 'Meta Muse is connected' : 'Connect Meta Muse');
+  if (ready) frMuseCollapse();   // after Connect is down, so focus inside the panel goes to the line below
+  if (!msg) return;
+  if (ready) {
+    msg.className = 'fr-connbox';
+    msg.innerHTML = frCheckRow({ state: 'ok', title: 'Meta Muse is connected', detail: 'This computer is signed in to Muse Code with your Meta account.' });
+    /* As Gemini's and Grok's rows do (frPaintKeyed): a connected Meta Muse is a usable provider, so the step
+       offers Next rather than only "Skip connecting a model", unless Claude has offered its own. */
+    const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
+    if (!claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
+  } else if (msg.classList.contains('fr-connbox') || (m.installed && msg.dataset.said === 'missing')) {
+    msg.className = 'dhint'; msg.textContent = ''; delete msg.dataset.said;
+  }
+}
+document.getElementById('fr-meta-connect').addEventListener('click', async () => {
+  const btn = document.getElementById('fr-meta-connect');
+  const flow = document.getElementById('fr-muse-flow');
+  const msg = document.getElementById('fr-muse-msg');
+  if (!flow.hidden) { frMuseCollapse(); btn.focus(); return; }   // a second press closes it, as aria-expanded says
+  // Asked again first: someone who installed Muse Code after the last read is not told it is missing.
+  const step = FR_STEP;
+  await frPaintMeta();
+  if (FR_STEP !== step || document.getElementById('firstrun').hidden) return;   // first run moved on during the read
+  if (!MUSE_CREATE || !MUSE_CREATE.on || MUSE_CREATE.ready || btn.hidden) return;
+  if (!MUSE_CREATE.installed) {
+    if (msg) { msg.className = 'dhint'; msg.textContent = 'Muse Code is not on this computer yet. Install it from Meta, then come back to this step.'; msg.dataset.said = 'missing'; }
+    return;
+  }
+  flow.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  document.getElementById('fr-muse-go').focus();
 });
 /* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow
    and the install box, so every open, close and switch reaches it. */
@@ -29617,6 +29793,9 @@ let BOARD_LAYOUT = 'grid';
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
 let CONS_AGENTS_OPEN = false;
+/* #4377: true while the consolidated display column shows the full projects page
+   (openConsolidatedProjects). Cleared like CONS_AGENTS_OPEN. */
+let CONS_PROJECTS_OPEN = false;
 function boardApplyVisibility(onAgents) {
   /* ⚠️ THREE CONTAINERS NOW, AND EACH ASKS FOR ITSELF. The two-container
      version tested `=== 'list'` and `=== 'grid'`, which are opposites only
@@ -32951,7 +33130,8 @@ function openDetail(sessionName, section, fromProject) {
   /* #3501: the unknown-memory WORD state of this header badge (.membadge.unk) was
      removed with the card's. The badge now shows ONLY the near-full number; the
      unknown fact is stated on this screen by the Memory box (the detail ring
-     draws nothing and is aria-hidden when unknown). */
+     is aria-hidden, and draws nothing when unknown except a guide that has not
+     started, #3739). */
   const dbadge = document.getElementById('d-membadge');
   dbadge.className = 'membadge';
   dbadge.textContent = memPrint(a.context, dpct);
@@ -34009,6 +34189,10 @@ const USAGE_MODEL_PRICES = {
   'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  // sonnet-5-5 (#4439): the same tier as sonnet-5, tier_2_10 in Claude Code 2.1.284's model
+  // catalog (input 2, output 10, 5-minute write 2.5, cache read 0.2). That catalog gives
+  // opus-5-5 exactly the published rates above, which is why it is trusted here.
+  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
@@ -39310,10 +39494,11 @@ function takeOverDisplayColumn() {
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
+  CONS_PROJECTS_OPEN = false;   // #4377: openConsolidatedProjects sets it again after this
   // #4345: one overlay at a time; openConsolidatedAgents sets it again after this. Re-hide the chart and
   // grid too, so paintOrg's skip-while-hidden guard holds while another overlay has the column.
   if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
@@ -39429,12 +39614,84 @@ function openConsolidatedAgents() {
   syncPlusChrome();
   consNavLight('agents');
 }
+/* #4377 (Josh, 2026-09-28: "you could see your full projects and you could sort it in different
+   ways"): the full projects page in the consolidated display column. The rail keeps #pj-list; this
+   is a second render of the SAME rows (pjTreeRows over the same sorted list paintProjects uses) in a
+   `.pj-list.asgrid` container of its own, so it looks like the Projects tab's grid. The rail's
+   consolidated row rules are scoped to #pj-list with :where() (zero specificity, so the rail's
+   cascade is unchanged) and do not reach it. Its sort select forwards to #pj-sort, so there is one
+   sort, one stored preference and one repaint path. A row click is the rail's own action,
+   openProject: the project becomes active in the column, never a nested view. */
+function consProjectsWrap() {
+  const projects = document.getElementById('panel-projects');
+  if (!projects) return null;
+  let wrap = document.getElementById('panel-cons-projects');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'panel-cons-projects';
+    wrap.hidden = true;
+    const main = document.getElementById('pj-sort');
+    wrap.innerHTML = '<div class="cons-proj-head"><h2 class="cons-proj-title">Projects</h2>'
+      + '<label class="sortctl" for="pj-full-sort"><select id="pj-full-sort" aria-label="Sort projects">'
+      + (main ? main.innerHTML : '') + '</select>'
+      // The chevron #pj-sort has beside it: .sortctl select is appearance:none, so without it the control
+      // does not read as a dropdown (review round 1).
+      + ((main && main.parentElement && main.parentElement.querySelector('.sortctl-i')) ? main.parentElement.querySelector('.sortctl-i').outerHTML : '')
+      + '</label></div>'
+      + '<div class="pj-list asgrid" id="pj-full-list"></div>';
+    wrap.querySelector('#pj-full-sort').addEventListener('change', (e) => {
+      const m = document.getElementById('pj-sort');
+      if (!m) return;
+      m.value = e.target.value;
+      m.dispatchEvent(new Event('change'));
+    });
+    wrap.querySelector('#pj-full-list').addEventListener('click', (e) => {
+      if (e.target.closest('[data-pj-new-empty]')) { openAddProject(); return; }
+      const row = e.target.closest('[data-project]');
+      if (row) openProject(row.dataset.project);
+    });
+  }
+  if (wrap.parentElement !== projects) projects.appendChild(wrap);
+  return wrap;
+}
+/* Called from every exit of paintProjects and from the projects read's failure path, so the copy
+   never disagrees with the rail: the same rows when there are rows, the rail's own sentence (empty,
+   signed out, could not read) when there are not. */
+function paintConsProjects() {
+  if (!CONS_PROJECTS_OPEN) return;
+  const full = document.getElementById('pj-full-list');
+  const list = document.getElementById('pj-list');
+  if (!full || !list) return;
+  const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
+  setIfChanged(full, active.length && list.querySelector('[data-project]') ? pjTreeRows(active) : list.innerHTML);
+  /* The copy never marks the open project (the page closes when one opens, and the rail already says
+     which is current), and its empty-state button carries a data attribute instead of the rail's id,
+     so no id or aria-current appears twice on the page (review round 1). Done on the nodes, after
+     the write: setIfChanged compares against the string it last wrote, so this cannot cause a
+     rebuild, and a repeat write that it skips leaves these edits in place. */
+  for (const r of full.querySelectorAll('[aria-current]')) r.removeAttribute('aria-current');
+  const dup = full.querySelector('#pj-new-empty');
+  if (dup) { dup.removeAttribute('id'); dup.setAttribute('data-pj-new-empty', ''); }
+  const m = document.getElementById('pj-sort'); const f = document.getElementById('pj-full-sort');
+  if (m && f && f.value !== m.value) f.value = m.value;
+}
+function openConsolidatedProjects() {
+  if (!document.body.classList.contains('consolidated')) { showTab('projects'); return; }
+  const wrap = consProjectsWrap();
+  if (!wrap) return;
+  takeOverDisplayColumn();
+  CONS_PROJECTS_OPEN = true;
+  wrap.hidden = false;
+  paintConsProjects();
+  syncPlusChrome();
+  consNavLight('projects');
+}
 /* #4345: the top-nav click in the consolidated layout. Returns true when it handled the click, so the
    tab handler stays short (a source pin reads the first 1600 characters of it for the top-level reset). */
 function consNavClick(btn) {
   /* #4345 (Josh): in the consolidated view the top nav loads into the display column instead of
-   switching to the tab view. Agents and Tasks open there; Projects puts the board back (the "easy
-   way to get back"), handled in the branch below, not by the tab path's top-of-section reset. */
+   switching to the tab view. Agents, Tasks and (#4377) the full projects page open there; Projects
+   pressed again puts the board back (the "easy way to get back"), not the tab path's reset. */
   /* Keyed on the saved layout (layoutConsolidated), not on body.consolidated: an agent's page and
    the full Tasks page drop the class while the person's layout is still consolidated, and from
    there Agents must still land on the Agents view, not the board (review round 1). The burger
@@ -39444,14 +39701,18 @@ function consNavClick(btn) {
   if (!layoutConsolidated() || !['agents', 'tasks', 'projects'].includes(btn.dataset.tab)) return false;
   WATCH += 1;
   const t = btn.dataset.tab;
-  if (!document.body.classList.contains('consolidated') || t === 'projects') showTab('projects');
+  /* #4377: Projects loads the full projects page into the column; pressed again while it is open it
+     is the way back to the board (as is opening any project from it or the rail). */
+  if (t === 'projects' && CONS_PROJECTS_OPEN && document.body.classList.contains('consolidated')) { showTab('projects'); return true; }
+  if (!document.body.classList.contains('consolidated')) showTab('projects');
   if (t === 'agents') openConsolidatedAgents();
   else if (t === 'tasks') openConsolidatedTasks();
+  else openConsolidatedProjects();
   return true;
 }
 /* #4345: which top-nav item is lit in the consolidated view says what the display column holds:
-   Agents or Tasks when those are open there, Projects for the board itself, none for an overlay
-   (Settings, New Agent) that no top-nav item opens. */
+   Agents, Tasks or Projects when that page is open there; none for the board itself (#4377: a lit
+   Projects now means the full projects page) or for an overlay (Settings, New Agent). */
 function consNavLight(tab) {
   document.querySelectorAll('#tabs .tab').forEach((t) => {
     const on = tab != null && t.dataset.tab === tab;
@@ -39617,7 +39878,8 @@ function paintPjNone(which) {
   })();
   // #4345: the Agents view in the column is an overlay like the three above.
   const appAgentsOpen = (() => { const pa = document.getElementById('panel-cons-agents'); return !!(pa && !pa.hidden); })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen;
+  const appProjectsOpen = (() => { const pf = document.getElementById('panel-cons-projects'); return !!(pf && !pf.hidden); })();   // #4377
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen && !appProjectsOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -47579,14 +47841,15 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    for (const id of ['panel-create', 'panel-tasks', 'panel-cons-agents']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too; #4345: the Agents view too
+    for (const id of ['panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too; #4345: the Agents view too; #4377: the full projects page too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
-  /* #4345: project navigation closes the consolidated Agents view (its panel was hidden above) and,
-     in the consolidated view, is the board, so Projects is the lit top-nav item. */
+  /* #4345: project navigation closes the consolidated Agents view (its panel was hidden above).
+     #4377: and the full projects page; in the consolidated view it is the board, which lights no nav item. */
   if (CONS_AGENTS_OPEN) { CONS_AGENTS_OPEN = false; boardApplyVisibility(onAgentsTab()); }
-  if (document.body.classList.contains('consolidated')) consNavLight('projects');
+  CONS_PROJECTS_OPEN = false;
+  if (document.body.classList.contains('consolidated')) consNavLight(null);
   /* #520: the list is the projects rail in the consolidated view, so it
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
@@ -48239,6 +48502,7 @@ function paintProjects() {
          taught two mental models on two screens. The pack draws gold for both. */
       + '<button class="btn uprime big" id="pj-new-empty" type="button">Add a project</button>'
       + '</div>');
+    paintConsProjects();   // #4377
     return;
   }
   if (!active.length) {
@@ -48249,6 +48513,7 @@ function paintProjects() {
     if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>Nothing here right now.</b><br>Everything you have is archived.</p>'
       + '</div>');
+    paintConsProjects();   // #4377
     return;
   }
   /* #2929 slice 2: do NOT replace the list's innerHTML while a cluster drag is in flight
@@ -48262,6 +48527,7 @@ function paintProjects() {
      .pj-fold-hidden classes, so this runs every paint, not just on toggle. The fold
      set was already pruned to live active ids above (before the empty-state returns). */
   applyConsFold();
+  paintConsProjects();   // #4377: the full projects page, when it is open
 }
 
 /* #2929/#3276: the fold state for the indented tree, by project id. Shared by the
@@ -49052,6 +49318,7 @@ async function loadProjects() {
       : BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
+    paintConsProjects();   // #4377: the full projects page says the same thing
     // The tiles are claims too: confident counts one element above the
     // could-not-look sentence are the same stale juxtaposition the
     // archived disclosure below is hidden to avoid.
@@ -49323,6 +49590,10 @@ function paintProjectTasks(p) {
       + partOf
       + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
+      /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
+         knows its words came from outside. Inline, not a shared helper: the tests lift this
+         function and run it alone. The Tasks view row carries the same line (tsk-from). */
+      + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
       + who + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
@@ -49616,6 +49887,8 @@ function tskRow(t, at) {
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
+    /* #1307: inline for the same reason as the task card's tkcard-from line. */
+    + (t.addedVia === 'webhook' ? '<span class="tsk-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
@@ -50145,7 +50418,9 @@ function tkAdded(t) {
   /* #485: a process task with no vouched pane is known to be agent-made,
      so it says "An agent", never "Somebody" (that word is for records from
      before the field existed). */
-  const who = t.addedBy === 'operator' ? 'You'
+  /* #1307: a webhook first, so a webhook someone named "operator" never reads as "You". */
+  const who = t.addedVia === 'webhook' ? (t.addedBy ? t.addedBy + ' (a webhook)' : 'A webhook')
+    : t.addedBy === 'operator' ? 'You'
     : (t.addedBy || (t.addedVia === 'process' ? 'An agent' : 'Somebody'));
   const at = t.createdAt ? new Date(t.createdAt) : null;
   if (!at || isNaN(at.getTime())) return who;
@@ -51084,7 +51359,242 @@ function paintProjectSettings(p) {
   // survive into this one, the same reason PJ A's message could not.
   document.getElementById('pjs-add-row').hidden = true;
   paintSettingsFacts(p);
+  pjsHooksOpen(p);   // #1307
 }
+/* ---- #1307: a project's webhooks ---------------------------------------------------------
+   Listed, made, renamed and deleted through /api/project/:id/webhooks. The full link exists only
+   in the make response, so PJS_HOOKS.reveal holds it (with its webhook id) until the person says
+   Done or opens ANOTHER project's settings (reopening this project's settings still shows it, so a
+   link not yet copied is not lost to a stray click); nothing else ever shows it again.
+   Every change bumps PJS_HOOKS.gen, so a list read still in flight cannot land afterwards and
+   replace the list with one that lacks a just-made webhook (and with it the only copy of its link),
+   and every change that succeeds ends with a fresh read (pjsHooksAfter), so a read it discarded
+   is replaced rather than lost. A read always keeps the row whose link is showing. */
+function pjsHooksAfter(projectId) {
+  if (PJS_HOOKS.projectId === projectId) pjsHooksOpen({ id: projectId });
+}
+const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0, readErr: null };
+/* Every webhooks call writes its URL out in full at the call, not through a helper: web.api-routes-3957
+   can only check a route the page names literally. */
+async function pjsHooksOpen(p) {
+  if (PJS_HOOKS.projectId !== p.id) {
+    /* Another project: nothing of the last one may show, even while this read is in flight or if
+       it fails (its rows would rename and delete against this project's address). */
+    PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; PJS_HOOKS.list = []; PJS_HOOKS.readErr = null;
+    document.getElementById('pjs-hooks-msg').textContent = '';
+    PJS_HOOKS.projectId = p.id;
+    pjsHooksPaint();
+  }
+  const mine = ++PJS_HOOKS.gen;
+  const msg = document.getElementById('pjs-hooks-msg');
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks', { cache: 'no-store' });
+    const body = await r.json().catch(() => ({}));
+    if (mine !== PJS_HOOKS.gen) return;
+    if (!r.ok || !Array.isArray(body.webhooks)) {
+      /* The list stays as it was, like a network failure below: clearing it would drop the row
+         whose link is showing. */
+      msg.textContent = PJS_HOOKS.readErr = asSentence(body.error || 'we could not read this project’s webhooks just now');
+    } else {
+      if (PJS_HOOKS.readErr && msg.textContent === PJS_HOOKS.readErr) msg.textContent = '';
+      PJS_HOOKS.readErr = null;
+      /* The row whose link is showing is never dropped by a read: a read the server answered
+         before that webhook was written would otherwise take the only copy of its link with it. */
+      const list = body.webhooks.slice();
+      const shown = PJS_HOOKS.reveal;
+      if (shown && !list.some((h) => h.id === shown.id)) { const keep = PJS_HOOKS.list.find((h) => h.id === shown.id); if (keep) list.push(keep); }
+      PJS_HOOKS.list = list;
+    }
+  } catch {
+    if (mine !== PJS_HOOKS.gen) return;
+    msg.textContent = PJS_HOOKS.readErr = 'We could not reach Kosmos to read this project’s webhooks.';
+  }
+  pjsHooksPaint();
+}
+function pjsHooksWhen(h) {
+  const now = Date.now();
+  const made = h.createdAt ? 'Made ' + agoWords(now - Date.parse(h.createdAt)) : 'Made';
+  const used = h.lastUsedAt ? 'last used ' + agoWords(now - Date.parse(h.lastUsedAt)) : 'not used yet';
+  return made + ', ' + used + '.';
+}
+function pjsHooksPaint() {
+  const box = document.getElementById('pjs-hooks');
+  if (!box) return;
+  /* A repaint (Delete, Keep it, Done, a fresh read) keeps a name someone is half-way through
+     typing in any row, and the focus if it was in a name box or on the link just made (the read
+     that follows making one must not take the link out from under the person copying it). */
+  const typed = new Map();
+  let focusedName = null;
+  const onLink = !!document.activeElement && document.activeElement.id === 'pjs-hook-url';
+  /* And on a row's own button (Delete, Keep it, Done...), found again by its data-hook-* key: after
+     a rename the person tabs on to that row's Delete, and the read that follows repaints the list. */
+  let onButton = null;
+  const ae = document.activeElement;
+  if (ae && ae.tagName === 'BUTTON' && box.contains(ae)) {
+    const key = [...ae.attributes].find((x) => /^data-hook-/.test(x.name));
+    if (key) onButton = [key.name, key.value];
+  }
+  box.querySelectorAll('input[data-hook-name]').forEach((i) => {
+    const h = PJS_HOOKS.list.find((x) => x.id === i.dataset.hookName);
+    if (h && i.value !== h.name) typed.set(i.dataset.hookName, i.value);
+    if (document.activeElement === i) focusedName = i.dataset.hookName;
+  });
+  box.innerHTML = PJS_HOOKS.list.map((h) => {
+    const id = esc(h.id);
+    const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
+      ? '<div class="pjs-hook-reveal">'
+        + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
+        + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
+        + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
+        + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
+        + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
+        + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
+      : '';
+    const confirm = PJS_HOOKS.confirm === h.id
+      ? '<div class="pjs-hook-confirm"><span id="pjs-hook-confirm-' + id + '">Delete ' + esc(h.name) + '? Anything using its link stops working.</span> '
+        + '<button class="btn" type="button" data-hook-delete-yes="' + id + '" aria-describedby="pjs-hook-confirm-' + id + '">Delete</button> '
+        + '<button class="linkish" type="button" data-hook-delete-no="' + id + '">Keep it</button></div>'
+      : '';
+    return '<div class="pjs-hook" role="listitem" data-hook="' + id + '">'
+      + '<div class="pjs-hook-top"><input class="tk-inp" type="text" maxlength="60" value="' + esc(h.name) + '" data-hook-name="' + id + '" aria-label="Name of the webhook ' + esc(h.name) + '">'
+      + (PJS_HOOKS.confirm === h.id ? '' : '<button class="linkish" type="button" data-hook-delete="' + id + '" aria-label="Delete ' + esc(h.name) + '">Delete</button>') + '</div>'
+      + '<p class="pjs-hook-when">' + esc(pjsHooksWhen(h)) + '</p>' + confirm + reveal + '</div>';
+  }).join('');
+  typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
+  if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
+  if (onLink) { const u = document.getElementById('pjs-hook-url'); if (u) { u.focus(); u.select(); } }
+  if (onButton) { const b = box.querySelector('[' + onButton[0] + '="' + CSS.escape(onButton[1]) + '"]'); if (b) b.focus(); }
+}
+function pjsHooksInit(method, body) {
+  return { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) };
+}
+async function pjsHooksSend(sent) {
+  const r = await sent;
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || 'that did not work');
+  return out;
+}
+async function pjsHookAdd() {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const btn = document.getElementById('pjs-hook-add');
+  btn.disabled = true;
+  PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;
+  try {
+    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks', pjsHooksInit('POST', {})));
+    /* Settings moved to another project while this was being made: it belongs to the first one,
+       so it is not shown here. Its link can no longer be shown; the person deletes it there. */
+    if (PJS_HOOKS.projectId !== forProject) return;
+    PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
+    PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
+    msg.textContent = '';
+    pjsHooksPaint();
+    const url = document.getElementById('pjs-hook-url');
+    if (url) { url.focus(); url.select(); }
+    pjsHooksAfter(forProject);
+  } catch (e) {
+    msg.textContent = asSentence(e.message);
+  } finally { btn.disabled = false; }
+}
+async function pjsHookRename(id, name) {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const h = PJS_HOOKS.list.find((x) => x.id === id);
+  if (!h) return;
+  if (name.trim() === h.name) {   // only spaces changed: show the name as it is stored, so the box and the name agree
+    const box = document.querySelector('[data-hook-name="' + CSS.escape(id) + '"]');
+    if (box && box.value !== h.name) box.value = h.name;
+    return;
+  }
+  PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;   // settings may move to another project while this is on its way
+  try {
+    const out = await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(forProject) + '/webhooks/' + id + '/name', pjsHooksInit('POST', { name })));
+    if (PJS_HOOKS.projectId !== forProject) return;
+    h.name = out.webhook.name;
+    msg.textContent = 'Renamed. Its link has not changed.';
+    /* In place, not a repaint: a repaint would drop focus if the person has tabbed on, and throw
+       away anything half-typed in another row's name. */
+    const row = document.querySelector('[data-hook="' + CSS.escape(id) + '"]');
+    const input = row && row.querySelector('[data-hook-name]');
+    const del = row && row.querySelector('[data-hook-delete]');
+    if (input && document.activeElement !== input) input.value = h.name;
+    if (del) del.setAttribute('aria-label', 'Delete ' + h.name);
+    if (input) input.setAttribute('aria-label', 'Name of the webhook ' + h.name);
+    pjsHooksAfter(PJS_HOOKS.projectId);
+  } catch (e) {
+    if (PJS_HOOKS.projectId !== forProject) return;
+    msg.textContent = asSentence(e.message);
+    /* Put back only this row's name, for the same reason as above. */
+    const row = document.querySelector('[data-hook="' + CSS.escape(id) + '"]');
+    const input = row && row.querySelector('[data-hook-name]');
+    if (input) input.value = h.name;
+  }
+}
+async function pjsHookDelete(id) {
+  const msg = document.getElementById('pjs-hooks-msg');
+  const h = PJS_HOOKS.list.find((x) => x.id === id);
+  PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;   // settings may move to another project while this is on its way
+  try {
+    await pjsHooksSend(fetch('/api/project/' + encodeURIComponent(forProject) + '/webhooks/' + id, pjsHooksInit('DELETE')));
+    if (PJS_HOOKS.projectId !== forProject) return;
+    PJS_HOOKS.list = PJS_HOOKS.list.filter((x) => x.id !== id);
+    if (PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === id) PJS_HOOKS.reveal = null;
+    PJS_HOOKS.confirm = null;
+    msg.textContent = 'Deleted ' + (h ? h.name : 'the webhook') + '. Its link no longer works.';
+    pjsHooksAfter(PJS_HOOKS.projectId);
+  } catch (e) {
+    if (PJS_HOOKS.projectId !== forProject) return;
+    msg.textContent = asSentence(e.message);
+  }
+  pjsHooksPaint();
+  msg.focus();
+}
+async function pjsHookCopy() {
+  const input = document.getElementById('pjs-hook-url');
+  const said = document.getElementById('pjs-hook-copied');
+  if (!input) return;
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(input.value); ok = true; } } catch { ok = false; }
+  if (!ok) { try { input.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  if (said) said.textContent = ok ? 'Copied.' : 'Kosmos could not copy it. Select the link and copy it yourself.';
+}
+document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
+document.getElementById('pjs-hooks').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.hookCopy) { pjsHookCopy(); return; }
+  if (b.dataset.hookDone) { PJS_HOOKS.reveal = null; pjsHooksPaint(); document.getElementById('pjs-hook-add').focus(); return; }
+  if (b.dataset.hookDelete) {
+    PJS_HOOKS.confirm = b.dataset.hookDelete;
+    pjsHooksPaint();
+    const y = document.querySelector('[data-hook-delete-yes="' + CSS.escape(b.dataset.hookDelete) + '"]');
+    if (y) y.focus();
+    return;
+  }
+  if (b.dataset.hookDeleteNo) {
+    const id = b.dataset.hookDeleteNo;
+    PJS_HOOKS.confirm = null;
+    pjsHooksPaint();
+    const d = document.querySelector('[data-hook-delete="' + CSS.escape(id) + '"]');
+    if (d) d.focus();
+    return;
+  }
+  if (b.dataset.hookDeleteYes) pjsHookDelete(b.dataset.hookDeleteYes);
+});
+document.getElementById('pjs-hooks').addEventListener('change', (e) => {
+  const input = e.target.closest('input[data-hook-name]');
+  if (input) pjsHookRename(input.dataset.hookName, input.value);
+});
+document.getElementById('pjs-hooks').addEventListener('keydown', (e) => {
+  const input = e.target.closest('input[data-hook-name]');
+  if (input && e.key === 'Enter') { e.preventDefault(); input.blur(); return; }
+  /* Escape in a delete question is Keep it. */
+  if (e.key === 'Escape' && PJS_HOOKS.confirm) {
+    const no = document.querySelector('[data-hook-delete-no="' + CSS.escape(PJS_HOOKS.confirm) + '"]');
+    if (no) { e.preventDefault(); e.stopPropagation(); no.click(); }
+  }
+});
 
 /* The state-derived half of the settings view, callable from the poll: the
    folder facts and the archive control repaint from the truth on every
@@ -58736,6 +59246,8 @@ function frGo(step) {
      break it. */
   { const kb = document.getElementById('fr-gemini-confirm'); const to = document.getElementById('fr-pane-' + step);
     if (kb && !(to && to.contains(kb))) frKeyedHideAll(); }   // #3731: Gemini's and Grok's panels
+  { const mf = document.getElementById('fr-muse-flow'); const to = document.getElementById('fr-pane-' + step);
+    if (mf && !(to && to.contains(mf))) frMuseCollapse(); }   // #3939 3c-4: and Meta's
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
@@ -58788,6 +59300,7 @@ function frGo(step) {
     frPaintSubscription();
     frPaintOpenai();
     frPaintKeyed();   // #3658: Gemini and Grok rows show Connected when an account already is
+    frPaintMeta();   // #3939 3c-4: the Meta row, only where Muse is switched on
     frConnResume();
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11
@@ -62592,6 +63105,7 @@ function frClose() {
   // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
   frKeyedHideAll();   // #3713/#3731: Gemini's and Grok's panels close with first run, and their watchers stop
+  frMuseCollapse();   // #3939 3c-4: and Meta's sign-in is stopped by its id
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();

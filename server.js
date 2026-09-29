@@ -390,8 +390,10 @@ function heardBy(projectId, t, who, sentence, roster) {
   }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+  /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
+     the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   let sent;
   try { sent = chat.deliver(name, line, roster); }
@@ -836,6 +838,7 @@ const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const observed = require('./engine/observed');
 const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
+const claudeloginlive = require('./engine/claudeloginlive');   // #3997 (ruling C): a Claude login's own date, never a token
 /* #3997 round 7: how long /api/accounts waits on a Grok subscription's free check before saying it is checking. */
 const GROK_CHECK_WAIT_MS = Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) : 1500;
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
@@ -1071,6 +1074,38 @@ const fedseats = require('./engine/fedseats');
 const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
+/* #1307: a project's webhooks (engine/webhooks.js). */
+const webhooks = require('./engine/webhooks');
+const HOOK_BODY_MAX = 16 * 1024;
+const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
+/* 🛑 NO SHARED CAP IN FRONT OF VERIFY, on purpose. A bucket every /hooks/ call counts toward is a
+   lever any local program (another account on this computer included) can pull to silence every
+   real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
+   store (one stat while the file is unchanged) and hashes once, about what any not-found costs. */
+/* Two limits, in memory. Per webhook, 30 a minute, so one looping caller is slowed at once. Per
+   PROJECT, 120 an hour across all its webhooks, so neither a leaked link nor a project's twenty
+   webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
+   the per-minute limit alone would allow 43,200 from one link). Keyed only on verified webhooks,
+   so wrong guesses grow nothing. A restart forgets the counts, which only ever errs toward
+   allowing. Answers null when allowed, or { because, retryAfterSecs }.
+   🔑 The project bucket is keyed by the project AS MADE (id plus createdAt), like the webhooks
+   themselves: ids are reused, so a deleted project's spent hour must not fall on a new project
+   that happens to share its name. */
+function hookRateProblem(id, projectId, now = Date.now()) {
+  const recent = (HOOK_RATE.seen.get(id) || []).filter((t) => now - t < 60000);
+  const hour = (HOOK_RATE.byProject.get(projectId) || []).filter((t) => now - t < 3600000);
+  HOOK_RATE.seen.set(id, recent);
+  HOOK_RATE.byProject.set(projectId, hour);
+  // Keys with nothing recent go, so deleted webhooks and projects do not stay in memory forever.
+  for (const [k, v] of HOOK_RATE.seen) if (k !== id && !v.some((t) => now - t < 60000)) HOOK_RATE.seen.delete(k);
+  for (const [k, v] of HOOK_RATE.byProject) if (k !== projectId && !v.some((t) => now - t < 3600000)) HOOK_RATE.byProject.delete(k);
+  const lifts = (list, span) => Math.max(1, Math.ceil((Math.min(...list) + span - now) / 1000));
+  if (recent.length >= HOOK_RATE.perMinute) return { because: 'this webhook was called too often; try again in a minute', retryAfterSecs: lifts(recent, 60000) };
+  if (hour.length >= HOOK_RATE.perProjectHour) return { because: 'this project has had ' + HOOK_RATE.perProjectHour + ' calls from its webhooks in the last hour; try again later', retryAfterSecs: lifts(hour, 3600000) };
+  recent.push(now);
+  hour.push(now);
+  return null;
+}
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
@@ -3580,6 +3615,15 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
+   against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
+   the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
+   remoteWriteGuard refuses every DIRECT network peer, and the link the screen shows is a
+   127.0.0.1 address. ⚠️ Traffic through the Kosmos+ tunnel reaches the board over loopback, so
+   whether a webhook is reachable from the internet is decided by the tunnel's own path filter
+   (crates/tunnel, not in this repo), not by this line; if it forwards /hooks/, a call still needs
+   the secret. The coordinator must never mint or honour a webhook secret. */
+const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
    UNSIGNED after a Kosmos switch (the per-world board token means the browser holds the
@@ -3696,8 +3740,26 @@ function gateLog(req) {
     // the gate is off by default -- but redacting one secret-bearing query value
     // and not the one beside it stops being harmless the moment the nonce's
     // lifetime or reusability changes, and nothing else recorded the omission.
-    const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
-    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
+    // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
+    const queryless = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+    /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
+       segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
+       position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
+       once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
+       it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
+       path is redacted instead. Over-redacting is the safe direction here. */
+    // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
+    // carry no secret and are logged as they are.
+    const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
+    let decoded = null;
+    try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
+    const hit = seg.exec(queryless);
+    const at = hit ? hit.index + hit[1].length : -1;
+    const safeUrl = decoded === null ? '/REDACTED'
+      : !seg.test(decoded) ? queryless
+        : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
+          : '/REDACTED';
+    fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
 
@@ -3858,7 +3920,9 @@ const server = http.createServer((req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
+    const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -8025,6 +8089,11 @@ const server = http.createServer((req, res) => {
           const prev = obsByDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
+           on the next poll rather than holding this one. */
+        // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
+        const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
+          (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -8049,11 +8118,20 @@ const server = http.createServer((req, res) => {
              create screen offers the % limit only where it means something. */
           let cal = null;
           try { cal = a.dir ? require('./engine/allowance').readCalibration(a.dir) : null; } catch { cal = null; }
+          /* #3997 (ruling C): an unverified sign-in whose login date is still ahead, with no rejection seen since the
+             board started, carries that date; the page shows it as a calm "login good until". Green only with the
+             switch on. */
+          const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
+          const loginOk = claudeloginlive.loginGood(loginArgs);
+          const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
             provider: 'anthropic', providerName: 'Anthropic / Claude', ...a,
             /* #4139: which outcome the badge came from, so a green from Check now does not claim an agent's request. */
-            connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}) },   // a stale one decided nothing (#4139 follow-up)
+            connection: { ...(a.connection || {}), badge: loginGreen ? 'working' : v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+              ...(obs && v.observedAt != null ? { observedFrom: obs === checkObs ? 'check' : 'agent' } : {}),   // a stale one decided nothing (#4139 follow-up)
+              ...(loginOk ? { loginValidUntil: loginArgs.until } : {}),
+              ...(loginGreen ? { observedFrom: 'login' } : {}) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
           };
         });
@@ -15904,6 +15982,184 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #1307: a webhook call adds a task to its project. The id and secret are checked against the
+     store's hash; an unknown id, a wrong secret and a gone project all answer the same 404, so a
+     caller learns nothing about which webhooks exist. Body: JSON { "title": ..., "detail": ... }
+     ("text" is accepted for the title). A JSON body, sent as any type but a form or plain text: a
+     plain-text POST is the shape any web page can
+     send without a preflight, which the board's cross-site guard (crossSiteWrite) refuses on every
+     route, and a webhook is no reason to weaken it. The task is marked as added by this webhook
+     and is given to nobody. */
+  const hookCall = req.method === 'POST' ? pathname.match(HOOK_CALL_RE) : null;
+  if (hookCall) {
+    const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
+    /* 404 ONLY for an address that is not a live webhook. Our own trouble reading a store is a
+       503: a sender like Zapier may drop or switch off a webhook that answers 404. */
+    const ours = () => { res.setHeader('retry-after', '60'); sendJson(res, 503, { error: 'Kosmos could not check this webhook just now; try again shortly' }); };
+    let hook;
+    try { hook = webhooks.verify(hookCall[1], hookCall[2]); } catch { ours(); return; }
+    if (!hook) { nope(); return; }
+    /* The project it was made on, not merely one with the same id (ids are reused). */
+    let owner = null;
+    try { owner = projects.get(hook.projectId); } catch { ours(); return; }
+    if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
+    const tooOften = hookRateProblem(hook.id, hook.projectId + ':' + (hook.projectMade || ''));
+    if (tooOften) { res.setHeader('retry-after', String(tooOften.retryAfterSecs)); sendJson(res, 429, { error: tooOften.because }); return; }
+    /* A caller gets ten seconds IN ALL to send its (at most 16 KB) body. A plain timer, armed once:
+       req.setTimeout is an IDLE timeout that resets on every chunk, so a caller trickling a byte
+       at a time would hold the socket open for the server's five-minute default. */
+    const deadline = setTimeout(() => { try { req.destroy(new Error('the body did not arrive in time')); } catch { /* already gone */ } }, HOOK_RATE.bodyMs);
+    readBody(req, HOOK_BODY_MAX).finally(() => clearTimeout(deadline)).then((buf) => {
+      const text = buf.toString('utf8');
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        sendJson(res, 400, { error: 'send JSON like { "title": "...", "detail": "..." }' });
+        return;
+      }
+      // "title", or "text" when there is no usable title (a missing, null or blank title falls back).
+      const t = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title : parsed.text;
+      if (parsed.detail !== undefined && parsed.detail !== null && typeof parsed.detail !== 'string') {
+        sendJson(res, 400, { error: 'the "detail" must be text' });
+        return;
+      }
+      const detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
+      /* The title is ONE line of plain text: it is printed in agents' task lists one task per line,
+         and a newline in it would let a caller print a line of its own with no webhook mark.
+         Whitespace runs (newlines included) become one space; other control characters are
+         refused. The detail may keep its lines; it is never printed as a list line. */
+      const rawTitle = typeof t === 'string' ? t : '';
+      /* Also the invisible formatting characters (Unicode Cf: direction overrides, zero-width
+         marks): a person reads this text before giving it out, and an override can make what
+         they see differ from what an agent would read. */
+      /* A zero-width joiner between two emoji is how emoji sequences are spelled (a family, a
+         person with a skin tone at a laptop), so it is the one Cf character let through, and only there. */
+      const unplain = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]|(?!(?<=\p{Extended_Pictographic}[\u{FE0F}\u{1F3FB}-\u{1F3FF}]?)\u200d(?=\p{Extended_Pictographic}))\p{Cf}/u;
+      if (unplain.test(rawTitle) || unplain.test(detail)) {
+        sendJson(res, 400, { error: 'the title and detail are plain text, with no control or invisible characters' });
+        return;
+      }
+      const title = rawTitle.replace(/\s+/g, ' ').trim();
+      if (!title) { sendJson(res, 400, { error: 'send JSON with a "title" for the task' }); return; }
+      /* Said here in words a SENDER can act on: tasks.create's own limits speak to the screen ("the
+         detail box below"), which a webhook caller does not have. */
+      if (title.length > tasks.SENTENCE_MAX) { sendJson(res, 400, { error: 'the "title" is over ' + tasks.SENTENCE_MAX + ' characters; put the rest in "detail"' }); return; }
+      if (detail && detail.length > tasks.DETAIL_MAX) { sendJson(res, 400, { error: 'the "detail" is over ' + tasks.DETAIL_MAX + ' characters' }); return; }
+      /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
+         still add thousands a day, and every task lives in the one projects file the board rewrites
+         whole. Past HOOK_RATE.openMax open webhook tasks, calls are refused until some are closed.
+         ⚠️ Counted HERE, from a fresh read, with nothing asynchronous between the count and
+         tasks.create (both synchronous): counted before the body arrived, concurrent calls would
+         each see the same count and all pass. */
+      /* And checked AGAIN now the body is here: the webhook may have been deleted, or its project
+         deleted and the id reused, while the body was arriving. Both reads are synchronous and
+         cheap (verify is cached), and nothing asynchronous follows them before the write. */
+      let still;
+      try { still = webhooks.verify(hookCall[1], hookCall[2]); } catch { ours(); return; }
+      if (!still) { nope(); return; }
+      let fresh = null;
+      try { fresh = projects.get(hook.projectId); } catch { ours(); return; }
+      if (!fresh || (fresh.createdAt || null) !== hook.projectMade) { nope(); return; }
+      /* An archived project is put away: its tasks are left out of the Tasks view, so a task added now
+         would wait where nobody looks while the sender thinks it arrived. Refused, in words a sender
+         like Zapier shows the person, until the project is unarchived. */
+      if (fresh.archived === true) {
+        sendJson(res, 409, { error: 'this project is archived, so its webhooks are paused; unarchive it in Kosmos to take calls again' });
+        return;
+      }
+      const openFromHooks = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
+      if (openFromHooks >= HOOK_RATE.openMax) {
+        res.setHeader('retry-after', '3600');
+        sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
+        return;
+      }
+      let made;
+      try {
+        made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: still.name } });   // the name as it is now, if renamed mid-call
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        if (/no project by that name/.test(msg)) { nope(); return; }
+        /* Busy or unreadable is OUR state and worth retrying: a 4xx would tell a sender like Zapier
+           to drop the event for good. */
+        // Includes a disk that refused the write (ENOSPC, EACCES, EROFS...), as the settings routes do.
+        const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
+        sendJson(res, ourTrouble ? 503 : 400, { error: msg || 'we could not add that task' });
+        return;
+      }
+      webhooks.touch(hook.id);
+      sendJson(res, 201, { task: made && made.number });
+    }).catch((err) => {
+      /* readBody destroys the socket on an oversized body, so this 413 usually never arrives (the
+         caller sees the connection close); anything else thrown above is a 500, not "too big". */
+      if (res.headersSent) return;
+      const big = /too large/.test(String((err && err.message) || ''));
+      try { sendJson(res, big ? 413 : 500, { error: big ? 'that is too big for a task; keep it under 16 KB' : 'we could not add that task' }); } catch { /* socket gone */ }
+    });
+    return;
+  }
+
+  /* #1307: a project's webhooks, for its settings screen: list, make, rename, delete. Board-token
+     routes like the rest of /api. The secret appears ONLY in the make response (the store keeps a
+     hash), as part of the full URL the screen shows once. */
+  const hookList = pathname.match(/^\/api\/project\/([^/]+)\/webhooks$/);
+  const hookOne = pathname.match(/^\/api\/project\/([^/]+)\/webhooks\/([0-9a-f]{16})(\/name)?$/);
+  if (hookList || hookOne) {
+    const id = decodeSegment((hookList || hookOne)[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let project = null;
+    try { project = projects.get(id); } catch { sendJson(res, 503, { error: 'we could not read your projects just now' }); return; }
+    if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
+    const fail = (err, fallback) => {
+      const msg = String((err && err.message) || '');
+      // Our own state (unreadable, busy, a disk that refused the write) is 5xx; the request's is 400.
+      const ourTrouble = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
+      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (ourTrouble ? 503 : 400), { error: msg || fallback });
+    };
+    const made0 = project.createdAt || null;
+    /* Making, renaming and deleting are the person's, from the screen (the same advisory check as
+       the board's other person-only settings). An agent must not mint a webhook, which would hand
+       it a way in for outside text the person never saw, nor delete the person's. Listing, which
+       shows names only, is open to any board-token caller. Checked AFTER the body is read, like
+       the other person-only routes, so an agent token carried in the body counts too. */
+    const personOnly = (body) => {
+      if (isViaScreen(req, body)) return false;
+      sendJson(res, 403, { error: 'only you can change webhooks, from the project settings' });
+      return true;
+    };
+    if (hookList && req.method === 'GET') {
+      try { sendJson(res, 200, { webhooks: webhooks.list(project.id, made0) }); } catch (err) { fail(err, 'we could not read the webhooks'); }
+      return;
+    }
+    if (hookList && req.method === 'POST') {
+      readBody(req, 4096).then((raw) => {
+        let body = {};
+        try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (personOnly(body)) return;
+        let made;
+        try { made = webhooks.create(project.id, typeof body.name === 'string' ? body.name : undefined, made0); } catch (err) { fail(err, 'we could not make a webhook'); return; }
+        const url = 'http://127.0.0.1:' + req.socket.localPort + '/hooks/' + made.hook.id + '/' + made.secret;
+        sendJson(res, 201, { webhook: made.hook, url });
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
+    if (hookOne && hookOne[3] && req.method === 'POST') {
+      readBody(req, 4096).then((raw) => {
+        let body = {};
+        try { body = JSON.parse(raw.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (personOnly(body)) return;
+        try { sendJson(res, 200, { webhook: webhooks.rename(project.id, hookOne[2], body.name, made0) }); } catch (err) { fail(err, 'we could not rename that webhook'); }
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
+    if (hookOne && !hookOne[3] && req.method === 'DELETE') {
+      if (personOnly(undefined)) return; // a DELETE carries no body
+      try { webhooks.remove(project.id, hookOne[2], made0); sendJson(res, 200, { ok: true }); } catch (err) { fail(err, 'we could not delete that webhook'); }
+      return;
+    }
+    sendJson(res, 405, { error: 'that is not something this address does' });
+    return;
+  }
+
   /* #3861: put a task under another task on the same project, or out from under one.
      Body { parent: <task number> | null }. tasks.setParent refuses a parent that is not a task
      here, the task itself, or one already under it (a loop), inside the write, as a 400; the
@@ -18117,6 +18373,7 @@ module.exports = {
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  HOOK_RATE, // #1307: the webhook limits, so a test reads the number it asserts
   markGuide, // #3739: the guide row's mark and title, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests

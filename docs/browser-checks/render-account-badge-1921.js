@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-connected acct-none acct-unknown acct-unverified acct-check
+// Browser-check-surface: acct-connected acct-none acct-unknown acct-unverified acct-check acct-loginok
 'use strict';
 
 /**
@@ -136,6 +136,8 @@ const ACCOUNTS = [
   { ...row('rejchk@example.com', 'rejected', 'rc'), connection: { ...row('rejchk@example.com', 'rejected', 'rc').connection, observedFrom: 'check' } },
   row('rej@example.com', 'rejected', 'rd'),
   row('unver@example.com', 'signed_in_unverified', 'ud'),
+  /* #3997 ruling C: the same unverified sign-in, carrying the login date the server read (claudeloginlive). */
+  { ...row('loginok@example.com', 'signed_in_unverified', 'ld'), connection: { ...row('loginok@example.com', 'signed_in_unverified', 'ld').connection, loginValidUntil: Date.now() + 20 * 86400000 } },
   row('out@example.com', 'signed_out', 'od'),
   row('unk@example.com', 'unchecked', 'kd'),
   openaiChatgptRow('sub@example.com', 'sd'),
@@ -174,7 +176,7 @@ const ACCOUNTS = [
     const byEmail = {};
     for (const b of boxes) {
       const who = b.querySelector('.acct-who b');
-      const badge = b.querySelector('.acct-connected, .acct-none, .acct-unverified, .acct-unknown');
+      const badge = b.querySelector('.acct-connected, .acct-none, .acct-unverified, .acct-unknown, .acct-loginok');
       if (who) byEmail[(who.textContent || '').trim()] = {
         cls: badge ? badge.className : null,
         text: badge ? (badge.textContent || '').trim() : null,
@@ -357,6 +359,10 @@ const ACCOUNTS = [
     // #3997 (Josh 09-26): unconfirmed is AMBER (.acct-unverified) on every provider; grey is only "could not check".
     { email: 'unver@example.com', cls: 'acct-unverified', text: /^Signed in$/, notText: /not recently checked/,
       titleText: /Check now|not seen a request/, honesty: true, checkNow: true },
+    // #3997 ruling C (Liu Kang): a sign-in no agent is using whose login date is ahead is calm and neutral, with
+    // the date, never amber and never green, and it keeps Check now.
+    { email: 'loginok@example.com', cls: 'acct-loginok', text: /^Signed in · login good until \S/,
+      titleText: /It turns green the first time an agent uses it, or when you press Check now\./, honesty: true, checkNow: true },
     // #3136: signed_out and unchecked are still CLAUDE rows, so "Check now" must render on
     // them too -- assert it, so the "every Claude row" claim is tested for every badge state
     // and a future change that conditioned the button on `badge` would red here.

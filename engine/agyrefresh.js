@@ -73,7 +73,7 @@ function hadToolHooks(workdir, hookName) {
  *   workdir(name)     -> the folder the supervisor launches it in
  *   hasHook(workdir)  -> whether a working Kosmos entry is already there
  *   hadToolHooks(workdir) -> whether the entry being replaced had the tool hooks (optional; no)
- *   ensureHooks(workdir, nodeBin, bridge, withToolHooks) -> { ok, changed, why }
+ *   ensureHooks(workdir, nodeBin, bridge, withToolHooks) -> { ok, changed, why, enabled? }
  *   nodeBin, bridge   -> what the hook runs; bridgeExists() -> boolean
  * Resolves one row per antigravity agent visited: { name, ok, changed, why }.
  */

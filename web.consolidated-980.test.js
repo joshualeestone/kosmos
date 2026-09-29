@@ -149,7 +149,8 @@ test('the open project stays lit: a persistent .open state, written on click and
      SIX in dark, so `background: var(--k-surface)` alone left dark-mode users
      unable to tell which project was open. That is what this guard caught, and it
      was right to. Hence a dedicated token with an explicit value per theme. */
-  const openRule = PAGE.match(new RegExp(cons + ' \\.pj-row\\.open \\{[^}]*\\}'));
+  // #4377: the rail's row rules are scoped to #pj-list with :where() (zero specificity).
+  const openRule = PAGE.match(new RegExp(cons + ' :where\\(#pj-list\\) \\.pj-row\\.open \\{[^}]*\\}'));
   assert.ok(openRule, 'the selected-project rule is gone; hover alone cannot say which project is on screen');
   assert.match(openRule[0], /background:\s*var\(--k-sel/,
     'the selected project no longer has a ground of its own, so selection is only a hover away from invisible');

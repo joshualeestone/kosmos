@@ -2434,6 +2434,9 @@ function remove(id) {
     throw err;
   }
   writeAll(all.filter((p) => p.id !== id));
+  // #1307: its webhooks go with it, so a new project that reuses this id does not inherit them.
+  // Best effort: each webhook also carries this project's createdAt, which still refuses them.
+  try { require('./webhooks').removeProject(id); } catch { /* the createdAt stamp still holds */ }
   return found;
 }
 
@@ -2674,7 +2677,8 @@ function blockBody(projects, sessionName) {
        a heading two lines up is not something a reader copies from
        (Splinter's ruling, held for Josh, 2026-08-25 02:01). Lower-case
        "task" so the line and the instruction below agree. */
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(t.sentence)}`)].join('\n');
+    // #1307: a webhook task's words are marked and quoted as outside text (tasks.forAgent).
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}`)].join('\n');
   });
   return [
     '## Your projects',

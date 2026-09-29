@@ -286,6 +286,22 @@ test('#3460: claude-opus-5-5 is priced (in the cost figure), not unpriced', () =
   assert.ok(U.usageModelPrice('claude-opus-5-5-20260401'), 'dated opus-5-5 id resolves via strip');
 });
 
+test('#4439: claude-sonnet-5-5 is priced like claude-sonnet-5 (tier_2_10), not unpriced', () => {
+  // Claude Code 2.1.284's model catalog gives sonnet-5-5 pricing tier_2_10: in 2 / out 10 /
+  // 5-minute write 2.5 / cache read 0.2, the same tier as sonnet-5 (source on #4439).
+  const p = U.usageModelPrice('claude-sonnet-5-5');
+  assert.deepEqual(p, { in: 2, out: 10, cw: 2.50, cr: 0.20 }, 'tier_2_10 rates');
+  const r = U.usageApiCost({ d: { 'claude-sonnet-5-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
+  assert.ok(Math.abs(r.cost - 14.70) < 1e-9, 'sonnet-5-5 1M-each -> $14.70, got ' + r.cost);
+  assert.deepEqual(r.unpriced, [], 'sonnet-5-5 is not in unpriced');
+  assert.deepEqual(U.usageModelPrice('claude-sonnet-5-5-20260601'), p, 'a dated sonnet-5-5 id resolves to the same row');
+  // CONTROL: the two ids resolve to their OWN rows. The rates are equal, so a deepEqual could not
+  // tell the rows apart; identity can (each row is its own object in USAGE_MODEL_PRICES).
+  const p5 = U.usageModelPrice('claude-sonnet-5');
+  assert.ok(p5, 'claude-sonnet-5 is still priced');
+  assert.notStrictEqual(p5, p, 'claude-sonnet-5 and claude-sonnet-5-5 resolved to the same row');
+});
+
 /* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
    2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
    2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */

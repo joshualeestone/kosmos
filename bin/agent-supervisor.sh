@@ -67,6 +67,9 @@ MODEL="${6:-}"
 # to the runner binary" -- for a codex agent, create.js writes the codex
 # path there, so this script needs no second binary argument.
 RUNNER="${7:-claude}"
+# #4417: the launch-time idle's inputs start empty on EVERY path (adopt included), so only this run's own agy launch
+# arm can set them; a value inherited from the environment can never satisfy the gate after the session claim.
+_AGY_TRUSTED=""; _AGY_HOOKED=""; _AGY_PANE=""; _AGY_BRIDGE=""
 
 # ⚠️ TWO SPELLINGS OF THE SAME SESSION, and which commands take which was
 # MEASURED on tmux 3.6a rather than assumed, because assuming it broke the claim
@@ -789,7 +792,8 @@ if [ -z "$adopt" ]; then
     # 2026-09-25), so pre-answer it here, before every launch. Best-effort, like
     # ensure-launch-trust.js below for Claude: if it cannot write, the prompt shows instead.
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agytrust.js" ] && [ -n "${NODE_BIN:-}" ]; then
-      "$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" >/dev/null || true  # stderr (why, if it could not) goes to the agent log
+      # stderr (why, if it could not) goes to the agent log; stdout is `trusted` only when it did (#4417's seed below).
+      _AGY_TRUSTED="$("$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" || true)"
     fi
     # #4043: agy's own hooks tell the board what it is doing (working / idle), in place of "Can't
     # tell". Before every launch, make the workdir's .agents/hooks.json carry Kosmos's one entry
@@ -799,14 +803,16 @@ if [ -z "$adopt" ]; then
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agyhooks.js" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_AGY_BRIDGE" ]; then
       # agy's version decides whether the ask_question hooks are safe to write (agyhooks MIN_TOOL_HOOKS).
       _AGY_VERSION="$("$CLAUDE" --version 2>/dev/null | head -n 1 || true)"
-      "$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" >/dev/null || true
+      # #4417: its stdout is `hooked` only when the hook is in place and on (the seed below depends on it); stderr, the
+      # reason it could not, still goes to the agent log.
+      _AGY_HOOKED="$("$NODE_BIN" "$_eng/agyhooks.js" "$WORKDIR" "$NODE_BIN" "$_AGY_BRIDGE" "$_AGY_VERSION" || true)"
       unset _AGY_VERSION
     fi
-    unset _AGY_BRIDGE
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
+    # #4417: -P -F prints the new pane's id, taken at creation rather than looked up by session name afterwards.
+    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     unset _AGY_ARGS
   elif [ "$RUNNER" = muse ]; then
     # #3939 slice 3c-3a: Meta Muse. Muse Code's own screen cannot be read from outside, and Meta's
@@ -894,6 +900,36 @@ fi
 # it, and the board reads a fact instead of inferring one.
 "$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER" \
   || say "could not record $SESSION's runner -- the board will read it as claude"
+
+# #4417, for an Antigravity agent THIS run launched (the vars below start empty at the top of this script and are
+# set only in its launch arm). AFTER the claim above, on purpose: the board ties a report to an agent only once its session carries
+# @kosmos_agent (launchidentity.paneSessionIsOurs), so a report sent before the claim is not recorded.
+# agy has no session-start hook (only PreInvocation and Stop), so an agent that was just (re)started and
+# has not been spoken to read "Can't tell" until its first turn (#4414). Tell the board, once, that it is idle, but
+# ONLY when all three hold, because an idle report never decays; each gate removes one known way that idle would be
+# wrong. Not removed: a sign-out after the last confirmed check (lastKnown keeps a confirmed sign-in), and any other
+# agy start-up screen nobody has measured. See .claude/plans/agyseed-4417.md.
+#   - the hook is in place and on (_AGY_HOOKED, from agyhooks in the launch arm);
+#   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust in the launch arm);
+#   - agystatus.lastKnown() has signedIn true.
+# Sent as the new pane (its id from new-session). Of the pane's own env list, only entries named KOSMOS_*,
+# AGENT_WORKFORCE_* or HOME are added (among them the launch token, port, world and store root the bridge reads).
+# `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
+if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] \
+  && [ "${_AGY_HOOKED:-}" = hooked ] && [ "${_AGY_TRUSTED:-}" = trusted ] && [ -n "${_AGY_PANE:-}" ]; then
+  _AGY_SIGNED="$("$NODE_BIN" -e 'try { const r = require(process.argv[1] + "/agystatus").lastKnown(); if (r && r.signedIn === true) process.stdout.write("signed-in"); } catch (e) { /* unknown is not signed in */ }' "$_eng" 2>/dev/null || true)"
+  if [ "$_AGY_SIGNED" = signed-in ]; then
+    _AGY_SEED_ENV=()
+    for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
+      case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
+    done
+    env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
+    unset _AGY_SEED_ENV _x
+  fi
+  unset _AGY_SIGNED
+fi
+unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
+unset _AGY_BRIDGE
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.

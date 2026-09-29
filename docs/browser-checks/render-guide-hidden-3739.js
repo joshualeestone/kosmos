@@ -31,6 +31,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
 (async () => {
   setupAssistant.guideName = () => 'guidebot';
   setupAssistant.isGuideFolder = (n) => n === 'guidebot';
+  /* A real guide is made by Kosmos, so it has a launch job; before its first session the engine reports it as
+     not started (context.notYet), the state its empty ring is for. Ida keeps no job: made outside Kosmos. */
+  const create = require('../../engine/create');
+  const hasJob = create.hasJob;
+  create.hasJob = (n, ...rest) => n === 'guidebot' || hasJob(n, ...rest);
   fleet.install([
     fleet.agent('guidebot', { state: 'idle', displayName: 'Josh' }),
     fleet.agent('ida', { state: 'idle', displayName: 'Ida', role: 'Bookkeeper' }),
@@ -70,6 +75,23 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(/Kosmos Guide/.test(detail), 'the guide\'s own page shows the title Kosmos Guide');
     say(!/Kosmos setup guide/.test(detail), 'the long title is gone');
     say(!/Unknown model|Model: Unknown|Unknown Model/i.test(detail), 'the guide\'s page never says Unknown for its model');
+    /* The ring half of Josh's note: before its first session the guide's page shows the empty track, not nothing. */
+    const ringOf = () => page.evaluate(() => {
+      const r = document.getElementById('d-ring');
+      return { track: !!(r && r.querySelector('svg circle.gt')), fill: !!(r && r.querySelector('svg circle.gf')) };
+    });
+    /* The page's own test for a reading (pctOf): a finite context.percent. */
+    const known = (name) => page.evaluate((n) => { const a = (LAST || []).find((x) => x.sessionName === n); return !!(a && a.context && Number.isFinite(a.context.percent)); }, name);
+    const gctx = await page.evaluate(() => { const a = (LAST || []).find((x) => x.sessionName === 'guidebot'); return a ? a.context : 'no row'; });
+    say(!(await known('guidebot')) && !!(gctx && gctx.notYet === true), 'CONTROL: the guide has not started (the engine says notYet), so the ring has nothing to fill', JSON.stringify(gctx));
+    const gring = await ringOf();
+    say(gring.track && !gring.fill, 'the guide\'s page draws the empty memory ring, not nothing', JSON.stringify(gring));
+    await page.goto(URL + '/?tab=detail&agent=ida', { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const iknown = await known('ida');
+    const iring = await ringOf();
+    const ishown = await page.evaluate(() => /Ida/.test((document.getElementById('panel-detail') || {}).innerText || '') && !!document.getElementById('d-ring'));
+    say(ishown && !iknown && !iring.track, 'CONTROL: an ordinary agent with no reading (its page shown) still draws no ring', JSON.stringify({ ishown, iknown, iring }));
     say(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
