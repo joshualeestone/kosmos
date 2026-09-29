@@ -30381,20 +30381,24 @@ function orgPlace(nodes) {
        every face already placed clear each other. One shared radius per ring let a single crowded team push the
        whole ring out, and every ring below stacked on it. Teams keep their own slices and every line still runs
        away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
-    const placedXY = () => [...placed.values()].map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
-    let others = placedXY();
-    /* Every line placed so far (hub or manager to report) with both ends' names, and the least distance from a
-       segment to a point, for the clearance below. */
-    const at = (name) => { const s = placed.get(name); return [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]; };
-    const lineOf = (name, p, xy) => ({ a: p ? at(p) : [0, 0], b: xy, ends: [name, p] });
+    /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
+       added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
+       its own, and a line runs steadily outward (the cap), so it can only come near a face whose radius lies
+       within its ends' radii, give or take. The checks below skip the rest, which keeps a 1000-agent chart from
+       testing every pair on every try. */
+    const faceOf = (name, s) => ({ name, r: s.r, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
+    const lineOf = (f, parent) => {
+      const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
+      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
+    };
     const segDist = (q, g) => {
       const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
       const t = Math.max(0, Math.min(1, ((q[0] - g.a[0]) * dx + (q[1] - g.a[1]) * dy) / (dx * dx + dy * dy || 1)));
       return Math.hypot(q[0] - g.a[0] - t * dx, q[1] - g.a[1] - t * dy);
     };
-    let lines = [...placed].map(([name, s]) => lineOf(name, s.node.parent, at(name)));
-    const facesAt = () => [...placed].map(([name]) => ({ name, xy: at(name) }));
-    let faces = facesAt();
+    const near = (f, g) => f.r > g.lo - ORG_LINE_CLEAR && f.r < g.hi + ORG_LINE_CLEAR;
+    const faces = [...placed].map(([name, s]) => faceOf(name, s));
+    const lines = faces.map((f) => lineOf(f, placed.get(f.name).node.parent));
     for (const p of prev) {
       if (!(kids.get(p.agent.sessionName) || []).length) continue;
       const ps = placed.get(p.agent.sessionName);
@@ -30411,18 +30415,22 @@ function orgPlace(nodes) {
           const each = h === 1 ? ORG_LANE_SLOT : ORG_MIN_ARC;
           if (w > 1 && (s.hi - s.lo) * (s.r + h * ORG_STEP) < w * each * ORG_BRANCH_ROOM) return false;
         }
-        const mine = [...spots].map(([name, s]) => ({ name, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] }));
-        for (const f of mine) for (const o of others) if (Math.hypot(f.xy[0] - o[0], f.xy[1] - o[1]) < ORG_MIN_ARC) return false;
+        const mine = [...spots].map(([name, s]) => faceOf(name, s));
+        for (const f of mine) {
+          for (const o of faces) {
+            if (Math.abs(o.r - f.r) < ORG_MIN_ARC && Math.hypot(f.xy[0] - o.xy[0], f.xy[1] - o.xy[1]) < ORG_MIN_ARC) return false;
+          }
+        }
         /* No line passes nearer than ORG_LINE_CLEAR to a face that is not one of its ends: this team's lines past
            every face, and every line already drawn past this team's faces. Teams at different radii made this a
            real case (measured: a line 9.8px from an unrelated face's centre). */
         if (!strict) return true;
-        const mineLines = mine.map((f) => lineOf(f.name, p.agent.sessionName, f.xy));
+        const mineLines = mine.map((f) => lineOf(f, p.agent.sessionName));
         for (const g of mineLines) {
-          for (const f of faces) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          for (const f of faces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
           for (const f of mine) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         }
-        for (const g of lines) for (const f of mine) if (segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+        for (const g of lines) for (const f of mine) if (near(f, g) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         return true;
       };
       /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
@@ -30444,10 +30452,13 @@ function orgPlace(nodes) {
       const loose = grow(Math.max(ORG_R0 + ORG_STEP, ps.r + ORG_STEP), (sp) => apart(sp, false), Infinity);
       const strict = grow(loose.r, (sp) => apart(sp, true), loose.r * ORG_CLEAR_REACH);
       const spots = strict.ok ? strict.spots : loose.spots;
-      for (const [name, spot] of spots) { placed.set(name, spot); maxR = Math.max(maxR, spot.r); }
-      others = placedXY();
-      lines = [...placed].map(([name, s]) => lineOf(name, s.node.parent, at(name)));
-      faces = facesAt();
+      for (const [name, spot] of spots) {
+        placed.set(name, spot);
+        maxR = Math.max(maxR, spot.r);
+        const f = faceOf(name, spot);
+        faces.push(f);
+        lines.push(lineOf(f, p.agent.sessionName));
+      }
     }
     prev = ring.map((x) => x.n);
   }
