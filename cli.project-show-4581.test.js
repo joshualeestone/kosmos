@@ -47,7 +47,8 @@ function withStub(fn) {
   const seen = [];
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/')) {
-      seen.push({ method: req.method, url: req.url, agent: req.headers['x-kosmos-agent-token'] });
+      /* #4466's healthy() probes /api/health first; only the project routes are this test's subject. */
+      if (req.url !== '/api/health') seen.push({ method: req.method, url: req.url, agent: req.headers['x-kosmos-agent-token'] });
       if (req.url === '/api/project/shape/overview') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); return; }
       if (req.url === '/api/project/html/overview') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>Bad gateway</html>'); return; }
       const [status, body] = req.url === '/api/projects/overview' ? [200, LIST]

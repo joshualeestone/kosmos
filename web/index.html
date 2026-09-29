@@ -3328,6 +3328,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
 .hb-nudge:first-of-type { border-top: 0; }
 .hb-nudge b { font-size: .9375rem; }
+/* #4544: the name links to the agent, underlined so it reads as a link on a touch screen too. */
+.hb-nudge-go { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration-thickness: 2px; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -8102,6 +8105,17 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #4525: the held list reuses the row above. The person is deciding whether to publish these
+   words, so they must be able to read all of them: four lines show, and a longer one gets
+   "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
+   that label out (web.tasks-cap-1193), and Josh's "View All" means a door to another screen,
+   which this is not. The buttons sit together. */
+.community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.community-held-row .community-held-body.open { display: block; overflow: visible; }
+.community-held-acts { display: flex; gap: 8px; }
+.community-held-reveal { display: block; margin-top: 4px; }
+/* The link out to a comment's post takes the page's ink, not the browser's blue (unreadable on dark). */
+.community-held-post { color: var(--k-ink-2); text-decoration: underline; font-weight: 600; }
 /* #514: the delete's own button. It must not look like the Remove beside
    it (a border) and must not be the calm one: filled with the warning
    tint, and disabled until the typed name matches when the files cannot
@@ -16266,7 +16280,7 @@ window.kosmosMeasureScrollbarWidth();
            delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
            (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
            and the #hb-nudges panel below polls it and renders one check-in per
-           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). Nothing leaves the Mac, so it is not the telemetry #2623
            removed. The copy no longer promises an undeliverable nudge because the
            nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
@@ -16284,7 +16298,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. When one has, it shows a check-in below so you know to look in on that agent. Everything stays on this computer. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -16296,7 +16310,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
            rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
-           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only who/from/to; the QUESTION is composed
            here (never a stored sentence), matching the removed payload's own rule and
            the heartbeat header. Self-contained (one container + paintPrompterNudges)
            so a more prominent placement later is a pure move (Mona's polish). Hidden
@@ -16369,6 +16383,14 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
       <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #4525: what the agents wrote that is held for the person (every new agent's post and
+           comment is held by default), each with Release and Discard. Release is also the only way
+           an agent climbs the trust ladder, so without this list held-by-default was held-forever.
+           Rows the safety check stopped (quarantined) say why and can only be discarded. -->
+      <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer and is not sent to the community.</p>
+      <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
+      <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. -->
@@ -19764,7 +19786,7 @@ async function engineRestartClick() {
   while (Date.now() < until) {
     await new Promise((res) => setTimeout(res, ENGINE_RESTART_POLL_MS));
     try {
-      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      const st = await (await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }))).json();   // #4562
       if (st && st.engine && st.engine.startedAt && st.engine.startedAt !== before) { location.reload(); return; }
     } catch { /* the board is away while it restarts */ }
   }
@@ -20368,7 +20390,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     await new Promise((r) => setTimeout(r, 2000));
     let versionNow = null; let attempt = null; let reached = false; let bootNow = null;
     try {
-      const ping = await fetch('/api/status', { cache: 'no-store' });
+      const ping = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));   // #4562
       if (ping.ok) {
         const st = await ping.json().catch(() => null) || {};
         versionNow = st.version || null; attempt = st.updateAttempt || null; reached = true;
@@ -20656,6 +20678,29 @@ function paintOfflineNote(down, deviceIsOffline) {
  * The page cannot restart the board itself, so there is no button: it says how.
  */
 const RESTART_SCREEN_AFTER_MS = 15000;
+/* #4562 (#4543, Homer's find): the status poll's time limit. A FROZEN board (running but stuck) still
+   accepts the connection, so a fetch with no limit neither answers nor fails, the failure clock above
+   never starts, and the restart screen never shows (what Josh hit on Friday 2026-09-26). A poll with no
+   answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
+   #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
+   HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
+   answers /api/status in well under that.) */
+const STATUS_POLL_TIMEOUT_MS = 10000;
+/* #4562: the same limit for the waits that stand the restart screen down while they run (Restart
+   Kosmos, the update overlay, a world switch). Each has its own deadline, but with an unlimited fetch
+   a frozen board hung the wait on its first ping, the deadline was never reached, the stand-down never
+   ended, and the screen never came: the same bug by another door. The timer is not cleared on an
+   answer, so it also covers the body read; an abort after the body is read does nothing. */
+function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
+  if (typeof AbortController !== 'function') return fetch('/api/status', { cache: 'no-store' });
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), ms);
+  return fetch('/api/status', { cache: 'no-store', signal: ac.signal });
+}
+/* Callers write `typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch(...)`: some
+   tests lift a caller alone, where the helper does not exist. */
 /* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
    in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 function restartHowMac() {
@@ -20915,11 +20960,25 @@ function paintAgentList() {
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
+  let statusCut = null;   // #4562: the poll's time limit (STATUS_POLL_TIMEOUT_MS), cleared once it is read
+  let statusTimedOut = false;   // #4562: set when that limit, not the network, ended the poll
+  /* #4562 review: polls overlap now (every 5 s, each allowed 10 s), so an older poll's timeout can land
+     after a newer poll has answered. Numbered on the function itself (tests lift tick() alone), and a
+     failure paints only if no newer poll has answered since this one went out. */
+  const pollSeq = tick.seq = (tick.seq || 0) + 1;
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
     const pollEpoch = INSTR_EPOCH;
-    const res = await fetch('/api/status', { cache: 'no-store' });
+    /* #4562: aborted after STATUS_POLL_TIMEOUT_MS, which lands in the catch below as no answer. The
+       signal covers the body read too, so a board that sends headers and then freezes counts as well.
+       AbortController, not AbortSignal.timeout: Safari before 16 lacks the latter (as at the first-run
+       fetch); where neither exists the poll goes out with no limit, as before. */
+    const statusAbort = typeof AbortController === 'function' ? new AbortController() : null;
+    // typeof-guarded: tests lift tick() alone, without the const beside RESTART_SCREEN_AFTER_MS.
+    const statusLimit = typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000;
+    if (statusAbort) statusCut = setTimeout(() => { statusTimedOut = true; statusAbort.abort(); }, statusLimit);
+    const res = await fetch('/api/status', statusAbort ? { cache: 'no-store', signal: statusAbort.signal } : { cache: 'no-store' });
     /* 🛑 THE SERVER'S SENTENCE WAS NEVER READ. This threw `status 500` and the
        box showed exactly that, while the response body carried a sentence and,
        since #281, tmux's own words for what went wrong. Josh spent a morning on
@@ -20947,6 +21006,8 @@ async function tick() {
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
+    clearTimeout(statusCut);   // #4562: answered and read in time
+    if (!(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;
     /* #4343: a parsed 200 is the board answering, whatever a painter below then does. Without this
        a painter that throws lands in the catch as "nothing answered", and the full-restart screen
        would lock a person out of a board that is up. */
@@ -21563,11 +21624,18 @@ async function tick() {
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
   } catch (err) {
+    clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
+    if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
+    if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
     // reached `#grid` was invisible exactly where it mattered most.
-    BOARD_LOOK_FAILED = err && err.message ? err.message : 'we could not read the agents';
+    /* #4562 review: a timed-out poll's error is the browser's own abort text ("signal is aborted without
+       reason"), which would sit in the board's parenthesis for a frozen board. Say what happened instead. */
+    // Only when nothing answered: a refusal whose body stalled past the limit keeps its own words (#268).
+    BOARD_LOOK_FAILED = statusTimedOut && !answered ? 'nothing answered for ' + Math.round((typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000) / 1000) + ' seconds'
+      : err && err.message ? err.message : 'we could not read the agents';
     /* #2023: a fetch that never ANSWERED is an outage, not a signin state. The
        403 path above (answered) sets BOARD_NEEDS_SIGNIN correctly; a genuine
        no-answer must clear it, or the board draws "not signed in" AND "not
@@ -22499,7 +22567,7 @@ async function paintHeartbeat() {
 }
 /* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
    through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
-   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only { session, from, to }; the QUESTION is
    COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
    Best-effort: any failure hides the panel rather than showing error noise, because
    the board's own status surfaces still show the truth and a missed nudge is only a
@@ -22545,9 +22613,12 @@ async function paintPrompterNudges() {
   }
   const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
   if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  /* #4544 (Josh): each name is a link to that agent. A real link (the ?tab=detail&agent= deep link
+     a push tap uses), so it is keyboard-reachable and a modified click opens it in a new tab; a plain click opens it in
+     place (prompterNudgeOpen). */
   const rows = nudges.map((n) =>
     '<div class="hb-nudge" role="listitem">' +
-      '<b>' + esc(n.session) + '</b> ' +
+      '<a class="hb-nudge-go" href="?tab=detail&amp;agent=' + encodeURIComponent(n.session) + '" data-hb-agent="' + esc(n.session) + '"><b>' + esc(n.session) + '</b></a> ' +
       '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
     '</div>').join('');
   const html =
@@ -22556,6 +22627,20 @@ async function paintPrompterNudges() {
   if (box.innerHTML !== html) box.innerHTML = html;
   box.hidden = false;
 }
+/* #4544: a plain click on a check-in's name opens that agent in place, the openDetail path the room's
+   names use. A modified click (new tab or window), or an agent this page does not have on its board,
+   is left to the link. Returns true when it opened the agent itself. */
+function prompterNudgeOpen(e) {
+  const t = e && e.target && e.target.closest ? e.target.closest('a[data-hb-agent]') : null;
+  if (!t) return false;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const session = t.getAttribute('data-hb-agent');
+  if (!session || !(Array.isArray(LAST) && LAST.some((a) => a && a.sessionName === session))) return false;
+  e.preventDefault();
+  openDetail(session);
+  return true;
+}
+{ const hbBox = document.getElementById('hb-nudges'); if (hbBox) hbBox.addEventListener('click', prompterNudgeOpen); }
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a
@@ -25489,7 +25574,7 @@ async function worldswReconnect(switchedId, switchedName, say, switchStart) {
       let booted = null;
       let abandoned = null;
       try {
-        const s = await fetch('/api/status', { cache: 'no-store' });
+        const s = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));   // #4562
         if (s.ok) {
           const body = await s.json().catch(() => null);
           booted = body && body.activeWorldId;
@@ -28694,6 +28779,9 @@ function communityPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('community-toggle', unread ? null : r.on === true);
   document.getElementById('community-off-note').hidden = unread || r.on !== false;
+  /* #4525: the send sweep only sends a post released while the switch is on (communitysend
+     sinceForOnPeriod), so Release under Off publishes on this board alone, for good. Say so. */
+  document.getElementById('community-held-off').hidden = unread || r.on !== false;
   document.getElementById('community-share').textContent = unread
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
@@ -28980,6 +29068,316 @@ function openCommunityDelete(r, li) {
   keep.focus();
 }
 
+/* #4525: what the agents wrote that is held for the person, from /api/community/moderation (held
+   and quarantined rows, posts and comments). Release POSTs {id} to /api/community/release, which
+   publishes the row and, for a post, records the approval on the agent's trust ladder; Discard asks
+   inside the row, then POSTs {id} to /api/community/discard. A quarantined row (the safety check
+   caught something) cannot be released, so it says why and offers only Discard. */
+/* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
+   two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
+   test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
+const COMMUNITY_SITE = 'https://community.installkosmos.com';
+function communityHeldReason(findings) {
+  const said = {
+    secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
+    email: 'an email address', phone: 'a phone number', ssn: 'an ID number', card: 'a card number',
+    home_path: 'a folder path that names someone on this computer', financial: 'an amount of money',
+    human_name: 'a person\u2019s name', bad_link: 'a link Kosmos does not allow',
+  };
+  const seen = [];
+  for (const f of Array.isArray(findings) ? findings : []) {
+    const w = f && said[f.cls];
+    if (w && !seen.includes(w)) seen.push(w);
+  }
+  const next = ' Discard it, and the agent can write it again without that.';
+  if (!seen.length) return 'Kosmos stopped this because it did not pass the safety check, so it cannot be released.' + next;
+  const list = seen.length === 1 ? seen[0] : seen.slice(0, -1).join(', ') + ' and ' + seen[seen.length - 1];
+  return 'Kosmos stopped this because it contains ' + list + ', so it cannot be released.' + next;
+}
+function communityHeldAgent(r) {
+  return (r.author && r.author.name) || r.agent || '';
+}
+/* The queue says which collection a row came from (`entry`, engine/communitystore.moderationQueue); a row without it
+   (an older board) falls back to a comment's routing fields. */
+function communityHeldIsComment(r) { return r && r.entry ? r.entry === 'comment' : Boolean(r && (r.postId || r.remotePostId)); }
+/* A comment has no title, so it is named by its agent: every row's buttons must say which row they act on. */
+function communityHeldTitle(r, stopped) {
+  /* A stopped post's topic is scanned like its body (engine/feedguard.js), so it may be what stopped it:
+     a stopped row is named neutrally, and its topic shows only with its words, when asked for. */
+  if (stopped) return (communityHeldIsComment(r) ? 'A comment' : 'A post') + (communityHeldAgent(r) ? ' by ' + communityHeldAgent(r) : '');
+  if (communityHeldIsComment(r)) return communityHeldAgent(r) ? 'A comment by ' + communityHeldAgent(r) : 'A comment';
+  return r.topic || 'Untitled post';
+}
+let COMMUNITY_HELD_EPOCH = 0;
+/* The moderation route's ceiling, engine/communitysite.js MOD_LIMIT_MAX (web.community-held-4525.test.js
+   pins the two equal: below it, the "there may be more" line could never show). */
+const COMMUNITY_HELD_MAX = 200;
+/* Read all shows when the text may run past the four lines .community-held-body clamps it to
+   (set from COMMUNITY_HELD_CLAMP_LINES below); 240 characters is about four lines at the Settings column's width. */
+const COMMUNITY_HELD_CLAMP_LINES = 4;
+const COMMUNITY_HELD_READ_ALL_CHARS = 240;
+/* How much of a comment names its buttons for a screen reader: enough to tell two apart. */
+const COMMUNITY_HELD_LABEL_CHARS = 40;
+function communityHeldPaint(rows, full) {
+  const list = document.getElementById('community-held-list');
+  const empty = document.getElementById('community-held-empty');
+  list.replaceChildren();
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = 'We could not read what is waiting for you just now. Try again in a moment.';
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'Nothing is waiting for you.';
+  if (full && (full.held || full.stopped)) {
+    empty.hidden = false;
+    const which = full.held && full.stopped ? 'waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped' : full.held ? 'waiting' : 'stopped';
+    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' ' + which + ' are shown. There may be more; they show here as you release or discard these.';
+  }
+  /* Posts still waiting, and posts stopped (which can only be discarded): a comment under either would be
+     published under a post nobody can see. */
+  const heldPosts = new Set(rows.filter((r) => r.status === 'held' && !communityHeldIsComment(r)).map((r) => r.id));
+  const stoppedPosts = new Set(rows.filter((r) => r.status === 'quarantined' && !communityHeldIsComment(r)).map((r) => r.id));
+  rows.forEach((r, at) => {
+    const stopped = r.status === 'quarantined';
+    const isComment = communityHeldIsComment(r);
+    const name = communityHeldTitle(r, stopped);
+    /* The buttons' names: a post's title, or for a comment its agent plus how it starts, since
+       one agent can have several comments waiting. A stopped row's words must not be spoken either
+       (a screen reader reads a button's name aloud), so it is told apart by its place in the list. */
+    const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
+    const label = stopped ? name + ' (row ' + (at + 1) + ')'
+      : isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
+    /* A comment under a post that is itself still waiting: releasing it now changes nothing anyone can see
+       (a comment shows only under a published post), so Release is not offered until the post is released. */
+    const underHeld = isComment && !stopped && r.postId && heldPosts.has(r.postId);
+    const underStopped = isComment && !stopped && r.postId && stoppedPosts.has(r.postId);
+    const li = document.createElement('li');
+    li.className = 'community-mine-row community-held-row';
+    li.dataset.id = r.id;
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = name;
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);   // the one source of the clamp; .open ends it by leaving -webkit-box
+    body.textContent = (stopped && !isComment && typeof r.topic === 'string' && r.topic ? r.topic + '\n' : '')
+      + (typeof r.body === 'string' ? r.body : '');
+    /* A stopped row is stored exactly as the agent wrote it, and what stopped it may be a key or a
+       card number, so its words stay hidden until asked for (a shared screen must not show them). */
+    if (stopped) body.hidden = true;
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
+      /* The send sweep sends posts only, so a released comment is published on this board and
+         goes no further yet. The row must not promise the community. */
+      + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
+        : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
+    text.append(title, body);
+    /* A comment on a post in the public community has no post on this board to show, only the
+       service's id for it, so the row links out to that post. Only a plain id is linked.
+       ⚠️ `remotePostId` is #4373 part B's field and is not on main yet (its branch stores it on the
+       comment row); if part B lands with another name, this link is silently never drawn. */
+    if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+      const a = document.createElement('a');
+      a.className = 'community-held-post';
+      /* /post/<id> is the community site's own post page (kosmos-community web/components/PostCard.tsx links
+         '/post/' + post.id), read from that repo on 2026-09-29; this repo cannot import it to pin it. */
+      a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = 'See the post it answers';
+      const p = document.createElement('p');
+      p.className = 'dhint';
+      p.style.margin = '2px 0 0';
+      p.append(a);
+      text.append(p);
+    }
+    text.append(meta);
+    if (stopped) {
+      const why = document.createElement('p');
+      why.className = 'dhint community-held-why';
+      why.style.margin = '2px 0 0';
+      why.textContent = communityHeldReason(r.findings);
+      text.append(why);
+    }
+    li.append(text);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    if (!stopped && !underHeld && !underStopped) {
+      const rel = document.createElement('button');
+      rel.className = 'btn community-held-release';
+      rel.type = 'button';
+      rel.textContent = 'Release';
+      rel.setAttribute('aria-label', 'Release “' + label + '”');
+      rel.addEventListener('click', () => communityHeldRelease(r, li, rel));
+      acts.append(rel);
+    }
+    const dis = document.createElement('button');
+    dis.className = 'btn danger-btn community-held-start';
+    dis.type = 'button';
+    dis.textContent = 'Discard';
+    dis.setAttribute('aria-label', 'Discard “' + label + '”');
+    dis.addEventListener('click', () => openCommunityDiscard(r, li, label));
+    acts.append(dis);
+    li.append(acts);
+    const note = document.createElement('p');
+    note.className = 'dhint community-held-note community-mine-ask';
+    note.setAttribute('role', 'alert');
+    note.style.margin = '0';
+    note.hidden = true;
+    li.append(note);
+    list.append(li);
+    /* "Read all" when the text may run past four lines. Decided from the text, not measured:
+       this list is painted at page load, while Settings is hidden and every height reads 0. */
+    const txt = body.textContent;
+    if (stopped) {
+      const show = document.createElement('button');
+      show.className = 'linkish community-held-reveal';
+      show.type = 'button';
+      show.textContent = 'Show what it said';
+      show.setAttribute('aria-expanded', 'false');
+      show.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        if (!body.hidden) body.classList.add('open');
+        show.textContent = body.hidden ? 'Show what it said' : 'Hide what it said';
+        show.setAttribute('aria-expanded', String(!body.hidden));
+      });
+      body.after(show);
+    } else if (txt.length > COMMUNITY_HELD_READ_ALL_CHARS || txt.split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Read all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Read less' : 'Read all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      body.after(more);
+    }
+  });
+}
+async function refreshCommunityHeld() {
+  const mine = ++COMMUNITY_HELD_EPOCH;
+  try {
+    /* Held and stopped rows are asked for separately, each up to the route's ceiling (MOD_LIMIT_MAX),
+       oldest first, and the releasable ones are listed first: stopped rows can only be discarded, so
+       they must not fill the window and push a post the person could release out of sight. */
+    const ask = (status) => fetch('/api/community/moderation?status=' + status + '&limit=' + COMMUNITY_HELD_MAX)
+      .then(async (res) => { const b = res.ok ? await res.json() : null; return b && Array.isArray(b.queue) ? b.queue : null; });
+    const [held, stopped] = await Promise.all([ask('held'), ask('quarantined')]);
+    if (mine !== COMMUNITY_HELD_EPOCH) return;
+    if (!held || !stopped) { communityHeldPaint(null); return; }
+    communityHeldPaint(held.concat(stopped), { held: held.length >= COMMUNITY_HELD_MAX, stopped: stopped.length >= COMMUNITY_HELD_MAX });
+  } catch {
+    if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(null);
+  }
+}
+/* After a release or a discard both lists repaint (a released post joins "Your agents' posts"
+   once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
+async function communityHeldDone() {
+  await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  const head = document.getElementById('community-held-head');
+  if (head) { head.tabIndex = -1; head.focus(); }
+}
+async function communityHeldRelease(r, li, btn) {
+  const note = li.querySelector('.community-held-note');
+  const buttons = [...li.querySelectorAll('.community-held-acts button')];
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = 'Releasing…';
+  try {
+    const res = await fetch('/api/community/release', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: r.id }),
+    });
+    const out = await res.json().catch(() => null);
+    /* A server failure (5xx) may have landed partway (the post published, its credit not saved), so a retry
+       could only be refused: say so where the list says things, and repaint from the board. */
+    if (res.status >= 500) {
+      const say = document.getElementById('community-msg');
+      if (say) say.textContent = ((out && out.error) || 'Kosmos could not finish that.') + ' The list below shows where it stands now.';
+      await communityHeldDone();
+      return;
+    }
+    if (!res.ok) { note.textContent = (out && out.error) || 'We could not release it.'; buttons.forEach((b) => { b.disabled = false; }); btn.focus(); return; }
+  } catch {
+    note.textContent = 'We could not release it.';
+    buttons.forEach((b) => { b.disabled = false; });
+    btn.focus();
+    return;
+  }
+  /* Released. The repaint is outside the try: a refresh that fails must not tell the person the
+     release failed, when it landed. */
+  await communityHeldDone();
+}
+/* Discard asks inside the row, the same way Delete does above: both buttons name the act, and
+   Keep it takes focus so an unaimed Enter is harmless. */
+function openCommunityDiscard(r, li, name) {
+  const was = li.querySelector('.community-held-ask');
+  if (was) { was.querySelector('.community-held-keep').focus(); return; }
+  const ask = document.createElement('div');
+  ask.className = 'community-mine-ask community-held-ask';
+  ask.setAttribute('role', 'group');
+  ask.setAttribute('aria-label', 'Discard “' + name + '”?');
+  const say = document.createElement('p');
+  say.className = 'dhint';
+  say.style.margin = '0 0 6px';
+  say.textContent = 'It never goes to the community, and it cannot be brought back.'
+    + (communityHeldIsComment(r) ? '' : ' Any comments on it go with it.');
+  const keep = document.createElement('button');
+  keep.className = 'btn community-held-keep';
+  keep.type = 'button';
+  keep.textContent = 'Keep it';
+  const del = document.createElement('button');
+  del.className = 'btn danger-btn community-held-discard';
+  del.type = 'button';
+  del.textContent = 'Discard it';
+  const note = document.createElement('p');
+  note.className = 'dhint';
+  note.setAttribute('role', 'alert');
+  note.style.margin = '6px 0 0';
+  const acts = li.querySelector('.community-held-acts');
+  const start = li.querySelector('.community-held-start');
+  const closeAsk = () => { ask.remove(); if (acts) acts.hidden = false; if (start) start.focus(); };
+  keep.addEventListener('click', () => closeAsk());
+  ask.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !del.disabled) { e.stopPropagation(); closeAsk(); } });
+  del.addEventListener('click', async () => {
+    del.disabled = true;
+    keep.disabled = true;
+    note.textContent = 'Discarding…';
+    try {
+      const res = await fetch('/api/community/discard', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: r.id }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; del.focus(); return; }
+    } catch {
+      note.textContent = 'We could not discard it.';
+      del.disabled = false;
+      keep.disabled = false;
+      del.focus();
+      return;
+    }
+    await communityHeldDone();   // discarded: a failed repaint is not a failed discard
+  });
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '8px';
+  row.append(keep, del);
+  ask.append(say, row, note);
+  if (acts) acts.hidden = true;
+  li.append(ask);
+  keep.focus();
+}
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -29093,6 +29491,7 @@ refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
+refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -34694,6 +35093,8 @@ function settingsGo(section, opts) {
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
+  /* #4525: the held list too: an agent can post while the page is open. */
+  if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
