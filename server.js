@@ -867,6 +867,7 @@ const tokendoors = require('./engine/tokendoors');
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
+const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
@@ -7508,6 +7509,30 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, date: saved.date });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that report' }));
+    return;
+  }
+
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
+     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
+     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  if (pathname === '/api/community/read' && req.method === 'GET') {
+    if (!presentedAgentToken(req, null)) {
+      sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;
+    }
+    const authRoster = safeRoster();
+    if (authRoster === null) {
+      sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+    }
+    const reader = resolveAgentSender(req, null, authRoster);
+    if (!reader.ok || !reader.card || !reader.card.sessionName) {
+      sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
+    }
+    const q = new URL(req.url, ROUTING_BASE).searchParams;
+    communityread.read({ channel: q.get('channel'), post: q.get('post') })
+      /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
+         the two need different next steps. The words are always the board's own, never the service's. */
+      .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+      .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
     return;
   }
 
