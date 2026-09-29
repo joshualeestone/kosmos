@@ -18719,23 +18719,31 @@ function lrowRing(a) {
 /* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
    88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
    MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
-   lrowRing; on the detail screen the MEMORY panel carries the unknown case (this
-   ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
+   lrowRing, with one exception below (#3739); on the detail screen the MEMORY panel
+   carries the unknown case (this ring is aria-hidden, and #3501 removed the detail's
+   .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
-  if (pct === null) return '';
   const R = 47, C = 2 * Math.PI * R;
-  const band = memBand(pct);
+  /* #3739 (Josh, 0.6.94: "it renders with no context ring"): the setup guide is shown before its first session,
+     so while the engine says it has not started one (context.notYet, the Memory box's own "not yet" state) its
+     page draws the empty track. Only then: a reading of unknown size (noCeiling), no record (neverRecorded), a
+     stopped guide (no context) and every other agent still draw nothing, as the Memory box beside it says. */
+  const fresh = pct === null && a.isGuide === true && !!(a.context && a.context.notYet === true);
+  if (pct === null && !fresh) return '';
+  const track = `<circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>`;
+  const fill = pct === null ? ''
+    : `<circle class="gf ${memBand(pct)}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>`;
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
-    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
-    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
+    ${track}${fill ? '\n    ' + fill : ''}
   </svg>`;
 }
 /* #2576: the SAME context gauge for the org-chart node, scaled by CSS to sit
    just outside the 44px node face (.onode .oring, inset -5px) where the state arc
    used to. Same reading (pctOf) and band (memBand) as lrowRing, detailRing, the
    cards and the MEMORY panel, so every surface agrees; unknown context (pct null)
-   draws nothing, matching them. Geometry mirrors detailRing (viewBox 100, r47,
+   draws nothing, matching them (detailRing's one exception, a guide that has not
+   started, is its own page's; the guide has no org node). Geometry mirrors detailRing (viewBox 100, r47,
    sw4); the .oring CSS box does the scaling down to node size. */
 function orgRing(a) {
   const pct = pctOf(a.context);
@@ -32867,7 +32875,8 @@ function openDetail(sessionName, section, fromProject) {
   /* #3501: the unknown-memory WORD state of this header badge (.membadge.unk) was
      removed with the card's. The badge now shows ONLY the near-full number; the
      unknown fact is stated on this screen by the Memory box (the detail ring
-     draws nothing and is aria-hidden when unknown). */
+     is aria-hidden, and draws nothing when unknown except a guide that has not
+     started, #3739). */
   const dbadge = document.getElementById('d-membadge');
   dbadge.className = 'membadge';
   dbadge.textContent = memPrint(a.context, dpct);
