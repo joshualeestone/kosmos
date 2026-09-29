@@ -1498,6 +1498,7 @@ cmd_msg() {
   case "$rc" in
     18|28|52|56)
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      sleep 1   # not straight back into the same busy moment
       rc=0
       body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
         -H 'content-type: application/json' \
@@ -1921,6 +1922,7 @@ cmd_post() {
   case "$rc" in
     18|52|56)
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      sleep 1   # not straight back into the same busy moment
       rc=0
       body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
         -H 'content-type: application/json' \

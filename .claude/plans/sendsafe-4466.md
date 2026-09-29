@@ -45,6 +45,19 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
 - NITs: a post-side in-flight arm; dead code removed; the cut-always control runs `post` too; the #2909 arm's
   34 s wall time is explained; the CLAUDE.md #4466 row names the fold.
 
+## Review round 2 (sonnet): 3 WARNINGs + 2 NITs fixed, 3 NITs deferred
+- W: a folded twin of an UNCONFIRMED send returned `because: null` (the log keeps the state, not the words), so the
+  CLIs fell back to generic wording. It now says "this was sent a moment ago and was not confirmed then; it may
+  already be there, so it was not sent again". Arm, red.
+- W: a retry waiting on an in-flight send that FAILED came back `could_not` with `duplicate: true`. Only a placed or
+  unconfirmed receipt is a duplicate now; a failure is handed on as it is. Arm, red.
+- W (deliberate, now written down): the post key ignores --new and reply_expected. A retry re-sends the same command,
+  so a copy that differs only in a flag is the same post again and the first one's flags stand (comment at the fold).
+- NIT fixed: a one-second pause before the retry (Mac `sleep 1`; Windows RETRY_PAUSE_MS, 1000 by default).
+- NIT fixed: the Windows comment says why every non-refused failure is retried (loopback: no DNS or TLS to tell apart).
+- DEFERRED: a single `__test` export object (the `_` prefix and comment already mark the seams); the fold's log scan
+  is O(n) (the same order as the valve scans it sits beside).
+
 ## Weakest premise
 An agent that MEANS to send the identical text twice within two minutes gets one copy. I judge that the right trade:
 the realistic case is a short "ok" or "done", and the cost of the other error is a room full of copies.
