@@ -30634,9 +30634,9 @@ function sortAgents(list, mode, projects) {
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
       const aa = a.agent || {}, bb = b.agent || {};
-      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity'
+      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity' || aa.runner === 'muse'
         || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
-      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity'
+      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity' || bb.runner === 'muse'
         || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
       return cmpText(ak, bk) || byName(a, b);
     }

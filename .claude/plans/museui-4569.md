@@ -33,6 +33,11 @@ Card: joshualeestone/kosmos#4569 (claimed:angel), Josh's 10:47 and 10:48 comment
   note records its kind. The button label resets whenever the step is reset; the spinner stops on an expired code
   (the person has to act); Close is described by the success line for a screen reader.
 
+- Review round 2: sort-by-model treats a Muse agent as named ("Meta Muse", as its card says). Known and accepted: a
+  failed save written after a real refusal prunes that refusal (one note of each kind is kept), so the red row goes
+  away; nothing is signed in and the person has just tried to sign in, so the row not saying "Meta refused" is true.
+  The Antigravity half of the hidden Move row has no check of its own (it shares the branch with Muse's, which does).
+
 ## Weakest premise
 That Kosmos's own sign-in finishing means Meta accepted the credential. It is recorded when `muse login` completes
 (engine/musesignin.js); a sign-in Muse finished but Meta later refuses turns the row red on the first refused turn.
