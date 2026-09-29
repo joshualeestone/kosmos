@@ -98,3 +98,16 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
 Next when resumed: run the check, commit, run 6g validation (it queues behind other agents' suites for up to 20 min),
 then iteration 5 on opus. ITER_COMMITS so far: 9d9e71fe 1c59f686 bfbaf8c4 (plus this pause commit).
 Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the check.
+
+### Iteration 5 (opus), resumed after #4544 converged
+- WARNING fixed: the Talk exclusion covered every width, but Talk drops its gutter only above 56rem, so 40 to 56rem
+  kept the bright strip; and my comment said Talk "reserves no gutter where measured", false there. Now the canvas
+  rules apply on Talk too (the canvas shows only in a gutter), and only the body min-height skips Talk (its page must
+  keep the visible height). Comment says only that.
+- WARNING fixed: the Talk and tour exclusions had no arm (breaking either stayed green). New arms: a dialog over the
+  tour keeps the tour's canvas (control: the tour canvas is in place); on Talk a dialog leaves the body's height and
+  still dims the canvas (control: off Talk the dialog does set the height).
+- NIT fixed: the header says the dark pixel arms are weak (a wrong mix or missing min-height reds only light).
+- NIT fixed: references to #4494's harness name PR #4512, since that check is not on main yet.
+- NIT duplicate: dialog over the tour double-dims the page (recorded in iteration 1).
+- NIT noted: the branch is behind main; the reason-grep counts get re-measured when main is merged before the PR.

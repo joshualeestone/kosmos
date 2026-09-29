@@ -11,7 +11,7 @@
  *     the tour's dim does (#3737). Measured here by PIXELS: the gutter must match the dimmed page beside it.
  *   - #boot-cover is opaque, so it takes #4494's rule: no gutter and no scroll while it is up.
  *
- * Harness (#4494's): a tiny static server for web/index.html with a minimal board; every machine gets a real 15px
+ * Harness (the one render-layer-gutter-4494 uses, on PR #4512 for #4494): a tiny static server for web/index.html with a minimal board; every machine gets a real 15px
  * scrollbar (a ::-webkit-scrollbar width, --hide-scrollbars dropped, and a page tall enough to scroll). Pixels are
  * read from a screenshot decoded in the page (the render-room-msgbox-2806 pattern). Chromium only.
  * Not covered: the Kosmos+ navy Plus section, where the ground lives on the body and the root cannot read it (#4542).
@@ -23,11 +23,13 @@
  * Arms, each in light and dark:
  *   - control: the gutter really is 15px, and the page colour it shows would fail the match below (so a green is
  *     not a harness with no gutter, and not a page whose dim happens to equal its ground). Dark's strip is faint,
- *     3 to 6 per channel on main, which is why the tolerance is 3;
+ *     3 to 6 per channel on main, which is why the tolerance is 3. So the dark pixel arms tell a strip from none but
+ *     little finer: a wrong mix, or a missing min-height, shows red only in light;
  *   - a dialog up, on Agents and on Tasks (whose #4216 canvas rule must give way): the board does not move (same
  *     width), and the gutter matches the dimmed page within 3 per channel;
  *   - the dialog closed: the gutter shows the page's own colour again;
  *   - the canvas is left alone for a dialog shown inside a hidden section, and on a machine without the mark;
+ *   - while the tour dims, a dialog leaves the tour's canvas alone; on Talk, a dialog leaves the body's height alone;
  *   - a dialog on a short page (no spacer, a 1200px window): a pixel below the page content matches one inside it,
  *     so the canvas under a short body is not dimmed twice;
  *   - the boot cover up: no gutter, no scroll, and the cover is under the right edge; hidden, the gutter comes back.
@@ -156,6 +158,31 @@ const width = (page) => page.evaluate(() => {
       ok(t + ' the dialog closed: the gutter shows the page colour again', near(p2.gutter, p0.gutter), JSON.stringify({ before: p0, after: p2 }));
       await page.context().close();
     }
+    // ── The tour owns the canvas while it dims, and Talk's page keeps its own height. ──
+    {
+      const t = '[' + scheme + ']';
+      const page = await open(scheme, 'agents');
+      const st = () => page.evaluate(() => ({ bg: getComputedStyle(document.documentElement).backgroundColor, minH: getComputedStyle(document.body).minHeight }));
+      // The tour's own state, as tipDimming sets it (a class, a flag and one mixed colour).
+      await page.evaluate(() => { const r = document.documentElement; r.style.setProperty('--tip-canvas', 'rgb(1, 2, 3)'); r.setAttribute('data-tip-ground', ''); r.classList.add('tip-dimming'); });
+      const tour = await st();
+      ok(t + ' control: the tour\'s canvas is in place', tour.bg === 'rgb(1, 2, 3)', JSON.stringify(tour));
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = false; });
+      ok(t + ' a dialog over the tour leaves the tour\'s canvas', (await st()).bg === 'rgb(1, 2, 3)', JSON.stringify(await st()));
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = true; const r = document.documentElement; r.classList.remove('tip-dimming'); r.removeAttribute('data-tip-ground'); r.style.removeProperty('--tip-canvas'); });
+      // Talk: the agent page with its Talk section showing (the markup's own sections, unhidden).
+      const off = await st();
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = false; });
+      const offUp = await st();
+      ok(t + ' control: off Talk, a dialog does set the body\'s height', offUp.minH !== off.minH, JSON.stringify({ off, offUp }));
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = true; for (const p of document.querySelectorAll('body > section[id^="panel-"]')) p.hidden = true; document.getElementById('panel-detail').hidden = false; document.getElementById('d-sec-talk').hidden = false; });
+      const talk = await st();
+      await page.evaluate(() => { document.getElementById('updconfirm').hidden = false; });
+      const talkUp = await st();
+      ok(t + ' on Talk, a dialog leaves the body\'s height as it was', talkUp.minH === talk.minH, JSON.stringify({ talk, talkUp }));
+      ok(t + ' on Talk, a dialog still dims the canvas', talkUp.bg !== talk.bg, JSON.stringify({ talk, talkUp }));
+      await page.context().close();
+    }
     // ── Two cases where the canvas must NOT change. ──
     {
       const t = '[' + scheme + ']';
@@ -230,6 +257,6 @@ const width = (page) => page.evaluate(() => {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; on a short page the band below the content is dimmed once, not twice; a dialog inside a hidden section, or on a machine without the classic-scrollbar mark, leaves the canvas alone; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
+  console.log('render-dialog-gutter-4506: ' + pass + ' passed (with a real 15px scrollbar measured first, light and dark: a dialog leaves the board still and the gutter the colour of the dimmed page, and gives the page colour back on close; on a short page the band below the content is dimmed once, not twice; a dialog inside a hidden section, or on a machine without the classic-scrollbar mark, leaves the canvas alone; the tour keeps its canvas and Talk its height; the boot cover leaves no gutter and no scroll and covers the right edge, and the gutter returns when it hides). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-dialog-gutter-4506: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });
