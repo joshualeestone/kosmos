@@ -3777,6 +3777,9 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    still passes here, exactly as it already does on the exempt report and reply routes.
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
+/* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
+   the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   membership is not a boundary (GET /api/projects), and none of it is a credential. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview']);   // #4581: `kosmos project list`, read with the agent's own token
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
@@ -14760,7 +14763,7 @@ const server = http.createServer(async (req, res) => {
    * so any agent may read any project.
    * 🛑 Same rule as /api/projects: an unreadable projects file is an error, never an empty list.
    */
-  if (pathname === '/api/projects/overview' && (req.method === 'GET' || req.method === 'HEAD')) {
+  if (pathname === '/api/projects/overview' && req.method === 'GET') {   // GET only: the agent-token gate admits GET, so a HEAD would disagree
     const roster = safeRoster();
     let listed;
     try { listed = projects.list(roster); } catch (err) {
@@ -14779,7 +14782,7 @@ const server = http.createServer(async (req, res) => {
   }
   {
     const m = /^\/api\/project\/([^/]+)\/overview$/.exec(pathname);
-    if (m && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (m && req.method === 'GET') {
       let id = '';
       try { id = decodeURIComponent(m[1]); } catch { id = ''; }
       const roster = safeRoster();

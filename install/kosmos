@@ -2642,7 +2642,9 @@ cmd_project() {
       [ $# -eq 0 ] || { say "Usage: kosmos project list   (no arguments; for one project: kosmos project show <project-id>)"; exit 2; } ;;
     show)
       { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project show <project-id>   (ids are in kosmos project list)"; exit 2; }
-      require_valid_project_id "$1" ;;
+      require_valid_project_id "$1"
+      # An all-dots id is a path segment curl would resolve to another route, so it names no project.
+      case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac ;;
     # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
     # malformed call is named even when the board is stopped (not hidden behind
     # "not running").

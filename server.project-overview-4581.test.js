@@ -155,3 +155,9 @@ test('#4581 show: a folder with no brief says so, rather than "not filled in"', 
   assert.equal(r.json.project.goal, null);
   assert.deepEqual(r.json.project.members, []);
 });
+
+test('round 1: the reads are GET only, so a HEAD cannot answer differently from the gate', async (t) => {
+  withProject(t);
+  const res = await fetch(base + '/api/projects/overview', { method: 'HEAD', headers: asBoard() });
+  assert.notEqual(res.status, 200, 'HEAD is no longer served by the overview handler');
+});

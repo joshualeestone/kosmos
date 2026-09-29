@@ -692,7 +692,8 @@ async function projectShow(ctx, args) {
   if (!id || args.length !== 1) { ctx.err('Usage: kosmos project show <project-id>   (ids are in kosmos project list)'); return 2; }
   /* Looked up EXACTLY (#2702/#3035), so refused, never stripped: projectSlug would turn a garbled id into a
      different real project. Same sentence as the board's 404 and install/kosmos. */
-  if (/[^A-Za-z0-9._-]/.test(id)) { ctx.err('there is no project by that name'); return 1; }
+  /* An all-dots id is refused too: `.` and `..` are path segments, which fetch would resolve to another route. */
+  if (/[^A-Za-z0-9._-]/.test(id) || /^\.+$/.test(id)) { ctx.err('there is no project by that name'); return 1; }
   return projectRead(ctx, '/api/project/' + id + '/overview', 'renderShow');
 }
 

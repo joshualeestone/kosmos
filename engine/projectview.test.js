@@ -130,3 +130,36 @@ test('renderList: one line per project with families and tasks; empty says how t
   assert.equal(lines[2], 'Details: kosmos project show <id>');
   assert.deepEqual(v.renderList({ projects: [] }), ['No projects yet. Make one: kosmos project create "<name>" <folder>']);
 });
+
+test('round 1: bidi overrides, isolates and zero-width characters never reach a printed line', () => {
+  const view = v.overviewOf({ ...DESCRIBED, name: 'Evil‮eman​⁦x⁩﻿' }, ROSTER, opts({ goal: 'a‮b', done: null, found: true }));
+  const text = v.renderShow({ project: view }).join('\n');
+  assert.doesNotMatch(text, /[​-‏‪-‮⁠-⁩﻿]/);
+  assert.match(text, /^Evileman x  \(id: ff\)$|^Evilemanx  \(id: ff\)$/m);
+  assert.match(text, /Goal \(as written in BRIEF\.md\): "ab"/);
+});
+
+test('round 1: a summary dated in the future is not "current"', () => {
+  const f = agentFolder('future', [['2026-09-29-18.md', -365 * 24 * 60]]);
+  const s = v.summaryFreshness(f, NOW);
+  assert.equal(s.state, 'future');
+  const view = v.overviewOf({ ...DESCRIBED, agents: [DESCRIBED.agents[0]] }, ROSTER, { now: NOW, folderOf: () => f, readBrief: () => ({ found: false }) });
+  assert.match(v.renderShow({ project: view }).join('\n'), /summary: dated in the future \(summaries\/2026-09-29-18\.md\)/);
+  const skew = agentFolder('skew', [['2026-09-29-17.md', -3]]);
+  assert.equal(v.summaryFreshness(skew, NOW).state, 'current', 'a few minutes of clock skew is still current');
+});
+
+test('round 1: in a folder over the scan cap, the newest summary is still found', () => {
+  const dir = path.join(DIR, 'big', 'summaries');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < 5100; i += 1) {
+    const d = new Date(Date.UTC(2020, 0, 1) + i * 3600e3);
+    const name = d.toISOString().slice(0, 13).replace('T', '-') + '.md';
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, 'x');
+    const t = i === 5099 ? new Date(NOW - 10 * 60000) : d;
+    fs.utimesSync(p, t, t);
+  }
+  const s = v.summaryFreshness(path.join(DIR, 'big'), NOW);
+  assert.equal(s.state, 'current', JSON.stringify(s));
+});

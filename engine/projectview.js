@@ -21,11 +21,13 @@ const SUMMARY_RHYTHM_HOURS = 4;
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
 /* A summaries folder is a few files a day; far more is not one, and it is not read whole. */
 const SUMMARY_SCAN_MAX = 5000;
+/* How far ahead of this computer's clock a write time may be before it is not believed. */
+const FUTURE_SLACK_MINUTES = 5;
 
 /**
  * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
  * time it was last written. Never throws.
- * @returns {{ state: 'current'|'stale'|'none'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
+ * @returns {{ state: 'current'|'stale'|'future'|'none'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
  *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
@@ -43,8 +45,9 @@ function summaryFreshness(folder, nowMs) {
     return (e && e.code === 'ENOENT') ? none : { ...none, state: 'unreadable' };
   }
   let best = null;
-  for (const name of names.slice(0, SUMMARY_SCAN_MAX)) {
-    if (!SUMMARY_NAME.test(name)) continue;
+  /* Only summary-shaped names, newest name first, so the cap never drops the newest file of a big folder. */
+  const candidates = names.filter((n) => SUMMARY_NAME.test(n)).sort().reverse().slice(0, SUMMARY_SCAN_MAX);
+  for (const name of candidates) {
     let st;
     try { st = fs.lstatSync(path.join(dir, name)); } catch { continue; }
     if (!st.isFile()) continue;
@@ -52,7 +55,11 @@ function summaryFreshness(folder, nowMs) {
   }
   if (!best) return none;
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const ageMinutes = Math.max(0, Math.round((now - best.ms) / 60000));
+  const raw = Math.round((now - best.ms) / 60000);
+  /* A write time well ahead of now (clock skew, a restored copy, a touch) is not evidence of a current
+     summary, so it is said as its own state rather than read as "just now". */
+  if (raw < -FUTURE_SLACK_MINUTES) return { state: 'future', file: 'summaries/' + best.name, at: new Date(best.ms).toISOString(), ageMinutes: null };
+  const ageMinutes = Math.max(0, raw);
   return {
     state: ageMinutes <= SUMMARY_RHYTHM_HOURS * 60 ? 'current' : 'stale',
     file: 'summaries/' + best.name,
@@ -141,7 +148,12 @@ function listOf(described) {
 /* Text from a person or a file, printed on one line: control characters and line breaks become spaces,
    so a name or a brief can never print a line of its own. */
 function one(v) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  return String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    /* Bidi overrides and isolates, and zero-width characters: they print nothing themselves but can make the
+       rest of a line display reversed or hidden, so a name or a brief could look like something it is not. */
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+    .replace(/\s+/g, ' ').trim();
 }
 function ago(minutes) {
   if (minutes == null) return '';
@@ -177,6 +189,7 @@ const SUMMARY_WORDS = {
   current: (s) => 'current (' + s.file + ', ' + ago(s.ageMinutes) + ')',
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + s.file + ', ' + ago(s.ageMinutes) + ')',
   none: () => 'none yet',
+  future: (s) => 'dated in the future (' + s.file + '), so we cannot tell how current it is',
   unreadable: () => 'we could not look',
 };
 

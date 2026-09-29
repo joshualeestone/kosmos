@@ -88,6 +88,12 @@ test('#4581 show: a garbled id is refused before any request; an unknown one is 
   assert.equal(garbled.code, 1);
   assert.match(garbled.stdout, /there is no project by that name/);
   assert.equal(seen.length, 0, 'a garbled id must never be stripped into a real one and sent');
+  for (const dots of ['.', '..']) {
+    const d = await runCli(['project', 'show', dots], env);
+    assert.equal(d.code, 1, dots + ': ' + d.stdout);
+    assert.match(d.stdout, /there is no project by that name/);
+  }
+  assert.equal(seen.length, 0, 'a dot segment would reach another route');
   const unknown = await runCli(['project', 'show', 'nope'], env);
   assert.equal(unknown.code, 1);
   assert.match(unknown.stdout, /Kosmos refused that: there is no project by that name\./);

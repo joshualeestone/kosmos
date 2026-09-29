@@ -58,6 +58,10 @@ test('#4581 Windows project list and show: the routes, both tokens, the same wor
 });
 
 test('#4581 Windows show: a garbled id is refused, never stripped; an unknown one is the board\'s sentence', async () => {
+  for (const dots of ['.', '..', '...']) {
+    const d = await run(['project', 'show', dots], () => { throw new Error('no request may be made'); });
+    assert.equal(d.code, 1, dots); assert.equal(d.calls.length, 0, dots);
+  }
   const g = await run(['project', 'show', 'ff!!!'], () => { throw new Error('no request may be made'); });
   assert.equal(g.code, 1);
   assert.equal(g.calls.length, 0);
