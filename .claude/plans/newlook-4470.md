@@ -21,7 +21,8 @@
 - `placeLook(cons)` at the same chokepoint as `placeAppSettings`: MOVES Tasks into the left box and the
   crumb row into the conversation header (and back), so the keyboard order matches the eye (#1017).
 - Member row: a `.pj-member-st` state word (stateCopyOf / cardStOf), display:none outside the new look.
-- Task card: a `data-n` attribute the new look draws "#n" from; the text stays "Task n".
+- Task card: markup unchanged. The new look draws "#n" from the button's existing `data-task` and clips
+  the "Task n" text like `.vh`, so a screen reader still reads it.
 
 ## Decided (weakest premise named)
 - The member state word follows the v9 drawing over the 6.72 room-column ruling (#3212), only in the new

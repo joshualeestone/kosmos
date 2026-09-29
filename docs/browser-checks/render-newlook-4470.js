@@ -90,7 +90,8 @@ const HEAD_PLACE = `(() => {
 const TABS = `(() => {
   const on = document.querySelector('.apphead .tab.on');
   const off = document.querySelector('.apphead .tab:not(.on)');
-  return { onUnderline: on ? getComputedStyle(on).borderBottomColor : 'absent', onColor: on ? getComputedStyle(on).color : '', offColor: off ? getComputedStyle(off).color : '' };
+  return { onUnderline: on ? getComputedStyle(on).borderBottomColor : 'absent', onColor: on ? getComputedStyle(on).color : '', offColor: off ? getComputedStyle(off).color : '',
+    onWeight: on ? Number(getComputedStyle(on).fontWeight) : 0, offWeight: off ? Number(getComputedStyle(off).fontWeight) : 0 };
 })()`;
 const GREY_OF = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
 /* The fill the room paints for your message and for an agent's, read from two sample bubbles put
@@ -206,7 +207,7 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         `${tag} On: every member row is plain, a working one too (no wash, no pulse)`, JSON.stringify(rows));
       if (width >= 1088) {   // a phone width shows the tabs as a menu, with its own current-row style
         const tabs = await page.evaluate(TABS);
-        chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor, `${tag} On: the current tab is marked by ink, not an underline`, JSON.stringify(tabs));
+        chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor && tabs.onWeight > tabs.offWeight, `${tag} On: the current tab is marked by ink and weight, not an underline`, JSON.stringify(tabs));
       }
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
