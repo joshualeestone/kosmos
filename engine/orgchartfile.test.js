@@ -213,3 +213,44 @@ test('the real runner survives a claude that exits without reading the file (EPI
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a cell past Excel\'s last column (r="ZZZZZ1") is refused, not expanded into a row millions of cells long', () => {
+  const rows = [['Name', 'Title'], ['Avery Quill', 'CEO']];
+  const bomb = Array.from({ length: 200 }, (_, i) => `<row r="${i + 3}"><c r="ZZZZZ${i + 3}" t="inlineStr"><is><t>x</t></is></c></row>`).join('');
+  const sheet = SHEET(rows).replace('</sheetData>', bomb + '</sheetData>');
+  const buf = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', sheet]]);
+  const before = process.memoryUsage().heapUsed;
+  const t0 = process.hrtime.bigint();
+  const r = o.readLocal('wide.xlsx', buf);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  const grew = (process.memoryUsage().heapUsed - before) / 1048576;
+  assert.ok(ms < 1000 && grew < 100, `took ${Math.round(ms)}ms and ${Math.round(grew)} MB`);
+  assert.equal(r.rows.length, 1, 'the real row still reads: ' + JSON.stringify(r));
+});
+
+test('a row of unclosed <c> openers is read in linear time too', () => {
+  const row = '<row r="1">' + '<c r="A1">'.repeat(80000) + '</row>';
+  const buf = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', '<worksheet><sheetData>' + row + '</sheetData></worksheet>']]);
+  const t0 = process.hrtime.bigint();
+  o.readLocal('cells.xlsx', buf);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 1500, `took ${Math.round(ms)}ms`);
+});
+
+test('blank rows above the header do not count against the row limit', () => {
+  const blanks = Array.from({ length: o.MAX_ROWS + 5 }, (_, i) => `<row r="${i + 1}"><c r="A${i + 1}"/></row>`).join('');
+  const n = o.MAX_ROWS + 5;
+  const sheet = '<worksheet><sheetData>' + blanks
+    + `<row r="${n + 1}"><c r="A${n + 1}" t="inlineStr"><is><t>Name</t></is></c><c r="B${n + 1}" t="inlineStr"><is><t>Title</t></is></c></row>`
+    + `<row r="${n + 2}"><c r="A${n + 2}" t="inlineStr"><is><t>Avery Quill</t></is></c><c r="B${n + 2}" t="inlineStr"><is><t>CEO</t></is></c></row>`
+    + '</sheetData></worksheet>';
+  const r = o.readLocal('blanks.xlsx', zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', sheet]]));
+  assert.equal(r.rows.length, 1, JSON.stringify(r).slice(0, 200));
+  assert.equal(r.rows[0].person, 'Avery Quill');
+});
+
+test('a character reference outside Unicode is dropped, not a failed sheet', () => {
+  const r = o.readLocal('ent.xlsx', zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', SHEET([['Name', 'Title'], ['Avery&#99999999999; Quill', 'CEO']])]]));
+  assert.equal(r.rows.length, 1, JSON.stringify(r));
+  assert.equal(r.rows[0].person, 'Avery Quill');
+});

@@ -137,3 +137,12 @@ test('#4559: file rows keep their reporting lines and reasons, re-pointed past a
   const named = orgchartRows([{ person: 'Avery Quill', title: 'Chief Executive', reportsTo: null }], true, 'file');
   assert.equal(named[0].name, 'avery-quill');
 });
+
+test('#4559: the page and the engine agree on which files go to the model', () => {
+  const m = /const ORGCHART_MODEL_FILE = \/\\\.\(([^)]+)\)\$\/i;/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MODEL_FILE is gone from the page');
+  const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'pdf', 'csv', 'xlsx', 'svg', 'pptx'];
+  const page = new RegExp('\\.(' + m[1] + ')$', 'i');
+  const { forModel } = require('./engine/orgchartfile');
+  for (const e of exts) assert.equal(page.test('x.' + e), forModel('x.' + e), '.' + e + ' is treated differently by the page and the engine');
+});

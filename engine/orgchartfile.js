@@ -133,20 +133,57 @@ function unzip(buf) {
   };
 }
 
+/* A character reference outside Unicode is dropped rather than failing the whole sheet. */
+const codePoint = (n) => (Number.isInteger(n) && n >= 0 && n <= 0x10FFFF ? String.fromCodePoint(n) : '');
 const xmlText = (s) => String(s)
   .replace(/<[^>]+>/g, '')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => codePoint(Number(d)))
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => codePoint(parseInt(h, 16)))
   .replace(/&amp;/g, '&');
 const attr = (tag, name) => { const m = new RegExp(`\\b${name}="([^"]*)"`).exec(tag); return m ? m[1] : null; };
+/* Excel's own last column is XFD (16,384 columns). A cell reference past it is refused: a crafted `r="ZZZZZ1"`
+   would otherwise make a row millions of cells long (measured: 200 such rows took about 1 GB of heap from a
+   2 KB file), and that runs out of memory on the board's only process. */
+const MAX_COLS = 16384;
 const colIndex = (ref) => {
-  const letters = /^[A-Z]+/.exec(ref || '');
+  const letters = /^[A-Z]{1,3}/.exec(ref || '');
   if (!letters) return null;
   let n = 0;
   for (const ch of letters[0]) n = n * 26 + (ch.charCodeAt(0) - 64);
   return n - 1;
 };
+/* Each <c ...>...</c> cell of a row as { attrs, inner }, walked with indexOf like `blocks` (a lazy regex rescans
+   the rest of the row for every cell with no closer). A self-closing <c .../> is a cell with no content. */
+function* cells(rowText) {
+  let at = 0;
+  for (;;) {
+    let i = rowText.indexOf('<c', at);
+    while (i >= 0 && !/[\s>/]/.test(rowText[i + 2] || '')) i = rowText.indexOf('<c', i + 1);
+    if (i < 0) return;
+    const gt = rowText.indexOf('>', i);
+    if (gt < 0) return;
+    const attrs = rowText.slice(i + 2, rowText[gt - 1] === '/' ? gt - 1 : gt);
+    if (rowText[gt - 1] === '/') { at = gt + 1; yield { attrs, inner: '' }; continue; }
+    const end = rowText.indexOf('</c>', gt);
+    if (end < 0) return;
+    yield { attrs, inner: rowText.slice(gt + 1, end) };
+    at = end + 4;
+  }
+}
+/* Remove every <tag ...>...</tag> span, walking with indexOf (the same reason as `cells`). */
+function stripBlocks(text, tag) {
+  let out = '';
+  let at = 0;
+  for (;;) {
+    const i = text.indexOf('<' + tag, at);
+    if (i < 0) return out + text.slice(at);
+    const end = text.indexOf('</' + tag + '>', i);
+    if (end < 0) return out + text.slice(at, i);
+    out += text.slice(at, i);
+    at = end + tag.length + 3;
+  }
+}
 
 /* Each <tag ...>...</tag> block's inner text, found by walking with indexOf. A regex with a lazy body rescans to the
    end of the text for every opener that has no closer, which a crafted sheet can make quadratic on the board's only
@@ -190,19 +227,20 @@ function readXlsx(buf) {
   const sst = get('xl/sharedStrings.xml');
   if (sst) for (const si of blocks(sst, 'si')) {
     /* A rich-text string is several <t> runs; phonetic hints (<rPh>) are not part of the text. */
-    shared.push(xmlText(si.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').replace(/<\/t>\s*<t[^>]*>/g, '')));
+    shared.push(xmlText(stripBlocks(si, 'rPh').replace(/<\/t>\s*<t[^>]*>/g, '')));
     if (shared.length > MAX_ROWS * 64) break;
   }
   const rows = [];
   for (const rowText of blocks(sheet, 'row')) {
     const row = [];
     let next = 0;
-    for (const cm of rowText.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const tag = '<c' + cm[1] + '>';
+    for (const cell of cells(rowText)) {
+      const tag = '<c' + cell.attrs + '>';
       const at = colIndex(attr(tag, 'r'));
       const i = at == null ? next : at;
+      if (i >= MAX_COLS) break;   // past Excel's last column: the rest of this row is not a real sheet's
       const type = attr(tag, 't');
-      const inner = cm[2] || '';
+      const inner = cell.inner;
       let v = '';
       if (type === 'inlineStr') v = xmlText((/<is\b[^>]*>([\s\S]*?)<\/is>/.exec(inner) || [])[1] || '');
       else {
@@ -212,10 +250,12 @@ function readXlsx(buf) {
       row[i] = v.trim();
       next = i + 1;
     }
-    rows.push(Array.from(row, (x) => x || ''));
+    const dense = Array.from(row, (x) => x || '');
+    if (!dense.some((v) => v !== '')) continue;   // blank rows (Excel keeps formatted empty ones) do not count
+    rows.push(dense);
     if (rows.length > MAX_ROWS + 1) break;
   }
-  return rows.filter((r) => r.some((v) => v !== ''));
+  return rows;
 }
 
 /* ── a table into people ───────────────────────────────────────────────────────────────────── */
@@ -309,7 +349,7 @@ function markLoops(rows) {
  */
 function readLocal(name, bytes) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
-  if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than 10 MB. An org chart export is usually much smaller; try exporting just the people.'] };
+  if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than ' + Math.round(MAX_BYTES / 1048576) + ' MB. An org chart export is usually much smaller; try exporting just the people.'] };
   const ext = extOf(name);
   try {
     if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return tableToPeople(parseDelimited(buf.toString('utf8')));
@@ -341,6 +381,8 @@ const MODEL_TYPES = {
 };
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
+/* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
+const NO_MODEL = 'Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 const MODEL_TIMEOUT_MS = 120000;
 
@@ -475,11 +517,11 @@ function fromModel(structured) {
 async function readWithModel(name, bytes) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   if (!forModel(name)) return { rows: [], problems: ['That kind of file is not read by the model.'] };
-  if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than 10 MB. Try a smaller picture or a one-page PDF.'] };
+  if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than ' + Math.round(MAX_BYTES / 1048576) + ' MB. Try a smaller picture or a one-page PDF.'] };
   let got;
   try { got = await modelRunner(requestLine(name, buf)); } catch { got = { ok: false, because: 'the read failed' }; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }
 
-module.exports = { readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+module.exports = { NO_MODEL, MAX_COLS, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

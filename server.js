@@ -6520,7 +6520,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (!orgchartfile.modelAvailable()) {
-          sendJson(res, 200, { unavailable: true, problems: ['Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.'] });
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
@@ -6528,7 +6528,7 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         const got = await orgchartfile.readWithModel(name, bytes);
         if (got.unavailable) {
-          sendJson(res, 200, { unavailable: true, problems: ['Reading a picture or PDF needs a Claude connection right now. A CSV or Excel export works with any provider, and so does typing the list.'] });
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
         sendJson(res, 200, { source: 'model', provider: orgchartfile.PROVIDER, rows: got.rows, problems: got.problems });
