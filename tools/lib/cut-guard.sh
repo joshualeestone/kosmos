@@ -514,20 +514,38 @@ _kosmos_suite_waiter_live() {
   f="$(_kosmos_suite_waiter_file "$pid")"
   [ -f "$f" ] || return 1
   if ! kill -0 "$pid" 2>/dev/null; then rm -f "$f" 2>/dev/null; return 1; fi
+  # Command AND start time (review 1): every suite's command is the same `bash tools/run-tests.sh`, so a command
+  # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
+  # unsafe side. A start time cannot repeat on a recycled pid.
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
-  if [ -z "$stored" ] || [ "$stored" != "$live" ]; then rm -f "$f" 2>/dev/null; return 1; fi
+  if [ -z "$stored" ] || [ "$stored" != "$live" ] \
+     || [ "$(sed -n '3p' "$f" 2>/dev/null)" != "$(_kosmos_pid_started "$pid")" ]; then
+    rm -f "$f" 2>/dev/null; return 1
+  fi
   return 0
 }
+# A process's start time as ps prints it (the same on macOS and Linux procps); empty when ps cannot say, which
+# then matches nothing recorded, so the marker is treated as stale (counted as a live suite: the safe side).
+_kosmos_pid_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
 
-# Drops `pid command` lines whose pid, or whose parent (a waiter's own $( ) subshell), is a waiter.
+# Drops `pid command` lines that are a waiter or descend from one: a waiter's check forks $( ) subshells several
+# levels deep, each showing `bash tools/run-tests.sh` (review 1). The walk is bounded, like
+# _kosmos_pid_is_self_or_descendant's.
+_kosmos_descends_from_suite_waiter() {
+  local pid="$1" hops=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    _kosmos_suite_waiter_live "$pid" && return 0
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  return 1
+}
 _kosmos_drop_suite_waiters() {
-  local line pid ppid
+  local line pid
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
-    _kosmos_suite_waiter_live "$pid" && continue
-    ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
-    [ -n "$ppid" ] && _kosmos_suite_waiter_live "$ppid" && continue
+    _kosmos_descends_from_suite_waiter "$pid" && continue
     printf '%s\n' "$line"
   done
 }
@@ -538,7 +556,7 @@ _kosmos_drop_suite_waiters() {
 kosmos_mark_suite_waiting() {
   local ts="${1:-$(date +%s)}" dir
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
-  printf '%s %s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  printf '%s %s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
@@ -573,7 +591,8 @@ kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-1200}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
-  local waited=0 said=0 err ts=""
+  local waited=0 said=0 err ts="" start next_note=300
+  start="$(date +%s)"
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max=1200 ;; esac
   while :; do
@@ -589,8 +608,12 @@ kosmos_wait_until_clear() {
         return 0
       fi
     fi
-    [ -n "$err" ] || err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
-    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$waited" -ge "$max" ]; then
+    if [ -z "$err" ]; then
+      if [ "$queue" = 1 ]; then err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
+      else err="the box is busy (the check refused without saying why)."; fi
+    fi
+    # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$waited" -ge "$max" ] || [ $(( $(date +%s) - start )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
       [ "$waited" -gt 0 ] && echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
@@ -599,10 +622,11 @@ kosmos_wait_until_clear() {
     if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2
-      echo "waiting for it: asking again every ${every}s for up to $((max / 60)) minutes (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       said=1
-    elif [ $((waited % 300)) -eq 0 ]; then
+    elif [ "$waited" -ge "$next_note" ]; then
       echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      next_note=$((next_note + 300))
     fi
     "$sleeper" "$every"
     waited=$((waited + every))

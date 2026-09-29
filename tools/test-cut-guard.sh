@@ -580,7 +580,7 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4498 a suite that is only waiting for the box does not count as running" \
@@ -593,9 +593,34 @@ printf '100 %s\nnot its command\n' "$wp" > "$W/markers/suitewait.$wp"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker whose pid now runs another command is stale: counted as running and removed" \
   || fail "#4498 a recycled-pid waiting marker was trusted (rc=$rc, $out)"
+# Same command, different start time: a new suite that inherited a dead waiter's pid (review 1). Every suite's command
+# is the same, so the command alone cannot tell them apart.
+printf '100 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$wp" "$(ps -ww -o command= -p "$wp")" > "$W/markers/suitewait.$wp"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker with the same command but another start time is stale: counted as running" \
+  || fail "#4498 a recycled pid running the same command was taken for the waiter (rc=$rc, $out)"
+
+# A waiter's own subshells, several levels down, are part of the waiter (review 1): a candidate two levels below the
+# waiter is dropped. A real process tree of ours: sh -> sh -> sleep, all stopped by pid below.
+# Each level runs a second command, so no shell execs straight into its child.
+sh -c 'sh -c "sleep 60; :" & wait; :' & deep=$!
+sleep 1; mid="$(pgrep -P "$deep" | head -1)"; leaf="$(pgrep -P "$mid" 2>/dev/null | head -1)"
+printf '100 %s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
+if [ -n "$leaf" ]; then
+  out="$(printf '%s bash tools/run-tests.sh\n' "$leaf" | _kosmos_drop_suite_waiters)"
+  [ -z "$out" ] && pass "#4498 a subshell two levels below a waiter is part of the waiter" \
+    || fail "#4498 a waiter's grandchild was counted as a separate suite ($out)"
+  rm -f "$W/markers/suitewait.$deep"
+  out="$(printf '%s bash tools/run-tests.sh\n' "$leaf" | _kosmos_drop_suite_waiters)"
+  [ -n "$out" ] && pass "#4498 CONTROL: the same process with no waiter above it is kept" || fail "#4498 CONTROL: an unrelated process was dropped"
+else
+  fail "#4498 could not build the three-level process tree for the walk test"
+fi
+for p in $leaf $mid $deep; do kill "$p" 2>/dev/null; done; wait "$deep" 2>/dev/null
+rm -f "$W/markers/suitewait.$deep"
 
 # The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
-mv "$W/held" "$W/markers/suitewait.$wp"
+rm -f "$W/held"; printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4498 a run that is not yet queued waits behind a queued suite" \
   || fail "#4498 an unqueued run jumped the queue (rc=$rc, $out)"
@@ -617,7 +642,9 @@ qcheck() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "
   sed -n '1p' "$W/markers/suitewait.$$" 2>/dev/null | cut -d' ' -f1 >> "$W/seen"
   case "$n" in 1|3) echo "busy: call $n" >&2; return 1 ;; esac; return 0; }
 rm -f "$W/calls" "$W/seen"
-out="$(KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue qcheck 2>&1)"; rc=$?
+# Real one-second sleeps (review 1): with no sleep every mark lands in the same second, and a re-mark that took a
+# NEW time would look the same as one that kept the old place.
+out="$(KOSMOS_WAIT_EVERY_S=1 kosmos_wait_until_clear "this test run" --suite-queue qcheck 2>&1)"; rc=$?
 seen="$(sort -u "$W/seen" | grep -c .)"
 { [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 5 ] && [ "$seen" = 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
   && pass "#4498 a harness that appears as the suite unqueues sends it back to waiting in its old place" \
@@ -629,7 +656,7 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "has been waiting for the box longer" && has_pid "$out" "$wp"; } \
@@ -639,6 +666,32 @@ kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4498 CONTROL: once that waiter is gone the same run starts" || fail "#4498 a dead waiter still held the run (rc=$rc, $out)"
+
+# The override and the inside-a-test rule skip the queue as well as the suite check (review 1). A copy of the real
+# run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
+# guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
+# name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; trap 'rm -rf "$T" "$RT"' EXIT
+mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
+: > "$RT/sub/stray.test.js"
+sleep 60 & wp=$!
+printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+# The caller reads as a fixture (a node --test ancestor), except the stand-in pid $DEAD (see the wiring test below).
+printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
+rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
+  KOSMOS_TEST_PART=all "$@" bash tools/run-tests.sh 2>&1); }
+out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none")"
+has "$out" "has been waiting for the box longer" && pass "#4498 CONTROL: a plain run waits behind an older waiting suite" \
+  || fail "#4498 CONTROL: a plain run did not queue ($(printf '%s' "$out" | tail -2))"
+out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNORE_SUITE=1)"
+{ has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
+  && pass "#4498 KOSMOS_TESTS_IGNORE_SUITE=1 runs past the queue too, as its message says" \
+  || fail "#4498 the override still queued ($(printf '%s' "$out" | tail -2))"
+out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
+{ has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
+  && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
+  || fail "#4498 a run-tests.sh fixture queued ($(printf '%s' "$out" | tail -2))"
+kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"
 
 # The wiring, end to end: a real run-tests.sh beside a stand-in suite refuses at once under
 # KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole

@@ -214,8 +214,12 @@ fi
 # Both checks WAIT rather than refuse: every 30 s for up to 20 minutes, in a queue so the oldest
 # waiting suite goes first (tools/lib/cut-guard.sh, kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
 # refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
+# Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
+# suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
+_rt_suite_check=1
+{ [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
-  if [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" != 1 ] && ! _kosmos_pid_is_test_fixture "$$" "$0"; then
+  if [ "$_rt_suite_check" = 1 ]; then
     kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" || return 1
   fi
   if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
@@ -224,7 +228,11 @@ _rt_box_clear() {
   return 0
 }
 if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
-  kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
+  if [ "$_rt_suite_check" = 1 ]; then
+    kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
+  else
+    kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
+  fi
 fi
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
