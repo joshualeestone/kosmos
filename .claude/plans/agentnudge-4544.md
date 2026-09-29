@@ -20,13 +20,13 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
 - Weakest premise: idle is the only state worth typing into.
 
 ## Verified
-- engine/agentnudge.test.js (first commit): 11 pass, real cards (test-support/fleet), real projects/tasks, toAsk from the real
+- engine/agentnudge.test.js (first commit): 11 pass (24 after the review rounds), real cards (test-support/fleet), real projects/tasks, toAsk from the real
   heartbeat.step.
 - Mutations, each on the module in place with a byte-compared restore: once-per-stall, open-parts check, built rule,
   freshness, cap, idle card, episode release, MAX_TRIES, the hour window: every one fails a test. A first gate on
   assigner.hasOpenWork survived its mutation (openParts already decides), so it was removed rather than shipped.
 - Control, measured on source: the Prompter tick in origin/main's server.js makes 0 deliver calls; on this branch 1
-  (agentnudge.sweepOnce).
+  (then agentnudge.sweepOnce; now inside agentnudge.prompterTick, pinned by a source test).
 - Related suites green: heartbeat (18), prompternudge (10), assigner (32), web.prompter-nudges-3508 (7),
   engine.live-execution-1598 (3).
 - Not measured: a real idle agent receiving the nudge and resuming (needs a live board; observe after the next release).
@@ -95,3 +95,18 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
   resume is observed after release).
 - NIT fixed: a broken sentence in the module header, now only what the code does.
 - NIT fixed: the link comment said "opens in a new tab" without the condition; it is a modified click that does.
+
+### Iteration 5 (opus)
+- WARNING fixed: comments outside the diff (heartbeat.js, prompternudge.js, the server's #3508 block, three web
+  comments) still said the list is every stall; each now notes the #4544 narrowing.
+- WARNING decided: heartbeat.js asks about auth_failed and connection_lost because they have no other path to the
+  person, and the open-task filter was hiding them. Now the person's list (renamed realStalls) keeps those two
+  whatever they hold, and filters only the quiet states (idle, stopped, unknown) by open work. Josh's point, no
+  every-idle-agent noise, holds; broken agents are not hidden. The hint adds "or that need reconnecting". Reversible.
+- WARNING duplicate: "resumes" unmeasured, already recorded.
+- NIT fixed: the book is released on every tick (releaseClosed), gated or not, so a stall that closed while the nudge
+  was off does not block the next one. Test.
+- NIT fixed: a retry that reached nothing is logged like firstreply-nudge (first try, reached, given up).
+- NIT fixed: the hour window is pinned at exactly one hour.
+- NITs declined: a plain click on an agent not on this board falls through to the deep link (rare; the list comes
+  from the board); the link drops dev query params (limit, first-run, mode); the lazy require inside the loop.

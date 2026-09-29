@@ -16051,7 +16051,7 @@ window.kosmosMeasureScrollbarWidth();
            delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
            (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
            and the #hb-nudges panel below polls it and renders one check-in per
-           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). Nothing leaves the Mac, so it is not the telemetry #2623
            removed. The copy no longer promises an undeliverable nudge because the
            nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
@@ -16069,7 +16069,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish. It can send each one a short reminder to pick its work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can send each one a short reminder to pick its work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -16081,7 +16081,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
            rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
-           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only who/from/to; the QUESTION is composed
            here (never a stored sentence), matching the removed payload's own rule and
            the heartbeat header. Self-contained (one container + paintPrompterNudges)
            so a more prominent placement later is a pure move (Mona's polish). Hidden
@@ -22270,7 +22270,7 @@ async function paintHeartbeat() {
 }
 /* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
    through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
-   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only { session, from, to }; the QUESTION is
    COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
    Best-effort: any failure hides the panel rather than showing error noise, because
    the board's own status surfaces still show the truth and a missed nudge is only a

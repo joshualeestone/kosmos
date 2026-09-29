@@ -18116,7 +18116,7 @@ function start(port = PORT) {
           heartbeatPrev = outcome.next;
           /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
              seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
-             privacy"); this writes the current pending set to a LOCAL 0600 store
+             privacy"); this writes the current pending set (#4544: narrowed by agentnudge.realStalls) to a LOCAL 0600 store
              the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
              so it is not the telemetry Josh removed and needs no opt-out. The
              store REPLACES the set each tick, so a resolved stall clears itself.

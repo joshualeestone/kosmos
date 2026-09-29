@@ -40,7 +40,7 @@
  * board restart (every release) forgets them and a still-stalled agent is nudged once more, about one
  * interval after the restart (the Prompter opens a never-seen stall on its second tick).
  *
- * #4544 (Josh): the person's check-in lists only these real stalls (withOpenWork), and prompterTick
+ * #4544 (Josh): the person's check-in lists only real stalls (realStalls), and prompterTick
  * is the whole of what the Prompter's tick does after heartbeat.step, so its gates are tested here.
  *
  * The planner is pure; the reads and the delivery are injected, so tests drive it without a pane.
@@ -131,11 +131,7 @@ function sweepOnce(o) {
     const intervalMs = Number.isFinite(o.intervalMs) && o.intervalMs > 0 ? o.intervalMs : 15 * 60 * 1000;
     const next = o.next instanceof Map ? o.next : new Map();
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
-    // An episode that closed (worked again, or reported blocked) frees its agent for the next one.
-    for (const session of [...book.keys()]) {
-      const rec = next.get(session);
-      if (!rec || rec.open !== true) book.delete(session);
-    }
+    releaseClosed(book, next);
     // The board-wide hour, for Agent Communication's limit.
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
@@ -162,7 +158,8 @@ function sweepOnce(o) {
         book.set(session, { nudgedAt: mayHaveReached ? now : null, tries, delivery: state });
         if (mayHaveReached) sent.push(now);
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because, task: p.part.n });
-        say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because + ' (task #' + p.part.n + ')' });
+        // Logged when it may have reached the pane, on the first try, and when given up on (firstreply-nudge's rule).
+      if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because + ' (task #' + p.part.n + ')' });
       } catch (err) {
         results.push({ session, name: display, act: 'error', because: String((err && err.message) || err) });
       }
@@ -171,10 +168,25 @@ function sweepOnce(o) {
   return { results };
 }
 
-/* #4544 (Josh): the person's check-in lists only real stalls, the agents in toAsk that still hold an
-   open task in a live project (openParts, the nudge's own rule), not every idle agent. */
-function withOpenWork(toAsk, projects) {
-  return (Array.isArray(toAsk) ? toAsk : []).filter((n) => n && typeof n.session === 'string' && openParts(n.session, projects).length > 0);
+/* #4544 (Josh): the person's check-in lists only real stalls, not every idle agent: an agent in toAsk
+   that still holds an open task in a live project (openParts, the nudge's own rule), or one that is
+   signed out or has lost its connection. Those two stay whatever they hold: engine/heartbeat.js asks
+   about them because they have no other path to the person. */
+const BROKEN = new Set(['auth_failed', 'connection_lost']);
+function realStalls(toAsk, projects) {
+  return (Array.isArray(toAsk) ? toAsk : []).filter((n) => n && typeof n.session === 'string'
+    && (BROKEN.has(n.to) || openParts(n.session, projects).length > 0));
+}
+
+/* Drop the book entry of every stall the Prompter's record says has closed (worked again, or reported
+   blocked), so its next stall can be nudged. Run on every tick, gated or not. */
+function releaseClosed(book, next) {
+  if (!(book instanceof Map)) return;
+  const rec = next instanceof Map ? next : new Map();
+  for (const session of [...book.keys()]) {
+    const r = rec.get(session);
+    if (!r || r.open !== true) book.delete(session);
+  }
 }
 
 /*
@@ -197,9 +209,11 @@ function prompterTick(o) {
     let records = null;
     if (toAsk.length) { try { const r = o.readProjects(); records = Array.isArray(r) ? r : null; } catch { records = null; } }
     if (o.shouldWrite(setting.on, o.roster)) {
-      const shown = records ? withOpenWork(toAsk, records) : toAsk;
+      const shown = records ? realStalls(toAsk, records) : toAsk;
       try { o.write(shown); out.written = shown; } catch { /* best-effort */ }
     }
+    // A closed stall frees its agent even while the nudge is off, so the next stall after it is nudged.
+    if (o.outcome && o.outcome.next instanceof Map) releaseClosed(o.book, o.outcome.next);
     let allowed = false;
     try { allowed = o.allowed() === true; } catch { allowed = false; }
     if (setting.on === true && nudgeEnabled(allowed, o.env)) {
@@ -220,4 +234,4 @@ function nudgeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_AGENT_NUDGE_OFF !== '1';
 }
 
-module.exports = { plan, openParts, withOpenWork, prompterTick, plainWords, nudgeText, nudgeableCard, sweepOnce, nudgeEnabled, MAX_TRIES, HOUR_MS };
+module.exports = { plan, openParts, realStalls, releaseClosed, prompterTick, plainWords, nudgeText, nudgeableCard, sweepOnce, nudgeEnabled, MAX_TRIES, HOUR_MS };

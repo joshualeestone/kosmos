@@ -240,7 +240,8 @@ test('Agent Communication\'s limit caps nudges across the board in an hour; off,
     assert.equal(pass(w, { now, limit: { on: true, perHour: 2 } }).calls.length, 2, 'the cap did not hold');
     assert.equal(pass(w, { now, limit: { on: false, perHour: 2 } }).calls.length, 3, 'control: off, all three are nudged');
     // A nudge an hour old no longer counts.
-    const sent = [now - nudge.HOUR_MS - 1, now - nudge.HOUR_MS - 1];
+    // Exactly an hour old is out (the window is the last hour, not including its start).
+    const sent = [now - nudge.HOUR_MS, now - nudge.HOUR_MS];
     assert.equal(pass(w, { now, sent, limit: { on: true, perHour: 2 } }).calls.length, 2, 'an hour-old nudge still counted');
   } finally { w.restore(); }
 });
@@ -288,13 +289,13 @@ test('openParts agrees with the Assigner\'s hasOpenWork: open, closed, built, an
   } finally { w.restore(); }
 });
 
-test('the person\'s check-in keeps only stalls holding an open task (withOpenWork); control: both arms occur', () => {
+test('the person\'s check-in keeps only stalls holding an open task (realStalls); control: both arms occur', () => {
   const w = world([{ name: 'listtask' }, { name: 'listidle' }]);
   try {
     taskOn(w, w.key.listtask, 'a task');
     const hb = stalled(w.cards);
     assert.deepEqual(hb.toAsk.map((x) => x.session).sort(), [w.key.listidle, w.key.listtask].sort(), 'fixture: both agents must be in the Prompter\'s toAsk');
-    const shown = nudge.withOpenWork(hb.toAsk, projects.readAll());
+    const shown = nudge.realStalls(hb.toAsk, projects.readAll());
     assert.deepEqual(shown.map((x) => x.session), [w.key.listtask]);
     // Each entry keeps the shape prompternudge.write takes ({ session, from, to }).
     assert.deepEqual(Object.keys(shown[0]).sort(), ['from', 'session', 'to']);
@@ -386,4 +387,31 @@ test('prompterTick reads the projects only when there is a stall to filter or nu
   });
   assert.equal(reads, 0);
   assert.deepEqual(out.written, [], 'the empty list is still written, which clears the panel');
+});
+
+test('the person\'s list keeps a signed-out or disconnected agent with no task (no other path to the person); control: an idle one with no task is dropped', () => {
+  const toAsk = [
+    { session: 'a-signedout', from: 'working', to: 'auth_failed' },
+    { session: 'a-lost', from: 'working', to: 'connection_lost' },
+    { session: 'a-quiet', from: 'working', to: 'idle' },
+    { session: 'a-stopped', from: 'working', to: 'stopped' },
+  ];
+  assert.deepEqual(nudge.realStalls(toAsk, []).map((x) => x.session), ['a-signedout', 'a-lost']);
+});
+
+test('a stall that closed while the nudge was off still frees its agent, so the next stall is nudged', () => {
+  const w = world([{ name: 'gatedgap' }]);
+  try {
+    const k = w.key.gatedgap;
+    taskOn(w, k, 'a task');
+    const book = new Map([[k, { nudgedAt: 1, tries: 1 }]]);
+    const base = {
+      setting: { on: true, intervalMinutes: 15 }, roster: w.cards, readProjects: () => projects.readAll(),
+      shouldWrite: () => false, write: () => {}, env: {}, readLimit: () => ({ on: false }), limitDefaults: { on: true, perHour: 20 },
+      book, sent: [], now: Date.now() + INTERVAL + 1000, deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    };
+    // The nudge is off (live execution not allowed) on the tick the old stall closes.
+    nudge.prompterTick({ ...base, allowed: () => false, outcome: { toAsk: [], next: new Map([[k, { open: false }]]) } });
+    assert.equal(book.has(k), false, 'the closed stall kept its entry while the nudge was off');
+  } finally { w.restore(); }
 });
