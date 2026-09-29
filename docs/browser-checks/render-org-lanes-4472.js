@@ -33,6 +33,9 @@ const FACE_R = 22;   // a face is 44px across
    (ORG_LANE_SLOT, 31px) at the tightest squeeze orgFit applies on a phone (ORG_SQUEEZE_MIN, 0.7). A tighter threshold
    would pass only by this board's spacing, not by anything the layout guarantees (review it5). */
 const WIRE_CLEAR = 31 * 0.7;
+/* Any other wire past a face: orgPlace promises ORG_LINE_CLEAR (12px) at its natural size (review of the rebased branch:
+   holding every pair to the two-ring figure passed only by this board's spacing). */
+const CROSS_CLEAR = 12 * 0.7;
 
 /* A proper crossing: interior to both segments (as render-org-sectors-4434 counts it). */
 function crossings(segs) {
@@ -126,16 +129,20 @@ async function settledRead(pg) {
       'spread ' + spreads.map((x) => x.toFixed(0) + 'px').join(', '));
     const bad = crossings(m.segs);
     say(bad.length === 0, label + ': no two connector lines cross', bad.length + ' crossing(s)' + (bad.length ? ': ' + bad.slice(0, 5).join(', ') : ''));
-    /* Every wire clears every face that is not one of its ends by WIRE_CLEAR. */
-    let least = Infinity; let where = '';
+    /* A team's wire clears the other faces of its own team by WIRE_CLEAR; every other wire-face pair by CROSS_CLEAR. */
+    let leastTeam = Infinity; let whereTeam = ''; let leastOther = Infinity; let whereOther = '';
     for (const s of m.segs) {
+      const mgr = managerOf.get(s.name);
+      const team = teams.get(mgr) || [];
       for (const n of m.nodes) {
-        if (n.key === s.name || n.key === managerOf.get(s.name)) continue;
+        if (n.key === s.name || n.key === mgr) continue;
         const d = segDist(n, s.a, s.b);
-        if (d < least) { least = d; where = s.name + ' past ' + n.key; }
+        if (team.includes(n.key)) { if (d < leastTeam) { leastTeam = d; whereTeam = s.name + ' past ' + n.key; } }
+        else if (d < leastOther) { leastOther = d; whereOther = s.name + ' past ' + n.key; }
       }
     }
-    say(least >= WIRE_CLEAR, label + ': no wire comes nearer than ' + WIRE_CLEAR.toFixed(1) + 'px to a face that is not one of its ends', 'least ' + least.toFixed(1) + 'px (' + where + ')');
+    say(leastTeam >= WIRE_CLEAR, label + ': no wire comes nearer than ' + WIRE_CLEAR.toFixed(1) + 'px to another face of its own team', 'least ' + leastTeam.toFixed(1) + 'px (' + whereTeam + ')');
+    say(leastOther >= CROSS_CLEAR, label + ': no wire comes nearer than ' + CROSS_CLEAR.toFixed(1) + 'px to any other face', 'least ' + leastOther.toFixed(1) + 'px (' + whereOther + ')');
     const shot = path.join(OUT, 'org-lanes-4472-' + label + '.png');
     await pg.locator('#orgview').screenshot({ path: shot });
     console.log('      screenshot: ' + shot);

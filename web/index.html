@@ -30361,6 +30361,9 @@ function orgPlace(nodes) {
     };
     /* Whether a ring's spots are clear: no two faces nearer than ORG_MIN_ARC, and in a laned team the slots
        at least ORG_LANE_SLOT apart (the gap a line to the outer ring passes through). */
+    /* Accepted cost (review of the rebased branch): this visits every pair of a team on each try, so one very big team
+       lays out 5-7x slower than before #4472 (a lead with 1000 reports: ~83ms against ~12ms). Normal fleets stay well
+       under 10ms. #4499 visits only angular neighbours here (that lead: ~48ms). */
     const clear = (spots) => {
       const all = [...spots.values()];
       const xy = all.map((s) => [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r]);
