@@ -24,7 +24,8 @@ waits) nothing changes: 1200 s from the start.
 - Counting node --test children: fixes a mechanism the measurement shows is not there.
 
 ## Weakest premise
-That "a waiter ahead left" means the queue moved. A waiter ahead that GIVES UP also leaves, so behind a hung suite each
+(A hard ceiling, review 9, now bounds every queued wait at four bounds, 3 hours, so this premise can only delay a
+give-up, never prevent it.) That "a waiter ahead left" means the queue moved. A waiter ahead that GIVES UP also leaves, so behind a hung suite each
 waiter in turn spends one full bound (45 min) at the front before giving up. That is slower than the old 20 minutes
 for the waiters behind a hung suite, and it is the price of not giving up on a healthy long queue.
 
@@ -130,3 +131,17 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   sleeps 1 s. Control: a re-mark that takes a NEW time reds it.
 - (N, taken) the plan no longer says the refusal uses head -1.
 - (N, left) bstart uses the wait clock and ts the real one: ts is only a queue position, never a duration.
+
+## Review iteration 9 (blind, opus)
+0 BLOCKER, 2 WARNING, both taken:
+- (W) ending a queued wait rested on the restart heuristic, and ps -o lstart prints in the READER's zone and locale
+  (measured: Chicago, UTC and fr_FR all differ): a waiter in another zone or locale deleted a live marker every poll,
+  its owner re-marked it every pass, and everyone behind saw endless falls. Two fixes: (1) the start time is written
+  in UTC and the C locale; a marker written the older way (local) still matches, since worktrees on older copies of
+  this lib run alongside; (2) a hard ceiling, KOSMOS_WAIT_QUEUE_CEIL_S (default four bounds, 3 hours), ends any queued
+  wait whatever the heuristic says.
+- (W) behind a hung suite the Nth waiter held about N x 45 min (8 waiters: about 6 hours): the ceiling caps it.
+- (N, taken) the entry clear of a recycled-pid marker is tested; the first notice states the rule and the ceiling.
+- Controls, one per mechanism: unpinned lstart reds the zone arm; no ceiling reds the ceiling arm (it started at call
+  10); no entry clear reds the recycled-pid arm. The four arms not about the ceiling set it high explicitly (the
+  wall-clock arm's fake clock passed the default 240 s ceiling that a 60 s bound gives).
