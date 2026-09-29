@@ -24,8 +24,10 @@ Card: kosmos#4631 (Josh, 2026-09-29 14:42; Splinter's calls on the card).
   courtesy; each caller still checks the room.
 - **The reference always names the room** ("message 530 in Kosmos Growth"). The card said "when it isn't the
   current one", but the page cannot know where it will be pasted, and the words are harmless when redundant.
-- **A DM row has no number** (the person's thread is keyed by time), so it copies "April's message to me at
-  2:31 PM on Sep 29" / "my message to April at ...": the natural-language form Josh preferred.
+- **A DM row has no number today** (the person's thread is keyed by time), so it copies "April's message to me
+  at 2:31 PM on Sep 29" / "my message to April at ...": the natural-language form Josh preferred. The page
+  still handles a DM row that carries an id ("message N in my conversation with April"), because dmRow already
+  passes m.id to the bar; that path is pinned by R6b rather than left to go wrong silently.
 - **Ctrl-click:** on a Mac the system turns ctrl-click into a right-click, so the page handles `contextmenu`
   and leaves the Mac ctrl-click alone (else two menus). On Windows ctrl-click on message text does nothing
   today (checked: no handler in the page uses it on a message), so the page opens the menu from it.
@@ -36,6 +38,12 @@ Card: kosmos#4631 (Josh, 2026-09-29 14:42; Splinter's calls on the card).
   stays last (#4358). On a touchscreen it is the icon alone at --room-tap, and the open bar is shifted back
   inside the thread (rxnKeepInsideX), because the wider bar ran off a phone thread's edge.
 - **The envelope agents read still carries the id** (it needs it for commands). Not reworded here.
+
+## Accepted risk
+
+- **A bare number now names a message.** "530" resolving is what the card asks for; the cost is that a stray number
+  (a year, a count) reaches a real post. Bounded: every caller still checks the post is in the room it expects, so
+  it can only land on a post in the same room. "#530" is NOT accepted, because "#4631" is how a card is written.
 
 ## Rejected
 
