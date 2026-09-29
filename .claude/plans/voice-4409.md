@@ -77,6 +77,19 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
 - Full validation v0 (after convergence) was red on ONE test, mine: fixture-discipline forbids a hand-built agent card,
   and the voice harness set CURRENT to { sessionName }. The harness now takes REAL cards from test-support/fleet
   (sandboxed data root). The view-check mutation still reds 3 tests with real cards.
+- The #2518 browser-check SURFACE gate was red on v1 (masked in v0 by the fixture red). Running its checks alone
+  found a real defect it named, render-room-msgbox-2806, mine: read aloud made an agent's reaction bar six buttons,
+  and at 375px it ran 49..336px in a 297px thread, so Reply was off the edge and took no tap (main fit by about a
+  pixel). Fixed (e19a4193a): pjRxnFitWidth caps the bar at the thread's width and slides it inside, on the tap and
+  focus paths; the touch CSS lets it wrap only when the thread is narrower than the bar; the check counts SHOWN
+  buttons (5, plus 1 with read aloud). The other 16 checks the gate names ran alone on e19a4193a, all clean, and
+  carry per-check Browser-check-surface trailers (c52c5d4f6). render-no-conflict-3729 red twice here is NOT this
+  branch: one tree hash passed at 03:52 and failed at 04:07 (filed #4520).
+- Review iteration 10 (a blind review of the width fix): 0 BLOCKER, 1 WARNING (the phone arms would pass on the
+  narrow bar if read aloud stopped showing; a precondition now pins want === 6), plus the focus arm's full count, no
+  inline style left after focusout, the thread's inner box, the fit after the early close, and a refit of a
+  focus-opened bar on resize (b92cb2e99). ACCEPTED: no arm pins that the shifted bar stays near its post (the fit
+  moves only by the overflow). Each new guard reds under its mutation; the six bar checks ran clean on b92cb2e99.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
