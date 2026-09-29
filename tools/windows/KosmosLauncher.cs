@@ -573,13 +573,15 @@ class KosmosLauncher
     // ---- a board that listens but does not answer (#4543) ---------------------
 
     // How long the board's /api/status gets to answer before a board holding the port counts as
-    // stuck: 10 s. A board that is only busy answers /api/status in well under a second (it is the
-    // page's own 5 s poll, and the route the window's badge reads with an 8 s budget, see
-    // TaskbarBadge); the hand-off in server.js already reads 2 s of silence as "nobody there". A
-    // wait of 10 s is five of those, so a board that is slow but alive is left alone, while a person
-    // who reopened Kosmos because it stalled waits seconds, not the minutes Josh's stall ran to on
-    // 09-26. The page's restart screen (the web half of the card) waits longer than this before it
-    // says anything, so by the time a person follows its advice this bound has long passed.
+    // stuck: 10 s. MEASURED on the Windows box 2026-09-29, unauthenticated as this ask is: a cold
+    // boot of a throwaway board answered 25 to 45 ms after its port first accepted (6 runs; the port
+    // accepted 220 to 393 ms after start), and its slowest answer over the next 5 s was 8 ms; the
+    // live fleet's board, busy, answered 20 asks in at most 686 ms. The hand-off in server.js already
+    // reads 2 s of silence as "nobody there". So 10 s is more than ten times the slowest answer seen,
+    // a board that is slow but alive is left alone, and a person who reopened Kosmos because it
+    // stalled waits seconds, not the minutes Josh's stall ran to on 09-26. The page itself cannot yet
+    // say the board is stuck (its status poll has no timeout until the web half of the card lands),
+    // so today this bound is what a person meets when they reopen Kosmos because it stalled.
     internal const int StuckAfterMs = 10000;
 
     // How long the ask may run before the person is shown a working window. A board that answers
@@ -602,26 +604,37 @@ class KosmosLauncher
     // Pinned equal by the same test.
     internal const string BoardBootFileName = "board-boot.js";
 
+    // engine/win32anchor.js POINTER_NAME: the file beside the anchored node.exe that names the engine
+    // the logon task runs. The real anchored runtime on the Windows box holds node.exe, board-boot.js,
+    // engine-path and supervisor-boot.js (read 2026-09-29); a board is recognised by the first three.
+    // Pinned equal by the same test.
+    internal const string EnginePointerFileName = "engine-path";
+
     // One schtasks or taskkill call's limit, engine/win32board.js's order: a call that hangs must
     // not hold the launch for ever.
     const int SchtasksTimeoutMs = 20000;
 
+    // After a refused connection, how long before asking again (see AskBoardWithin).
+    const int ReaskAfterRefusalMs = 500;
+
     const string StuckBoardMessage =
         "Kosmos is not answering. If it stays stuck, Kosmos restarts it for you. This takes a few seconds.";
 
-    internal enum BoardAnswer { Answered, NoAnswer, CouldNotAsk }
+    internal enum BoardAnswer { Answered, NoAnswer, Refused, CouldNotAsk }
 
     // What ReplaceBoardIfStuck found and did. Only Replaced and StillHeld changed anything.
     internal enum StuckBoardOutcome { NothingListening, CouldNotReadListeners, Answered, CouldNotAsk, NotKosmos, Replaced, StillHeld }
 
     // One ask of /api/status. ANY answer counts, a refusal too: 401, 403 and 500 are a board that
-    // is alive and speaking, and a board that is alive is not this code's to end. Only a request
-    // that ran out of time with nothing back is NoAnswer: a frozen process's listening socket still
-    // accepts the connection (the kernel does that), and then nothing comes. A refused connection,
-    // a reset, anything else is CouldNotAsk, which is never read as stuck (measured: .NET hears a
-    // refused loopback port after about 2 s, as the SYN is retried, well inside StuckAfterMs; and
-    // the ask is made only when the TCP table shows a listener). No token is sent: a refusal is
-    // already an answer.
+    // is alive and speaking, and a board that is alive is not this code's to end. A request that ran
+    // out of time with nothing back is NoAnswer: a frozen process's listening socket still accepts
+    // the connection (the kernel does that), and then nothing comes. A refused connection is Refused
+    // (see AskBoardWithin for when that can be a frozen board). A reset, anything else is
+    // CouldNotAsk, which is never read as stuck. No token is sent: a refusal is already an answer.
+    // ⚠️ ONLY 127.0.0.1 IS ASKED, never ::1 or KOSMOS_BIND_HOST. The board binds 127.0.0.1 unless told
+    // otherwise, and the opener asks there too. A board bound elsewhere is refused here (or has no
+    // listener on the port this reads), so it reads as CouldNotAsk or Refused-without-a-listener and
+    // is left alone: the error is on the side of doing nothing.
     internal static BoardAnswer AskBoard(int port, int timeoutMs)
     {
         try
@@ -637,13 +650,40 @@ class KosmosLauncher
         catch (System.Net.WebException e)
         {
             if (e.Response != null) { try { e.Response.Close(); } catch { /* the answer is what counted */ } return BoardAnswer.Answered; }
-            return e.Status == System.Net.WebExceptionStatus.Timeout ? BoardAnswer.NoAnswer : BoardAnswer.CouldNotAsk;
+            if (e.Status == System.Net.WebExceptionStatus.Timeout) return BoardAnswer.NoAnswer;
+            return e.Status == System.Net.WebExceptionStatus.ConnectFailure ? BoardAnswer.Refused : BoardAnswer.CouldNotAsk;
         }
         catch { return BoardAnswer.CouldNotAsk; }
     }
 
+    // 🛑 A FROZEN BOARD CAN REFUSE, NOT ONLY TIME OUT, measured on the Windows box 2026-09-29: a
+    // listener frozen with NtSuspendProcess took 232 of 600 connections into its backlog and Windows
+    // refused the other 368; AskBoard then read Refused (after about 2 s, as .NET retries the SYN).
+    // A board frozen for minutes, with a page polling it every 5 s, gets there. So a refusal is not
+    // "nobody there" while the TCP table still shows the board listening. But a refusal is also
+    // quick, so it is asked again until the bound is spent: only a board that gave no answer at all
+    // for the WHOLE bound, refusing or timing out, is stuck. Any answer in that time is Answered; a
+    // failure of another kind is CouldNotAsk. The caller still requires the port to be held, after
+    // the wait, by Kosmos boards of this user before anything is ended.
+    internal static BoardAnswer AskBoardWithin(int port, int boundMs)
+    {
+        Stopwatch asked = Stopwatch.StartNew();
+        bool refused = false;
+        while (true)
+        {
+            int left = boundMs - (int)asked.ElapsedMilliseconds;
+            if (left <= 0) return refused ? BoardAnswer.Refused : BoardAnswer.NoAnswer;
+            BoardAnswer answer = AskBoard(port, left);
+            if (answer == BoardAnswer.Answered || answer == BoardAnswer.CouldNotAsk) return answer;
+            if (answer == BoardAnswer.NoAnswer) return refused ? BoardAnswer.Refused : BoardAnswer.NoAnswer;
+            refused = true;
+            Thread.Sleep(Math.Max(0, Math.Min(ReaskAfterRefusalMs, boundMs - (int)asked.ElapsedMilliseconds)));
+        }
+    }
+
     // Every process listening on this TCP port, over IPv4 or IPv6, or null when neither table could
-    // be read. Never throws, for ListenerStateOf's reason.
+    // be read. Never throws, for ListenerStateOf's reason. The table is the whole machine's, every
+    // user's: what is found here is only a candidate until IsKosmosBoard has looked at its owner.
     internal static List<int> ListenersOnPort(int port)
     {
         try
@@ -664,30 +704,94 @@ class KosmosLauncher
         if (!found.Contains(pid)) found.Add(pid);
     }
 
-    // Is this process a Kosmos board? Only a Kosmos board is ever ended here: another program that
-    // happens to hold the port and not speak HTTP is somebody else's. A board is a node.exe that is
-    // either the logon task's (the anchored runtime, with BoardBootFileName beside it) or a build's
-    // own (runtime\node.exe, with app\server.js beside its folder, as this launcher starts it). A
-    // process whose image cannot be read (another user's, or gone) is not ours. internal and
-    // replaceable only so a test's probe can stand in a listener of its own; the launcher never
-    // replaces it.
-    internal static Func<int, bool> isKosmosBoardProcess = IsKosmosBoardImage;
+    // 🛑 A PROCESS IS HELD OPEN FROM THE MOMENT IT IS JUDGED UNTIL IT IS ENDED. A process id is only a
+    // number, and Windows gives an ended process's number to the next process that starts. A handle
+    // held open keeps the number from being reused, so the process judged a stuck Kosmos board is
+    // the one `taskkill` and TerminateProcess reach, however long `/End` and the waits take. The
+    // access asked for is what the judging and the ending need, and no more.
+    internal sealed class HeldProcess : IDisposable
+    {
+        internal readonly int Id;
+        internal IntPtr Handle;
+        HeldProcess(int id, IntPtr handle) { Id = id; Handle = handle; }
 
-    internal static bool IsKosmosBoardImage(int processId)
+        // Null when the process cannot be opened (gone, or not ours to end): not a board to end.
+        internal static HeldProcess Open(int processId)
+        {
+            IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, false, processId);
+            return handle == IntPtr.Zero ? null : new HeldProcess(processId, handle);
+        }
+
+        internal bool HasExited { get { return WaitForSingleObject(Handle, 0) == WAIT_OBJECT_0; } }
+
+        public void Dispose()
+        {
+            if (Handle != IntPtr.Zero) { CloseHandle(Handle); Handle = IntPtr.Zero; }
+        }
+    }
+
+    // Is this held process a Kosmos board of THIS user, in THIS session? Only such a board is ever
+    // ended here. internal and replaceable only so a test's probe can stand in listeners of its own;
+    // the launcher never replaces it.
+    internal static Func<HeldProcess, bool> isKosmosBoardProcess = IsKosmosBoard;
+
+    internal static bool IsKosmosBoard(HeldProcess process)
+    {
+        return process != null && IsKosmosBoardImage(ProcessImagePath(process.Handle)) && ownedByThisUser(process);
+    }
+
+    // A Kosmos board's executable: a node.exe that is either the logon task's (the anchored runtime,
+    // with BoardBootFileName and EnginePointerFileName beside it) or a build's own (runtime\node.exe,
+    // with app\server.js and manifest.json in the build folder above it, as this launcher starts it;
+    // ManifestFileName is the same marker IsKosmosBuild reads).
+    // Another program that happens to hold the port and not speak HTTP is somebody else's.
+    internal static bool IsKosmosBoardImage(string image)
     {
         try
         {
-            string image = ProcessImagePath(processId);
             if (image == null || !string.Equals(Path.GetFileName(image), "node.exe", StringComparison.OrdinalIgnoreCase)) return false;
             string runtime = Path.GetDirectoryName(image);
-            if (File.Exists(Path.Combine(runtime, BoardBootFileName))) return true;
+            if (File.Exists(Path.Combine(runtime, BoardBootFileName)) && File.Exists(Path.Combine(runtime, EnginePointerFileName))) return true;
             string build = Path.GetDirectoryName(runtime);
-            return build != null && File.Exists(Path.Combine(build, "app\\server.js"));
+            return build != null && File.Exists(Path.Combine(build, "app\\server.js")) && File.Exists(Path.Combine(build, ManifestFileName));
         }
         catch { return false; }
     }
 
+    // 🛑 THE TCP TABLE IS THE WHOLE MACHINE'S. Run as an administrator, this launcher can open (and
+    // taskkill /F can end) another user's node.exe, and another person's Kosmos board on a shared PC
+    // is theirs, stuck or not. So the owner must be this process's own user (the token's SID) in
+    // this process's own session; an owner that cannot be read is not ours. A seam, like
+    // isKosmosBoardProcess, only so a test can play a second user it cannot create.
+    internal static Func<HeldProcess, bool> ownedByThisUser = OwnedByThisUser;
+
+    internal static bool OwnedByThisUser(HeldProcess process)
+    {
+        try
+        {
+            uint theirs, ours;
+            if (!ProcessIdToSessionId((uint)process.Id, out theirs) || !ProcessIdToSessionId((uint)Process.GetCurrentProcess().Id, out ours)) return false;
+            if (theirs != ours) return false;
+            IntPtr token;
+            if (!OpenProcessToken(process.Handle, TOKEN_QUERY, out token)) return false;
+            try
+            {
+                using (System.Security.Principal.WindowsIdentity owner = new System.Security.Principal.WindowsIdentity(token))
+                using (System.Security.Principal.WindowsIdentity me = System.Security.Principal.WindowsIdentity.GetCurrent())
+                {
+                    return owner.User != null && owner.User.Equals(me.User);
+                }
+            }
+            finally { CloseHandle(token); }
+        }
+        catch { return false; }
+    }
+
+    const uint PROCESS_TERMINATE = 0x0001;
     const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const uint SYNCHRONIZE = 0x00100000;
+    const uint TOKEN_QUERY = 0x0008;
+    const uint WAIT_OBJECT_0 = 0;
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
@@ -698,59 +802,63 @@ class KosmosLauncher
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool CloseHandle(IntPtr handle);
 
-    // The process's executable path, or null. PROCESS_QUERY_LIMITED_INFORMATION works on a
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    // The held process's executable path, or null. PROCESS_QUERY_LIMITED_INFORMATION works on a
     // suspended process, which is exactly the one being asked about.
-    static string ProcessImagePath(int processId)
+    static string ProcessImagePath(IntPtr process)
     {
-        IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-        if (process == IntPtr.Zero) return null;
         try
         {
             StringBuilder name = new StringBuilder(1024);
             int size = name.Capacity;
             return QueryFullProcessImageNameW(process, 0, name, ref size) ? name.ToString(0, size) : null;
         }
-        finally { CloseHandle(process); }
+        catch { return null; }
     }
 
     // 🛑 #4543: THE BOARD IS RUNNING BUT NOT ANSWERING, AND REOPENING KOSMOS USED TO LEAVE IT SO.
     // The hand-off only knows "a board answers" and "nobody answers". A frozen board is neither: its
     // process still owns the port, the logon task is still running (so `/Run` starts nothing), and
     // the window opens onto it. So, before the hand-off: if the port is held and /api/status gives
-    // no answer at all inside `stuckAfterMs`, and every process holding it is a Kosmos board, the
-    // board is replaced: `/End` the logon task (when this port is the task's, `taskName`), and if a
-    // listener survives that, end its process tree, as KeepBoardUntilPersonStopsIt ends a board.
-    // Then `/Run` the task, so the board comes back even if this launch goes no further; the
-    // hand-off then finds it (or starts it) as on any launch. A board that answers inside the
-    // bound, however slowly and whatever it answers, is left alone, and so is anything that is not
-    // a Kosmos board. Never throws: this runs before the person's board is started, and a crash
-    // here would take the launch with it.
+    // no answer at all inside `stuckAfterMs` (AskBoardWithin), and every process holding it AFTER
+    // that wait is a Kosmos board of this user, held open from then on (HeldProcess), the board is
+    // replaced: `/End` the logon task (when this port is the task's, `taskName`), and if a listener
+    // survives that, end its process tree, as KeepBoardUntilPersonStopsIt ends a board. Then `/Run`
+    // the task, so the board comes back even if this launch goes no further; the hand-off then
+    // finds it (or starts it) as on any launch. A board that answers inside the bound, however
+    // slowly and whatever it answers, is left alone, and so is anything that is not a Kosmos board
+    // of this user. Never throws: this runs before the person's board is started, and a crash here
+    // would take the launch with it.
     internal static StuckBoardOutcome ReplaceBoardIfStuck(int port, string taskName, int stuckAfterMs)
     {
         try
         {
-            List<int> held = ListenersOnPort(port);
-            if (held == null) return StuckBoardOutcome.CouldNotReadListeners;
-            if (held.Count == 0) return StuckBoardOutcome.NothingListening;
+            List<int> before = ListenersOnPort(port);
+            if (before == null) return StuckBoardOutcome.CouldNotReadListeners;
+            if (before.Count == 0) return StuckBoardOutcome.NothingListening;
 
             // The ask runs on its own thread so a board that answers at once shows nothing, and one
             // that does not gets the working window for the rest of the bound, not a silent wait.
             BoardAnswer answer = BoardAnswer.CouldNotAsk;
-            Thread asking = new Thread(() => { answer = AskBoard(port, stuckAfterMs); });
+            Thread asking = new Thread(() => { answer = AskBoardWithin(port, stuckAfterMs); });
             asking.IsBackground = true;
             asking.Start();
             StuckBoardOutcome outcome = StuckBoardOutcome.CouldNotAsk;
             Action decide = () =>
             {
                 asking.Join();
-                if (answer == BoardAnswer.Answered) { outcome = StuckBoardOutcome.Answered; return; }
-                if (answer != BoardAnswer.NoAnswer) { outcome = StuckBoardOutcome.CouldNotAsk; return; }
-                // Read again after the wait: a board can go, or another take its place, while it ran.
-                List<int> stillHeld = ListenersOnPort(port);
-                if (stillHeld == null) { outcome = StuckBoardOutcome.CouldNotReadListeners; return; }
-                if (stillHeld.Count == 0) { outcome = StuckBoardOutcome.NothingListening; return; }
-                if (!stillHeld.TrueForAll(pid => isKosmosBoardProcess(pid))) { outcome = StuckBoardOutcome.NotKosmos; return; }
-                outcome = ReplaceStuckBoard(port, taskName, stillHeld);
+                outcome = DecideAfterTheWait(port, taskName, answer);
             };
             if (asking.Join(QuietAskMs)) decide();
             else ShowWorkingWhile(StuckBoardMessage, decide);
@@ -759,19 +867,51 @@ class KosmosLauncher
         catch { return StuckBoardOutcome.CouldNotAsk; }
     }
 
-    static StuckBoardOutcome ReplaceStuckBoard(int port, string taskName, List<int> stuck)
+    // Everything after the ask, which has already spent its bound. Only NoAnswer and Refused go on;
+    // the listeners are read HERE, after the wait, not before it: a board can go, or another take
+    // its place, while the ask ran.
+    static StuckBoardOutcome DecideAfterTheWait(int port, string taskName, BoardAnswer answer)
+    {
+        if (answer == BoardAnswer.Answered) return StuckBoardOutcome.Answered;
+        if (answer != BoardAnswer.NoAnswer && answer != BoardAnswer.Refused) return StuckBoardOutcome.CouldNotAsk;
+        List<int> after = ListenersOnPort(port);
+        if (after == null) return StuckBoardOutcome.CouldNotReadListeners;
+        if (after.Count == 0) return StuckBoardOutcome.NothingListening;
+        List<HeldProcess> held = new List<HeldProcess>();
+        try
+        {
+            foreach (int pid in after)
+            {
+                HeldProcess process = HeldProcess.Open(pid);
+                if (process == null) return StuckBoardOutcome.NotKosmos;
+                held.Add(process);
+            }
+            // Read once more with every handle held: a number that was let go and given to another
+            // process between the read and the open no longer names the listener, and is dropped.
+            List<int> listening = ListenersOnPort(port);
+            if (listening == null) return StuckBoardOutcome.CouldNotReadListeners;
+            held.RemoveAll(p => { if (listening.Contains(p.Id)) return false; p.Dispose(); return true; });
+            if (held.Count == 0) return StuckBoardOutcome.NothingListening;
+            if (!held.TrueForAll(p => isKosmosBoardProcess(p))) return StuckBoardOutcome.NotKosmos;
+            return ReplaceStuckBoard(port, taskName, held);
+        }
+        finally { foreach (HeldProcess p in held) p.Dispose(); }
+    }
+
+    static StuckBoardOutcome ReplaceStuckBoard(int port, string taskName, List<HeldProcess> stuck)
     {
         if (taskName != null)
         {
             RunSchtasks("/End /TN " + QuoteArgument(taskName));
             WaitForPortRelease(port, stuck);
         }
-        // The board outlived `/End` (a board a launcher served, or a task process that left its
-        // board behind), so it is ended the way the running-here box ends one: its whole tree.
-        List<int> survivors = StillListening(port, stuck);
+        // The board outlived `/End` (measured: a frozen task board does, as `/End` ends only its
+        // conhost; or it is a board a launcher served), so it is ended the way the running-here box
+        // ends one: its whole tree.
+        List<HeldProcess> survivors = StillListening(port, stuck);
         if (survivors.Count > 0)
         {
-            foreach (int pid in survivors) EndProcessTree(pid);
+            foreach (HeldProcess board in survivors) EndProcessTree(board);
             WaitForPortRelease(port, stuck);
         }
         bool released = StillListening(port, stuck).Count == 0;
@@ -779,33 +919,37 @@ class KosmosLauncher
         return released ? StuckBoardOutcome.Replaced : StuckBoardOutcome.StillHeld;
     }
 
-    // Which of these processes still listen on the port. An unreadable table counts them all as
+    // Which of these held processes still listen on the port. An unreadable table counts them all as
     // still there: only a read that shows the port let go is proof.
-    static List<int> StillListening(int port, List<int> processIds)
+    static List<HeldProcess> StillListening(int port, List<HeldProcess> processes)
     {
         List<int> now = ListenersOnPort(port);
-        if (now == null) return new List<int>(processIds);
-        return processIds.FindAll(pid => now.Contains(pid));
+        if (now == null) return new List<HeldProcess>(processes);
+        return processes.FindAll(p => now.Contains(p.Id));
     }
 
-    static void WaitForPortRelease(int port, List<int> processIds)
+    static void WaitForPortRelease(int port, List<HeldProcess> processes)
     {
         Stopwatch waited = Stopwatch.StartNew();
-        while (StillListening(port, processIds).Count > 0 && waited.ElapsedMilliseconds < PortReleaseWaitMs) Thread.Sleep(PortReleasePollMs);
+        while (StillListening(port, processes).Count > 0 && waited.ElapsedMilliseconds < PortReleaseWaitMs) Thread.Sleep(PortReleasePollMs);
     }
 
-    static void EndProcessTree(int processId)
+    // The board and everything still descended from it. Its handle is held (HeldProcess), so the id
+    // `taskkill` is given is still this board's, and it is judged once more just before, on that same
+    // handle. The fallback ends it through the handle, never by looking the number up again.
+    static void EndProcessTree(HeldProcess board)
     {
+        if (board.HasExited || !isKosmosBoardProcess(board)) return;
         try
         {
-            ProcessStartInfo stop = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + processId + " /T /F");
+            ProcessStartInfo stop = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + board.Id + " /T /F");
             stop.UseShellExecute = false;
             stop.CreateNoWindow = true;
             using (Process taskkill = Process.Start(stop)) { taskkill.WaitForExit(SchtasksTimeoutMs); }
         }
         catch { /* fall through to ending the board itself */ }
-        try { using (Process board = Process.GetProcessById(processId)) { if (!board.HasExited) board.Kill(); } }
-        catch { /* it ended between the check and the kill */ }
+        try { if (!board.HasExited) TerminateProcess(board.Handle, 1); }
+        catch { /* it ended between the check and the end */ }
     }
 
     // schtasks inside SchtasksTimeoutMs, with no window. Its output is not redirected (a GUI launch

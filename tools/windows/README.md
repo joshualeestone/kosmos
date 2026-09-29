@@ -41,14 +41,17 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   ends first.
 - **A stuck board is replaced, not reopened (#4543).** Before it hands off, a launch by a
   person at the desktop checks the board's port. If something holds it and `/api/status`
-  gives no answer at all within 10 s, and what holds it is a Kosmos board (a `node.exe` in a
-  build's `runtime` folder, or beside the logon task's `board-boot.js`), the launcher ends the
-  `Kosmosoard` task, ends the listener's process tree if it outlives that (measured: a
-  frozen board survives `schtasks /End`, which ends only its `conhost`), and runs the task
-  again. Any answer, a 401, 403 or 500 included, is a board that is alive and is left alone,
-  as is anything that is not a Kosmos board. A launch that sets `PORT` never touches the
-  task, only a stuck Kosmos board on its own port. `--console` and a launch with nobody at
-  the desktop do not check.
+  (asked on 127.0.0.1 only) gives no answer at all within 10 s, timing out or refusing the
+  whole time (a board frozen long enough fills its backlog, and then Windows refuses), and
+  what holds it after that wait is a Kosmos board of this user in this session (a `node.exe`
+  in a build's `runtime` folder, with `app\server.js` and `manifest.json` in the build, or
+  beside the logon task's `board-boot.js` and `engine-path`), the launcher holds that process
+  open, ends the `Kosmos\board` task, ends the listener's process tree if it outlives that
+  (measured: a frozen board survives `schtasks /End`, which ends only its `conhost`), and runs
+  the task again. Any answer, a 401, 403 or 500 included, is a board that is alive and is left
+  alone, as is anything that is not a Kosmos board of this user. A launch that sets `PORT`
+  never touches the task, only a stuck Kosmos board on its own port. `--console` and a launch
+  with nobody at the desktop do not check.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
   inside the zip in Explorer, which runs it from a temp folder with no
