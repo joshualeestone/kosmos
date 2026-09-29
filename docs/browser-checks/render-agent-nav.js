@@ -283,6 +283,26 @@ function chk(ok, label, extra) {
           msg: document.getElementById('d-skills-msg').textContent }));
         chk(late3.who === 'casey' && !late3.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Remove on April's page reloads nothing onto Casey's page`, JSON.stringify(late3));
         await page.unroute(aprilSkills + '/*');
+        /* And a slow Add: April's POST answers after the person has moved to Casey's Profile. Nothing it
+           writes (its "Adding…", its "Added. April…") may be left on Casey's page, nor April's draft. */
+        let release4; const gate4 = new Promise((res) => { release4 = res; });
+        await page.route(aprilSkills, async (route) => {
+          if (route.request().method() !== 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill });
+          await gate4; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+        await page.evaluate(() => openDetail('april', 'profile'));
+        await page.waitForTimeout(300);
+        await page.fill('#d-skill-name', 'april-draft');
+        await page.fill('#d-skill-body', 'A skill for April only.');
+        await page.click('#d-skill-add');
+        await page.waitForTimeout(150);
+        await page.evaluate(() => openDetail('casey', 'profile'));
+        await page.waitForTimeout(500);
+        release4();
+        await page.waitForTimeout(600);
+        const late4 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, add: document.getElementById('d-skill-add-msg').textContent,
+          name: document.getElementById('d-skill-name').value, list: document.getElementById('d-skills-list').textContent }));
+        chk(late4.who === 'casey' && late4.add === '' && late4.name === '' && !late4.list.includes('APRIL-ONLY-SKILL'),
+          `[${theme}] a slow Add on April's page leaves nothing on Casey's page (no "Adding", no April sentence, no draft)`, JSON.stringify(late4));
         await page.unroute(aprilSkills);
         await page.evaluate(() => openDetail('april'));
         await page.waitForTimeout(300);

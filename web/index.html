@@ -34302,6 +34302,10 @@ function openDetail(sessionName, section, fromProject) {
      agent just left paints nothing even when this open lands on Talk (no load of its own to supersede it). */
   { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = '';
     const sm = document.getElementById('d-skills-msg'); if (sm) sm.textContent = '';
+    /* The Add form belongs to the agent too: its message ("Adding…" whose answer is now another
+       agent's) and a half-typed skill must not follow the person to the next agent. */
+    const am = document.getElementById('d-skill-add-msg'); if (am) am.textContent = '';
+    for (const id of ['d-skill-name', 'd-skill-body']) { const f = document.getElementById(id); if (f) f.value = ''; }
     SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
