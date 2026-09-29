@@ -167,6 +167,8 @@ test('a held comment can be surfaced and released; a comment release does NOT cr
   // It is NOT in the post queue, but IS in the comment queue (no longer a dead end).
   assert.equal(cs.moderationQueue({ kind: 'post', limit: 500 }).some((r) => r.id === held.id), false);
   assert.equal(cs.moderationQueue({ kind: 'comment', limit: 500 }).some((r) => r.id === held.id), true);
+  assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).find((r) => r.id === held.id).entry, 'comment', '#4525: a queue row says it is a comment');
+  assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).find((r) => r.entry === 'post' && r.status === 'held') !== undefined, true, '#4525: and a post says it is a post');
   assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).some((r) => r.id === held.id), true);
   assert.equal(cs.getComments(p.id).some((c) => c.id === held.id), false, 'held comment not public yet');
 
@@ -183,6 +185,41 @@ test('releaseHeld refuses a quarantined row (scrubber hits are not a quiet overr
     status: 'quarantined', findings: [{ field: 'body', kind: 'secret' }] });
   assert.throws(() => cs.releaseHeld(quar.id), /only a held post/);
   assert.throws(() => cs.releaseHeld('no-such-id'), /no such held post or comment/);
+});
+
+test('#4525 discardHeld removes a held or quarantined post (with its comments) and credits nobody', () => {
+  const held = cs.insertPost({ kind: 'community_post', agent: 'Tosser', at: 'x', body: 'not this one', status: 'held' });
+  const quar = cs.insertPost({ kind: 'community_post', agent: 'Tosser', at: 'x', body: 'b',
+    status: 'quarantined', findings: [{ cls: 'email', field: 'body', why: 'email address (PII)' }] });
+  const under = cs.insertComment({ postId: held.id, agent: 'x', at: 'x', body: 'on the held post', status: 'held' });
+  const before = cs.trustRecord('Tosser');
+  assert.equal(cs.discardHeld(held.id).id, held.id);
+  assert.equal(cs.discardHeld(quar.id).id, quar.id, 'a quarantined row can be discarded, only not released');
+  const queue = cs.moderationQueue({ limit: 500 }).map((r) => r.id);
+  assert.ok(!queue.includes(held.id) && !queue.includes(quar.id), 'discarded posts leave the queue');
+  assert.ok(!queue.includes(under.id), 'a comment under a discarded post goes with it');
+  assert.deepEqual(cs.trustRecord('Tosser'), before, 'a discard neither credits nor demotes');
+  assert.throws(() => cs.discardHeld(held.id), /no such held post or comment/, 'cannot discard twice');
+});
+
+test('#4525 discardHeld takes a post\'s PUBLISHED comments too (the Discard ask says any comments go with it)', () => {
+  const held = cs.insertPost({ kind: 'community_post', agent: 'Tosser2', at: 'x', body: 'waiting', status: 'held' });
+  const pubc = cs.insertComment({ postId: held.id, agent: 'x', at: 'x', body: 'released early', status: 'published' });
+  cs.discardHeld(held.id);
+  const commentsFile = cs._paths.commentsFile();
+  const left = JSON.parse(require('node:fs').readFileSync(commentsFile, 'utf8')).map((c) => c.id);
+  assert.ok(!left.includes(pubc.id), 'a published comment under the discarded post was left behind');
+});
+
+test('#4525 discardHeld removes a held comment and refuses a published row', () => {
+  const p = pub({ agent: 'Host2', body: 'host post' });
+  const c = cs.insertComment({ postId: p.id, agent: 'Commenter2', at: 'x', body: 'held comment', status: 'held' });
+  assert.equal(cs.discardHeld(c.id).id, c.id);
+  assert.equal(cs.moderationQueue({ kind: 'comment', limit: 500 }).some((r) => r.id === c.id), false);
+  assert.throws(() => cs.discardHeld(p.id), /only a held or stopped post/, 'a published post is not the queue\'s to discard');
+  const live = cs.insertComment({ postId: p.id, agent: 'x', at: 'x', body: 'live', status: 'published' });
+  assert.throws(() => cs.discardHeld(live.id), /only a held or stopped comment/);
+  assert.ok(cs.publicFeed({ limit: 500 }).some((r) => r.id === p.id), 'the refused discard left the post public');
 });
 
 test('an invalid status is rejected (no silent bad row)', () => {

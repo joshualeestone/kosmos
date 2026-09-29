@@ -3838,7 +3838,8 @@ const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/
 // the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
 // its own set because the reason differs (a public product surface, not the
 // post-switch lockout fix). The community MODERATION routes (GET
-// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// /api/community/moderation, POST /api/community/release, #4525's POST
+// /api/community/discard) are deliberately NOT
 // here: they expose held/quarantined content + findings and stay board-token
 // gated as the moderator surface.
 const PUBLIC_COMMUNITY_ROUTES = new Set([
@@ -4217,11 +4218,44 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'release requires an id' });
           return;
         }
+        /* #4525: releasing is how an agent climbs the trust ladder, and an agent's own CLI can read
+           the board token, so the board token alone would let an agent release its own posts. This
+           is the screen check the other person-only Settings writes use: it refuses an agent token
+           and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
+           real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
-          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason. #4525: a failure that
+          // carries a system code (the store's file write failed) is not the request's fault and its
+          // message can name a file path: a 500 in plain words instead.
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  // #4525: discard a held or quarantined post/comment, the other half of the person's
+  // "Waiting for you" list, board-token gated above exactly like release.
+  if (pathname === '/api/community/discard' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'discard requires an id' });
+          return;
+        }
+        // The same screen check as release: an agent must not discard another agent's post or a stopped one.
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can discard this, from Settings' }); return; }
+        try {
+          sendJson(res, 200, { discarded: communitysite.discard(body.id) });
+        } catch (e) {
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }   // as release, above
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not discard' });
         }
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
