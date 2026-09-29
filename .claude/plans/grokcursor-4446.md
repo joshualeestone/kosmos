@@ -30,3 +30,9 @@ Found by Angel on #4446: Grok still reads ~/.cursor/rules/*.md by default (GROK_
 - **NIT** The cursor cells also stop a project's own `<cwd>/.cursor` rules and mcp.json, the same trade #4426 made for `<dir>/.claude`. Now said.
 - **NIT** win32keyed.js turnEnv, groksettings.js and create.js described only claude-compat. Updated.
 - **NIT** hooks '0' vs 'false' is now explained (#3391 shipped '0' and measured it; the later cells use the documented 'false').
+
+## Review round 2 (sonnet, blind): 1 BLOCKER, and it was mine, from my own mutation script
+- **BLOCKER** The committed supervisor lacked `GROK_CURSOR_RULES_ENABLED=false`, so create.test.js failed on HEAD.
+- **How it happened:** after round 1's comment edits I ran my test script (which also runs mutants) piped into `head -4`. Mutant M1 deletes exactly that flag and restores the file after. When head exited, the script was killed by the closed pipe after the mutant was applied but before the restore. I then committed the mutated file with the comment changes.
+- **Fixed:** bin/agent-supervisor.sh restored byte-for-byte from the validated commit 0031b64b (round 1 intended no supervisor change). The full run, output to a file, not piped: 255/255, both mutants red and restored.
+- **The lesson,** recorded in memory: never pipe a script that mutates files into `head` (or anything that can close early). The reviewer caught it because it RAN the test instead of trusting "255/255".

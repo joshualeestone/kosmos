@@ -779,7 +779,7 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_RULES_ENABLED=false" -e "GROK_CLAUDE_SKILLS_ENABLED=false" \
       -e "GROK_CLAUDE_MCPS_ENABLED=false" \
       -e "GROK_CURSOR_HOOKS_ENABLED=false" -e "GROK_CURSOR_AGENTS_ENABLED=false" \
-      -e "GROK_CURSOR_SKILLS_ENABLED=false" \
+      -e "GROK_CURSOR_RULES_ENABLED=false" -e "GROK_CURSOR_SKILLS_ENABLED=false" \
       -e "GROK_CURSOR_MCPS_ENABLED=false" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
