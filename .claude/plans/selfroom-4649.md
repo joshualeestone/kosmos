@@ -32,7 +32,11 @@ it needs none.
   guest: same room, and the relay delivers sender-written bytes. Labelling from a sender claim would let a
   guest impersonate your computer. Filed as #4657 (relay-stamped same-account bit).
 - **Own-only rooms are never sealed.** Sealing for same-account computers after an outside invite seals a room
-  (a human-checked Allow with a match code) is #4658; it does not block the weekend.
+  (a human-checked Allow with a match code) is #4658; it does not block the weekend. Until then the own-code
+  route REFUSES (409 `sealed`) a project that has handed out a sealing invite: a computer joined by own code
+  has no seal state, so in a sealed room it could neither read nor post (review iteration 1).
+- **"Add your other computer" still shows on a project joined from someone else.** The page is not told a
+  project's share role; pressing it gets a 409 that says why in one sentence. Deferred, not missed.
 
 ## Done means
 Unit tests (fedseats, federation-owncode, server.federation-3311, web.api-routes-3957), the browser check in
