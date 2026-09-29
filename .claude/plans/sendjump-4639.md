@@ -12,30 +12,39 @@ A browser check per surface proves each of those, and goes red with the send's j
 - `web/index.html`: `jumpToOwnSend(el)`, beside `pinToBottom`, which it calls. Two call sites:
   - `sendTalk` (DM), right after `talkPaintPending` draws the "Sending" bubble, so that row is where they land.
     The reply's repaint (`paintTalk` -> `setThread`) then measures them at the floor and keeps them there.
-  - `pjPostSend` (room), after the server confirms the post and before `loadRoom()`. `paintRoom` measures the
-    floor before it writes, so the new post is where they land.
+  - `pjPostSend` (room), at the press (where Post is disabled), as the DM does. Not when the server answers: a
+    fan-out can take seconds, and a jump that late would pull back someone who scrolled up meanwhile. `paintRoom`
+    measures the floor before every write, so the confirming repaint lands them on their post.
   Nothing in `setThread`, `paintRoom` or `holdFloorOnResize` changes: an agent's post still follows only a reader
   who was already at the floor.
 - `docs/browser-checks/render-dm-sendjump-4639.js` (new, hermetic file:// harness, real paintTalk / sendTalk): J1
   control (really scrolled back), J2 agent message arriving does not move them, J3 own send lands at the bottom
   with the row in view, J4 the next agent message keeps them there. Listed in `gated.txt` and the README.
-- `docs/browser-checks/render-room-scroll.js` arm 4b: the same four for the room on a sandboxed board (arriving
-  post by fetch, own post typed into `#pj-post` and clicked).
+- `docs/browser-checks/render-room-scroll.js` arm 4b (`sendJumpArms`), run in the tab view and again in the
+  consolidated view: the same four for the room on a sandboxed board (a post arriving by the poll, own post typed
+  into `#pj-post` and clicked), plus a fifth: someone who scrolls up while a slow send (POST held 2.5s) is in
+  flight is not pulled back when it lands.
 
 ## Rejected
 - `pjSend` (one agent's thread inside a project, `#pj-msgs`): not a scroll box (the page scrolls there), and it
   has no follow-the-tail rule to extend.
 - The agent side panel (`asbSend`): already pins while `ASB.sending`.
+- The Terminal tab's send (`sendTerm`): the DM thread is in a hidden section while that tab is open, and
+  `pinToBottom` arms nothing on a hidden box; coming back to Talk already lands on the newest row.
+- Phone-width runs of the checks: the same boxes are the scrollers at phone width (overflow-y on `#d-dmthread`
+  and `#pj-room`), and the code has no width branch. Not measured.
 - A flag read by `setThread` / `paintRoom` ("jump on next paint"): more state across polls; pinning at the send
   and letting the existing floor measurement carry it needs no new state.
 
 ## Measured
-- Room arm 4b: 4/4 pass; with the room call removed, "own send lands at the bottom" and "next post keeps them
-  there" go red (3532px above the floor).
+- Room arm 4b: 5/5 in the tab view and 5/5 consolidated (30/30 for the file). With the room call removed, "own
+  send lands at the bottom" and "next post keeps them there" go red (3532px above the floor); with the jump moved
+  back to after the server answers, the slow-send arm goes red in both views.
 - DM check: 5/5 pass; with the DM call removed, J3 and J4 go red (1715px above the floor).
 - Wiring tests (tools.browser-checks-wired, pr-select, indexed, reason-grep, selectors, home-3675): 58/58.
 
 ## Weakest premise
-The DM jump relies on the "Sending" bubble being painted synchronously by `talkPaintPending`. When the thread has
+The fixture's "arriving" post is posted through the person's room route, not as an agent: it reaches the screen
+by the same poll an agent's post does, which is the path the rule is about. The DM jump relies on the "Sending" bubble being painted synchronously by `talkPaintPending`. When the thread has
 not been read yet (first open) it paints nothing, and the jump lands on the old tail; the reply's repaint then
 follows the floor, so they still end at their message, one repaint later.
