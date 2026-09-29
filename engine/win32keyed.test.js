@@ -206,6 +206,8 @@ test('turnEnv grok: GROK_HOME always named, claude hooks off, a key account gets
   assert.equal(k.GROK_CLAUDE_HOOKS_ENABLED, '0');
   // #4426: every claude-compat cell is off, not only hooks.
   for (const v of ['AGENTS', 'RULES', 'SKILLS', 'MCPS']) assert.equal(k[`GROK_CLAUDE_${v}_ENABLED`], 'false', v);
+  // #4446: cursor-compat too, all five cells.
+  for (const v of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) assert.equal(k[`GROK_CURSOR_${v}_ENABLED`], 'false', 'cursor ' + v);
   const s = keyed.turnEnv('grok', { XAI_API_KEY: 'AMBIENT' }, subAcct, { grokAccounts: mod, doorDir: null });
   assert.equal('XAI_API_KEY' in s, false, 'removed, not blanked: an empty value still counts to grok');
   assert.equal(s.GROK_HOME, subAcct);
