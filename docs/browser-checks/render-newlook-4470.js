@@ -211,6 +211,15 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await clearFirstRun(page);
       const kept = await page.evaluate(PAGE_STATE);
       chk(kept.look === 'new' && kept.kbg === NEW[theme], `${tag} a reload keeps the new look`, JSON.stringify(kept));
+      /* A load straight onto the project with the look on: the layout paint (applyLayout ->
+         placeProjectHead) lands AFTER the boot showTab, so this is where the header could be put
+         back above the columns. Settle past it before reading. */
+      await page.goto(URL + '/?tab=projects&project=' + encodeURIComponent(proj.id), { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
+      await page.waitForTimeout(1500);
+      const direct = { ...(await page.evaluate(TASKS_PLACE)), ...(await page.evaluate(HEAD_PLACE)) };
+      chk(direct.order === 'members,tasks,files' && direct.inMid, `${tag} On, loaded straight onto the project: Tasks in the left box and the header in the conversation`, JSON.stringify(direct));
 
       await openAdvanced(page);
       chk((await page.evaluate(PAGE_STATE)).sw === 'true', `${tag} after a reload the switch still reads On`);

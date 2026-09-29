@@ -121,3 +121,18 @@ test('the switch turns the look on and off, and remembers it on this computer on
   assert.deepEqual(placed, [['new', false], [null, false]], 'each click re-places Tasks AFTER the attribute changes');
   assert.doesNotMatch(src, /fetch\(|api\(/, 'the look is this window only; it must not call the server');
 });
+
+test('the forced-dark generator joins a compound :root to the prefix, and nests anything else', () => {
+  /* The new look's dark tokens are the first dark rule on a compound root (`:root[data-look]`).
+     Nested as a descendant, `:root:not(...) :root[data-look]` can never match, so the whole
+     dark set would be silently dead. */
+  const { prefixed } = require('./tools/sync-forced-theme.js');
+  const P = ':root:not([data-theme="light"])';
+  assert.equal(prefixed(':root[data-look="new"]', P), ':root:not([data-theme="light"])[data-look="new"]');
+  assert.equal(prefixed(':root:has(.x)', P), ':root:not([data-theme="light"]):has(.x)');
+  assert.equal(prefixed(':root.x', P), ':root:not([data-theme="light"]).x');
+  assert.equal(prefixed(':root', P), P);
+  // CONTROL: a plain selector is still nested under the prefix, and a root with a descendant keeps it.
+  assert.equal(prefixed('.foo', P), P + ' .foo');
+  assert.equal(prefixed(':root .foo', P), P + ' .foo');
+});
