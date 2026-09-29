@@ -28837,7 +28837,7 @@ function communityHeldPaint(rows, full) {
     empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' ' + which + ' are shown. There may be more; they show here as you release or discard these.';
   }
   const heldPosts = new Set(rows.filter((r) => r.status === 'held' && !communityHeldIsComment(r)).map((r) => r.id));
-  for (const r of rows) {
+  rows.forEach((r, at) => {
     const stopped = r.status === 'quarantined';
     const isComment = communityHeldIsComment(r);
     const name = communityHeldTitle(r, stopped);
@@ -28845,7 +28845,7 @@ function communityHeldPaint(rows, full) {
        one agent can have several comments waiting. A stopped row's words must not be spoken either
        (a screen reader reads a button's name aloud), so it is told apart by its place in the list. */
     const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
-    const label = stopped ? name + ' (row ' + (rows.indexOf(r) + 1) + ')'
+    const label = stopped ? name + ' (row ' + (at + 1) + ')'
       : isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
     /* A comment under a post that is itself still waiting: releasing it now changes nothing anyone can see
        (a comment shows only under a published post), so Release is not offered until the post is released. */
@@ -28953,7 +28953,7 @@ function communityHeldPaint(rows, full) {
       });
       body.after(more);
     }
-  }
+  });
 }
 async function refreshCommunityHeld() {
   const mine = ++COMMUNITY_HELD_EPOCH;
