@@ -99,7 +99,9 @@ test('task message from a Windows agent (token, no pane) is recorded, reaches th
   typedInto.length = 0;
   const r = await kosmos(['task', 'message', projectId, String(taskNumber), 'the', 'verbs', 'are', 'in'], tokens.leo);
   assert.equal(r.code, 0, r.err);
-  assert.equal(r.out, 'Message recorded on task ' + taskNumber + ' of ' + projectId + '; any agents assigned to it were notified.');
+  assert.ok(r.out.startsWith('Message recorded on task ' + taskNumber + ' of ' + projectId + '. '), r.out);
+  assert.match(r.out, /mona/, '#4540: the board\'s sentence did not name the assignee it reached: ' + r.out);
+  assert.doesNotMatch(r.out, /were notified/, '#4540: the old blanket claim came back');
   assert.match(messagesOnTask(), /the verbs are in/, 'the words were not recorded on the task');
   assert.deepEqual(typedInto.map((d) => d.sessionName), ['mona']);
   assert.match(typedInto[0].line, /leo said: "the verbs are in"/, 'the assignee cannot see which colleague spoke: ' + typedInto[0].line);

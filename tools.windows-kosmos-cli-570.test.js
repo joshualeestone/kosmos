@@ -434,7 +434,9 @@ test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent
   assert.equal(ok.calls[0].method, 'POST');
   assert.deepEqual(ok.calls[0].body, { text: 'looks good', from_pane: '' });
   assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT, 'without the token the board cannot name a Windows sender or leave it off the notified list');
-  assert.equal(ok.out, 'Message recorded on task 4 of proj/1; any agents assigned to it were notified.');
+  assert.equal(ok.out, 'Message recorded on task 4 of proj/1.', '#4540: an older board sends no summary, so nothing is claimed');
+  const said = await run(['task', 'message', 'proj/1', '4', 'looks', 'good'], () => ({ body: { ok: true, delivered: [], summary: 'Told mona. Not told: zed is not on this project any more, so it was not told.' } }));
+  assert.equal(said.out, 'Message recorded on task 4 of proj/1. Told mona. Not told: zed is not on this project any more, so it was not told.');
   const no = await run(['task', 'message', 'p1', '4', 'x'], () => ({ status: 404, body: { error: 'there is no task by that number.' } }));
   assert.equal(no.code, 1);
   assert.equal(no.err, 'Kosmos refused that message: there is no task by that number.');
