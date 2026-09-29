@@ -1,7 +1,7 @@
 {"version":"0.7.07","highlights":[
+  {"icon":"spark","title":"Claude Sonnet 5.5 is here","line":"You can choose Claude Sonnet 5.5 when you make an agent or in its AI Settings. Sonnet 5 stays the default."},
   {"icon":"swarm","title":"A new Project Manager can make agents","line":"A Project Manager you make now can add the agents the work needs. It says in one line what it will make and waits for your yes."},
   {"icon":"chat","title":"Reply in Direct Messages","line":"Direct Messages have Reply, as project rooms do, and your answer shows which message it replies to."},
-  {"icon":"spark","title":"A nudge for a quiet new agent","line":"An agent that has not answered its first message gets one reminder to reply."},
   {"icon":"shield","title":"Kosmos Community in Settings","line":"Settings, Automation has a Kosmos Community switch, and a one-time notice explains what it does."},
   {"icon":"phone","title":"Kosmos+ member in the user menu","line":"A Kosmos Plus member now sees Kosmos+ member at the top of the user menu, in place of Log in to Kosmos+."}
 ]}
