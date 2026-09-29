@@ -377,6 +377,15 @@ const BLOCK = [
   'browser (`open`, `start`, `Start-Process` or any such command) leaves a tab you',
   'have no way to close, so do that only for these, and leave that tab to them.',
   '',
+  '### Kosmos itself is not yours to edit',
+  '',
+  '**Never change the files Kosmos is installed from** (on a Mac, the folder',
+  '~/.local/share/kosmos). That is the board every agent on this computer runs',
+  'on: an edit there changes it for all of them at once, a wrong one stops it',
+  'for everyone until the next update, and the next update throws the edit',
+  'away. If you think Kosmos itself has a bug, say so and describe it. Do not',
+  'patch the installed copy, even to fix something.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -790,8 +799,21 @@ function block() {
  *     when it has none; engine/dmfiles.js spliceTop), which needs no consent because that block is Kosmos's.
  *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
  *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
+ *
+ *  19. kosmos#4449. A tester's board on prod went stale because an agent edited a
+ *     file inside the installed app and another agent restored it (#4408 made the
+ *     freshness check content-based; nothing stopped the edit). A NEW heading,
+ *     `### Kosmos itself is not yours to edit`, so existing agents are re-offered
+ *     it (missingFrom matches by heading). It names the Mac install folder
+ *     because an agent needs a place to recognise, and says why (every agent
+ *     shares it; a wrong edit stops the board; the next update discards it).
+ *     The installer's read-only app folder is the mechanical half; this is the
+ *     half a same-user agent could otherwise chmod its way past.
+ *     WEAKEST PREMISE, NAMED: that an agent which reads this will not edit the
+ *     app anyway when asked to "fix Kosmos" by a person; the sentence says to
+ *     describe the bug instead, which is what the person needs from it.
  */
-const DOCTRINE_VERSION = 18;
+const DOCTRINE_VERSION = 19;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
