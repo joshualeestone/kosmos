@@ -536,65 +536,62 @@ test('a grab during the glide home ends the glide: the held hub does not move (#
   assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL: let go, the chart did not come back to its placement');
 });
 
-/* The page's same-width shift (orgSameWidthShift), for the tests that emulate paintOrg's carry. */
-const sameWidthShift = (() => {
-  const at = SCRIPT.indexOf('function orgSameWidthShift(');
-  // eslint-disable-next-line no-new-func
-  return new Function(SCRIPT.slice(at, SCRIPT.indexOf('\n}', at) + 2) + '\nreturn orgSameWidthShift;')();
-})();
-
-test('a tree\'s canvas changing size at the same width shifts kept x positions by half the change, as the canvas moves (#4434, review it13)', () => {
-  /* The canvas is centred in its box (margin: 0 auto), or a wide one's scroll is carried by the same half, so on
-     screen it moves by (size - sizeWas) / 2. Without the shift every face jumped sideways in one paint (review
-     it13: up to 726px when a deep tree lost an agent). */
-  assert.equal(sameWidthShift(false, 3573, 2122, true), (2122 - 3573) / 2, 'a shrinking tree canvas');
-  assert.equal(sameWidthShift(false, 396, 544, true), 74, 'a growing one');
-  assert.equal(sameWidthShift(false, 544, 544, true), 0, 'the same canvas');
-  assert.equal(sameWidthShift(true, 500, 400, true), 0, 'a width change is carried in proportion instead');
-  assert.equal(sameWidthShift(false, 0, 400, true), 0, 'no earlier canvas');
-  assert.equal(sameWidthShift(false, 500, 400, false), 0, 'CONTROL: a flat fleet keeps its positions, as before #4434');
-  const at = SCRIPT.indexOf('function paintOrg(');
-  const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  assert.match(paint, /if \(f !== 1\) for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}\s*const dxKeep = orgSameWidthShift\(widthChanged, ORG_SIZE, size, tree \|\| turnedFlat\);\s*if \(dxKeep\) for \(const p of ORG_POS\.values\(\)\) p\.x \+= dxKeep;/,
-    'paintOrg no longer shifts kept positions with the canvas');
-});
-
-test('a tree that turns flat (its last manager removed) glides into the flat placement, then rests with no overlaps (#4434, review it8, it13)', () => {
+test('a tree that turns flat (its last manager removed) starts from the flat placement, not the tree\'s positions (#4434, review it8, it15)', () => {
   /* Handed the tree's far larger canvas as it is (2630px against 860px here), the flat physics clamped faces to
-     the new edge and they rested on top of each other (review it8: 37 pairs, one at 0px); dropping the positions
-     instead snapped the chart (review it13: up to 1051px). Now it glides in, then the flat physics runs. */
+     the new edge and they rested on top of each other (review it8: 37 pairs, one at 0px). A glide into the flat
+     placement kept state that a mid-glide repaint broke the same way (review it15), so a tree turning flat is a
+     one-step re-layout, like a window resize. */
   const at = SCRIPT.indexOf('function paintOrg(');
   const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
-  assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,900}?const turnedFlat = ORG_POS_TREE === true && !tree;\s*ORG_POS_TREE = tree;[\s\S]{0,600}?ORG_FLAT_GLIDE = turnedFlat;/,
-    'paintOrg no longer marks a tree turning flat');
-  assert.doesNotMatch(paint, /ORG_POS\.clear\(\)/, 'paintOrg drops the positions again (the snap)');
+  assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,900}?const turnedFlat = ORG_POS_TREE === true && !tree;\s*ORG_POS_TREE = tree;\s*if \(turnedFlat\) ORG_POS\.clear\(\);/,
+    'paintOrg no longer drops a tree\'s positions when it turns flat');
   const spec = [['m']].concat(Array.from({ length: 59 }, (_, i) => ['a' + i, 'm']));
   const tp = firstPaint(cards(spec)).placed;
   const pre = [...tp.keys()][0].split('_')[0] + '_';
   const fp0 = firstPaint(cards(spec.map(([nm]) => [nm]))).placed;
   const preF = [...fp0.keys()][0].split('_')[0] + '_';
   const fp = new Map([...fp0].map(([key, v]) => [key.replace(preF, pre), v]));
-  const turnFlat = (glide) => {
+  const settleFlat = (clear) => {
     const t = canvasFor(tp, 0);
     const { page, map, run } = livePage();
     page.orgLiveStart(map, tp, t.cx, t.cy, t.size); run();
+    if (clear) page.pos().clear();
     const c = canvasFor(fp, 0);
-    const dx = sameWidthShift(false, t.size, c.size, true);   // as paintOrg carries them
-    for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x + dx, y: q.y });
-    if (glide) page.turnedFlat();
-    page.orgLiveStart(map, fp, c.cx, c.cy, c.size);
-    const moved = run();
+    page.orgLiveStart(map, fp, c.cx, c.cy, c.size); run();
     const pos = new Map([...page.pos()].filter(([key]) => key !== '\u0000hub'));
-    const kept = [...page.live().nodes.values()].filter((n) => n.home).length;
-    return { overlapping: overlaps(pos, 44), grew: t.size / c.size, moved, kept };
+    return { overlapping: overlaps(pos, 44), grew: t.size / c.size };
   };
-  const glided = turnFlat(true);
-  assert.equal(glided.overlapping, 0, 'the flat fleet rests with faces overlapping');
-  assert.ok(glided.moved.frames > 1, 'the change did not animate (the snap)');
-  const carried = turnFlat(false);
-  assert.ok(carried.grew > 2 && carried.overlapping > 0, 'CONTROL: handed the tree\'s positions without the glide the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
-  assert.ok(glided.moved.jump <= 41, 'a frame moved a face ' + glided.moved.jump.toFixed(0) + 'px (measured 40 here: the glide, then the flat physics)');
-  assert.equal(glided.kept, 0, 'the flat fleet still carries the glide\'s temporary homes, so the flat physics never took over');
+  assert.equal(settleFlat(true).overlapping, 0, 'the flat fleet rests with faces overlapping');
+  const carried = settleFlat(false);
+  assert.ok(carried.grew > 2 && carried.overlapping > 0, 'CONTROL: seeded from the tree\'s positions the flat fleet does not overlap (' + carried.overlapping + ' pairs, tree canvas ' + carried.grew.toFixed(1) + 'x), so this tests nothing');
+});
+
+test('a tree\'s kept positions move with the canvas on screen, measured by the page itself (#4434, review it13, it15)', () => {
+  /* The canvas moves on screen when a tree's canvas changes size (centring, the carried and clamped scroll, the
+     scrolling box's top padding); paintOrg measures its rect before and after and moves kept positions by the
+     difference, so no face jumps in the paint. A browser measures this; the wiring is pinned here. */
+  const at = SCRIPT.indexOf('function paintOrg(');
+  const paint = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
+  const before = paint.indexOf("const mapBefore = document.getElementById('orgmap').getBoundingClientRect();");
+  const moves = paint.search(/wrap\.classList\.toggle\('orgscroll'/);
+  assert.ok(before > -1 && before < moves, 'the canvas is not measured before this paint moves it');
+  assert.match(paint, /map\.innerHTML = html;[\s\S]{0,1500}?if \(tree && !widthChanged\) \{\s*const mapAfter = map\.getBoundingClientRect\(\);\s*const dx = mapBefore\.left - mapAfter\.left; const dy = mapBefore\.top - mapAfter\.top;\s*if \(dx \|\| dy\) for \(const p of ORG_POS\.values\(\)\) \{ p\.x \+= dx; p\.y \+= dy; \}\s*\}\s*[\s\S]{0,400}?orgLiveStart\(map, placed, cx, cy, size\);/,
+    'kept positions no longer move by the measured canvas offset before the live chart starts');
+});
+
+test('in a tree, a body outside the box comes in at most ORG_GLIDE_MAX a step; a flat fleet keeps the hard clamp (#4434, review it15)', () => {
+  const box = { lo: 42, hi: 958 };
+  const mk = (home) => {
+    const hub = { x: 500, y: 500, vx: 0, vy: 0, fixed: true, size: 52, home: { x: 500, y: 500 } };
+    const out = { key: 'o', x: 1600, y: 500, vx: 0, vy: 0, fixed: false, parent: null, ring: 120, rest: 0, home };
+    return { hub, out };
+  };
+  const t = mk({ dx: 120, dy: 0 });
+  sim.orgStep([t.out], t.hub, 0.02, box);
+  assert.ok(1600 - t.out.x <= sim.ORG_GLIDE_MAX + 1e-9 && t.out.x < 1600, 'a tree body 642px outside moved ' + (1600 - t.out.x).toFixed(0) + 'px in one step');
+  const f = mk(null);
+  sim.orgStep([f.out], f.hub, 0.02, box);
+  assert.equal(f.out.x, 958, 'CONTROL: a flat body outside is put on the edge, as on main');
 });
 
 test('a flat fleet given its first manager glides from where it was to the tree\'s placement (#4434, review it9)', () => {
@@ -610,9 +607,7 @@ test('a flat fleet given its first manager glides from where it was to the tree\
   const { page, map, run } = livePage();
   page.orgLiveStart(map, fp, f0.cx, f0.cy, f0.size); run();
   const t0 = canvasFor(tp, 1000);
-  const dx = sameWidthShift(false, f0.size, t0.size, true);   // paintOrg keeps the ring's positions, shifted with the canvas
-  for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x + dx, y: q.y });
-  page.orgLiveStart(map, tp, t0.cx, t0.cy, t0.size);
+  page.orgLiveStart(map, tp, t0.cx, t0.cy, t0.size);   // the ring's positions as paintOrg keeps them (its screen offset is measured in the browser)
   const g = run();
   assert.ok(g.frames > 1 && g.far > 40, 'CONTROL: the tree\'s placement is where the ring already was (' + g.far.toFixed(0) + 'px), so this tests nothing');
   assert.ok(g.jump <= 41, 'a frame moved a face ' + g.jump.toFixed(0) + 'px: the change snapped instead of gliding');
@@ -735,11 +730,11 @@ function livePage(still) {
   // eslint-disable-next-line no-new-func
   const page = new Function('window', 'CSS', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
     'const ORG_STEP = ' + pageConst('ORG_STEP') + '; const ORG_PAD_MIN = ' + ORG_PAD_MIN + ';\n' + simSrc
-    + "let ORG_LIVE = null; let ORG_POS = new Map(); let ORG_FLAT_GLIDE = false;\n"
+    + "let ORG_LIVE = null; let ORG_POS = new Map();\n"
     + 'function orgWireEnds(x0, y0, a0, x1, y1) { return { x1: x0, y1: y0, x2: x1, y2: y1, shown: true }; }\n'
     + ['orgLiveStart', 'orgLiveSettle', 'orgLiveSync', 'orgLiveRun'].map(grab).join('\n')
     + '\nlet ORG_DRAG_MOVED = false; function orgResizeRepaint() {}\n' + ptrSrc
-    + '\nreturn { orgLiveStart, pos: () => ORG_POS, live: () => ORG_LIVE, wake: () => orgLiveRun(), turnedFlat: () => { ORG_FLAT_GLIDE = true; } };')(
+    + '\nreturn { orgLiveStart, pos: () => ORG_POS, live: () => ORG_LIVE, wake: () => orgLiveRun() };')(
     env.window, env.CSS, env.requestAnimationFrame, env.cancelAnimationFrame, { getElementById: () => map });
   /* Run queued frames until the animation stops; return how far any node got from where it started. */
   const run = () => {
