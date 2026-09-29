@@ -692,7 +692,9 @@ if [ -z "$adopt" ]; then
     # live [claude] entries to 0). A plain CLAUDE.md in the agent's own folder still
     # loads (grok's docs). An agent ADOPTED at board start keeps the env it launched
     # with, so a running grok agent gets this at its next launch. Same list as
-    # win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two equal. The default account reads
+    # win32keyed.js GROK_COMPAT_OFF; a test pins the two equal. #4446: the five cursor-compat
+    # cells too, or it loads the person's ~/.cursor rules, skills, agents, MCPs and hooks
+    # (measured, grok 1.0.41: 2 live [cursor] entries to 0). The default account reads
     # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
@@ -776,6 +778,9 @@ if [ -z "$adopt" ]; then
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" -e "GROK_CLAUDE_AGENTS_ENABLED=false" \
       -e "GROK_CLAUDE_RULES_ENABLED=false" -e "GROK_CLAUDE_SKILLS_ENABLED=false" \
       -e "GROK_CLAUDE_MCPS_ENABLED=false" \
+      -e "GROK_CURSOR_HOOKS_ENABLED=false" -e "GROK_CURSOR_AGENTS_ENABLED=false" \
+      -e "GROK_CURSOR_RULES_ENABLED=false" -e "GROK_CURSOR_SKILLS_ENABLED=false" \
+      -e "GROK_CURSOR_MCPS_ENABLED=false" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps

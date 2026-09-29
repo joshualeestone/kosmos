@@ -63,13 +63,22 @@ const KEY_VAR = Object.freeze({ gemini: 'GEMINI_API_KEY', grok: 'XAI_API_KEY' })
    person's ~/.claude CLAUDE.md, skills, rules, ~/.claude.json MCP servers or ~/.claude hooks.
    Grok still reads a plain CLAUDE.md in the agent's own working folder (its docs: those "stay
    recognized"), and whatever the grok home itself configures. The Mac supervisor's grok launch
-   sets the same list; a test in create.test.js pins the two equal. */
-const GROK_CLAUDE_COMPAT_OFF = Object.freeze({
+   sets the same list; a test in create.test.js pins the two equal.
+   #4446 (Angel): the same for [compat.cursor], on by default too: without its five cells a grok agent
+   loads the person's ~/.cursor rules, skills, agents, mcp.json and hooks (measured in a sandboxed HOME,
+   grok 1.0.41: 2 live [cursor] entries to 0). [compat.codex]'s cells are documented as reserved and
+   inert, with no environment name, so there is nothing to set for them. */
+const GROK_COMPAT_OFF = Object.freeze({
   GROK_CLAUDE_HOOKS_ENABLED: '0',
   GROK_CLAUDE_AGENTS_ENABLED: 'false',
   GROK_CLAUDE_RULES_ENABLED: 'false',
   GROK_CLAUDE_SKILLS_ENABLED: 'false',
   GROK_CLAUDE_MCPS_ENABLED: 'false',
+  GROK_CURSOR_HOOKS_ENABLED: 'false',
+  GROK_CURSOR_AGENTS_ENABLED: 'false',
+  GROK_CURSOR_RULES_ENABLED: 'false',
+  GROK_CURSOR_SKILLS_ENABLED: 'false',
+  GROK_CURSOR_MCPS_ENABLED: 'false',
 });
 
 function isKeyedRunner(runner) { return KEYED_RUNNERS.includes(String(runner || '')); }
@@ -347,7 +356,7 @@ function turnEnv(runner, base, configDir, deps) {
     env.GROK_HOME = String(dir);
     /* Run only its own hooks and AGENTS.md, not the person's Claude Code setup (#4426,
        agent-supervisor.sh). */
-    Object.assign(env, GROK_CLAUDE_COMPAT_OFF);
+    Object.assign(env, GROK_COMPAT_OFF);
     let kind = null;
     try { const who = mod.identityOf(dir); kind = who ? who.authMode : null; } catch { kind = null; }
     if (kind === 'subscription') { delete env.XAI_API_KEY; return env; }
@@ -360,6 +369,6 @@ function turnEnv(runner, base, configDir, deps) {
 }
 
 module.exports = {
-  KEYED_RUNNERS, DEFAULT_MODEL, KEY_VAR, GROK_CLAUDE_COMPAT_OFF, isKeyedRunner,
+  KEYED_RUNNERS, DEFAULT_MODEL, KEY_VAR, GROK_COMPAT_OFF, isKeyedRunner,
   turnArgs, parseTurn, runKeyedTurn, turnEnv, setSpawn,
 };
