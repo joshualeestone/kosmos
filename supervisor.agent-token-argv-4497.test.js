@@ -16,23 +16,33 @@ const { spawnSync } = require('node:child_process');
 
 const SHIPPED = process.env.SUPERVISOR_UNDER_TEST || path.join(__dirname, 'bin', 'agent-supervisor.sh');
 const TOKEN = '49'.repeat(32);
+const GH_SECRET = 'ghp_argv_secret_4507';
+const DOOR_SECRET = 'discord_argv_secret_4507';
+const CF_SECRET = 'cloudflare_argv_secret_4507';
+const GEMINI_SECRET = 'gemini_argv_secret_4507';
+const GROK_SECRET = 'grok_argv_secret_4507';
 const PROVIDERS = ['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse'];
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-token-argv-4497-'));
-  for (const dir of ['bin', 'engine', 'data', 'work']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+  for (const dir of ['bin', 'engine', 'data', 'work', 'secrets/env', 'gemini-home', 'grok-home']) fs.mkdirSync(path.join(root, dir), { recursive: true });
   fs.symlinkSync(SHIPPED, path.join(root, 'bin', 'agent-supervisor.sh'));
+  fs.writeFileSync(path.join(root, 'secrets', 'github.token'), GH_SECRET, { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'secrets', 'cloudflare.token'), CF_SECRET, { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'secrets', 'env', 'DISCORD_BOT_TOKEN'), DOOR_SECRET, { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'gemini-home', '.kosmos-gemini-apikey'), GEMINI_SECRET, { mode: 0o600 });
+  fs.writeFileSync(path.join(root, 'grok-home', '.kosmos-grok-apikey'), GROK_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'engine', 'sendertoken.js'), `module.exports.mint = () => ({ ok: true, token: '${TOKEN}' });\n`);
   fs.writeFileSync(path.join(root, 'engine', 'musefront.js'), [
     "'use strict';",
-    "require('node:fs').appendFileSync(process.env.EVIDENCE, process.env.KOSMOS_AGENT_TOKEN || '<missing>');",
+    "require('node:fs').appendFileSync(process.env.EVIDENCE, [process.env.KOSMOS_AGENT_TOKEN, process.env.GH_TOKEN, process.env.DISCORD_BOT_TOKEN, process.env.CLOUDFLARE_API_TOKEN, process.env.GEMINI_API_KEY, process.env.XAI_API_KEY].map((v) => v || '<missing>').join('|'));",
   ].join('\n') + '\n');
 
   const runner = path.join(root, 'runner.sh');
   fs.writeFileSync(runner, [
     '#!/bin/bash',
     'if [ "${1:-}" = --version ]; then printf "agy 1.2.10\\n"; exit 0; fi',
-    'printf "%s" "${KOSMOS_AGENT_TOKEN:-<missing>}" >> "$EVIDENCE"',
+    'printf "%s" "${KOSMOS_AGENT_TOKEN:-<missing>}|${GH_TOKEN:-<missing>}|${DISCORD_BOT_TOKEN:-<missing>}|${CLOUDFLARE_API_TOKEN:-<missing>}|${GEMINI_API_KEY:-<missing>}|${XAI_API_KEY:-<missing>}" >> "$EVIDENCE"',
   ].join('\n') + '\n', { mode: 0o755 });
 
   const tmux = path.join(root, 'tmux.sh');
@@ -42,6 +52,14 @@ function fixture() {
     '  has-session) exit 1 ;;',
     '  new-session)',
     '    printf "%s\\0" "$@" >> "$ARGV_RECORD"',
+    '    before=""',
+    '    for arg in "$@"; do',
+    '      if [ "$before" = --pane-entry ]; then',
+    '        (stat -f %Lp "$arg" 2>/dev/null || stat -c %a "$arg" 2>/dev/null) > "$MODE_RECORD"',
+    '        break',
+    '      fi',
+    '      before="$arg"',
+    '    done',
     '    shift',
     '    print_pane=0',
     '    while [ "$#" -gt 0 ]; do',
@@ -53,9 +71,6 @@ function fixture() {
     '        *) break ;;',
     '      esac',
     '    done',
-    '    if [ "${2:-}" = --pane-entry ]; then',
-    '      (stat -f %Lp "$3" 2>/dev/null || stat -c %a "$3" 2>/dev/null) > "$MODE_RECORD"',
-    '    fi',
     '    [ -n "${REFUSE_LAUNCH:-}" ] && exit 9',
     '    "$@"',
     '    rc=$?',
@@ -95,15 +110,27 @@ for (const provider of PROVIDERS) {
           MODE_RECORD: modeRecord,
           AGENT_WORKFORCE_HOME: f.root,
           AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+          GEMINI_CLI_HOME: path.join(f.root, 'gemini-home'),
+          GROK_HOME: path.join(f.root, 'grok-home'),
         },
       });
       assert.equal(result.status, 0, result.stderr || `${provider} supervisor failed`);
-      assert.equal(fs.readFileSync(evidence, 'utf8'), TOKEN, 'the provider receives the exact minted token');
+      const received = fs.readFileSync(evidence, 'utf8').split('|');
+      assert.equal(received[0], TOKEN, 'the provider receives the exact minted token');
+      assert.equal(received[1], GH_SECRET, 'the provider receives GH_TOKEN');
+      assert.equal(received[2], DOOR_SECRET, 'the provider receives its stored token door');
+      assert.equal(received[3], CF_SECRET, 'the provider receives the held Cloudflare token');
+      if (provider === 'gemini') assert.equal(received[4], GEMINI_SECRET, 'Gemini receives its per-account key');
+      if (provider === 'grok') assert.equal(received[5], GROK_SECRET, 'Grok receives its per-account key');
       const argv = fs.readFileSync(argvRecord);
-      assert.ok(!argv.includes(Buffer.from(TOKEN)), 'the token is absent from the real tmux spawn arguments');
+      for (const secret of [TOKEN, GH_SECRET, DOOR_SECRET, CF_SECRET, GEMINI_SECRET, GROK_SECRET]) {
+        assert.ok(!argv.includes(Buffer.from(secret)), `secret ${secret} is absent from the real tmux spawn arguments`);
+      }
       assert.ok(!argv.includes(Buffer.from('KOSMOS_AGENT_TOKEN=')), 'tmux receives no agent-token environment argument');
       assert.ok(argv.includes(Buffer.from('--pane-entry')), 'the pane uses the secret-file entrypoint');
-      assert.ok(!result.stdout.includes(TOKEN) && !result.stderr.includes(TOKEN), 'the token is absent from supervisor logs');
+      for (const secret of [TOKEN, GH_SECRET, DOOR_SECRET, CF_SECRET, GEMINI_SECRET, GROK_SECRET]) {
+        assert.ok(!result.stdout.includes(secret) && !result.stderr.includes(secret), `secret ${secret} is absent from supervisor logs`);
+      }
       const secretDir = path.join(f.root, 'data', 'launch-secrets');
       assert.equal(fs.readFileSync(modeRecord, 'utf8').trim(), '600', 'the token file is owner-only before the pane reads it');
       assert.equal(fs.statSync(secretDir).mode & 0o777, 0o700, 'the token directory is owner-only');
