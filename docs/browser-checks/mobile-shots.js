@@ -159,13 +159,18 @@ const SCREENS = [
      paints it. The email is example.com so the leak guard still judges it.
      ⚠️ noServiceWorker: the board's sw.js claims the page, and in WebKit a
      page.route never sees a controlled page's fetches (measured: the stub was
-     never hit and the card stayed hidden), so this screen's context blocks it. */
+     never hit and the card stayed hidden), so this screen's context blocks it.
+     #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
+     shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
+     connected panel), so the full card is the top card there; with a connected panel it sits above the panel
+     (#plus-asks). The wait accepts either, and fails if the Allow button is not on screen. */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
-    await page.reload({ waitUntil: 'load' });
-    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"]', { state: 'visible', timeout: 8000 });
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]',
+      { state: 'visible', timeout: 8000 });
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
