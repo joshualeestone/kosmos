@@ -3745,14 +3745,14 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
    for an admitted device and then presents the person's board token anyway (read from
-   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). POST /api/react joins later (#4491).
+   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react and community post: each
+   handler identifies the caller from the token (react then refuses a non-member; community post requires one).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
    still passes here, exactly as it already does on the exempt report and reply routes.
-   ⚠️ And a token is only as private as its launch: the Mac supervisor passes it on tmux's command
-   line, which another macOS account can read with `ps`. That leak predates this, but it now
-   reaches these routes too; #4497 moves it off argv. */
-const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami']);
+   A token is only as private as its launch: #4497 moved it off tmux's command line (see
+   supervisor.agent-token-argv-4497.test.js). */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react', 'POST /api/community/post']);
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
   /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
