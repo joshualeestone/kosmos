@@ -1340,6 +1340,29 @@ function signinDeviceId() {
   return id;
 }
 
+/* #4638 (Josh, 15:13): a SECOND computer on an account. The coordinator leaves account_address out once another
+   live computer holds the account's name (kosmos-relay #3823), and its answer still lists the account's addresses and
+   carries this sign-in's match code, the same four characters the other computer's Allow card shows. The page uses
+   them to skip the address chooser, name this computer after itself, and show the code to match. Page-safe only:
+   each value is checked against its own shape (the code against the coordinator's alphabet, XX-XX), never passed
+   through raw, and a value that fails its shape is simply absent. `computer` is this computer's own name, the one the
+   Allow card already shows (thisComputerDeviceName), without the " (Kosmos app)" label. */
+const MATCH_CODE = /^[2-9A-HJKMNP-Z]{2}-[2-9A-HJKMNP-Z]{2}$/;
+function secondComputerFields(data, ownedAddress) {
+  if (ownedAddress) return {};
+  const addresses = Array.isArray(data && data.addresses) ? data.addresses : [];
+  const other = addresses.find((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a)) || '';
+  if (!other) return {};
+  const code = typeof data.match_code === 'string' && MATCH_CODE.test(data.match_code) ? data.match_code : '';
+  let computer = '';
+  try {
+    const label = thisComputerDeviceName();
+    computer = label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : '';
+    if (computer === 'This computer') computer = '';
+  } catch { computer = ''; }
+  return { other_address: other, match_code: code, computer };
+}
+
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
     to the caller ONLY page-safe fields (never the session token, never the
     challenge value, never the enrol-only token) -- the stage always, plus on the
@@ -1364,7 +1387,7 @@ function absorbSession(data) {
        account_address (a coordinator that predates it sends none, and the page falls back). Passed
        through only in its own shape: a lowercase label and a domain, nothing else. */
     const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
-    return { ok: true, because: null, data: { stage: 'session', account_address: addr } };
+    return { ok: true, because: null, data: { stage: 'session', account_address: addr, ...secondComputerFields(data, addr) } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
