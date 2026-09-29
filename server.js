@@ -1524,6 +1524,7 @@ function whoamiFor(card, known, live) {
              with `configDir` falsy), and cheaper to close than to keep true. */
           name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
+          keyTail: null,   // #4603: present in all three constructions (the parity test below them)
         },
         from: 'process',
       };
@@ -1548,7 +1549,7 @@ function whoamiFor(card, known, live) {
       const claudeDir = !seen.runner || seen.runner === 'claude';
       return {
         value: {
-          email: null, label: null, organization: null, dir: seen.configDir,
+          email: null, label: null, organization: null, dir: seen.configDir, keyTail: null,
           /* 🛑 #2811: THE LIVE READER MUST ANSWER THIS THE SAME WAY THE RECORD
              READER DOES. `accountForAgent` computes `readName(dir)`; without it
              here, the SAME named codex account read "Work" when the record
@@ -1573,7 +1574,7 @@ function whoamiFor(card, known, live) {
         /* 🛑 #2811: `rec.name` IS CARRIED. `accountForAgent` computes it on both its
            branches and this projection used to DROP it one function later, which is
            why a NAMED codex account was told "an account we cannot identify". */
-        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault }
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault, keyTail: rec.keyTail || null }
         : null,
       from: 'record',
     };
@@ -1695,6 +1696,14 @@ function whoamiFor(card, known, live) {
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
+    /* #4603 (#4580 item 12, the Grok agent: "whoami cannot name the Grok model, even when the session is Grok 4.6"):
+       for a runner the live reader cannot read (Grok, Gemini, Antigravity: runningas knows claude and codex), the
+       card already carries the model its own session file names (status.js: groksession / geminisession / agy
+       readers -> card.model), which is what the board shows. Take it rather than say "we cannot tell". Only for a
+       non-Claude runner: for Claude the transcript above is the fresher witness and wins. */
+    if (foreignRunner && card && typeof card.model === 'string' && card.model) {
+      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.SCRAPED }, from: 'session' };
+    }
     /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
        `source` means "who answered" everywhere else, and here nobody did. The
        alternative is a third value, which every consumer would have to learn in
@@ -1745,7 +1754,7 @@ function runnerDisplayName(runner) {
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939
+  return runner === 'codex' ? 'Codex' : runner === 'grok' ? 'Grok' : runner === 'gemini' ? 'Gemini' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939, #4603
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -1763,6 +1772,7 @@ function sentenceForWhoami(account, model, runner) {
      `.kosmos-name` sidecar -- is what made the gap visible. */
   const acct = account && account.name ? account.name
     : account && account.email ? account.email
+      : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
       : account && account.label ? account.label
         : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
           : null;
@@ -1949,6 +1959,7 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
          dir so the board's `a.account` carries it and the agent-detail runs-on
@@ -1985,7 +1996,7 @@ function accountForAgent(name, known) {
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null }
     : null;
 }
 
@@ -12356,7 +12367,16 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
-        const known = (() => { try { return accounts.list(); } catch { return []; } })();
+        /* #4603: the xAI and Google rows too, as the status route passes them: accountForAgent matches a keyed row
+           only for an agent of that provider (and a folder only to its own folder), so a Claude or Codex agent's
+           answer cannot change, and a Grok or Gemini agent is no longer looked up in the Claude list alone. */
+        const known = (() => {
+          const rows = [];
+          for (const lister of [() => accounts.list(), () => grokAccounts.list(), () => geminiAccounts.list()]) {
+            try { rows.push(...lister()); } catch { /* one unreadable store must not hide the others */ }
+          }
+          return rows;
+        })();
         /* The tmux session, taken from the roster row rather than rebuilt from
            the board name: `sessionName` is `angel` and the session is
            `angel-discord`, and a second place that knows that convention is a
