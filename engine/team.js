@@ -114,6 +114,9 @@ function resolveCap(deps, env) {
 /**
  * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
  * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
+ * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a real one for the sandboxed setup guide, which cannot read the board token;
+ * a cooperative guard for any other agent, which can read the board token and reach the unvetted operator path
+ * (as the per-creator cap in server.js says of itself). It keeps a cooperating agent inside the lines.
  *   - Only the fields an agent's request has any use for (AGENT_MEMBER_KEYS): never a runner binary, a config
  *     folder or a launch flag, which would let an agent choose what the new agent's launch job runs (and let the
  *     sandboxed setup guide step outside its sandbox, #3769). Other fields are dropped.
@@ -168,9 +171,12 @@ function vetAgentMember(member, opts) {
      newline in it before anything is written, so it cannot break the line. Loosen that rule and this needs the
      label's flattening too. */
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
-  let text = member.instructions.split('{{NAME}}').join(name);
+  /* Line endings as \n: a file that went through a Windows editor or PowerShell has \r\n, and the rules check
+     below compares the shared rules word for word. */
+  let text = member.instructions.replace(/\r\n?/g, '\n').split('{{NAME}}').join(name);
+  /* This stops edits INSIDE the shared rules; text elsewhere can still say otherwise, as any role's text can. */
   if (text.includes(RULES_HEADING) && !text.includes(defaults.block().trim())) {
-    return { because: 'the shared working rules (under "' + RULES_HEADING + '") stay as Kosmos wrote them; leave that section as kosmos agent role-draft gives it, or delete the whole section and Kosmos adds it back' };
+    return { because: 'the shared working rules (under "' + RULES_HEADING + '") are edited; leave that section as kosmos agent role-draft --to writes it, or delete the whole section and Kosmos adds it back' };
   }
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
      it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be

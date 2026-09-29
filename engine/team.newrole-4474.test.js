@@ -135,7 +135,7 @@ test('#4474: the shared working rules stay as Kosmos wrote them; served whole, o
     { name: 'No', role: 'own', label: 'Writer', instructions: base },
   ]);
   assert.deepEqual(got.map((o) => o.name), ['Wh', 'No'], 'edited shared rules reached create');
-  assert.match(out.refused[0].because, /shared working rules .* stay as Kosmos wrote them/);
+  assert.match(out.refused[0].because, /shared working rules .* are edited/);
 });
 
 test('#4474: an identity line ending in a period or a dash is recognised, and its name corrected', () => {
@@ -166,4 +166,14 @@ test('#4474: the vetting and create read the role through one function', () => {
     const vetRefused = !!team.vetAgentMember({ name: 'Z', role }).because;
     assert.equal(vetRefused, create.roleKeyOf({ role }) === 'setup', 'the vetting and create disagree on ' + JSON.stringify(role));
   }
+});
+
+test('#4474: the real served draft passes the vetting with Windows line endings (CRLF), as a PowerShell file has', () => {
+  const roles = require('./roles');
+  const own = roles.byKey('own').instructions;
+  const defaults = require('./defaults');
+  assert.ok(own.includes(defaults.block().trim()), 'CONTROL: the served draft does not carry the shared rules, so this proves nothing');
+  const { out, got } = build([{ name: 'Win', role: 'own', label: 'Writer', instructions: own.replace(/\n/g, '\r\n') }]);
+  assert.equal(out.outcome, 'created', 'the served draft with CRLF was refused: ' + JSON.stringify(out.refused));
+  assert.ok(!got[0].instructions.includes('\r'), 'CRLF reached create');
 });

@@ -109,3 +109,13 @@ test('#4474 CONTROL: the existing form still sends only a name and a role', () =
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen[0].body, { purpose: 'why', members: [{ name: 'Ann', role: 'pm' }] });
 }));
+
+test('#4474 role-draft --to writes the default text to the file as UTF-8, not through a shell redirect', () => withStub(MADE, async (port) => {
+  const file = path.join(HOME, 'role-writer.md');
+  const r = await cli(port, ['agent', 'role-draft', '--to', file]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(fs.readFileSync(file, 'utf8'), OWN, 'the file does not hold the text the board gave');
+  assert.match(r.out, /Wrote the default role text to .*role-writer\.md\. Edit it, then: kosmos agent create "<name>" --new-role "<role name>" --from /);
+  const bad = await cli(port, ['agent', 'role-draft', '--to']);
+  assert.equal(bad.code, 2, 'role-draft --to with no file did not say how');
+}));

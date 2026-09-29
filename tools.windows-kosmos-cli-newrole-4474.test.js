@@ -88,3 +88,13 @@ test('#4474 textFileDecoded: UTF-16LE, UTF-16BE and UTF-8 with or without a BOM 
   assert.equal(cli.textFileDecoded(Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(t, 'utf8')])), t);
   assert.equal(cli.textFileDecoded(Buffer.from(t, 'utf8')), t, 'CONTROL: plain UTF-8 changed');
 });
+
+test('#4474 Windows role-draft --to writes the file itself (UTF-8, the text\'s own line endings), never through PowerShell', async () => {
+  const written = {};
+  const h = harness({ answer: () => [200, { roles: [], own: { key: 'own', instructions: OWN } }] });
+  h.io.writeFile = (f, text) => { written[f] = text; };
+  assert.equal(await cli.main(['agent', 'role-draft', '--to', 'C:\\role-writer.md'], h.io), 0, h.lines.err.join('\n'));
+  assert.equal(written['C:\\role-writer.md'], OWN);
+  assert.match(h.lines.out.join('\n'), /Wrote the default role text to C:\\role-writer\.md/);
+  assert.equal(await cli.main(['agent', 'role-draft', '--to'], h.io), 2, 'role-draft --to with no file did not say how');
+});

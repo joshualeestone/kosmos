@@ -106,7 +106,7 @@ const USAGE = {
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
     '  kosmos agent roles                              list the roles an agent can be made with',
-    '  kosmos agent role-draft                         print the default text to write a new role from',
+    '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
@@ -163,7 +163,7 @@ function argvFrom(argv, readFile) {
    would turn the pattern into /^/ and break every Windows command (review round 1). */
 const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
 /* #4474: a text file an agent wrote, decoded by its byte order mark. Windows PowerShell 5.1's `>` writes UTF-16LE
-   with a BOM, so `kosmos agent role-draft > role.md` on Windows makes such a file; read as UTF-8 it is NULs
+   with a BOM, so a role file an agent redirected there is such a file (role-draft --to avoids it); as UTF-8 it is NULs
    between the letters, which would pass every length check. UTF-16LE, UTF-16BE and UTF-8 (BOM dropped). */
 function textFileDecoded(buf) {
   const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf), 'utf8');
@@ -684,7 +684,7 @@ async function agentCreate(ctx, args) {
     }
     let text;
     try { text = ctx.readFile(args[4]); } catch (_) {
-      ctx.err('We could not read ' + args[4] + '. Write the role\'s text to a file first (kosmos agent role-draft > role.md, then edit it).');
+      ctx.err('We could not read ' + args[4] + '. Write the role\'s text to a file first (kosmos agent role-draft --to role-<short-name>.md, then edit it).');
       return 2;
     }
     why = args[5] || 'the person asked for it';
@@ -713,12 +713,18 @@ async function agentRoles(ctx) {
   return 0;
 }
 /* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
-async function agentRoleDraft(ctx) {
+async function agentRoleDraft(ctx, args) {
+  const to = args && args[0] === '--to' ? args[1] : null;
+  if (args && args[0] === '--to' && !to) { ctx.err('Usage: kosmos agent role-draft [--to <file>]'); return 2; }
   const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('get the role text');
   const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
   if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
-  ctx.out(text.replace(/\n+$/, ''));
+  if (!to) { ctx.out(text.replace(/\n+$/, '')); return 0; }
+  /* --to writes the file itself, UTF-8 with the text's own line endings: PowerShell's `>` would re-encode it
+     (UTF-16, CRLF, the console code page), and the board checks the shared rules in it word for word (#4474). */
+  try { ctx.writeFile(to, text.replace(/\n+$/, '') + '\n'); } catch (_) { ctx.err('We could not write the role text to ' + to + '.'); return 1; }
+  ctx.out('Wrote the default role text to ' + to + '. Edit it, then: kosmos agent create "<name>" --new-role "<role name>" --from ' + to);
   return 0;
 }
 
@@ -1045,6 +1051,7 @@ async function main(argv, io) {
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
+    writeFile: o.writeFile || ((f, text) => fs.writeFileSync(f, text, 'utf8')),   // #4474: agent role-draft --to
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
