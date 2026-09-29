@@ -18,10 +18,12 @@ text; no sentence when there is none; the sentence never carries over to another
 
 ## Scope
 - engine/personalinstr.js: `personalInstructions(name)` -> `{ tool }` or null. Runner from the job
-  (readJob) else the profile (recordedRunner); config dir from the job. Files: Claude
-  `<CLAUDE_CONFIG_DIR or home/.claude>/CLAUDE.md`, Codex `<CODEX_HOME>/AGENTS.md`, Gemini
-  `<storage home>/GEMINI.md`, Grok `<GROK_HOME>/AGENTS.md`. A regular non-empty file, symlinks
-  followed (the CLI follows them). Antigravity and Muse: null (no documented user-level path).
+  (readJob) else the profile (recordedRunner); config dir from the job. `filesFor` lists what each
+  CLI loads, read from its own code or bundled docs on this Mac (2026-09-28): Claude
+  `<CLAUDE_CONFIG_DIR or home/.claude>/CLAUDE.md`; Codex `<CODEX_HOME>/AGENTS.override.md` or
+  `AGENTS.md` (the binary); Gemini `<storage home>/GEMINI.md` (`getGlobalMemoryFilePath` in its
+  bundle); Grok `<GROK_HOME>/AGENTS.md` and every `*.md` directly in `<GROK_HOME>/rules/` (its
+  embedded docs). Any one regular non-empty file, symlinks followed. Antigravity and Muse: null.
   Never throws.
 - server.js: the instructions GET adds `personal`.
 - web/index.html: `#d-instr-personal` under the lede; `paintPersonalInstr`; hidden at load start and
@@ -31,8 +33,10 @@ text; no sentence when there is none; the sentence never carries over to another
   reason-grep count 199 -> 200 (measured).
 
 ## Weakest premises
-- Codex, Gemini and Grok user-level paths come from their docs and the Grok binary's strings, not
-  from a live session on this Mac (a live Grok probe was not run). Claude's is measured on the card.
+- A file renamed in the CLI's own settings (Gemini `contextFileName`, Codex
+  `project_doc_fallback_filenames`) is not seen, so the panel says nothing in that case.
+- Grok by default also reads `~/.cursor/rules/*.md` (`compat.cursor.rules`), which #4426 did not
+  turn off. Noted on the card for #4426's owner; this panel does not report it.
 - The copy ("They also follow your personal <tool> instructions, which are kept outside Kosmos and
   apply to your other <tool> sessions as well.") is mine; Mona owns the panel's wording and may
   reword it.

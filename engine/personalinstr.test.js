@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { personalInstructions, fileFor } = require('./personalinstr');
+const { personalInstructions, filesFor } = require('./personalinstr');
 
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'personalinstr-4446-'));
@@ -103,7 +103,34 @@ test('a Grok agent is NOT told about the person\'s CLAUDE.md (that import is off
 
 test('a per-account Gemini agent looks one level down, where the CLI keeps its files', () => {
   const create = fakeCreate('/r', null);
-  assert.strictEqual(fileFor('gemini', '/r/.gemini-work', create), path.join('/r/.gemini-work', '.gemini', 'GEMINI.md'));
+  assert.deepStrictEqual(filesFor('gemini', '/r/.gemini-work', create), [path.join('/r/.gemini-work', '.gemini', 'GEMINI.md')]);
+});
+
+test('Codex: the override file alone is enough, and a per-account agent reads its own home', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.codex-work');
+  const create = fakeCreate(s.root, { runner: 'codex', configDir: acct });
+  write(path.join(s.root, '.codex', 'AGENTS.md'), 'default home only\n');
+  assert.strictEqual(personalInstructions('ann', { create }), null,
+    'the default home does not load for an agent on another account');
+  write(path.join(acct, 'AGENTS.override.md'), 'override\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Codex' });
+});
+
+test('Grok: a *.md directly in rules/ counts; another extension or a subfolder does not', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.grok-work');
+  const create = fakeCreate(s.root, { runner: 'grok', configDir: acct });
+  write(path.join(s.root, '.grok', 'rules', 'style.md'), 'default home only\n');
+  write(path.join(acct, 'rules', 'notes.txt'), 'not markdown\n');
+  write(path.join(acct, 'rules', 'deep', 'nested.md'), 'a subfolder is not scanned\n');
+  write(path.join(acct, 'rules', 'empty.md'), '');
+  assert.strictEqual(personalInstructions('ann', { create }), null,
+    'the default home, a .txt, a nested .md and an empty .md say nothing');
+  write(path.join(acct, 'rules', 'style.md'), 'short answers\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Grok' });
 });
 
 test('Antigravity, Muse and an unreadable job answer null; no job falls back to the profile', (t) => {

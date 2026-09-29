@@ -3,9 +3,11 @@
 /* #4446: the PERSONAL instructions file an agent's own terminal agent loads at startup
    from OUTSIDE the agent's folder, so the Instructions panel can say so.
 
-   Kosmos does not add these. Each provider's CLI reads its user-level file itself:
-   Claude Code `<config dir>/CLAUDE.md` (CLAUDE_CONFIG_DIR, else ~/.claude), Codex
-   `<CODEX_HOME>/AGENTS.md`, Gemini CLI `<storage home>/GEMINI.md`, Grok `<GROK_HOME>/AGENTS.md`.
+   Kosmos does not add these. Each provider's CLI reads its user-level files itself (read from each
+   CLI's own code or its bundled docs, 2026-09-28): Claude Code `<config dir>/CLAUDE.md`
+   (CLAUDE_CONFIG_DIR, else ~/.claude); Codex `<CODEX_HOME>/AGENTS.override.md` or `AGENTS.md`;
+   Gemini CLI `<storage home>/GEMINI.md`; Grok `<GROK_HOME>/AGENTS.md` and every `*.md` directly
+   in `<GROK_HOME>/rules/`. A file renamed in the CLI's own settings is not seen.
    The ruling on the card was to keep them and tell the person, so this only answers
    whether such a file is there. It never reads the file's text and never returns its path:
    the panel does not show paths (Josh 2026-08-17), and the answer is a tool name.
@@ -22,18 +24,26 @@ const path = require('path');
 
 const TOOL = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok' };
 
-/* The user-level file this runner's CLI reads for an agent launched with `configDir`
-   (null = the default account). Null for a runner with none. Pure apart from the
-   default-home helpers, which only read the environment. */
-function fileFor(runner, configDir, create) {
+/* The user-level files this runner's CLI may read for an agent launched with `configDir`
+   (null = the default account). Empty for a runner with none. */
+function filesFor(runner, configDir, create) {
   if (runner === 'claude') {
     const home = require('./accounts').homeDir();
-    return path.join(configDir || path.join(home, '.claude'), 'CLAUDE.md');
+    return [path.join(configDir || path.join(home, '.claude'), 'CLAUDE.md')];
   }
-  if (runner === 'codex') return path.join(configDir || create.defaultAgentCodexHome(), 'AGENTS.md');
-  if (runner === 'gemini') return path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md');
-  if (runner === 'grok') return path.join(configDir || create.defaultAgentGrokHome(), 'AGENTS.md');
-  return null;
+  if (runner === 'codex') {
+    const home = configDir || create.defaultAgentCodexHome();
+    return [path.join(home, 'AGENTS.override.md'), path.join(home, 'AGENTS.md')];
+  }
+  if (runner === 'gemini') return [path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md')];
+  if (runner === 'grok') {
+    const home = configDir || create.defaultAgentGrokHome();
+    const rules = path.join(home, 'rules');
+    let names = [];
+    try { names = fs.readdirSync(rules).filter((n) => n.endsWith('.md')).sort(); } catch { names = []; }
+    return [path.join(home, 'AGENTS.md'), ...names.map((n) => path.join(rules, n))];
+  }
+  return [];
 }
 
 /* A regular file with something in it. statSync follows a symlink, which is the point:
@@ -57,10 +67,11 @@ function personalInstructions(name, deps = {}) {
     try { runner = create.recordedRunner(name); } catch { runner = null; }
   }
   if (!TOOL[runner]) return null;
-  let file;
-  try { file = fileFor(runner, job ? job.configDir : null, create); } catch { file = null; }
-  if (!file || !(deps.hasContent || hasContent)(file)) return null;
+  let files;
+  try { files = filesFor(runner, job ? job.configDir : null, create); } catch { files = []; }
+  const has = deps.hasContent || hasContent;
+  if (!files.some((f) => has(f))) return null;
   return { tool: TOOL[runner] };
 }
 
-module.exports = { personalInstructions, fileFor, TOOL };
+module.exports = { personalInstructions, filesFor, TOOL };
