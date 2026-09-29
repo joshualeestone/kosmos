@@ -175,3 +175,14 @@ Weakest premises, added:
 - Cost, stated: on a classic-scrollbar machine the consolidated Agents pane always reserves 15px, so a card grid that
   does not scroll shows a 15px strip at the right and can drop a column 15px sooner. Cosmetic; no check measures it.
 - Not measured: a real Safari before 18.2 (G3b models it by overriding the property; the guard is engine-independent).
+- Converged: rounds 3 (opus) and 4 (sonnet) found nothing above MINOR on the guard. Residuals ACCEPTED, with reasons:
+  - A real width change of 15px or less back and forth within 500ms (a wiggled window edge; a cover up, down, up)
+    trips the second-flip skip: the chart rests up to 15px narrow (it FITS; nothing loops) until the next resize or
+    the ~5s poll. Bounded and cosmetic.
+  - Below about 47% page zoom a 15px scrollbar exceeds the 32px bound, so on an engine without scrollbar-gutter
+    (Safari before 18.2) the loop could return in the band of heights. Would change: a report from such a user;
+    the fix is comparing to the measured gutter instead of a constant.
+  - On such an engine, every ~5s poll repaints wide and the guard settles it in about 3 more paints (G3b: 4 paints,
+    fits). The poll's direct paintOrg does not update ORG_FLIP_FROM; setting it there would remove the wobble.
+  - The flip state machine is exercised only by the gated browser check (G3b), not by a unit test.
+  - The Agents pane's reserved 15px gutter differs from the Tasks and Projects panes beside it (stated above).
