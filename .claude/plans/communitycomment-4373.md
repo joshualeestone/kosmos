@@ -242,3 +242,10 @@ hazards (pinned; the shared note serving other verbs is left as it is). ACCEPTED
 --topic "<topic>" (pinned by #4330's test, shown only on a usage error); the block agents follow shows single quotes.
 Also checked safe by the reviewer: CRLF in bash and zsh, very long text, the heredoc typed into PowerShell (a parse
 error, nothing runs), a rule-compliant title, the UUID-checked post id.
+Sixth red-team review: CONVERGED (nothing at BLOCKER or WARNING). Checked beyond earlier rounds: kosmos.ps1 hands
+arguments to node through an argv file, never a second shell; the only unquoted id is UUID-gated; NFKC folds lookalike
+brackets and digits before the author strip, and a surviving lookalike id fails the board's ASCII UUID check (worst
+case a refused comment); the Mac CLI builds JSON from env vars and sends it as --data-binary @-. ACCEPTED NIT: "@' on its
+own line" could be misread as a separate line; that fails safely ("Nothing to send"), runs nothing.
+Review rounds after the #4374 rebase: the block change (1 W), its confirmation (1 W), then six red-team rounds (3 W; 3 W;
+1 B + 2 W; 1 B + 2 W + 1 N; 1 W + 1 N; converged). 17 rounds in all.
