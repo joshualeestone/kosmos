@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 3 (re-run after CI found a wiring defect the first two passes missed)
 **Converged:** Yes
-**Total findings:** 5 (1 BLOCKER, 1 WARNING, 0 CONVENTIONs, 5 NITs)
-**Fixed:** 2 blocking + 2 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 3 actionable (2 BLOCKERs, 1 WARNING, 0 CONVENTIONs), 9 NITs
+**Fixed:** 3 actionable + 2 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
