@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarmsettings-4433
-diff_hash: 0e771b0458465cf50c2f5ce1547cadc1815fb65e9b96f68dd03c7250a93fba5a
+diff_hash: 961bd5eb2c54ca754fa611493dd1c696dcbb05cf4b5a96bebc7a62183e9a8863
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T00:18:54Z
+timestamp: 2026-09-29T02:10:16Z
 iterations: 8
 converged: true
 ---
@@ -96,3 +96,10 @@ converged: true
   - the pill hidden;
   - a static description;
   - the box shown for every agent.
+
+### After convergence: Mona Lisa's design review (20:40 CDT) and its fixes
+- **MUST-FIX:** a refused change's message outlived the person's next move (it stood under a valid slider in the stop question). Fixed with swarmMsgClear on the next move. S44 pins "no error line in the stop-ask state". The mutant that never clears reproduces her sentence.
+- **Question:** Active from a limit pause holds (engine limitOverrideDay). A new S8 arm sends active:true and the card holds.
+- **Nits:** the limit reads "... tokens"; the link sits left under the cards (not inside the radio card: accessibility); a phone view shot.
+- Validation PASSED on 966c50d7 (11459 tests, 0 fail). swarm-ui-3564: 115 pass. Web tests 113. Section test 1.
+
