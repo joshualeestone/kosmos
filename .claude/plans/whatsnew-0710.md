@@ -1,6 +1,7 @@
-# whatsnew-0710: What's New highlights for the next Mac build (0.7.10)
+# whatsnew-0710: What's New highlights for the next Mac build (0.7.11; the branch name predates the re-key)
 
-0.7.10, not 0.7.09: Windows staging took 0.7.09 (latest-win-staging.json, 2026-09-29), and each platform
+RE-KEYED to 0.7.11 (2026-09-29 13:1x): Windows staging then took 0.7.10 too (latest-win-staging.json 0.7.10, the
+versioned zip served 200; Mac 0.7.10 never existed). Earlier: 0.7.10, not 0.7.09, because Windows staging took 0.7.09 (latest-win-staging.json, 2026-09-29), and each platform
 takes the next free number (#4046). release.sh step 1b-ii refuses 0.7.10 without these highlights.
 
 ## Highlights, each checked against what merged since the 0.7.08 freeze (3f56564f7)
