@@ -156,3 +156,166 @@ test('the module has no card-creation surface -- triage cannot open a card by co
   const writeVerbs = surface.filter((k) => /^(create|open|file|post|submit|write|issue)/i.test(k));
   assert.deepEqual(writeVerbs, [], 'feedback-triage must expose no card-writing verb, found: ' + writeVerbs.join(', '));
 });
+
+/* kosmos#4415: measured on the 39 live reports (2026-09-28), the digest's top "candidate" was "Nothing appears broken
+   in the interactions checked", raised 7 times: a clean report, flagged for the word "broken". */
+test('#4415: a negated action word is not an action; a report that nothing went wrong is below the bar', () => {
+  const t = require('./feedback-triage');
+  for (const clean of ['Nothing appears broken in the interactions checked.', 'No errors today in any of the flows I ran.',
+    'Everything worked as expected across the three rooms.', 'The update ran without any issues on this Mac.',
+    'The queue is completely idle and ready for work rather than stuck or blocked.']) {
+    assert.equal(t.classify(clean).score, 0, clean + ' scored as a candidate');
+  }
+  assert.ok(t.classify('The room scroll is broken: it lands higher up on every return.').score > 0, 'control: a real report still scores');
+});
+
+test('#4415: a negation reaches only within its own clause, and a negated word is neutral, not proof of a clean report', () => {
+  const t = require('./feedback-triage');
+  /* Each problem word must COUNT, not merely leave the item a candidate by its length: "score > 0" alone passed with
+     the clause rule removed, because a long neutral item still earns the detail point. */
+  for (const [bug, word] of [['Update never finishes, stuck forever on the progress bar.', 'stuck'],
+    ['Kosmos quit without saving and I lost my draft.', 'lost'],
+    ['No response from the agent, stuck on thinking for ten minutes.', 'stuck'],
+    ['Nothing loads: the Files panel is broken on a fresh install.', 'broken']]) {
+    assert.match(t.classify(bug).reasons.join(' | '), new RegExp('names something to change or fix \\([^)]*\\b' + word + '\\b'),
+      bug + ': the negation reached across a clause, so "' + word + '" did not count');
+  }
+  const reasons = (s) => t.classify(s).reasons.join(' | ');
+  // The reach, exactly: normalize keeps every word, so `stuck` is 4 words after `never` here (inside the reach) ...
+  assert.doesNotMatch(reasons('never alpha bravo charlie stuck in the build queue today'), /\(stuck/, 'a negation 4 words back did not reach');
+  // ... and 5 words after it here (outside the reach).
+  assert.match(reasons('never alpha bravo charlie delta stuck in the build queue today'), /\(stuck/, 'a negation 5 words back still reached');
+  assert.doesNotMatch(reasons('The build never alpha bravo charlie stuck, and that is all.'), /reports that nothing was wrong/,
+    'a negated word alone made the item clean');
+});
+
+test('#4415: the report form\'s own questions are not items, matched exactly, and a real question still scores', () => {
+  const t = require('./feedback-triage');
+  const roles = require('fs').readFileSync(require('path').join(__dirname, 'roles.js'), 'utf8');
+  const flat = roles.replace(/'\s*,\s*\n\s*'/g, ' ').replace(/\s+/g, ' ');
+  for (const q of t.FORM_QUESTIONS) {
+    assert.ok(flat.includes(q.replace(/\?$/, '')), 'FORM_QUESTIONS has drifted from roles.js: ' + q);
+    assert.equal(t.classify(q).score, 0, q);
+  }
+  assert.equal(t.classify('What bugs did you hit today, or what did your user ask').score, 0, 'the first line of a wrapped question');
+  assert.ok(t.classify('Why does the export crash every time on a large project?').score > 0, 'control: a real question is a report');
+  assert.equal(t.classify('What would make it better:').score, 0, 'an agent\'s own heading, in its own words');
+  assert.ok(t.classify('Export fails with this error:').score > 0, 'control: a lead-in with a problem word is a report');
+  assert.ok(t.classify('Is anything broken? Yes: the export crashes every time on a large project.').score > 0,
+    'control: a question followed by its answer is an answer');
+});
+
+test('#4415: the daily digest strips the pulled frontmatter, so no install id reaches #admin', () => {
+  const t = require('./feedback-triage');
+  const now = Date.parse('2026-09-28T14:00:00Z') / 1000;
+  const fresh = t.freshSince([{ name: '2026-09-28__x.md', body: '---\ndate: 2026-09-28\ninstall: aad22250-b483-4e07\ngenerated_at: 2026-09-28T13:00:00Z\n---\n\nBug: the weekly limit never records a reset, so the board stays stale for days.\n' }], now - 7200, now);
+  const out = t.adminSummary(fresh, '', 'https://x/admin') + JSON.stringify(t.triage(fresh, {}));
+  assert.ok(!out.includes('aad22250'), 'the install id from the frontmatter reached the digest');
+  assert.ok(out.includes('weekly limit never records a reset'), 'control: the report itself is still read');
+});
+
+test('#4415 review 3: a report stamped after the run started is DEFERRED to the next digest and posted exactly once', () => {
+  const t = require('./feedback-triage');
+  const run1 = Date.parse('2026-09-28T14:00:00Z') / 1000, run2 = run1 + 86400, run3 = run2 + 86400;
+  const f = (at) => ({ name: '2026-09-28__x.md', body: '---\ngenerated_at: ' + at + '\n---\n- a line\n' });
+  // Each run's window is (last watermark, its own start], and it writes its start as the next watermark.
+  const seen = (r) => [[run1 - 86400, run1], [run1, run2], [run2, run3]].map(([a, b]) => t.freshSince([r], a, b).length);
+  assert.deepEqual(seen(f('2026-09-28T14:05:00Z')), [0, 1, 0], 'a report arriving mid-run was posted twice (or never)');
+  assert.deepEqual(seen(f('2026-09-29T20:00:00Z')), [0, 0, 1], 'a fast clock was new in more than one digest (or dropped)');
+  assert.deepEqual(seen(f('2026-09-28T13:00:00Z')), [1, 0, 0], 'control: an ordinary report is in exactly the first digest');
+});
+
+test('#4415: the #admin post quotes report text as inline code, so a markdown link in a report does not render', () => {
+  const t = require('./feedback-triage');
+  const body = '---\ndate: 2026-09-28\n---\n- The export button is broken, see [click here](https://evil.example) and `rm` it.\n';
+  const out = t.adminSummary([{ date: '2026-09-28', body }], '', 'https://x/admin');
+  const line = out.split('\n').find((l) => l.startsWith('- '));
+  assert.ok(line && line.startsWith('- `') && line.endsWith('`'), 'the report line is not inline code: ' + line);
+  assert.equal((line.match(/`/g) || []).length, 2, 'a backtick in the report broke out of the code span');
+});
+
+test('#4415: freshSince keeps only reports that arrived after the last post, and never guesses an undated one', () => {
+  const t = require('./feedback-triage');
+  const f = (name, at) => ({ name, body: '---\ndate: x\n' + (at ? 'generated_at: ' + at + '\n' : '') + '---\n- a line\n' });
+  const since = Date.parse('2026-09-28T12:00:00Z') / 1000;
+  const got = t.freshSince([f('2026-09-28-a.md', '2026-09-28T13:00:00Z'), f('2026-09-27-b.md', '2026-09-27T13:00:00Z'), f('2026-09-28-c.md', null)], since);
+  assert.deepEqual(got.map((r) => r.date), ['2026-09-28'], 'the old and the undated report were kept');
+  assert.equal(t.freshSince([f('2026-09-28-a.md', '2026-09-28T13:00:00Z')], 'not a number').length, 0, 'a bad watermark reads nothing, not everything');
+});
+
+test('#4415: adminSummary is empty with nothing new, and shows five candidates then a count', () => {
+  const t = require('./feedback-triage');
+  assert.equal(t.adminSummary([], '', 'https://x/admin'), '', 'nothing new must post nothing');
+  const lines = ['Room scroll jumps upward whenever messages arrive, broken', 'Updater silently fails overnight', 'Export crashes Kosmos instantly',
+    'Dock icon vanishes after reboot, a bug', 'Weekly quota never resets, error', 'Windows codex TOML path wrong, fails to load',
+    'Login button unresponsive, does not work', 'Settings pane crashes on open', 'Voice microphone errors out constantly'];
+  const body = '---\ndate: 2026-09-28\n---\n' + lines.map((l) => '- ' + l + '.').join('\n') + '\n';
+  const out = t.adminSummary([{ date: '2026-09-28', body }], '', 'https://x/admin');
+  const res = t.triage([{ date: '2026-09-28', body }], { openCards: [] });
+  assert.ok(res.candidates.length > 5, 'fixture must exceed five candidates, got ' + res.candidates.length);
+  const shown = out.split('\n').filter((l) => l.startsWith('- '));
+  assert.equal(shown.length, 5);
+  assert.match(out, new RegExp('\\.\\.\\.and ' + (res.candidates.length - 5) + ' more\\.'));
+  assert.match(out, /https:\/\/x\/admin \(Reports\)\. No card was opened\.$/);
+});
+
+test('#4415: a clean clause does not clean a report, and an idiom about the reporter negates nothing', () => {
+  const t = require('./feedback-triage');
+  const why = (s) => t.classify(s).reasons.join(' | ');
+  for (const s of ['It works as expected but scroll jumps', 'Could not find the button but it works fine']) {
+    assert.doesNotMatch(why(s), /reports that nothing was wrong/, s + ': one clean clause cleaned a report');
+  }
+  assert.match(why('Not sure why export crashed'), /\(crashed/, '"not sure" negated the crash');
+  assert.match(why("wasn't able to save the draft"), /\(could not/, 'review 3: not being able to do something IS the problem');
+  assert.match(why('wasnt able to save, the board hung'), /[(,] ?hung/, '"wasn\'t able" plus a clause break still counts the hang');
+  assert.equal(t.classify('The queue is completely idle and ready for work rather than stuck or blocked.').score, 0,
+    'control: a neutral clause beside a clean one is still clean');
+});
+
+test('#4415 review 3: a negation takes ONE problem word (across "or" only), and saying it could not be done is the problem', () => {
+  const t = require('./feedback-triage');
+  const why = (s) => t.classify(s).reasons.join(' | ');
+  assert.match(why('The retry did not fix the crash.'), /crash/, '"did not fix" hid the crash');
+  assert.match(why('I could not add a file to the project.'), /could not/, '"could not add" read as a negated add');
+  assert.match(why('There is no way to add a second provider'), /could not/, '"no way to" lost its failure');
+  assert.equal(t.classify('No errors or crashes today.').score, 0, 'control: a negation still carries across "or"');
+  assert.equal(t.classify('Nothing appears broken.').score, 0, 'control: a plain negation still negates');
+});
+
+test('#4415 review 4: praise in failure words is not a problem, and one statement counts once', () => {
+  const t = require('./feedback-triage');
+  const hits = (s) => (t.classify(s).reasons.find((r) => r.startsWith('names something')) || '');
+  for (const s of ['I cannot wait for this feature', "Can't recommend it enough, works great", 'There is no way to break it',
+    'I could not be happier with the export', 'Can not complain, it works', 'Could not find any errors, all good']) {
+    assert.equal(hits(s), '', s + ': praise or an absent problem counted as a problem');
+  }
+  assert.match(hits('Export cannot add a provider'), /\(cannot, add\)$/, '"cannot" was counted twice (as itself and as "could not")');
+  assert.match(hits('I could not add a file to the project.'), /could not/, 'control: a real failure still counts');
+});
+
+test('#4415 review 5: a NEGATED clean phrase is a problem, not a clean report', () => {
+  const t = require('./feedback-triage');
+  const clean = (s) => t.classify(s).reasons.some((r) => /nothing was wrong/.test(r));
+  for (const s of ['The board is not working correctly on Windows after I updated to the new version today',
+    'Sync never works correctly with two phones connected at once to the board',
+    'It has not worked well since the update, the board keeps reloading itself']) {
+    assert.equal(clean(s), false, s + ': a negated clean phrase marked the report clean');
+    assert.ok(t.classify(s).score > 0, s + ': scored as nothing');
+  }
+  assert.equal(clean('Everything works correctly today.'), true, 'control: an un-negated clean phrase is still clean');
+});
+
+test('#4415 review 5: "cannot be / could not be / cannot stop" are failures; only real praise idioms are not', () => {
+  const t = require('./feedback-triage');
+  const named = (s) => (t.classify(s).reasons.find((r) => r.startsWith('names something')) || '');
+  for (const s of ['The agent cannot be created from the board.', 'The file could not be opened.', 'The board could not be reached.',
+    'I could not ask the agent a question from the phone', 'no way to stop the agent', 'Cannot break out of the loop in the chat panel',
+    'I could not see a button to export.', 'It could not be simpler or could not save']) {
+    assert.notEqual(named(s), '', s + ': a failure was read as praise or absence');
+  }
+  assert.equal(t.classify('The chat works fine but the phone app cannot be opened.').reasons.some((r) => /nothing was wrong/.test(r)), false,
+    'a failure in the other clause was cleaned away');
+  for (const s of ['I could not be happier with the export', 'There is no way to break it', 'I cannot wait for this feature']) {
+    assert.equal(named(s), '', s + ': praise counted as a problem');
+  }
+});

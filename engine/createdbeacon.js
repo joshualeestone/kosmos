@@ -73,10 +73,12 @@ let sender = null;   // tests inject; production uses global fetch
 const endpoint = () => process.env.AGENT_WORKFORCE_CREATED_URL || DEFAULT_ENDPOINT;
 
 /**
- * This install's Kosmos version, best-effort. Stored by the server as metadata
- * (it is NOT used for the counts, which come from installId + count), so an
- * unreadable version costs nothing: fall back to 'unknown' rather than throw on
- * a path that must never throw.
+ * This install's Kosmos version, best-effort. The public counts come from
+ * installId + count; since kosmos#4415 (chaoskosmos-site#169) the site also puts
+ * a plain dotted version into the record's name so /admin can count versions in
+ * use. An unreadable version still costs nothing: 'unknown' writes no version
+ * segment and the install reads "Not reported". Fall back rather than throw on a
+ * path that must never throw.
  */
 function version() {
   try { return String(require('../package.json').version || 'unknown'); }
