@@ -641,9 +641,9 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 [ "$rc" -eq 0 ] && pass "#4498 CONTROL: once that waiter is gone the same run starts" || fail "#4498 a dead waiter still held the run (rc=$rc, $out)"
 
 # The wiring, end to end: a real run-tests.sh beside a stand-in suite refuses at once under
-# KOSMOS_NO_WAIT=1 and names the suite, before it runs a test. (A green end-to-end would run the whole
+# KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole
 # suite; the go paths are shown above.) test-install.sh refuses an unknown argument.
-out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
+out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
   KOSMOS_TEST_PART=all bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
   && pass "#4498 run-tests.sh refuses beside another live suite (KOSMOS_NO_WAIT=1), naming its override" \
@@ -651,13 +651,15 @@ out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ances
 # A run-tests.sh inside a test (here: every pid has a node --test ancestor) is part of the suite that
 # started it, so it skips the suite check. The live stand-in harness (fixtures kept) is what refuses
 # it instead; the suite check comes first, so a missing skip would print the suite refusal.
-printf '#!/bin/sh\nprintf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
-out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
+# The stand-in suite's own pid ($DEAD) is exempt, so only the CALLER reads as a fixture.
+printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
+out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
   KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
   && pass "#4498 a run-tests.sh inside a test does not wait on the suite that started it" \
   || fail "#4498 a run-tests.sh fixture checked for other suites (rc=$rc, $(printf '%s' "$out" | tail -3))"
-out="$(cd "$HERE/.." && bash tools/test-install.sh --nowait 2>&1)"; rc=$?
+# Bounded as if the parse were broken: a 999999999 MB disk floor and no waiting, so this can never start a harness.
+out="$(cd "$HERE/.." && KOSMOS_HARNESS_MIN_FREE_MB=999999999 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 bash tools/test-install.sh --nowait 2>&1)"; rc=$?
 { [ "$rc" -eq 2 ] && has "$out" "unknown argument '--nowait'"; } && pass "#4498 test-install.sh refuses a mistyped --no-wait instead of waiting" \
   || fail "#4498 test-install.sh took an unknown argument (rc=$rc, $out)"
 
