@@ -2,15 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: tokenless-4602
-diff_hash: 503be2cf77d05be593965a65e9da2d76a5415a21c6debb01ce799ef119c930a7
+diff_hash: 0480ddeb6731ba051714ea8f6449d3cbbf98a85f2a868f95acaff2730a330759
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T19:45:55Z
+timestamp: 2026-09-29T23:52:32Z
 iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+**Final validation (2026-09-29, after main with #4574 was merged in):** full `tools/run-tests.sh` on Agent1s at ffadb2e96, 12,143 tests, 0 fail; recorded `clean` for hash 0480ddeb6731 (this proof's diff_hash, recomputed and matching).
 
 **Iterations:** 4
 **Converged:** Yes
