@@ -1641,17 +1641,17 @@ let signinEpoch = 0;
    (the page gets device_status and nothing else), and it is dropped by Sign out, a new sign-in, Forget, and the
    first final answer. Past the window the page keeps its Done button, which is how it worked before. */
 const ALLOW_WATCH_MS = 15 * 60 * 1000;
-const allowWatchMs = () => {
-  const v = Number(process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS);
-  return Number.isFinite(v) && v > 0 ? v : ALLOW_WATCH_MS;   // tests shorten it; never "no bound"
-};
+let allowWatchMsForTests = 0;   // a test seam only (setAllowWatchMsForTests); nothing in the environment lengthens it
+const allowWatchMs = () => (allowWatchMsForTests > 0 ? allowWatchMsForTests : ALLOW_WATCH_MS);
 let allowWatch = null;          // { token, until, timer } while a second computer waits to be allowed
 let allowWatchInFlight = null;  // { w, p }: one status call per watch; a caller for the same watch shares it
 const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
-/* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop. */
+/* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop.
+   Read against the WHOLE stderr: clap's error is its first line, and `because` is only the last one (setupRun). */
 const OLD_TUNNEL = /unrecognized subcommand|unexpected argument|invalid subcommand/i;
-/* The coordinator refused the session itself (the tunnel prints "Kosmos+ said no (401): ..."): as final as denied. */
-const SESSION_REFUSED = /said no \((401|403)\)/;
+/* The coordinator refused the session itself ("Kosmos+ said no (401): ..."): as final as denied. 401 only: the
+   session reader answers 401 for a bad or expired session; nothing on this route is known to answer 403. */
+const SESSION_REFUSED = /said no \(401\)/;
 function keepAllowWatch(token) {
   dropAllowWatch();
   const w = { token, until: Date.now() + allowWatchMs(), timer: null };
@@ -1678,7 +1678,7 @@ async function signinAllowStatus() {
     // exists, its page must ask again rather than be told to stop by an old answer.
     if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: !allowWatch } };
     if (!r.ok) {
-      const why = String(r.because || '');
+      const why = String(r.stderr || '') + '\n' + String(r.because || '');
       if (OLD_TUNNEL.test(why) || SESSION_REFUSED.test(why)) { dropAllowWatch(); return { ok: false, because: r.because, data: { stop: true } }; }
       return { ok: false, because: r.because, data: { stop: false } };
     }
@@ -2179,6 +2179,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
   signinCancel,
   signinAllowStatus,
   allowWatchHeldForTests: () => allowWatch !== null,
+  setAllowWatchMsForTests: (ms) => { allowWatchMsForTests = Number(ms) > 0 ? Number(ms) : 0; },
   pendingDevices,
   devicesList,
   deviceAllow,
@@ -2209,7 +2210,7 @@ module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDe
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; dropAllowWatch(); allowWatchInFlight = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; dropAllowWatch(); allowWatchInFlight = null; allowWatchMsForTests = 0; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

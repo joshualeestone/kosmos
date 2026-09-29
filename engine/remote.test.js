@@ -159,8 +159,10 @@ if (args[0] === 'signin') {
   }
   if (verb === 'status') {
     // #4640: the token on stdin, never argv; the answer is whatever the test planted in <record>.allow (default pending).
-    if (mode.includes('old-tunnel')) { process.stderr.write("error: unrecognized subcommand 'status'\\n"); process.exit(2); }
+    // The whole block a real clap prints (measured from a shipped kosmos-tunnel): the error is the FIRST line.
+    if (mode.includes('old-tunnel')) { process.stderr.write("error: unrecognized subcommand 'status'\\n\\nUsage: kosmos-tunnel <COMMAND>\\n\\nFor more information, try '--help'.\\n"); process.exit(2); }
     if (mode.includes('status-down')) { process.stderr.write('Kosmos+ is unreachable: connect refused\\n'); process.exit(1); }
+    if (mode.includes('status-403')) { process.stderr.write('Error: Kosmos+ said no (403): not allowed\\n'); process.exit(1); }
     if (mode.includes('status-401')) { process.stderr.write('Error: Kosmos+ said no (401): session token invalid or expired\\n'); process.exit(1); }
     if (mode.includes('status-slow')) { const until = Date.now() + 1200; while (Date.now() < until) { /* a slow coordinator */ } }
     const token = fs.readFileSync(0, 'utf8').trim();
@@ -1326,7 +1328,7 @@ test('#4640 an old tunnel without the verb stops the wait; a coordinator that is
 });
 
 test('#4640 review: the window drops the token on its own clock, and a refused session is final', async () => {
-  process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS = '300';
+  remote.setAllowWatchMsForTests(300);
   try {
     await signedInSecond();
     assert.equal(remote.allowWatchHeldForTests(), true, 'CONTROL: the watch is held after register');
@@ -1337,8 +1339,13 @@ test('#4640 review: the window drops the token on its own clock, and a refused s
     const late = await remote.signinAllowStatus();
     assert.equal(late.data.stop, true, 'the token outlived its window');
     assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'an expired watch still asked the coordinator');
-  } finally { delete process.env.AGENT_WORKFORCE_ALLOW_WATCH_MS; }
+  } finally { remote.setAllowWatchMsForTests(0); }
   await signedInSecond();
+  process.env.FAKE_TUNNEL_MODE = 'status-401';
+  process.env.FAKE_TUNNEL_MODE = 'status-403';
+  const forbidden = await remote.signinAllowStatus();
+  assert.equal(forbidden.data.stop, false, 'a 403 ended the wait; only a refused session (401) is final');
+  assert.equal(remote.allowWatchHeldForTests(), true);
   process.env.FAKE_TUNNEL_MODE = 'status-401';
   const refused = await remote.signinAllowStatus();
   assert.match(String(refused.because), /401/, 'the 401 arm did not reach the coordinator refusal');

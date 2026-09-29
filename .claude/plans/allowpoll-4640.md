@@ -27,8 +27,18 @@ today's behaviour (the code and a Done button).
   branch lands first).
 
 ## Weakest premise
-The old-tunnel stop matches clap's wording. If it differs, an old connector is asked every 4 s for 15 minutes and
-fails harmlessly; Done still works.
+That the coordinator answers 401 (and only 401) for a session it no longer accepts on /v1/account/me. A 403 is
+treated as retryable (pinned), so a wrong guess costs retries until the 15-minute window, never a false stop.
+The old-tunnel stop is MEASURED, not assumed: a shipped kosmos-tunnel prints clap's error on the FIRST stderr line
+and "For more information" last, so the engine matches the whole stderr (review iteration 2 found the last-line
+match could never fire).
+
+## Review changes (iterations 1 and 2)
+- The window is enforced by an unref'd timer; Done posts signin-cancel so the engine drops the token.
+- 401 is final. An old answer never tells a new watch to stop. Denied says "<computer> was not let in." and how
+  to ask again (a denied device's next sign-in is a fresh knock, kosmos-relay db.rs upsert_device).
+- register's already-set-up shortcut keeps the watch too (a retry after a no).
+- The page stops after 15 unanswered asks (the board itself silent). The window is a test-only setter, not an env var.
 
 ## Validation
 - node --test engine/remote.test.js (118/118); #4640 tests x4; server.test.js in-app sign-in route test.

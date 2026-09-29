@@ -181,6 +181,24 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       await pg.close();
     }
 
+    {
+      // The board itself not answering (the request fails): the engine's window cannot end it, so the page stops
+      // after 15 unanswered asks (about a minute) and leaves the code and Done.
+      const pg = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      await openWizard(pg, URL);
+      await pg.route('**/api/remote/signin-register', (route, req) => { const name = req.postDataJSON().name; route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'active', switchedOn: true }) }); });
+      let tries = 0;
+      await pg.route('**/api/remote/signin-allowed', (route) => { tries += 1; route.abort(); });
+      await pg.evaluate((a) => plusSiStage('session', a), SECOND);
+      await pg.waitForSelector('#plus-si-done', { state: 'visible', timeout: 10000 });
+      await pg.waitForTimeout(15 * 4000 + 6000);
+      const n = tries;
+      await pg.waitForTimeout(6000);
+      const st = await state(pg);
+      ok('#4640 a board that never answers is asked 15 times, then not again; the code and Done stay', n === 15 && tries === 15 && st.code && st.done, JSON.stringify({ n, after: tries, ...st }));
+      await pg.close();
+    }
+
     // ---- CONTROL: a first computer ----
     const first = await browser.newPage({ viewport: { width: 1400, height: 950 } });
     await openWizard(first, URL);
