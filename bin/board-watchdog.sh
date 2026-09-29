@@ -170,7 +170,10 @@ if [ "$STATUS_RC" -eq 4 ]; then
   if [ -z "$BUSY_SINCE_RAW" ]; then state_put "$DOWN_SINCE" "$LAST_KICK" "$FAILS" "$NOW"; exit 0; fi
   [ "$((NOW - $(num "$BUSY_SINCE_RAW")))" -lt "$BUSY_GRACE" ] && exit 0
 elif [ -n "$BUSY_SINCE_RAW" ]; then
-  BUSY_SINCE_RAW=""; state_put "$DOWN_SINCE" "$LAST_KICK" "$FAILS"   # not busy now: the busy clock stops
+  # Busy, now plainly down: the process that held the port is gone and launchd may be relaunching it.
+  # That is a NEW down streak, so the busy clock stops and the down clock restarts (a fresh GRACE):
+  # the old down_since would kick at once and kickstart -k could kill the board mid-boot.
+  BUSY_SINCE_RAW=""; state_put "$NOW" "$LAST_KICK" "$FAILS"; exit 0
 fi
 
 # still within grace: a legit start may be mid-boot

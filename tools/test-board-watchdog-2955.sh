@@ -131,6 +131,19 @@ H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_sin
 run_wd "$H"
 grep -q '^busy_since=$' "$H/logs/board-watchdog.state" && ok "busy then down: busy_since is cleared" || bad "busy then down: busy_since kept: $(cat "$H/logs/board-watchdog.state")"
 rm -rf "$H"
+# 6h. #4466: busy for a while, then plainly DOWN, with an OLD down_since: a new down streak gets a fresh
+#     GRACE (launchd may be relaunching the board), not an instant restart off the old down clock.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=%s\n' "$(( $(now) - 400 ))" "$(( $(now) - 200 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"
+[ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy then down: no restart on the first down reading" || bad "busy then down: restarted at once (starts $(starts "$H"), kicks $(kicks "$H"))"
+_ds="$(sed -n 's/^down_since=//p' "$H/logs/board-watchdog.state")"
+[ -n "$_ds" ] && [ "$(( $(now) - _ds ))" -lt 30 ] && ok "busy then down: the down clock restarts" || bad "busy then down: down_since not reset: $(cat "$H/logs/board-watchdog.state")"
+rm -rf "$H"
+# CONTROL: the same old down_since with NO busy spell restarts, so the arm above measures the transition.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"
+[ "$(( $(starts "$H") + $(kicks "$H") ))" -ge 1 ] && ok "control: a plain long down streak still restarts" || bad "control: a plain long down streak did not restart"
+rm -rf "$H"
 
 # 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate
 # to `launchctl kickstart -k` for the wedged-port case, NOT a plain `kosmos start`.

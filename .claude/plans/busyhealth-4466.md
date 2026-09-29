@@ -261,6 +261,18 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   anywhere"); a wedged board is the watchdog's, or the person's own judgement.
 - DEFERRED, out of scope: `say_not_up` on a stranger-held port says "not running ... kosmos start" exactly as
   main does; this branch does not change what a stranger hears.
+- 6g on 9e571d3b1: GREEN.
+
+## Review round 22 (sonnet): 1 NEW WARNING fixed; loop continues
+- FIXED: busy, then plainly down, kept the OLD `down_since`, so the first down reading after a long busy
+  spell restarted at once; the process that held the port is gone and launchd may be relaunching it, so
+  `kickstart -k` could kill it mid-boot. Leaving busy for down now restarts the down clock (a fresh
+  GRACE). Arm 6h plus a plain-long-down control; red on the old watchdog (restarted at once).
+- DUPLICATE: "the guard is a deterrent, not enforcement" (weakest premises, round 18).
+- NOT REAL: "the cooldown only covers `kosmos start`": `board-run` writes `board.started-at` before its
+  exec (install/kosmos, cmd_board_run), and every watchdog kickstart relaunches through board-run (round 16).
+- DUPLICATES: the 20 s busy wait on agent verbs (by design, "busy, retrying" on stderr); Windows
+  `lastTimedOut` shared state (rounds 13, 16, 19).
 
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
