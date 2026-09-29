@@ -8430,6 +8430,9 @@ const server = http.createServer(async (req, res) => {
           /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
              now and was told it is not connected, and an older success must not paint over that (review round 6). */
           if (a.connection && a.connection.state === 'none' && codexsigninlive.deadIsNewer(a.dir, obs.at)) return base;
+          /* #4538: the same for a dead answer that has left the check's 30s cache: without this, an agent's older success
+             re-greened the row (badge, and now state) between two checks that each said dead. */
+          if (isChatgpt && codexsigninlive.deadAfter(a.dir, obs.at)) return base;
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -8447,9 +8450,10 @@ const server = http.createServer(async (req, res) => {
           /* #4538: a ChatGPT sign-in whose badge is green from a fresh recorded answer is connected, and its row says so.
              #4064 made the badge outlast the check's 30s cache but left the state on that cache, so a read after 30s
              carried "unknown, we could not reach ChatGPT" beside "working" (the screen draws from the badge; the API row,
-             which agents and people read, contradicted itself). Only an `unknown` state is lifted: a dead answer (`none`)
-             never reaches here with a green (deadIsNewer, the refused guard above). liveCheckPending is kept, so a newer
-             dead answer from the check now running still reaches the row (review round 9). */
+             which agents and people read, contradicted itself). Only an `unknown` state is lifted: a green older than the
+             last dead answer never reaches here (deadIsNewer, deadAfter and the refused guard above), whether that answer
+             is still in the check's cache or not. liveCheckPending is kept, so a newer dead answer from the check now
+             running still reaches the row (review round 9). */
           const lift = isChatgpt && base.connection && base.connection.state === 'unknown';
           return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
             observedFrom: from,

@@ -50,6 +50,12 @@ const codexsigninlive = require('./engine/codexsigninlive');
 const openaiAccounts = require('./engine/openaiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
 const observed = require('./engine/observed');
+// A codex agent on the default codex home (configDir null), which is the ChatGPT sign-in above (as in
+// server.openai-badge-2413.test.js): its observed successes badge that row.
+const create = require('./engine/create');
+fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+fs.mkdirSync(create.workerDir('codexsub'), { recursive: true });
+fs.writeFileSync(create.plistPath('codexsub'), create.plistFor('codexsub', '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'codex'), 'utf8');
 const { start, server } = require('./server');
 
 const DOC = (ws) => JSON.stringify({ checks: {
@@ -140,4 +146,36 @@ test('#4538 control: a dead answer after a recorded green is not connected (the 
   const c = (await openaiRow()).connection;
   assert.equal(c.state, 'none', JSON.stringify(c));
   assert.notEqual(c.badge, 'working');
+});
+
+test('#4538 an agent that reached ChatGPT recently makes the row connected too, and says the agent is why', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  codexsigninlive.setRunner(async () => { await gate; return { ok: true, stdout: DOC('ok') }; });
+  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now());
+  try {
+    const c = (await openaiRow()).connection;
+    assert.equal(c.badge, 'working', 'setup: the agent\'s success did not badge the row: ' + JSON.stringify(c));
+    assert.equal(c.observedFrom, 'agent');
+    assert.equal(c.state, 'connected', JSON.stringify(c));
+    assert.match(c.because, /agent/);
+  } finally { release(); await settle(); }
+});
+
+test('#4538 a dead answer is not undone by an older agent success once it leaves the check\'s 30s cache', async () => {
+  observed.saw(observed.PROVIDER.OPENAI, 'codexsub', observed.OUTCOME.OK, Date.now() - 1000);   // the agent worked a second ago
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));   // then the check is refused: dead
+  await accounts();
+  await settle();
+  const dead = (await openaiRow()).connection;
+  assert.equal(dead.state, 'none', 'setup: the dead answer did not show: ' + JSON.stringify(dead));
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  codexsigninlive.setRunner(async () => { await gate; return { ok: true, stdout: DOC('warning') }; });
+  advanceClock(40 * 1000);   // the dead answer has left the cache; the agent's success is still inside its 5 minutes
+  try {
+    const c = (await openaiRow()).connection;
+    assert.notEqual(c.badge, 'working', 'the older agent success painted the row green again: ' + JSON.stringify(c));
+    assert.notEqual(c.state, 'connected', JSON.stringify(c));
+  } finally { release(); await settle(); }
 });
