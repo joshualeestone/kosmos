@@ -937,6 +937,41 @@ function filteredText(from, text) {
   try { return senderTextFilter(from, text); } catch { return text; }
 }
 
+/* #4580 / #4466: THE SAME SEND, TWICE, IS ONE MESSAGE. A send can land on the board and still reach its
+   sender as a failure (the reply timed out, or was cut, on a busy board), and the sender re-sends: four of
+   five model families filled rooms with copies that way. The sender cannot tell a lost send from a slow
+   one, so the board does: a send identical to one the SAME sender made to the SAME place in the last
+   SEND_DEDUP_WINDOW_MS is not sent again, and gets the first one's receipt with duplicate: true. Only
+   agents' sends (a person's post is never folded). The trade: an agent that MEANS to send the same text
+   twice inside the window gets one copy. */
+const SEND_DEDUP_WINDOW_MS = 2 * 60 * 1000;
+/* The log row is written only when a send FINISHES, and on a busy board the fan-out can outlast the
+   sender's timeout, which is exactly when the retry arrives. So a send still in flight is remembered
+   too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
+   Keyed by sender, place and text; cleared when the first finishes, either way. */
+const IN_FLIGHT_SENDS = new Map();
+function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
+function asDuplicate(result) { return result && typeof result === 'object' ? { ...result, duplicate: true } : result; }
+function trackInFlight(key, pending) {
+  IN_FLIGHT_SENDS.set(key, pending);
+  const clear = () => { if (IN_FLIGHT_SENDS.get(key) === pending) IN_FLIGHT_SENDS.delete(key); };
+  pending.then(clear, clear);
+  return pending;
+}
+function recentSameSend(log, atIso, isSame) {
+  const now = Date.parse(atIso);
+  if (!Number.isFinite(now)) return null;
+  for (let i = log.length - 1; i >= 0; i--) {
+    const r = log[i];
+    if (!r || typeof r.at !== 'string') continue;
+    const t = Date.parse(r.at);
+    if (!Number.isFinite(t)) continue;
+    if (t < now - SEND_DEDUP_WINDOW_MS) break;   // the log is in order: everything earlier is older still
+    if (isSame(r)) return r;
+  }
+  return null;
+}
+
 function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster, deliverToPane) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
@@ -1105,6 +1140,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      reply pointer first so the recipient reads WHO before WHAT. Past
      SPILL_AT the pane gets the head and a path instead of the wall. */
   const cleaned = chat.cleanMessage(text);
+  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned);
+  if (sameMsg) return { state: sameMsg.state, because: null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  const msgKey = sendKey('message', from, toName, cleaned);
+  // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
+  if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
   let body = cleaned;
   let spillFile = null;
   if (cleaned.length > SPILL_AT) {
@@ -1140,7 +1180,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     return { state: sent.state, because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
-  return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+  return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);
 }
 
 function send(input, roster) {
@@ -1530,6 +1570,17 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
 
   const rec = record();
   const log = rec.rows;
+  if (operator !== true) {
+    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true);
+    if (samePost) {
+      const prior = Object.values(samePost.outcomes || {});
+      const priorState = prior.length && prior.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+      return { state: priorState, because: null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
+    }
+    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
+    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(sendKey('post', from, projectId, stored)) : null;
+    if (inFlight) return inFlight.then(asDuplicate);
+  }
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
   const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
@@ -1896,10 +1947,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   };
 
   if (asynchronousDelivery) {
-    return (async () => {
+    const pending = (async () => {
       for (const name of recipients) await deliverOne(name);
       return finishDeliveries();
     })();
+    return operator === true ? pending : trackInFlight(sendKey('post', from, projectId, stored), pending);
   }
   for (const name of recipients) deliverOne(name);
   return finishDeliveries();
@@ -2511,6 +2563,10 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  SEND_DEDUP_WINDOW_MS,
+  // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
+  _sendWithDelivery: sendWithDelivery,
+  _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
