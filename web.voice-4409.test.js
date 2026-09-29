@@ -49,6 +49,15 @@ test('#4409: heard words land at the caret, spaced from their neighbours, and ne
   assert.deepEqual(voiceSplice('ab', 'hello', 'XYZ', 8), { text: 'ab h XYZ', caret: 4 }, 'the person\'s text after the caret was cut to fit the heard words');
   assert.deepEqual(voiceSplice('abcd', 'hello', 'XYZ', 8), { text: 'abcdXYZ', caret: 4 }, 'with no room the box changed');
   assert.deepEqual(voiceSplice('ab', 'hi', 'XYZ', 100), { text: 'ab hi XYZ', caret: 5 }, 'control: under the cap nothing is trimmed');
+  // Review 8: a selection is replaced only when words land; nothing heard, or no room, gives it back.
+  assert.deepEqual(voiceSplice('a ', '  ', ' z', 0, 'old paragraph'), { text: 'a old paragraph z', caret: 15 }, 'an empty result deleted the selected text');
+  assert.deepEqual(voiceSplice('abcd', 'hello', 'XYZ', 9, 'ss'), { text: 'abcdssXYZ', caret: 6 }, 'no room deleted the selected text');
+  assert.deepEqual(voiceSplice('a ', 'new words', ' z', 0, 'old'), { text: 'a new words z', caret: 11 }, 'control: heard words replace the selection');
+  // Review 8 NITs: never half an emoji at the cap, no trailing space from the cut.
+  const e = voiceSplice('ab', 'go\uD83D\uDE00x', '', 6);   // room 3: the cut lands between the emoji's two halves
+  assert.doesNotMatch(e.text, /[\uD800-\uDBFF]$/, 'a lone surrogate (half an emoji) went into the box');
+  assert.equal(e.text, 'ab go', 'the cut words kept a trailing space or half an emoji');
+  assert.equal(voiceSplice('ab', 'go xy', '', 6).text, 'ab go', 'the cut words kept a trailing space');
 });
 
 test('#4409: a message is read as words: code announced, links named, markdown marks silent', () => {

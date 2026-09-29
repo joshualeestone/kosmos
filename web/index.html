@@ -54491,7 +54491,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', where: '', id: '', seq: 0, last: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '' };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -54529,18 +54529,26 @@ function voiceBridge() {
 }
 /* Where the heard words go: between what was before the caret and what was after it, with one space on
    each side where the neighbours need it. PURE, for the node suite. */
-function voiceSplice(before, heard, after, max) {
-  const b = String(before || ''), a = String(after || '');
+function voiceSplice(before, heard, after, max, selected) {
+  const b = String(before || ''), a = String(after || ''), sel = String(selected || '');
   let h = String(heard || '').trim();
-  if (!h) return { text: b + a, caret: b.length };
+  /* Review 8: text the person had selected is replaced only when words actually land; nothing heard (or no room)
+     gives it back, selection and all. */
+  const unchanged = { text: b + sel + a, caret: b.length + sel.length };
+  if (!h) return unchanged;
   const lead = b && !/\s$/.test(b) ? ' ' : '';
   const tail = a && !/^\s/.test(a) ? ' ' : '';
   /* The box's own cap still holds, and (review 7) it is the HEARD words that give way, never the person's text: cutting
      the joined string from its end dropped what they had typed after the caret. No room at all: the box is unchanged. */
   if (max > 0) {
     const room = max - (b.length + lead.length + tail.length + a.length);
-    if (room <= 0) return { text: b + a, caret: b.length };
-    if (h.length > room) h = h.slice(0, room);
+    if (room <= 0) return unchanged;
+    if (h.length > room) {
+      h = h.slice(0, room);
+      if (/[\uD800-\uDBFF]$/.test(h)) h = h.slice(0, -1);   // never half an emoji (a lone surrogate)
+      h = h.trimEnd();
+      if (!h) return unchanged;
+    }
   }
   return { text: b + lead + h + tail + a, caret: b.length + lead.length + h.length };
 }
@@ -54580,7 +54588,7 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
   h.postMessage({ op: 'start', id: VOICE.id });
@@ -54616,7 +54624,7 @@ function voiceOnEvent(ev) {
        from the picker, Reply's @mention, undo, autocorrect, a paste or a drop) would be wiped by this word. If the box
        is not what dictation last left in it, the person changed it: stop, and keep what they have. */
     if (box.value !== VOICE.last) { voiceCancel(); return; }
-    const out = voiceSplice(VOICE.before, ev.text, VOICE.after, box.maxLength);
+    const out = voiceSplice(VOICE.before, ev.text, VOICE.after, box.maxLength, VOICE.selected);
     box.value = out.text;
     VOICE.last = box.value;   // read back: the box may normalise what was written (line endings, its cap)
     try { box.setSelectionRange(out.caret, out.caret); } catch { /* not focused */ }

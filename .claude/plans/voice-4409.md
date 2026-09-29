@@ -66,6 +66,10 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   person had typed after the caret. Now the heard words give way (trimmed to the room left, or none at all).
   ACCEPTED: an arrow, Home or End key stops dictation (any key does). That loses nothing and says so; re-reading the
   caret mid-dictation would be a different design.
+- Review iteration 8: (WARNING) text the person had SELECTED when the mic started was deleted when the first
+  result was empty, or when there was no room. The selection is now kept and given back in both cases; it is
+  replaced only when words land. NITs: the cut at the cap never splits an emoji (a lone surrogate) and drops a trailing
+  space.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
