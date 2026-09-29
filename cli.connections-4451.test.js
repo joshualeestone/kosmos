@@ -140,10 +140,16 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   // Wait until the request is at the door (the token file exists by then), then interrupt.
   for (let i = 0; i < 100 && !seen.some((q) => q.method === 'POST'); i += 1) await new Promise((r) => setTimeout(r, 50));
   assert.ok(seen.some((q) => q.method === 'POST'), 'CONTROL: the request never reached the door, so the interrupt is not mid-request');
-  const during = fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect'));
+  const during = fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect.'));   // the token's file (the answer's is kosmos-connect-answer.)
   assert.equal(during.length, 1, 'CONTROL: the token file is not there mid-request, so its absence after proves nothing');
+  const at = Date.now();
   child.kill('SIGTERM');
-  await new Promise((r) => child.on('close', r));
-  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect')), [], 'an interrupted connect left the token on disk');
+  const code = await new Promise((r) => child.on('close', (c, sig) => r(c === null ? sig : c)));
+  const took = Date.now() - at;
+  /* Promptly, not after the door answers (the stub holds it for 4 seconds): a trap that waited for the request
+     would still remove the file, so the file alone could not tell prompt from late (review round 2). */
+  assert.ok(took < 2000, 'an interrupted connect waited ' + took + 'ms for the door instead of stopping');
+  assert.equal(code, 143, 'TERM is not reported as 128 + 15');
+  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect')), [], 'an interrupted connect left the token (or its answer file) on disk');
 }));
 

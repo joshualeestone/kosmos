@@ -60,3 +60,11 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
 - **NIT** Any failure writing the token file said "empty". It now says so only for an empty token, and a write failure says what happened.
 - **NIT** The browser control looked for #conn-ask, which can only exist in one place. It now looks for any `.ask-agent` in AI Models.
 - KEPT: a refused connect over an already-stored token still costs two checks (the new one, then `state()` on the old). That is pre-existing, and "one" is claimed for a successful connect only.
+
+## Review round 2 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 1 NIT
+- **WARNING** The trap removed the token file, but bash runs a trap only after the FOREGROUND command returns, so a SIGTERM still waited for curl (up to 30s). My interrupt test asserted only the file, not the time, so it could not tell prompt from late.
+  - Fixed: the request runs in the background and is `wait`ed on (a trap interrupts `wait` at once), with its answer in a second private file. The trap kills the request and removes both files.
+  - The test now asserts the CLI stops within 2s of SIGTERM (the door holds for 4s) and exits 143.
+  - Mutant: the request back in the foreground makes it red ("waited 3997ms for the door").
+- **NIT** `exit 130` for every signal. Fixed: 128 + the signal (INT 130, TERM 143, HUP 129).
+- Confirmed clean: the trap is cleared on every exit path and clobbers no other trap; the shim's CONTROL runs first; connectionsHeld and the page's SVC_BUILT list match exactly (21 services); nothing on the page calls the held route.

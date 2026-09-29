@@ -1567,8 +1567,14 @@ cmd_connect() {
   local route
   if [ "$svc" = "cloudflare" ]; then route="/api/cloudflare/token"; else route="/api/svc/$svc/token"; fi
   local tmp; tmp="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect.XXXXXX")" || { say "We could not make a private file for the token, so nothing was sent."; exit 1; }
-  # An interrupt while the door checks the token must not leave the token on disk (the pattern cmd_* above uses).
-  trap 'rm -f "$tmp"; exit 130' INT TERM HUP
+  # An interrupt must not leave the token on disk, and must not wait for the door (review rounds 1 and 2):
+  # bash runs a trap only after a FOREGROUND command returns, so the request below runs in the background
+  # and is `wait`ed on, which a trap interrupts at once. 128 + the signal's number, by convention.
+  local _out="" _cpid=""
+  _connect_stop() { [ -n "$_cpid" ] && kill "$_cpid" 2>/dev/null; rm -f "$tmp" "$_out"; exit "$1"; }
+  trap '_connect_stop 130' INT
+  trap '_connect_stop 143' TERM
+  trap '_connect_stop 129' HUP
   # The token goes stdin -> node -> the private file as JSON; it is never an argument or an environment variable.
   local wrc=0
   "$_node" -e '
@@ -1584,8 +1590,13 @@ cmd_connect() {
   fi
   local _bt; _bt="$(board_token || true)"
   local body rc=0
-  body=$(kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL$route" -H 'content-type: application/json' --data-binary "@$tmp" 2>/dev/null) || rc=$?
-  rm -f "$tmp"; trap - INT TERM HUP
+  _out="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect-answer.XXXXXX")" || { rm -f "$tmp"; trap - INT TERM HUP; say "We could not make a private file for the answer, so nothing was sent."; exit 1; }
+  kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL$route" -H 'content-type: application/json' --data-binary "@$tmp" > "$_out" 2>/dev/null &
+  _cpid=$!
+  wait "$_cpid" || rc=$?
+  _cpid=""
+  body="$(cat "$_out" 2>/dev/null)"
+  rm -f "$tmp" "$_out"; trap - INT TERM HUP
   if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos, so nothing was connected."; exit 1; fi
   local shown="$svc"; [ "$svc" = "cloudflare" ] && shown="Cloudflare"
   printf '%s' "$body" | SVC="$shown" "$_node" -e '
