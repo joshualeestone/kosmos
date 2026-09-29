@@ -9836,6 +9836,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
   animation: boot-spin 0.8s linear infinite; }
 @keyframes boot-spin { to { transform: rotate(360deg); } }
+/* #4569 (Josh, 10:48): Meta's sign-in shows it is working from the click on ("I couldn't tell that anything had been
+   happening"), and a finished sign-in replaces the button with a plain success line. */
+.muse-connecting { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--label-2); }
+.muse-connecting .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--ok, #1f7a4d);
+  animation: boot-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .muse-connecting .spin { animation: none; } }
+.muse-done { margin: 12px 0 0; font-weight: 600; }
+.muse-done .acct-ok { margin-right: 6px; }
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
@@ -11147,7 +11155,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
           <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
-          <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+          <option value="meta" disabled>Meta Muse &middot; coming soon</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -12168,7 +12176,7 @@ window.kosmosMeasureScrollbarWidth();
              values are never selected or read by the change handler. -->
         <option value="google">Google Gemini</option>
         <option value="xai">xAI Grok</option>
-        <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+        <option value="meta" disabled>Meta Muse &middot; coming soon</option>
         <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -12233,7 +12241,9 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
+        <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span>
       </div>
+      <p class="muse-done" id="acct-muse-done" tabindex="-1" hidden><span class="acct-ok" aria-hidden="true">&#10003;</span>Signed in to Meta Muse. You can close this window.</p>
       <div class="frow" id="acct-muse-open-row" hidden style="margin-top:8px;">
         <a class="btn" id="acct-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
       </div>
@@ -13468,7 +13478,7 @@ window.kosmosMeasureScrollbarWidth();
                      (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
                 <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
                   <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
-                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button></div>
+                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
                   <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
                     <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
                   </div>
@@ -14117,7 +14127,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
             <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
-            <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+            <option value="meta" disabled>Meta Muse &middot; coming soon</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -23527,11 +23537,27 @@ async function paintAccounts(opts) {
        Sign in again, which opens Add a provider on Meta's step. No Remove: Kosmos has nothing of its own
        to forget, and signing Muse out would touch a credential every Muse run on this Mac shares. */
     if (a && a.authMode === 'muse') {
-      // True of all three ways the row appears (round 1): Muse's own record, Kosmos's sign-in, a turn that worked.
-      const why = 'Muse Code is signed in to Meta as far as Kosmos knows: from Kosmos\'s own sign-in, a turn that worked, or Muse Code\'s own record. Kosmos does not check it by itself; a turn Meta refuses, or signing in again, updates it.';
+      /* #4569 (Josh, 10:47: "After I signed in I didn't get a green Signed In. It was black"): the three states
+         the other rows use. Green when Kosmos SAW it work (its own sign-in, or a turn that finished), amber when
+         only Muse Code's own record says signed in, red when Meta refused the last turn. No Check now: the only
+         check Muse has is a real turn on the person's Meta account, so a turn or signing in again updates it. */
+      const c = a.connection || {};
+      const ago = agoWords(c.observedAgeMs);
+      let pill;
+      if (c.badge === 'working') {
+        const why = (c.observedFrom === 'turn' ? 'A Muse turn on this sign-in finished' : 'Kosmos signed in to Meta through Muse Code')
+          + (ago ? ' ' + ago : ' recently') + ', so it is working. Kosmos does not check it by itself; a turn Meta refuses turns this red.';
+        pill = '<span class="acct-connected" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ago ? ' · confirmed ' + esc(ago) : '') + '<span class="vh"> (' + esc(why) + ')</span></span>';
+      } else if (c.badge === 'rejected') {
+        const why = 'Meta refused the last turn on this sign-in, so Muse agents cannot work until you sign in again.';
+        pill = '<span class="acct-none" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Not connected<span class="vh"> (' + esc(why) + ')</span></span>';
+      } else {
+        const why = 'Muse Code\'s own record says it is signed in to Meta, but Kosmos has not seen it work yet. It turns green after a turn finishes, or when you sign in again here.';
+        pill = '<span class="acct-unverified" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span>';
+      }
       return '<div class="acct-box" data-muse-row="1"><div class="acct-box-top"><div class="acct-who"><b>Meta account</b>'
         + '<span class="acct-tag"> through Muse Code on this computer</span></div>'
-        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
+        + pill + '</div>'
         + '<div class="acct-actions">'
         + '<button class="acct-reauth" type="button" data-muse-reauth="1" aria-label="Sign in again to Meta through Muse Code" '
         + 'title="' + esc('Opens Meta\'s sign-in again, the same way as adding it.') + '">Sign in again</button>'
@@ -26934,7 +26960,12 @@ function museSigninFlow(prefix, opts) {
     for (const x of ['open-row', 'retry-row', 'cancel-row']) hideRow(x);
     clearCode();
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
+    const sp = el('spin'); if (sp) sp.hidden = true;
+    const dn = el('done'); if (dn) dn.hidden = true;
+    if (opts && opts.onReset) opts.onReset();
   }
+  /* #4569: a sign-in that failed or ended offers Try again on the same button. */
+  const label = (t) => { const g = el('go'); if (g) g.textContent = t; };
   function show(st) {
     const a = el('open');
     if (a && st.url) { a.href = st.url; el('open-row').hidden = false; } else hideRow('open-row');
@@ -26960,12 +26991,19 @@ function museSigninFlow(prefix, opts) {
       catch { return; }   // a network blip: keep polling
       if (mine !== gen || !st) return;
       // No sign-in at all (the board restarted, say): not "another one started" (round 1).
-      if (!st.id || st.state === 'idle') { finish('That sign-in ended before it finished. You can try again.'); return; }
-      if (st.id !== id) { finish('Another sign-in started, so this one ended.'); return; }
+      if (!st.id || st.state === 'idle') { finish('That sign-in ended before it finished. You can try again.'); label('Try again'); return; }
+      if (st.id !== id) { finish('Another sign-in started, so this one ended.'); label('Try again'); return; }
       show(st);
       if (st.state === 'done') {
         finish('');
-        say('Signed in to Meta Muse.');
+        label('Sign in with Meta');
+        const dn = el('done');
+        if (dn) {
+          /* #4569 (Josh): the success line REPLACES the button, never sits under a live one. */
+          const g = el('go'); if (g) g.hidden = true;
+          dn.hidden = false;
+          if (opts && opts.onSuccess) opts.onSuccess(); else dn.focus();
+        } else say('Signed in to Meta Muse.');
         try { if (opts && opts.onDone) await opts.onDone(); } catch { /* the place repaints on the next visit */ }
         return;
       }
@@ -26973,6 +27011,7 @@ function museSigninFlow(prefix, opts) {
         const why = pjSentence(st.because) || 'That sign-in did not finish.';
         // Reasons that already say to start again are not told twice (round 5).
         finish(/again\.?$/.test(why) ? why : why + ' You can try again.');
+        label('Try again');
         return;
       }
       say(st.state === 'stuck' ? (pjSentence(st.because) || MUSE_SAY.starting) : (MUSE_SAY[st.state] || MUSE_SAY.starting));
@@ -26983,16 +27022,19 @@ function museSigninFlow(prefix, opts) {
     gen += 1;
     const mine = gen;
     const go = el('go'); if (go) go.disabled = true;
+    const spin = el('spin'); if (spin) spin.hidden = false;   // #4569: visible from the click until it ends
+    const dn = el('done'); if (dn) dn.hidden = true;
+    if (go) go.textContent = 'Sign in with Meta';
     say(MUSE_SAY.starting);
     let res; let out = null;
     // A refused or failed start re-arms the button and gives it focus back (round 1: it was disabled under focus).
-    const rearm = (t) => { if (go) { go.disabled = false; go.focus(); } say(t); };
+    const rearm = (t) => { if (spin) spin.hidden = true; if (go) { go.disabled = false; go.textContent = 'Try again'; go.focus(); } say(t); };
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
     if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
     id = out.id;
-    if (go) go.hidden = true;
+    // #4569: the button stays where it was, off, with Connecting beside it, so the person can see it is under way.
     el('cancel-row').hidden = false;
     show(out);
     const stop = el('cancel'); if (stop) stop.focus();
@@ -27029,10 +27071,16 @@ function museSigninWire(flow, prefix) {
   el('cancel').addEventListener('click', () => {
     flow.leave();
     const m = el('say'); if (m) m.textContent = 'Sign-in stopped.';
+    el('go').textContent = 'Sign in with Meta';
     el('go').focus();
   });
 }
-const ACCT_MUSE = museSigninFlow('acct-muse-', { onDone: () => paintAccounts() });
+const ACCT_MUSE = museSigninFlow('acct-muse-', {
+  onDone: () => paintAccounts(),
+  /* #4569 (Josh): once signed in, Close is the thing to press. */
+  onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.focus(); } },
+  onReset: () => { const c = document.getElementById('acct-add-close'); if (c) c.classList.remove('uprime'); },
+});
 /* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
 function acctMuseShow(on) {
   const flow = document.getElementById('acct-muse-flow');

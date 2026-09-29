@@ -286,10 +286,26 @@ function signedIn() {
   return { signedIn: false, how: null };
 }
 
+/* #4569 (Josh: "After I signed in I didn't get a green Signed In"): when Kosmos last SAW the sign-in work, a
+   completed turn or its own sign-in, trusted by the same rules signedIn() uses; null when only Muse's own record
+   says so (not seen working, so not green). { at, from: 'turn' | 'sign' }, the newer of the two. */
+function lastSeenWorking() {
+  const { turn, sign, note } = latest();
+  const t = turn !== null && (!note || turn > note.finish) ? turn : null;
+  const g = sign !== null && (!note || sign > note.start) ? sign : null;
+  if (t === null && g === null) return null;
+  return t !== null && (g === null || t >= g) ? { at: t, from: 'turn' } : { at: g, from: 'sign' };
+}
+/* #4569: Meta refused a turn and nothing since says it works again: the row reads Not connected instead of vanishing. */
+function refused() {
+  const { note } = latest();
+  return !!note && !signedIn().signedIn;
+}
+
 let hardCapMs = VERSION_HARD_CAP_MS;
 let timeoutMs = VERSION_TIMEOUT_MS;
 const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, previewMarker, PREVIEW_MARKER, NOT_INSTALLED_BECAUSE, signedIn, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, previewMarker, PREVIEW_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };

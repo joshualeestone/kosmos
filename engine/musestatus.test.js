@@ -401,3 +401,27 @@ test('#3939: the preview marker turns Muse on (a Mac), and removing it turns it 
     if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
   }
 });
+
+test('#4569: lastSeenWorking is Kosmos\'s own sign-in or a finished turn, never Muse\'s record alone; refused is a refusal nothing has undone', () => withXdg((xdg) => {
+  clean();
+  writeAuth(xdg, { meta: { token: 'x' } });
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'CONTROL: Muse\'s own record says signed in');
+  assert.equal(muse.lastSeenWorking(), null, 'Muse\'s record alone read as seen working (it would be green)');
+  assert.equal(muse.refused(), false);
+  // Josh's case (10:47): Muse's record AND Kosmos's own sign-in. signedIn() answers 'file' first; still seen working.
+  muse.markKosmosSignedIn(T);
+  assert.deepEqual(muse.lastSeenWorking(), { at: T, from: 'sign' }, 'Kosmos\'s own sign-in was not seen working (the black row)');
+  muse.markTurnSignedIn(T + 5);
+  assert.deepEqual(muse.lastSeenWorking(), { at: T + 5, from: 'turn' }, 'the newer of the two is not the one said');
+  // A refusal after both: not seen working, and refused.
+  fs.rmSync(path.join(xdg, 'muse', 'auth.json'));
+  muse.markSignedOut(T + 10);
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: signed out after the refusal');
+  assert.equal(muse.lastSeenWorking(), null, 'a sign-in the refusal ended still reads as working');
+  assert.equal(muse.refused(), true, 'a refused sign-in is not said (the row vanished instead of going red)');
+  muse.markKosmosSignedIn(T + 20);
+  assert.equal(muse.refused(), false, 'signing in again did not clear the refusal');
+  assert.deepEqual(muse.lastSeenWorking(), { at: T + 20, from: 'sign' });
+  clean();
+  assert.equal(muse.refused(), false, 'never signed in reads as refused');
+}));
