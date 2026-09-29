@@ -284,6 +284,8 @@ function workerFolders(names) {
   }
 }
 const inboxOf = (name) => require('./dmfiles').ownDir(name, 'Inbox');
+/* The message files in an Inbox (its .gitignore is not a message). */
+const messageFiles = (dir) => fs.readdirSync(dir).filter((f) => !f.startsWith('.'));
 /* The board-wide folder long messages used to spill into, before #4447. */
 const OLD_SPILL = () => path.join(require('./store').ROOT, 'messages');
 const oldSpillFiles = () => { try { return fs.readdirSync(OLD_SPILL()); } catch { return []; } };
@@ -323,7 +325,7 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     armSender('leo-discord');
     arm([ok(), ok()]);
     messages.send({ fromPane: '%7', to: 'mara', text: 'short' }, board.agents);
-    const spills = fs.readdirSync(path.dirname(spilled));
+    const spills = messageFiles(path.dirname(spilled));
     assert.equal(spills.length, 1, 'a short message spilled to a file it did not need');
   });
 });
@@ -2534,7 +2536,7 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
     const cleaned = chat.cleanMessage(long);
     let total = 0;
     for (const n of MEMBERS) {
-      const files = fs.readdirSync(inboxOf(n));
+      const files = messageFiles(inboxOf(n));
       total += files.length;
       assert.deepEqual(files, [out.id + '.txt'], n + '\'s Inbox does not hold exactly this post');
       assert.equal(fs.readFileSync(path.join(inboxOf(n), out.id + '.txt'), 'utf8').trim(), cleaned, n + '\'s copy is not the post');
@@ -2567,7 +2569,7 @@ test('#4447: a long DM leaves one file, in the recipient\'s own Inbox, and nothi
     arm([ok(), ok()]);
     const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    assert.deepEqual(fs.readdirSync(inboxOf('mara')), [sent.id + '.txt']);
+    assert.deepEqual(messageFiles(inboxOf('mara')), [sent.id + '.txt']);
     assert.ok(!fs.existsSync(inboxOf('leo')), 'the sender got an Inbox copy of its own DM');
     assert.equal(oldSpillFiles().length, before, 'a long DM still wrote into the board-wide messages folder');
   });
@@ -2614,16 +2616,57 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     const a = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
     assert.equal(a.state, chat.DELIVERY.COULD_NOT, 'a linked Inbox was written through');
     assert.deepEqual(fs.readdirSync(elsewhere).sort(), ['victim.txt'], 'a file appeared through the linked Inbox');
-    // (b) a real Inbox with a link planted at the next message's file name: not followed.
+    // (b) and (c): a real Inbox with a SYMBOLIC, then a HARD, link planted at the next message's file name.
+    // The link loses its name and the message is written fresh; the target's contents never change.
     fs.unlinkSync(inboxOf('mara'));
     fs.mkdirSync(inboxOf('mara'));
-    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
-    fs.symlinkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
+    const nextId = () => 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    for (const kind of ['symbolic', 'hard']) {
+      const at = path.join(inboxOf('mara'), nextId() + '.txt');
+      if (kind === 'symbolic') fs.symlinkSync(victim, at); else fs.linkSync(victim, at);
+      armSender('leo-discord');
+      arm([ok(), ok()]);
+      const b = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      assert.equal(b.state, chat.DELIVERY.PLACED, kind + ': ' + (b.because || ''));
+      assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'a ' + kind + ' link planted at the file name redirected the board\'s write');
+      const st = fs.lstatSync(at);
+      assert.ok(st.isFile() && !st.isSymbolicLink() && st.nlink === 1, kind + ': the message file is not a fresh file of its own');
+      assert.match(fs.readFileSync(at, 'utf8'), /^brief: the lease detail/, kind + ': the message file does not hold the message');
+    }
+  });
+});
+
+test('#4447: a long DM to a name that is not on the board is refused for THAT reason, and writes nothing', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara', 'marra']);   // even a folder by that name must not be written for an agent that is not there
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok()]);
+    const out = messages.send({ fromPane: '%7', to: 'marra', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(out.state, chat.DELIVERY.COULD_NOT);
+    assert.match(out.because, /cannot see an agent by exactly this name/, 'a misspelt name read as something else: ' + out.because);
+    assert.ok(!fs.existsSync(inboxOf('marra')), 'a long message was written for an agent that is not on the board');
+    assert.equal(tmux.pastedSends().length, 0);
+  });
+});
+
+test('#4447: the Inbox ignores itself in git, so a connected agent\'s project repository never picks up colleagues\' messages', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const b = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
-    assert.equal(b.state, chat.DELIVERY.COULD_NOT, 'a planted link at the file name was written through');
-    assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted link redirected the board\'s write');
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*\n');
+    // Measured, not assumed: git itself ignores the message file.
+    const root = path.dirname(inboxOf('mara'));
+    const { spawnSync } = require('node:child_process');
+    if (spawnSync('git', ['init', '-q', root]).status !== 0) return;   // no git here: the file assertion above stands alone
+    const st = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
+    assert.ok(!/Inbox\//.test(st.stdout), 'git would pick up the Inbox: ' + st.stdout);
+    // CONTROL: a file beside the Inbox IS seen, so the status call can see untracked files at all.
+    fs.writeFileSync(path.join(root, 'beside.txt'), 'x');
+    const st2 = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
+    assert.match(st2.stdout, /beside\.txt/, 'the git control saw nothing, so it could not have seen the Inbox either');
+    fs.rmSync(path.join(root, '.git'), { recursive: true, force: true }); fs.rmSync(path.join(root, 'beside.txt'), { force: true });
   });
 });
 

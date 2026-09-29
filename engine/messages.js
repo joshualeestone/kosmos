@@ -123,8 +123,8 @@ function unread(projectId) {
   return all === null ? null : (all[String(projectId)] || 0);
 }
 /* Long messages USED to spill into one board-wide folder, <board root>/messages/. Nothing writes
-   there since #4447 (below); its existing files stay until message retention is decided (the note
-   beside MAX_BODY). */
+   there since #4447 (below). Its existing files are left where they are; nothing reads them, and
+   removing them is a separate call (recorded on #4447). */
 /* #4447 (Baron's #4424 rehearsal, run 7): a long message spills into the RECIPIENT's own folder,
    one copy per recipient. In the shared folder above, an agent allowed to read its own long message
    could list and read every room's and every DM's, and reaching outside its folder broke the
@@ -135,9 +135,16 @@ const INBOX = 'Inbox';
  * has no folder of its own or the file could not be written (the caller refuses that recipient:
  * there is no shared folder to fall back to, by design).
  *
- * The folder is the agent's, so the agent could have put a link there. A linked Inbox is refused,
- * and the file is opened with O_NOFOLLOW, so a link planted at Inbox/<id>.txt cannot turn the
- * board's write into a write somewhere else.
+ * The folder is the agent's, so the agent could have put a link there. A linked worker folder or a
+ * linked Inbox is refused (lstat: the spill writes only into real folders, unlike Files, which follows
+ * a linked worker folder). Whatever sits at Inbox/<id>.txt is REMOVED first and the file is created
+ * fresh with O_EXCL (and O_NOFOLLOW where the platform has it): a symbolic OR a hard link planted
+ * at a predictable id then only loses its own name, never its target's contents, on every platform.
+ * Same OS user as the agent, so this is care, not a privilege boundary; a swap of the Inbox itself
+ * between the check and the create is not closed.
+ *
+ * Inbox/.gitignore ignores the whole folder: for a CONNECTED agent the folder is the person's own
+ * project, often a git repository, and colleagues' messages must not ride a `git add .` out of it.
  */
 function spillInto(recipient, id, text) {
   const dir = require('./dmfiles').ownDir(recipient, INBOX);   // lazy: dmfiles -> projects -> this module
@@ -148,8 +155,10 @@ function spillInto(recipient, id, text) {
     if (!home.isDirectory()) return null;
     try { fs.mkdirSync(dir); } catch (e) { if (!e || e.code !== 'EEXIST') return null; }
     if (!fs.lstatSync(dir).isDirectory()) return null;   // lstat: a link is not the agent's folder
+    try { fs.writeFileSync(path.join(dir, '.gitignore'), '*\n', { flag: 'wx' }); } catch { /* already there, or not writable: the spill still goes */ }
     const file = path.join(dir, id + '.txt');
-    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW || 0);
+    try { fs.unlinkSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
     const fd = fs.openSync(file, flags, 0o600);
     try { fs.writeSync(fd, text + '\n'); } finally { fs.closeSync(fd); }
     return file;
@@ -1068,6 +1077,10 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
   let body = cleaned;
   let spillFile = null;
   if (cleaned.length > SPILL_AT) {
+    /* An agent that cannot be typed into is refused for THAT reason, before any file is written
+       (a misspelt name must not read as a folder problem). */
+    const can = chat.addressable(toName, roster);
+    if (!can.ok) return refuse(toName, can.because);
     spillFile = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
     if (!spillFile) return refuse(toName, 'that message is long enough to need a file, and we could not write one in ' + toName + '\'s own folder');
     body = cleaned.slice(0, 200) + '… (long message; the full text is in your own folder at ' + spillFile + ')';
@@ -1630,7 +1643,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
        file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
     let bodyHere = cleaned;
-    if (long) {
+    if (long && chat.addressable(name, roster).ok) {   // one that cannot be typed into is refused by deliver below, with its reason, and gets no file
       const file = spillInto(name, id, cleaned);
       if (!file) { outcomes[name] = chat.DELIVERY.COULD_NOT; continue; }
       spilled[name] = file;

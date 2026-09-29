@@ -37,3 +37,16 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
 - A folderless recipient is refused and no worker folder is created. A short message to it still goes (control).
 - A linked Inbox is refused, and a link planted at the file name is not followed.
 - Mutants, each red and restored: the old shared folder (5 fails), one shared file per post (2), no O_NOFOLLOW (1), stat instead of lstat (1).
+
+## Review round 1 (opus, blind): 0 BLOCKERs, 3 WARNINGs, 3 NITs
+- **WARNING** O_NOFOLLOW does not stop a HARD link (and O_TRUNC wipes its target), and O_NOFOLLOW is undefined on Windows.
+  - Fixed: whatever sits at `Inbox/<id>.txt` is unlinked first, then the file is created fresh with O_EXCL (plus O_NOFOLLOW where it exists). A planted link of either kind only loses its name, on every platform.
+  - Tested for both a symbolic and a hard link; the no-unlink mutant is red.
+  - The swap-the-Inbox race between check and create is stated as not closed (same OS user).
+- **WARNING** A long DM to a misspelt name refused as a folder problem. Fixed: `chat.addressable` is checked before any file is written, in both the DM and the room paths.
+  - Tested: the real reason is given and nothing is written, even when a folder by that name exists. The mutant is red.
+- **WARNING** For a connected agent the folder is the person's project, often a git repo, so `git add .` could carry colleagues' messages out. Fixed: `Inbox/.gitignore` is `*`.
+  - Measured with real git (and a control that sees a file beside the Inbox). The mutant is red.
+- **NIT** A linked worker folder is refused, unlike Files. Now written in the comment.
+- **NIT** A crash between the spill and the log can leave a stale `Inbox/mN.txt` that a reused id later replaces for its own recipients only. KEPT: rare, and the stale file is still that agent's own message.
+- **NIT** The retention comment pointed at a note about log rotation. Fixed: it now says what is true.
