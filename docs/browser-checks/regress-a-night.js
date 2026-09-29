@@ -218,14 +218,16 @@ function seed() {
       const lede = document.getElementById('d-fresh-lede');
       return {
         shown: box && !box.hidden && box.getBoundingClientRect().height > 0,
-        removeOffscreen: rm && rm.getBoundingClientRect().height === 0,
+        /* #4550 (Josh, 2026-09-29): AI Settings holds Fresh start AND Remove this agent, so they share a
+           screen now. What still holds, and is pinned: Remove is drawn BELOW the restart box, last. */
+        removeBelow: !!rm && rm.getBoundingClientRect().height > 0 && box && rm.getBoundingClientRect().top > box.getBoundingClientRect().bottom,
         freshLede: lede && lede.getBoundingClientRect().height > 0 ? lede.innerText : null,
         stack: ['d-compact-go', 'd-clear-go', 'd-restart-start']
           .map((id) => { const b = document.getElementById(id); return Boolean(b && b.getBoundingClientRect().height > 0); }),
         saves: [...document.querySelectorAll('#d-instr-save, #d-save')].map((b) => b.getAttribute('aria-label')),
       };
     });
-    chk(rst.shown && rst.removeOffscreen, theme + ': restart draws in the Memory section, and Remove is not on that screen');
+    chk(rst.shown && rst.removeBelow, theme + ': restart draws in the Memory section, and Remove is below it (#4550: same AI Settings screen)');
     /* freshStartLabel paints the agent's NAME into the lede on open, so the
        generic "it" appearing here would itself be a regression. */
     chk(/^Three ways to get .{1,40} going again, whatever the reason\./.test(rst.freshLede || ''),
