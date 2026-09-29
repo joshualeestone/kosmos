@@ -9536,8 +9536,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st { display: block; margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-size: .8125rem; color: var(--nl-ink-3); white-space: nowrap; }
 /* The remove minus (hover/focus only) has its own 28px lane at the row's end, reserved always, so it
-   never covers the state word and nothing shifts when it appears. Task rows reserve the same lane
-   below, so member states and task assignees share one right edge. */
+   never covers the state word and nothing shifts when it appears. Task rows have no minus; their
+   36px right padding (below) only lines their end up with this one, so both columns share a right edge. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { position: relative; }
 /* Not on a swarm member's row: its On/Off toggle sits at the row's end, and an overlaid minus would
    cover "Off" (a click meant for Off would open the remove confirm). There the minus stays in flow. */
