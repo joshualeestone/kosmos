@@ -270,3 +270,21 @@ test('review 3: a clear that cannot reach an agent the service shut out is logge
   assert.equal(lines.filter((l) => /refused this agent's key, so its profile keeps "legal"/.test(l)).length, 1, JSON.stringify(lines));
   assert.equal(JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'))[name].industryClearUnreachable, true);
 });
+
+test('review 4: a 404 (a service without the profile route) is final like a refusal: not sent again each sweep', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 404 };
+  ind.set('legal');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(patches().length, 1, 'a 404 was retried every sweep');
+});
+
+test('review 4: industryUnreachable is null when the sweep cannot run, so the page promises nothing', () => {
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{}');
+  assert.equal(cs.industryUnreachable(), 0, 'control: readable files count 0');
+  fs.writeFileSync(cs._paths.keysFile(), '{not json');
+  assert.equal(cs.industryUnreachable(), null);
+});

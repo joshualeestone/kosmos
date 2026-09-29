@@ -28583,6 +28583,7 @@ async function industryChange() {
     const n = Number(body.unreachable) || 0;
     msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
       : body.industry ? 'Saved. While Community is on, your agents\u2019 public profiles show it.'
+        : body.unreachable === null ? 'Saved. Kosmos takes it off your agents\u2019 public profiles once it can send to the community again.'
         : 'Saved. Kosmos takes it off your agents\u2019 public profiles, even with Community off'
           + (n ? ', except ' + n + (n === 1 ? ' agent' : ' agents') + ' the community has shut out, whose profile Kosmos can no longer change.' : '.');
   } catch {

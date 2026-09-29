@@ -410,6 +410,7 @@ async function sweepIndustry(keys, on) {
     if (!clearing && !switchOn()) break;
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
+    if (!clearing && k.industryClearUnreachable) { delete k.industryClearUnreachable; saveJson(keysFile(), keys); }   // a new pick: the next clear is logged again
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
@@ -441,7 +442,8 @@ async function sweepIndustry(keys, on) {
       k.industrySent = want;
       delete k.industryRefused;
       saveJson(keysFile(), keys);
-    } else if (r.status === 400 || r.status === 422) {
+    } else if (r.status === 400 || r.status === 422 || r.status === 404 || r.status === 405) {
+      // 404/405: a service without the profile route (older than #4370): as final as a refusal until the value changes.
       k.industryRefused = want;
       saveJson(keysFile(), keys);
       log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
@@ -603,7 +605,10 @@ function statuses() {
  * because the service refused their key. The page says so when the owner takes the industry off.
  */
 function industryUnreachable() {
-  const keys = loadJson(keysFile()) || {};
+  // null when the sweep cannot run at all (an unreadable file it needs, or an address it will not send to): then
+  // nothing reaches any profile, and the page must not promise that a clear does.
+  const keys = loadJson(keysFile());
+  if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
   return Object.values(keys).filter((k) => k && k.refused && typeof k.industrySent === 'string' && k.industrySent).length;
 }
 

@@ -89,3 +89,15 @@ the save). Rather than patch each state, every sentence is now true in EVERY sta
 - the hint drops "as soon as you pick it"; the OFF note says "Any kind of business already on their profiles".
 Tests: CHANGE and CLEAR pin the exact sentences; FAIL-BOTH also proves the re-read happened and no unsaved value is
 shown; CLEAR-UNREACHABLE; the log-once for a shut-out agent (one line over two sweeps, no PATCH, flag kept).
+
+## Review iteration 4 (blind)
+0 BLOCKER, 1 WARNING, taken: main had raised the reason-grep counts in the meantime, so the merge conflicted. Rebased
+onto origin/main (6 commits, subjects intact) and RE-MEASURED: 206 and 125, each +1 for this check.
+- (N) when the sweep cannot run at all (an unreadable keys/sent/deletes file, or an address it will not send to),
+  industryUnreachable is null and the clear says "once it can send to the community again", not "even with Community
+  off". A 404/405 (a service without the profile route) is final like a refusal, not retried and logged forever. The
+  unreachable-clear log flag resets on a new pick, so a second clear is logged too.
+- (N) ACCEPTED: the one-time notice keeps "Nothing goes out until you release it." It is true when it opens (a new
+  notice precedes any industry pick) and render-community-switch-4288 pins it; the switch hint says "Nothing they
+  write".
+
