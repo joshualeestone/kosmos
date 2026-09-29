@@ -30680,7 +30680,7 @@ function orgPlace(nodes) {
   /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
      light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
   const ORG_SHARE_POWER = 0.85;
-  const ORG_FIRST_LANE = 58;  // the first ring's lane pitch when it spills (as the flat layout's)
+  const ORG_FIRST_LANE = 58;  // the first ring's lane pitch when it spills: the flat layout's 58 above, kept equal on purpose
   const ORG_HUB_CLEAR = 74;   // #4499, from #4434's hub test: no report's line nearer the hub's centre than 52 + 22
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */

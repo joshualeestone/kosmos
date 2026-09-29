@@ -546,7 +546,8 @@ test('a tree that turns flat (its last manager removed) starts from the flat pla
   assert.match(paint, /const tree = \[\.\.\.placed\.values\(\)\]\.some\(\(sp\) => Number\.isFinite\(sp\.lo\)\);[\s\S]{0,900}?const turnedFlat = ORG_POS_TREE === true && !tree;\s*ORG_POS_TREE = tree;\s*if \(turnedFlat\) ORG_POS\.clear\(\);/,
     'paintOrg no longer drops a tree\'s positions when it turns flat');
   /* #4499: a deep tree, not a lead with 59: since two-ring teams (#4472) and wide windows (#4499) that lead's canvas is
-     only 1.3x the flat one's and its carried faces no longer overlap, so it tested nothing. */
+     only 1.3x the flat one's and its carried faces no longer overlap (measured: 0 pairs), so it tested nothing; this
+     tree carries 22 overlapping pairs at 1.87x (see the #4499 plan, Tests). */
   const spec = randomTree(3, 60, 0.05);
   const tp = firstPaint(cards(spec)).placed;
   const pre = [...tp.keys()][0].split('_')[0] + '_';
