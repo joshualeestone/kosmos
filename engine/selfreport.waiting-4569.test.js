@@ -52,13 +52,29 @@ test('#4612: an idle report keeps a turn\'s answer (cleaned, capped) and reads i
   assert.deepEqual(selfreport.read('mark2').final, { text: 'Done. Next step: deploy.', startedAt: at });
   selfreport.record('mark2', { state: 'idle', auto: true, final: { text: 'x'.repeat(5000), startedAt: at } });
   assert.equal(selfreport.read('mark2').final.text.length, 4000);
+  // Each bad answer on a fresh agent: none is kept.
+  let k = 0;
   for (const [label, entry] of [
     ['a working report', { state: 'working', auto: true, final: { text: 'x', startedAt: at } }],
     ['blank text', { state: 'idle', auto: true, final: { text: '   ', startedAt: at } }],
     ['a bad time', { state: 'idle', auto: true, final: { text: 'x', startedAt: 'soon' } }],
     ['no answer', { state: 'idle', auto: true }],
   ]) {
-    selfreport.record('mark2', entry);
-    assert.equal(selfreport.read('mark2').final, null, label + ' was kept');
+    const who = 'markbad' + (k++);
+    selfreport.record(who, entry);
+    assert.equal(selfreport.read(who).final, null, label + ' was kept');
   }
+});
+
+test('#4612 review round 3: the run\'s latest answer is carried across later reports; a new run forgets it', () => {
+  const at = new Date().toISOString();
+  selfreport.record('mark3', { state: 'idle', auto: true, final: { text: 'the answer', startedAt: at } });
+  selfreport.record('mark3', { state: 'working', auto: true });   // a room turn starts
+  assert.equal(selfreport.read('mark3').final && selfreport.read('mark3').final.text, 'the answer', 'a working report forgot the answer');
+  selfreport.record('mark3', { state: 'idle', auto: true });      // and ends with no DM answer
+  assert.equal(selfreport.read('mark3').final && selfreport.read('mark3').final.text, 'the answer', 'an idle report without an answer forgot it');
+  selfreport.record('mark3', { state: 'idle', auto: true, final: { text: 'a newer answer', startedAt: at } });
+  assert.equal(selfreport.read('mark3').final.text, 'a newer answer', 'CONTROL: a newer answer replaces it');
+  selfreport.record('mark3', { state: 'started', auto: true });
+  assert.equal(selfreport.read('mark3').final, null, 'a new run kept the old run\'s answer');
 });

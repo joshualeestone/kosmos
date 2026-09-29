@@ -590,10 +590,13 @@ test('#4612: an idle report after a turn that finished with words carries its an
   assert.equal(state, 'idle');
   assert.equal(final && final.text, 'Here is the summary you asked for.');
   assert.ok(Date.parse(final.startedAt) >= before - 5 && Date.parse(final.startedAt) <= Date.now(), 'startedAt is not the turn start: ' + final.startedAt);
-  // CONTROL: a failed turn, or one with no words, sends no answer.
-  const f = []; const g = harness([{ ok: false, text: '', because: 'Muse Code did not finish the turn' }], { report: (s, w, x) => f.push(x || null) });
-  g.f.feed('x\r'); await g.f.drained();
-  assert.equal(f[f.length - 1], null);
+  // A DM turn that failed after printing part of an answer, or finished with no words, sends no answer (round 3).
+  for (const [label, out] of [['a failed turn with partial words', { ok: false, text: 'partial wor', because: 'Muse Code did not finish the turn' }],
+    ['a turn with no words', { ok: true, text: '', because: null }]]) {
+    const f = []; const g = harness([out], { report: (s, w, x) => f.push(x || null) });
+    g.f.feed(OP('x') + '\r'); await g.f.drained();
+    assert.equal(f[f.length - 1], null, label + ' was carried as an answer');
+  }
 });
 
 test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on a Stop only', () => {

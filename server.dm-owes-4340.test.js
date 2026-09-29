@@ -126,9 +126,14 @@ test('#4612: an owed DM shows the answer the agent gave in its own window, only 
   o = await own();
   assert.equal(o.state, 'owes');
   assert.equal(o.unsent && o.unsent.text, 'Hi Josh, all good here.', JSON.stringify(o));
-  // Working again (a new turn): the answer is no longer the latest word, so it is not shown.
+  // A room turn runs next, and ends with no DM answer: the agent still answered the person, so it is still shown.
   selfreport.record(U, { state: 'working', auto: true });
-  assert.equal((await own()).unsent, undefined, 'a stale answer showed while the agent was working again');
+  assert.equal((await own()).unsent && (await own()).unsent.text, 'Hi Josh, all good here.', 'a room turn running hid the answer');
+  selfreport.record(U, { state: 'idle', auto: true });
+  assert.equal((await own()).unsent && (await own()).unsent.text, 'Hi Josh, all good here.', 'a room turn ending hid the answer');
+  // A NEWER DM is not answered by that older turn: nothing is shown for it.
+  chat.appendMessage(chat.DIRECT, U, { text: 'and now?', at: new Date(Date.now() - 1000).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  assert.equal((await own()).unsent, undefined, 'an older answer was shown under a newer message');
   // Once the agent replies here, nothing is owed and nothing is shown.
   selfreport.record(U, { state: 'idle', auto: true, final: { text: 'Hi Josh, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
   keepAgentReply(U, 'Hi Josh, all good here.', new Date().toISOString());

@@ -182,7 +182,7 @@ test('#4569 fix 4: a working report\'s queue count ({ n, yours }) goes through t
   });
 });
 
-test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a working one does not', async () => {
+test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a working one\'s is not kept', async () => {
   boardAuthState.on = false;
   await withLeo(async () => {
     const tok = sendertoken.mint(WHO).token;
@@ -192,8 +192,9 @@ test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through th
       assert.equal(wrote.json.recorded, true, wrote.text);
       const back = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
       assert.deepEqual(back.json.report.final, { text: 'All done.', startedAt: at }, 'the route dropped the answer: ' + back.text);
+      // A working report's own answer is never kept; the run's idle answer stands (#4612 review round 3).
       await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, final: { text: 'x', startedAt: at } } });
-      assert.equal((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, null);
+      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'All done.', startedAt: at });
     } finally { sendertoken.revoke(WHO); }
   });
 });

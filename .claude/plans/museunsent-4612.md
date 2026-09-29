@@ -6,8 +6,8 @@ fields this reuses.
 ## Finished looks like
 The person DMs a Muse agent; the agent's turn finishes with an answer but the agent never runs `kosmos reply`.
 Instead of "Nothing back yet" (after two minutes), the DM shows at once: "It finished without replying here. What it
-said in its own window:" and the answer, in a bounded, line-preserving block. Once the agent replies here, or starts
-another turn, the block goes.
+said in its own window:" and the answer, in a bounded, line-preserving block. It stays while the agent runs other
+(room) turns; it goes once the agent replies here, a newer DM arrives, or the agent starts a new run.
 
 ## Decisions
 - Carried like #4611's count: musefront sends the turn's answer and start time with its idle report
@@ -25,6 +25,10 @@ another turn, the block goes.
   until the next idle report. Before, it was the last turn's answer, usually a room post the DM went ahead of, which
   could put a colleague's room text under the person's DM.
 
+- Review round 3: selfreport.read carries the run's latest answer across the reports after it, and the route no
+  longer requires the latest report to be idle (a room turn running next made the DM say "Nothing back yet", falsely).
+  A new run (started / stopped) forgets it. The answer is cut by characters, not UTF-16 units.
+
 ## Weakest premise
 That the DM envelope marks the turn that answered the person. A DM whose turn failed or had no words clears it, so
 an older answer is never shown for a newer message (the route also requires the turn to begin after the message).
@@ -33,4 +37,7 @@ an older answer is never shown for a newer message (the route also requires the 
 engine/musefront.test.js (answer on idle, control failed turn; reporter payload; bridge Stop only, agy unchanged),
 engine/selfreport.waiting-4569.test.js (kept, cleaned, capped; working / blank / bad time / none not kept),
 server.dm-owes-4340.test.js (shown only for a later turn; not while working; not once replied; control no report),
-web.dm-unsent-4612.test.js (line and escaped text at once; control: the old line and grace unchanged).
+web.dm-unsent-4612.test.js (line and escaped text at once; control: the old line and grace unchanged),
+server.report-readback-2709.test.js (the route's pass-through; a working report's answer is not kept), and the
+review-round tests in engine/musefront.test.js (a DM's answer across a room turn; stop note; failed or wordless DM
+turns; every operatorDirect form) and engine/selfreport.waiting-4569.test.js (carried across reports; new run).

@@ -391,6 +391,9 @@ function read(sessionName) {
      report clears it, since nothing from a previous run may leak into this
      one. */
   let project = null;
+  /* #4612 review round 3: the latest turn answer THIS RUN, carried across the reports after it (a room turn that ran
+     next must not make the DM forget what the agent answered). A new run forgets it, like the project. */
+  let final = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -410,7 +413,8 @@ function read(sessionName) {
        start, compaction and resume included, so after each the questions go
        unattributed until the agent names a project again. A missed light,
        never a wrong one (the direction ruled 2026-08-24 23:05). */
-    if (row.state === 'stopped' || row.state === 'started') project = null;
+    if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
+    { const f = finalOf(row.state, row.final); if (f) final = f; }
     // read AFTER the clear, so `started --project X` starts the run on X.
     if (typeof row.project === 'string' && row.project) project = row.project;
   }
@@ -419,7 +423,7 @@ function read(sessionName) {
     found: true,
     state: latest.state,
     waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
-    final: finalOf(latest.state, latest.final) || null,         // #4612
+    final,   // #4612: the run's latest turn answer (see the loop above)
     because: latest.because || null,
     on: latest.on || null,
     owner: latest.owner || null,
