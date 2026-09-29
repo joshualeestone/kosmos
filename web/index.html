@@ -31265,6 +31265,14 @@ let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being 
    return (an overlay dropped the gutter and lifted); a second in a row is the loop, and is skipped, so the chart keeps
    the width it has. render-gutter-return-4506 G1 (the return) and G3b (the loop). */
 let ORG_FLIP_FROM = 0, ORG_FLIP_AT = 0, ORG_FLIPS = 0;
+function orgFlipLoop(w) {   // true: skip this repaint (the second flip in a row); false: paint, and remember it
+  const now = performance.now();
+  const flip = w === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 20 && now - ORG_FLIP_AT < 500;
+  ORG_FLIPS = flip ? ORG_FLIPS + 1 : 0;
+  if (ORG_FLIPS >= 2) return true;
+  ORG_FLIP_FROM = ORG_VIEW_W; ORG_FLIP_AT = now;
+  return false;
+}
 function orgResizeRepaint() {
   if (ORG_RESIZE_RAF) return;
   ORG_RESIZE_RAF = requestAnimationFrame(() => {
@@ -31277,11 +31285,7 @@ function orgResizeRepaint() {
     // Against the width the chart was last PAINTED at, which every paint records:
     // a width remembered only here goes stale while the chart is hidden.
     if (wrap.clientWidth === ORG_VIEW_W) return;
-    const now = performance.now();
-    const flip = wrap.clientWidth === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 20 && now - ORG_FLIP_AT < 500;
-    ORG_FLIPS = flip ? ORG_FLIPS + 1 : 0;
-    if (ORG_FLIPS >= 2) return;
-    ORG_FLIP_FROM = ORG_VIEW_W; ORG_FLIP_AT = now;
+    if (orgFlipLoop(wrap.clientWidth)) return;
     paintOrg();
   });
 }
