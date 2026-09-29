@@ -63,6 +63,17 @@ test('a reason that does not name the agent (chat\'s own) is said after the name
     'Not told: mona is switched off in this project.', 'a reason that already starts with the name is not doubled');
 });
 
+test('an emoji in a name is kept, a broken half is replaced, and a name that cleans to nothing is still said', () => {
+  assert.equal(taskMessageSummary([{ agent: 'a\u{1F600}', state: 'placed' }], 1), 'Told a\u{1F600}.');
+  assert.doesNotMatch(JSON.stringify(taskMessageSummary([{ agent: 'x\ud800y', state: 'placed' }], 1)), /\\/);
+  assert.equal(taskMessageSummary([{ agent: '"', state: 'placed' }], 1), 'Told an agent.');
+});
+
+test('an agent listed twice gets one sentence, the worst outcome winning', () => {
+  assert.equal(taskMessageSummary([{ agent: 'a', state: 'placed' }, { agent: 'a', state: 'could_not', because: 'we could not type it' }], 2),
+    'Not told: a (we could not type it).');
+});
+
 test('a delivery with no known state is never claimed as not told: it may have been told', () => {
   assert.equal(taskMessageSummary([{ agent: 'zed' }], 1), 'zed may have been told (Kosmos could not confirm it).');
 });
