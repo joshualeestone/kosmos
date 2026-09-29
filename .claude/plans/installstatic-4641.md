@@ -11,15 +11,19 @@ runs them; and a break of one of them goes red in the shell suite (a control pro
 - `tools/lib/install-static-checks.sh` (new, sourced): the 23 checks, found by reading every `chk` in
   test-install.sh and keeping those whose expression uses no variable but `SETUP` and `HERE` once escaped `\$`
   pattern text is set aside, plus the helpers they call (`_kosmos_expected_port`, `_kosmos_formula_from`,
-  `_postinstall_port_block`, `_postinstall_page_port`), moved verbatim with their comments. Four groups:
+  `_postinstall_port_block`, `_postinstall_page_port`), moved verbatim with their comments (the port comment's
+  "above" and "this file" reworded for where it now sits). Four groups:
   port derivation (14), the update-on-a-connect-computer greps (3), the board-off greps (5), the open default (1),
   and `install_static_all`.
 - `tools/test-install.sh`: sources the lib right after `chk`, and calls each group where its checks sat, so the
   cut runs them as before (the selftest block above them still uses `_kosmos_expected_port` from the lib).
-- `tools/test-install-static.sh` (new): defines the same `chk`, runs `install_static_all`, fails on any FAIL and
-  on a count other than 23 (so a group that loses a check does not pass quietly).
-- `tools/test-install-static-control-4641.sh` (new): the runner passes on setup.sh, and fails, on the exact check,
-  on a copy whose launchd restart no longer reads the choice first.
+- `tools/test-install-static.sh` (new): defines the same `chk`, runs `install_static_all`, fails on any FAIL, on a
+  count other than 23 (so a group that loses a check does not pass quietly), and unless tools/test-install.sh calls
+  each of the four groups exactly once (so the cut keeps running them).
+- `tools/test-install-static-control-4641.sh` (new): the runner passes on setup.sh; fails, on the exact check, on a
+  copy whose launchd restart no longer reads the choice first (a regression, where 0.7.11's was a check made stale
+  by a correct change: either way a setup.sh change now meets the check on the PR); and fails the count on a lib
+  with one check removed.
 - `package.json` `test:shell`: `bash -n` the lib, then the runner, then the control, beside `bash -n tools/test-install.sh`.
 
 ## Rejected

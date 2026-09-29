@@ -13,17 +13,17 @@ _kosmos_expected_port() { # $1 = uid
 }
 
 # ⚠️ WHAT THIS SECTION CANNOT PROVE, NAMED RATHER THAN LEFT IMPLICIT: none of
-# the checks above exercise install/kosmos's or install/setup.sh's OWN
+# the port checks (install_static_port_checks, below) exercise install/kosmos's or install/setup.sh's OWN
 # embedded formula against a non-primary uid -- both call `/usr/bin/id -u`
 # by absolute path (deliberately, matching this repo's own style for
 # security-sensitive system binaries), which cannot be safely stubbed via a
-# PATH trick, and this harness has no second real macOS account to run as.
+# PATH trick, and no harness here has a second real macOS account to run as.
 # `_kosmos_expected_port` above is a SEPARATE, hand-written copy of the
 # formula, so a bug in the real code that also happened to make its way
 # into that copy would not be caught by it. What CAN be verified without a
 # second real account: the two shell copies stay byte-identical to each
 # other (a copy-paste drift between them would be silent otherwise, since
-# every other scenario in this file always sets KOSMOS_PORT explicitly and
+# every scenario in tools/test-install.sh sets KOSMOS_PORT explicitly and
 # never actually reaches either fallback).
 # Located by its own distinctive first line, not a hardcoded line number --
 # either file gaining or losing lines elsewhere would silently point a

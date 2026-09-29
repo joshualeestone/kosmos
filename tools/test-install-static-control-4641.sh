@@ -1,8 +1,8 @@
 #!/bin/bash
-# kosmos#4641 control: tools/test-install-static.sh goes red on the break that failed the 0.7.11 cut.
-# A copy of install/setup.sh whose launchd restart no longer reads the choice first must fail the
-# "restart reads the choice again first" check; the untouched file must pass. Both arms, so a runner
-# that cannot fail (or cannot pass) is caught.
+# kosmos#4641 control: a change to install/setup.sh now reaches tools/test-install-static.sh on a PR.
+# The untouched file must pass; a copy whose launchd restart no longer reads the choice first must fail on
+# the "restart reads the choice again first" check (the check the 0.7.11 cut failed on, there because a
+# correct change made it stale); and a lib that has lost a check must fail the count.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 T="$(mktemp -d)"
@@ -17,4 +17,10 @@ if KOSMOS_STATIC_SETUP="$T/setup.sh" bash "$HERE/tools/test-install-static.sh" >
 fi
 grep -q "^FAIL  the launchd bootstrap's restart reads the choice again first" "$T/broken.log" \
   || { cat "$T/broken.log"; echo "control: it failed, but not on the check the break targets" >&2; exit 1; }
-echo "install-static control: clean passes, the 0.7.11 break fails on its check"
+sed '/^  chk "the boundary value 65535 is accepted"/d' "$HERE/tools/lib/install-static-checks.sh" > "$T/lib.sh"
+cmp -s "$HERE/tools/lib/install-static-checks.sh" "$T/lib.sh" && { echo "control: removing a check changed nothing, so it tests nothing" >&2; exit 1; }
+if KOSMOS_STATIC_LIB="$T/lib.sh" bash "$HERE/tools/test-install-static.sh" > "$T/lost.log" 2>&1; then
+  cat "$T/lost.log"; echo "control: a lib that lost a check still passed" >&2; exit 1
+fi
+grep -q "checks ran, expected" "$T/lost.log" || { cat "$T/lost.log"; echo "control: it failed, but not on the count" >&2; exit 1; }
+echo "install-static control: clean passes, a restart that skips the choice fails on its check, a lost check fails the count"
