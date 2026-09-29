@@ -1019,6 +1019,10 @@ cmd_status() {
     # #4466: running, only slow. Exit 0 and no start/restart advice: that advice is what made agents
     # switch a busy board off and on.
     say "Kosmos is running at $URL but is busy: it did not answer within ${KOSMOS_BUSY_WAIT:-20} s. Wait a minute; it does not need a restart."
+    # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
+    # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
+    # reads this exit code and gives 4 a long grace instead of treating it as down.
+    exit 4
   elif port_taken_by_stranger; then
     # The same answer start would give, so two adjacent commands cannot
     # hand out advice the next one refuses.

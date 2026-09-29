@@ -8,7 +8,8 @@
  * minute-long blackouts. These arms drive the REAL install/kosmos against stub boards:
  *   - slow (health answers after 5 s): status and post WAIT, say "busy", and SUCCEED;
  *   - stopped (connection refused): "not running" and the start advice, AT ONCE;
- *   - never answers: "busy", exit 0 for status, and no start/restart advice anywhere;
+ *   - never answers: "busy", status exits 4 (bin/board-watchdog.sh gives that a long grace), and no
+ *     start/restart advice anywhere;
  *   - CONTROL: the old healthy(), verbatim, says "not running" to the same slow board, so the slow
  *     arm above can tell the fix from the bug;
  *   - a stranger on the port, and an older board with no /api/health, still read as before;
@@ -136,7 +137,7 @@ test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy
 test('#4466 a board that never answers: busy, and NO start or restart advice anywhere', () => withBoard('hang', async (port) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3' });
   const status = await runCli(['status'], env);
-  assert.equal(status.code, 0, 'a busy board is running: status must not fail, which invites a restart');
+  assert.equal(status.code, 4, 'busy is its own exit: not 1 ("not running", the start advice) and not 0 (which would hide a wedged board from the watchdog)');
   assert.match(status.stdout, /running at .* but is busy/);
   assert.doesNotMatch(status.stdout + status.stderr, START_ADVICE);
   const post = await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });

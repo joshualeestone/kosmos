@@ -22,7 +22,7 @@ new_home() {
 #!/bin/bash
 H="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
-  status) [ -f "$H/.stub-healthy" ] && exit 0 || exit 1 ;;
+  status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; exit 1 ;;   # 4: #4466 busy
   start)  echo "start" >> "$H/.stub-start-calls"; : > "$H/.stub-healthy"; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -89,6 +89,18 @@ H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(rec
 run_wd "$H"
 [ "$(starts "$H")" = 1 ] && ok "past grace, unthrottled: started" || bad "past grace, unthrottled: did not start ($(starts "$H"))"
 grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
+rm -rf "$H"
+
+# 6b. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
+#     control: the same age of down streak, plain down, does restart.
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 60 ))" > "$H/logs/board-watchdog.state"
+KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
+[ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy 60 s: no restart (busy grace)" || bad "busy 60 s: restarted a busy board ($(starts "$H") starts, $(kicks "$H") kicks)"
+rm -rf "$H"
+# 6c. #4466: BUSY past BUSY_GRACE -> treated as wedged and recovered (#2955 still holds).
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
+KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
+[ "$(starts "$H")" = 1 ] && ok "busy 400 s: recovered as wedged" || bad "busy 400 s: never recovered ($(starts "$H"))"
 rm -rf "$H"
 
 # 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate

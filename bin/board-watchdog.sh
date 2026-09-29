@@ -68,6 +68,12 @@ GRACE="$(numdef "${KOSMOS_WATCHDOG_GRACE:-}" 45)"
 THROTTLE="$(numdef "${KOSMOS_WATCHDOG_THROTTLE:-}" 180)"
 MAX_FAILS="$(numdef "${KOSMOS_WATCHDOG_MAX_FAILS:-}" 5)"
 COOLDOWN="$(numdef "${KOSMOS_WATCHDOG_COOLDOWN:-}" 3600)"
+# #4466: `kosmos status` exits 4 when the board holds its port but did not answer within its busy wait
+# (20 s). That is usually a board BUSY with many agents, and restarting it is what turned slow answers
+# into minute-long blackouts on Ben's 25-agent board. It can also be a wedged board (#2955), which
+# still needs recovering. So a busy reading counts toward the same down streak, but with this much
+# longer grace before the first restart: a board that has not answered once in five minutes is wedged.
+BUSY_GRACE="$(numdef "${KOSMOS_WATCHDOG_BUSY_GRACE:-}" 300)"
 
 now() { date +%s; }
 
@@ -135,7 +141,9 @@ fi
 # --- healthy? then recovery took (or it never failed) -----------------------
 # `kosmos status` exits 0 only when the board answers on its own port -- the CLI's
 # own authoritative health check, so the watchdog cannot drift from it.
-if bash "$KOSMOS_BIN" status >/dev/null 2>&1; then
+STATUS_RC=0
+bash "$KOSMOS_BIN" status >/dev/null 2>&1 || STATUS_RC=$?
+if [ "$STATUS_RC" -eq 0 ]; then
   [ -f "$ALERT" ] && { rm -f "$ALERT" 2>/dev/null || true; log "board healthy again; cleared crash-loop alert"; }
   state_put "" "$LAST_KICK" 0             # clear the down streak and the fail count
   exit 0
@@ -150,6 +158,8 @@ fi
 DOWN_SINCE="$(num "$DOWN_SINCE_RAW")"
 
 # still within grace: a legit start may be mid-boot
+# #4466: a busy board (status exit 4) gets BUSY_GRACE, not GRACE.
+[ "$STATUS_RC" -eq 4 ] && [ "$BUSY_GRACE" -gt "$GRACE" ] && GRACE="$BUSY_GRACE"
 [ "$((NOW - DOWN_SINCE))" -lt "$GRACE" ] && exit 0
 
 # --- crash-loop guard -------------------------------------------------------
