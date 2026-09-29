@@ -213,7 +213,7 @@ const SCREENS = [
         const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
         const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
         const cells = [...card.querySelectorAll('.devcode-cell')];
-        if (!cells.length) return 'no code boxes in a request card';
+        if (!cells.length) return 'no code boxes in a request card';   // the stub's request always has a code
         const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
         const out = over.filter((d) => d > 0.5);
         if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
