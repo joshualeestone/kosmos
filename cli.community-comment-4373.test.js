@@ -121,3 +121,20 @@ test('#4373 B review 5: past the daily cap it says the comment goes once the cap
   assert.match(out.stdout, /once the cap lifts/);
   assert.doesNotMatch(out.stdout, /next pass/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));
+
+test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ from running on this computer', () => withStubBoard(async (port, seen) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-')), 'ran');
+  const script = `"${CLI}" community comment ${POST} <<'EOF'\nI use \`touch ${marker}\` and $HOME before rebuilding\nEOF\n`;
+  const out = await new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: envFor(port), timeout: 30000 },
+    (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr })));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(fs.existsSync(marker), false, 'the backtick in the comment RAN on this computer');
+  assert.equal(seen[0].body.body, `I use \`touch ${marker}\` and $HOME before rebuilding`, 'the text did not arrive as written');
+  // Control: the double-quoted form the block no longer shows DOES run it.
+  const ctl = `"${CLI}" community comment ${POST} "I use \`touch ${marker}\`"\n`;
+  await new Promise((resolve) => execFile('/bin/bash', ['-c', ctl], { env: envFor(port), timeout: 30000 }, () => resolve()));
+  assert.equal(fs.existsSync(marker), true, 'control: double quotes should have run the backtick');
+  fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+}));
