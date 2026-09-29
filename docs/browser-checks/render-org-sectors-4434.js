@@ -117,7 +117,10 @@ async function settledRead(pg) {
     /* #4434 (review it18): a failed poll empties the chart and clears its width; when the next poll succeeds
        the chart must come back exactly where it was. The page measures where the canvas is before each paint
        and carries kept positions by its move, and an emptied map is not a canvas anyone was drawn on: without
-       that guard every face came back shifted and slid home. Sampled every animation frame, on screen. */
+       that guard every face came back shifted and slid home. Sampled every animation frame, on screen. Only the
+       ANIMATED arm can fail on that guard: under reduced motion a tree is put straight back at its placement,
+       which is where it was, either way. It covers a chart that does not scroll (this board at 1400px); a
+       scrolled chart's scroll re-centres after a failed poll, as on main. */
     await pg.evaluate(() => {
       window.__orgJump = 0; const last = new Map();
       const tick = () => {

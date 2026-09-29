@@ -29235,8 +29235,9 @@ function orgPlace(nodes) {
   const placed = new Map();
   let maxR = ORG_R0;
   /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
-     (nobody reports to anybody) keeps the ring layout below unchanged: its lines all run straight out from
-     the hub and cannot cross, and it is the first screen most people see. */
+     (nobody reports to anybody) keeps the ring layout below unchanged, as on main: its lines all run straight
+     out from the hub, so none crosses another, though on a partly filled outer ring a line can lie along an
+     inner one and pass through its face (review it19; follow-up #4502). */
   if (!nodes.some((n) => n.parent)) {
     /* Ring by ring: one ring here, since nobody has a manager. */
     const ring = nodes;
