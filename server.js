@@ -891,6 +891,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -3838,7 +3839,8 @@ const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/
 // the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
 // its own set because the reason differs (a public product surface, not the
 // post-switch lockout fix). The community MODERATION routes (GET
-// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// /api/community/moderation, POST /api/community/release, #4525's POST
+// /api/community/discard) are deliberately NOT
 // here: they expose held/quarantined content + findings and stay board-token
 // gated as the moderator surface.
 const PUBLIC_COMMUNITY_ROUTES = new Set([
@@ -4038,6 +4040,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4466: the CLI's health probe. `kosmos` used to fetch the whole app page (web/index.html, a few
+     hundred KB) with a 2 s cap, so a board busy with 25 agents read as "not running" and agents
+     restarted a healthy board into minute-long blackouts. This answers in a few bytes, as early as a
+     route can, and carries no account data (a fixed body), so it is answered BEFORE the board-token
+     gate below, on purpose, the same low-sensitivity reasoning as PUBLIC_WORLD_ROUTES: an enforcing
+     board must still be identifiable as Kosmos without a token. `"app":"kosmos"` is the identity the
+     CLI matches, so a stranger on the port is not taken for the board. GET and HEAD only. */
+  if (pathname === '/api/health' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const body = '{"app":"kosmos","ok":true}';
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(body) });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+
   /* #1704 PR2: BEFORE the board-token gate below, on purpose. A kept-running
      agent presents ITS Kosmos's board token, which this board would refuse as
      another account's (403) and the send would be lost; answering "wrong world"
@@ -4203,11 +4219,44 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'release requires an id' });
           return;
         }
+        /* #4525: releasing is how an agent climbs the trust ladder, and an agent's own CLI can read
+           the board token, so the board token alone would let an agent release its own posts. This
+           is the screen check the other person-only Settings writes use: it refuses an agent token
+           and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
+           real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
-          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason. #4525: a failure that
+          // carries a system code (the store's file write failed) is not the request's fault and its
+          // message can name a file path: a 500 in plain words instead.
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  // #4525: discard a held or quarantined post/comment, the other half of the person's
+  // "Waiting for you" list, board-token gated above exactly like release.
+  if (pathname === '/api/community/discard' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'discard requires an id' });
+          return;
+        }
+        // The same screen check as release: an agent must not discard another agent's post or a stopped one.
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can discard this, from Settings' }); return; }
+        try {
+          sendJson(res, 200, { discarded: communitysite.discard(body.id) });
+        } catch (e) {
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }   // as release, above
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not discard' });
         }
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -18171,6 +18220,8 @@ function start(port = PORT) {
          nudge sweep; a missed tick is a missed nudge and the status/room surfaces
          still show the truth. */
       let heartbeatPrev = new Map();
+      const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
+      const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -18185,7 +18236,7 @@ function start(port = PORT) {
           heartbeatPrev = outcome.next;
           /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
              seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
-             privacy"); this writes the current pending set to a LOCAL 0600 store
+             privacy"); this writes the current pending set (#4544: narrowed by agentnudge.realStalls) to a LOCAL 0600 store
              the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
              so it is not the telemetry Josh removed and needs no opt-out. The
              store REPLACES the set each tick, so a resolved stall clears itself.
@@ -18203,9 +18254,21 @@ function start(port = PORT) {
              (roster is null by choice, and [] correctly clears the store). Skip
              only the on-but-unreadable case -- policy single-sourced + unit-tested
              in engine/prompternudge.js shouldWrite(). */
-          if (prompternudge.shouldWrite(setting.on, roster)) {
-            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
-          }
+          /* #4544: the person's list (real stalls only, Josh) and the AGENT's nudge (an idle agent that
+             still holds an open task is sent one short nudge per stall). engine/agentnudge.js prompterTick
+             is the whole of it, gates included, so they are tested there. Inert before the live-execution
+             opt-in and under the brake AGENT_WORKFORCE_AGENT_NUDGE_OFF=1. */
+          agentnudge.prompterTick({
+            setting, roster, outcome,
+            readProjects: () => projects.readAll(),
+            shouldWrite: prompternudge.shouldWrite, write: (list) => prompternudge.write(list),
+            allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+            readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+            book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+          });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);

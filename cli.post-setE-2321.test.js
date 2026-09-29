@@ -46,7 +46,7 @@ test('#2321: a curl failure on the post is REPORTED, not a silent abort (set -e 
         const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
         const out = await runCli(['post', 'proj', 'a message worth posting'], env);
         assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
-        assert.match(out.stdout, /could not reach Kosmos|still delivering/, 'a curl failure must be reported to the agent');
+        assert.match(out.stdout, /could not reach Kosmos|still delivering|did not answer in time/, 'a curl failure must be reported to the agent');   // #4466: a cut reply now reads busy
         assert.notEqual(out.code, 0, 'a curl failure must exit non-zero');
       } catch (e) { failure = e; }
       server.close(() => (failure ? reject(failure) : resolve()));

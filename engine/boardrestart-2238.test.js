@@ -217,10 +217,35 @@ test('selfRestart via kosmos spawns a DETACHED `kosmos restart`, unref\'d, and N
   assert.equal(stopped, false, 'the kosmos path must never issue launchctl stop (would target an exited login job)');
   assert.ok(spawned, 'spawned a child');
   assert.equal(spawned.cmd, '/home/bin/kosmos');
-  assert.deepEqual(spawned.args, ['restart']);
+  assert.deepEqual(spawned.args, ['restart', '--force']);   // #4466: the board's own restart is never an agent's
   assert.equal(spawned.opts.detached, true, 'detached so it outlives the board it stops');
   assert.equal(spawned.opts.stdio, 'ignore');
   assert.equal(unrefd, true, 'unref\'d so it never holds a handle');
+});
+
+test("#4466 selfRestart via kosmos STRIPS the agent markers and the reclaim flag (the board's own restart is never an agent's)", () => {
+  writePlist(NO_KEEPALIVE);
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  const saved = {};
+  const vars = ['KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY', 'KOSMOS_HOME'];
+  for (const k of vars) saved[k] = process.env[k];
+  process.env.KOSMOS_AGENT_SESSION = 'kosmos-agent-x';
+  process.env.KOSMOS_AGENT_TOKEN = 'ab'.repeat(16);
+  process.env.TMUX_PANE = '%42';
+  process.env.KOSMOS_RECLAIM_BUSY = '1';
+  process.env.KOSMOS_HOME = '/keep/me';   // CONTROL: a var that is not stripped survives
+  try {
+    let spawned = null;
+    board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() {} }; });
+    const r = board.selfRestart('darwin');
+    assert.equal(r.ok, true, r.because);
+    for (const k of ['KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY']) {
+      assert.equal(spawned.opts.env[k], undefined, k + ' must not reach the restart');
+    }
+    assert.equal(spawned.opts.env.KOSMOS_HOME, '/keep/me');
+  } finally {
+    for (const k of vars) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
 });
 
 test('selfRestart via kosmos STRIPS the world-override env (a switch to default must not bleed old-world data)', () => {
