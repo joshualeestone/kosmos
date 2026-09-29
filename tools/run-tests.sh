@@ -241,7 +241,8 @@ fi
 # #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing below reads them. Unset
 # now, so no test this suite runs inherits them: an inherited KOSMOS_TESTS_IGNORE_SUITE made the #4498 queue tests' own
 # run-tests.sh skip the queue and fail, and an inherited KOSMOS_NO_WAIT reds 19 of test-cut-guard.sh's arms (2026-09-29).
-unset KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP
+# The list lives in tools/lib/cut-guard.sh (KOSMOS_WAIT_CONTROL_VARS); a lib that failed to load leaves it empty and unsets nothing.
+unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #

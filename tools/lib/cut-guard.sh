@@ -515,14 +515,18 @@ kosmos_refuse_if_suite_live() {
 # 45 minutes behind those too (20 before); all three are long runs, and a claim or a harness that outlives the bound
 # still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
 # re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
-# for one pass: one briefly unmarked by its second ask, or one whose marker a failed ps removed until it writes it again
-# (the loop re-marks a run whose own marker vanished). So the restart is a heuristic, not proof the queue moved. A
+# for one pass: one briefly unmarked by its second ask, one whose marker a failed ps removed until it writes it again
+# (the loop re-marks a run whose own marker vanished), or one an OLDER copy of this lib in another zone keeps deleting
+# (review 19; see _kosmos_suite_waiter_live). So the restart is a heuristic, not proof the queue moved. A
 # waiter is in its second ask only when its own check had just passed (the box was clear), so that false fall needs a
 # harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
 # poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
 # the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus one per waiter
 # ahead at entry) ends any queued wait whatever the heuristic says, without ending a healthy deep queue.
+# #4609: the controls and overrides that steer run-tests.sh's own wait. run-tests.sh unsets them once its wait has read
+# them, and test-cut-guard.sh starts without them, so no test inherits a caller's (one list, used by both).
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -539,13 +543,16 @@ _kosmos_suite_waiter_live() {
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
   # #4574: line 4 holds the start time in UTC and the C locale, so readers in different zones or locales agree. Line 3
   # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) compares:
-  # it matches only when that older reader runs in the writer's zone and locale (a reader elsewhere deletes the marker
-  # and counts the waiter as a running suite, the safe side, as before this change).
+  # it matches only when that older reader runs in the writer's zone and locale. A reader elsewhere deletes the marker
+  # (counting the waiter as a running suite, the safe side), and since this run re-marks a vanished marker each pass,
+  # the two can alternate: a third source of false falls for the waiters behind, bounded by the ceiling (the #4574
+  # note).
   local began utc want loc
   began="$(sed -n '3p' "$f" 2>/dev/null)"; utc="$(sed -n '4p' "$f" 2>/dev/null)"
   want="$(_kosmos_pid_started "$pid")"; loc="$(_kosmos_pid_started_local "$pid")"
   # Live only when the command matches AND a start time matches: line 4 against the UTC form, or line 3 against the
-  # local form. An empty reading (ps could not say) matches nothing, so it is stale: the safe side.
+  # local form. An empty reading (ps could not say) matches nothing, so it is stale: the safe side. An empty UTC reading
+  # is stale even when the local one matches (the -z "$want" term below), so a ps that half-answers never keeps a marker.
   local same_start=0
   if [ -n "$want" ] && [ "$utc" = "$want" ]; then same_start=1
   elif [ -n "$loc" ] && [ "$began" = "$loc" ]; then same_start=1
@@ -555,7 +562,9 @@ _kosmos_suite_waiter_live() {
   fi
   return 0
 }
-# A process's start time as ps prints it (the same on macOS and Linux procps); empty when ps cannot say, which
+# A process's start time: _kosmos_pid_started in UTC and the C locale (line 4, the same for every reader),
+# _kosmos_pid_started_local as ps prints it for the caller (line 3, what an older copy compares). Both come from ps
+# (the same on macOS and Linux procps) and are empty when ps cannot say, which
 # then matches nothing recorded, so the marker is treated as stale (counted as a live suite: the safe side).
 _kosmos_pid_started() { TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
 _kosmos_pid_started_local() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
@@ -602,6 +611,7 @@ _kosmos_suite_waiters_ahead() {
   read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
+    case "$f" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter (review 19)
     pid="${f##*.}"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     [ "$pid" = "$$" ] && continue
@@ -722,7 +732,7 @@ kosmos_wait_until_clear() {
       printf '%s\n' "$err" >&2
       if [ "$queue" = 1 ]; then
         local how="KOSMOS_WAIT_QUEUE_CEIL_S"; [ "$ceil_auto" = 1 ] && how="four bounds plus one per waiter ahead when it joined"
-        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from the last time a waiter ahead left the queue, and ${ceil}s (${how}) ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from when this run joined the queue or a waiter ahead last left it, and ${ceil}s (${how}) ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       else
         echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       fi

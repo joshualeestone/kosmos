@@ -2,11 +2,12 @@
 # The live-cut guard shown red, green and unable to answer (#708).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/lib/cut-guard.sh"
 # #4609: this file tests the waits and the queue, so it starts from none of their controls, however it is run (under
 # run-tests.sh, which also drops them, or directly, as `yarn test:shell` does). An inherited KOSMOS_NO_WAIT alone reds
-# 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs.
-unset KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP
-. "$HERE/lib/cut-guard.sh"
+# 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
+# list, plus the other guards' overrides this file also exercises.
+unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
@@ -801,6 +802,13 @@ kosmos_mark_suite_waiting 500
   && pass "#4574 a marker keeps the local start time on line 3 (older readers) and the UTC one on line 4" \
   || fail "#4574 the marker's start-time lines are not local then UTC ($(sed -n '3,4p' "$W/markers/suitewait.$$" | tr '\n' '|'))"
 kosmos_unmark_suite_waiting
+# A marker half-written (its .tmp, before the mv) is not a waiter, so it cannot add to or drop from the count (review 19).
+sleep 300 & zt=$!
+q_ready "$zt"
+printf '1 %s\n%s\n%s\n%s\n' "$zt" "$(ps -ww -o command= -p "$zt")" "$(_kosmos_pid_started_local "$zt")" "$(_kosmos_pid_started "$zt")" > "$W/markers/suitewait.$zt.tmp.$zt"
+[ "$(_kosmos_suite_waiters_ahead | grep -c .)" = 0 ] && pass "#4574 a half-written marker (.tmp) is not counted as a waiter ahead" \
+  || fail "#4574 a .tmp marker was counted as a waiter ahead ($(_kosmos_suite_waiters_ahead | tr '\n' ' '))"
+rm -f "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
 # A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
 rm -f "$W/calls"
 printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
@@ -881,18 +889,22 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNO
 # run-tests.sh (the #4498 queue arms above) would otherwise inherit them and skip the queue it is testing. RT stops at
 # the coverage gate on purpose, so this uses a second copy with no stray test file: the gate passes (1 == 1) and the
 # run reaches its `node --test` line, where a stand-in node first on PATH reports what it inherited. KOSMOS_TEST_PART=node
-# keeps it from going on to the shell part.
+# keeps it from going on to the shell part. While it runs, this copy is a real, non-fixture run-tests.sh to other agents'
+# suite guards (like RT, but for a few seconds longer, through node and the gates after it): a poll landing then waits.
 RT2="$(mktemp -d /tmp/rt4609.XXXXXX)"; mkdir -p "$RT2/tools/lib" "$T/fakebin"
 cp "$HERE/run-tests.sh" "$RT2/tools/"; cp "$HERE"/lib/*.sh "$RT2/tools/lib/"
 : > "$RT2/one.test.js"   # one root test file: the gate's two counts agree (1 == 1) and the list is not empty
-printf '#!/bin/sh\necho "IGNORE_SEEN=${KOSMOS_TESTS_IGNORE_SUITE:-unset} HARNESS_SEEN=${KOSMOS_TESTS_IGNORE_HARNESS:-unset}"\nexit 0\n' > "$T/fakebin/node"
+printf '#!/bin/sh\necho "IGNORE_SEEN=${KOSMOS_TESTS_IGNORE_SUITE:-unset} HARNESS_SEEN=${KOSMOS_TESTS_IGNORE_HARNESS:-unset} NOWAIT_SEEN=${KOSMOS_NO_WAIT:-unset} MAXS_SEEN=${KOSMOS_WAIT_MAX_S:-unset}"\nexit 0\n' > "$T/fakebin/node"
 chmod +x "$T/fakebin/node"
 out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
   KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
   KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
 rm -rf "$RT2"
-{ has "$out" "IGNORE_SEEN=unset HARNESS_SEEN=unset" && ! has "$out" "IGNORE_SEEN=1"; } \
-  && pass "#4609 the queue overrides are not inherited by the suite's own processes" \
+# One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
+grep -q '^unset ${KOSMOS_WAIT_CONTROL_VARS:-}$' "$HERE/run-tests.sh" && pass "#4609 run-tests.sh unsets the lib's one list of wait controls" \
+  || fail "#4609 run-tests.sh does not unset KOSMOS_WAIT_CONTROL_VARS"
+{ has "$out" "IGNORE_SEEN=unset HARNESS_SEEN=unset NOWAIT_SEEN=unset MAXS_SEEN=unset" && ! has "$out" "IGNORE_SEEN=1"; } \
+  && pass "#4609 the queue overrides and wait controls are not inherited by the suite's own processes" \
   || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
