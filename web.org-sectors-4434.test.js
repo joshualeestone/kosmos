@@ -58,7 +58,7 @@ const sim = (() => {
   assert.ok(at > -1 && end > at, 'the simulation left the page');
   const m = SCRIPT.match(/const\s+ORG_STEP\s*=\s*([-\d.]+)\s*;/);
   // eslint-disable-next-line no-new-func
-  return new Function('const ORG_STEP = ' + m[1] + ';\n' + SCRIPT.slice(at, end) + '\nreturn { orgStep, orgPlanarRepair, ORG_SIM, ORG_SETTLE_STEPS };')();
+  return new Function('const ORG_STEP = ' + m[1] + ';\n' + SCRIPT.slice(at, end) + '\nreturn { orgStep, orgPlanarRepair, orgHomeStep, ORG_GLIDE_MAX, ORG_SIM, ORG_SETTLE_STEPS };')();
 })();
 
 /* Cards from the real producer (fixture-discipline refuses hand-built ones). Names carry a per-tree
@@ -412,7 +412,7 @@ test('one manager with hundreds of direct reports: nobody overlaps on first pain
 test('the rest-time repair is wired where every settle ends: the reduced-motion settle and the animation\'s stop', () => {
   const body = (name) => { const at = SCRIPT.indexOf('function ' + name + '('); return SCRIPT.slice(at, SCRIPT.indexOf('\n}', at)); };
   assert.match(body('orgLiveSettle'), /orgPlanarRepair\(bodies, L\.hub\)/, 'orgLiveSettle no longer repairs a crossing at rest');
-  assert.match(body('orgLiveRun'), /orgPlanarRepair\(\[\.\.\.L\.nodes\.values\(\)\], L\.hub\)/, 'the animation no longer repairs a crossing when it stops');
+  assert.match(body('orgLiveRun'), /orgPlanarRepair\(\[\.\.\.L\.nodes\.values\(\)\], L\.hub, true\)\) \{ L\.homing = true;/, 'the animation no longer repairs a crossing when it stops (by gliding home)');
 });
 
 test('the repair never moves a held node or hub, so a drag held still keeps what the person holds (#4434, review it3)', () => {
@@ -482,6 +482,45 @@ test('the repair treats two lines from one manager lying along each other as a c
   assert.equal(sim.orgPlanarRepair([a, { ...c, x: 500, y: 300 }], hub), false, 'CONTROL: a straight chain hub, a, c was repaired');
 });
 
+test('the repair also sends a tree home when two faces overlap at rest, with no crossing (#4434, review it5)', () => {
+  /* A hub dragged into a corner and let go could rest with faces overlapping and no line crossed (review it5:
+     1 or 2 of 30 at 60-150 agents; 7 of 30 at 375px measured with the glide). */
+  const hub = { x: 300, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };
+  const a = { key: 'a', x: 400, y: 300, parent: null, fixed: false, home: { dx: 100, dy: 0 } };
+  const b = { key: 'b', x: 420, y: 330, parent: null, fixed: false, home: { dx: 0, dy: 100 } };   // 36px from a
+  assert.equal(sim.orgPlanarRepair([a, b], hub, true), true, 'two overlapping faces at rest were left there');
+  b.x = 300; b.y = 400;
+  assert.equal(sim.orgPlanarRepair([a, b], hub, true), false, 'CONTROL: faces apart were sent home');
+});
+
+test('the repair glides a tree home: the whole chart the same fraction, never more than ORG_GLIDE_MAX a step (#4434, review it5)', () => {
+  const hub = { x: 1000, y: 300, vx: 0, vy: 0, fixed: false, home: { x: 300, y: 300 } };   // dragged 700px off
+  const a = { key: 'a', x: 1100, y: 300, parent: null, fixed: false, home: { dx: 100, dy: 0 } };
+  const c = { key: 'c', x: 1150, y: 360, parent: a, fixed: false, home: { dx: 150, dy: 60 } };
+  const nodes = [a, c];
+  let left = Infinity; let steps = 0; let jump = 0;
+  while (left > 0.5 && steps < 500) {
+    const was = [hub, a, c].map((b) => ({ x: b.x, y: b.y }));
+    left = sim.orgHomeStep(nodes, hub, 0.2); steps += 1;
+    [hub, a, c].forEach((b, i) => { jump = Math.max(jump, Math.hypot(b.x - was[i].x, b.y - was[i].y)); });
+    assert.ok(Math.abs((c.x - a.x) - 50) < 1e-9 && Math.abs((c.y - a.y) - 60) < 1e-9, 'the chart lost its shape on the way home');
+  }
+  assert.ok(steps > 10 && steps < 500, 'the glide took ' + steps + ' steps');
+  assert.ok(jump <= sim.ORG_GLIDE_MAX + 1e-9, 'a step moved ' + jump.toFixed(1) + 'px');
+  sim.orgHomeStep(nodes, hub, 1);
+  assert.deepEqual([hub.x, hub.y, a.x, a.y, c.x, c.y], [300, 300, 400, 300, 450, 360], 'the glide did not end exactly at the placement');
+});
+
+test('a click on a tree (a press that never moved) does not restart the physics (#4434, review it5)', () => {
+  /* A plain click re-ran the physics at alpha 0.5, which drifts a tree off its placement (review it5: 17 of 30
+     trees of 150-220 agents then snapped 111-192px). The release handler lives in the page's pointer wiring,
+     so this pins its condition. */
+  const at = SCRIPT.indexOf('const release = (e) => {');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('\n  };', at));
+  assert.match(body, /if \(was\.moved \|\| !\[\.\.\.ORG_LIVE\.nodes\.values\(\)\]\.some\(\(n\) => n\.home\)\) \{[^}]*orgLiveRun\(\); \}/, 'a release that never moved runs the physics on a tree again');
+  assert.match(body, /else if \(orgPlanarRepair\(\[\.\.\.ORG_LIVE\.nodes\.values\(\)\], ORG_LIVE\.hub, true\)\) \{ ORG_LIVE\.homing = true; orgLiveRun\(\); \}/, 'a click that interrupted a glide no longer finishes it');
+});
+
 test('the same input gives the same positions (stable across reloads) (#4434)', () => {
   const agentsOnce = cards(UNEVEN);
   const one = place.orgPlace(place.orgTreeOf(agentsOnce)).placed;
@@ -527,13 +566,20 @@ function livePage() {
   /* Run queued frames until the animation stops; return how far any node got from where it started. */
   const run = () => {
     const from = new Map([...page.pos()].map(([k, q]) => [k, { x: q.x, y: q.y }]));
-    let far = 0; let n = 0;
+    let far = 0; let n = 0; let jump = 0;
+    let last = new Map(from);
     while (frames.length && n < 5000) {
       frames.shift()(); n += 1;
-      for (const [k, q] of page.pos()) { const f = from.get(k); if (f) far = Math.max(far, Math.hypot(q.x - f.x, q.y - f.y)); }
+      const now = new Map();
+      for (const [k, q] of page.pos()) {
+        const f = from.get(k); if (f) far = Math.max(far, Math.hypot(q.x - f.x, q.y - f.y));
+        const l = last.get(k); if (l) jump = Math.max(jump, Math.hypot(q.x - l.x, q.y - l.y));
+        now.set(k, { x: q.x, y: q.y });
+      }
+      last = now;
     }
     assert.ok(n < 5000, 'the animation never stopped');
-    return { far, frames: n };
+    return { far, frames: n, jump };
   };
   return { page, map, run };
 }
@@ -568,6 +614,8 @@ test('a tree already at its placement is painted there and not animated: first l
     const moved = run();
     assert.ok(moved.frames > 0 && moved.far > 20, 'CONTROL randomTree(' + seed + ', ' + n + '): off its placement the physics did not run (' + moved.frames + ' frames, ' + moved.far.toFixed(0) + 'px), so this tree tests nothing');
     assert.ok(offPlacement(page, placed, cx, cy) < 0.01, 'CONTROL randomTree(' + seed + ', ' + n + '): the drift was not repaired back to the placement');
+    /* ...and it got there without a jump: the repair glides (review it5: it teleported up to ~150px here). */
+    assert.ok(moved.jump <= 41, 'randomTree(' + seed + ', ' + n + '): a frame moved a face ' + moved.jump.toFixed(0) + 'px (the repair jumped instead of gliding)');
     page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
     assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): a repaint after the repair ran the physics again (the snap repeats)');
   }

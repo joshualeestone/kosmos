@@ -29212,10 +29212,12 @@ function orgStep(nodes, hub, alpha, box) {
 /* #4434: the last word on a settle. orgPlace's positions never cross (a uniform squeeze keeps that), but the
    physics is soft: on a chart squeezed to a narrow screen, faces packed closer than the physics' gap push one
    another off their places, and a large fleet could settle with a crossing (review it2: 60-90 agents at
-   375px, 9 of 150 trees). So when a TREE layout comes to rest with any two lines crossing, every node goes
-   back to its placed position (relative to the hub), which is crossing-free by construction. Crossings can
-   then only exist mid-motion, never at rest. Pure, for the tests; returns whether it moved anything. */
-function orgPlanarRepair(nodes, hub) {
+   375px, 9 of 150 trees). So when a TREE layout comes to rest with any two lines crossing, or two faces
+   overlapping (review it5: a hub dragged into a corner and let go), every node goes back to its placed
+   position (relative to the hub), which is free of both by construction. Crossings and overlaps can then
+   only exist mid-motion, never at rest. Pure, for the tests; returns whether it moved anything, or with
+   `dry`, whether it would (the animation then glides home with orgHomeStep rather than jumping). */
+function orgPlanarRepair(nodes, hub, dry) {
   const tree = nodes.filter((n) => n.home);
   if (!tree.length) return false;
   /* Never while something is held: a held node (or hub) is the person's, and snapping it away from the
@@ -29243,12 +29245,32 @@ function orgPlanarRepair(nodes, hub) {
       if (side(o(t.a, t.b, s.a), t) * side(o(t.a, t.b, s.b), t) < 0 && side(o(s.a, s.b, t.a), s) * side(o(s.a, s.b, t.b), s) < 0) { crossed = true; break; }
     }
   }
+  // Two faces overlapping (closer than a 44px disc) is as wrong at rest as two lines crossing.
+  for (let i = 0; i < tree.length && !crossed; i += 1) {
+    for (let j = i + 1; j < tree.length; j += 1) {
+      if (Math.hypot(tree[i].x - tree[j].x, tree[i].y - tree[j].y) < 44) { crossed = true; break; }
+    }
+  }
   if (!crossed) return false;
-  /* Back to the placement around the hub's HOME, not where it drifted: the placement fits the canvas by
-     construction, while offsets from a drifted hub can land past the edge. */
-  if (hub.home) { hub.x = hub.home.x; hub.y = hub.home.y; hub.vx = 0; hub.vy = 0; }
-  for (const n of tree) { n.x = hub.x + n.home.dx; n.y = hub.y + n.home.dy; n.vx = 0; n.vy = 0; }
+  if (dry) return true;
+  orgHomeStep(tree, hub, 1);
   return true;
+}
+/* #4434: move a TREE fraction f of the way back to its placement around the hub's HOME, not where the hub
+   drifted (the placement fits the canvas by construction; offsets from a drifted hub can land past the
+   edge). Every body moves the same fraction, so the chart keeps its shape on the way, and no body moves
+   more than ORG_GLIDE_MAX px in one call unless f is 1 (the repair's snap). Returns how far the furthest
+   body still is. */
+const ORG_GLIDE_MAX = 40;
+function orgHomeStep(nodes, hub, f) {
+  const hx = hub.home ? hub.home.x : hub.x; const hy = hub.home ? hub.home.y : hub.y;
+  const tree = nodes.filter((n) => n.home);
+  let far = Math.hypot(hx - hub.x, hy - hub.y);
+  for (const n of tree) far = Math.max(far, Math.hypot(hx + n.home.dx - n.x, hy + n.home.dy - n.y));
+  const k = f >= 1 || far <= 0.5 ? 1 : Math.min(f, ORG_GLIDE_MAX / far);
+  hub.x += (hx - hub.x) * k; hub.y += (hy - hub.y) * k; hub.vx = 0; hub.vy = 0;
+  for (const n of tree) { n.x += (hx + n.home.dx - n.x) * k; n.y += (hy + n.home.dy - n.y) * k; n.vx = 0; n.vy = 0; }
+  return far * (1 - k);
 }
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
@@ -29962,13 +29984,25 @@ function orgLiveRun() {
   const tickOnce = () => {
     if (!ORG_LIVE) return;
     const L = ORG_LIVE;
+    /* #4434: a tree that came to rest crossed glides back to its placement (orgHomeStep) instead of
+       jumping there; a grab mid-glide ends it and the physics takes the drag. */
+    if (L.homing && !L.dragging) {
+      const left = orgHomeStep([...L.nodes.values()], L.hub, 0.2);
+      orgLiveSync();
+      if (left > 0.5) { L.raf = requestAnimationFrame(tickOnce); return; }
+      orgHomeStep([...L.nodes.values()], L.hub, 1);
+      orgLiveSync();
+      L.homing = false; L.raf = 0;
+      return;
+    }
+    L.homing = false;
     const moved = orgStep([...L.nodes.values()], L.hub, L.alpha, L.box);
     orgLiveSync();
     L.alpha *= 0.985;
     if (L.alpha > 0.02 && (moved > 0.05 || L.dragging)) L.raf = requestAnimationFrame(tickOnce);
     else {
       L.raf = 0; L.alpha = Math.max(L.alpha, 0.02);
-      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub)) orgLiveSync();   // #4434: never rest with a crossing (and never mid-drag)
+      if (!L.dragging && orgPlanarRepair([...L.nodes.values()], L.hub, true)) { L.homing = true; L.raf = requestAnimationFrame(tickOnce); }   // #4434: never rest with a crossing (and never mid-drag)
     }
   };
   if (!ORG_LIVE.raf) ORG_LIVE.raf = requestAnimationFrame(tickOnce);
@@ -30024,7 +30058,13 @@ function orgLiveRun() {
     const was = drag;
     drag = null;
     was.body.fixed = false;
-    if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+    if (ORG_LIVE) {
+      ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null;
+      /* #4434: a press that never moved (a click) leaves a TREE where it rests: nothing moved, so there is
+         nothing to settle, and running the physics would drift it (review it5). A flat fleet runs as before. */
+      if (was.moved || ![...ORG_LIVE.nodes.values()].some((n) => n.home)) { ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+      else if (orgPlanarRepair([...ORG_LIVE.nodes.values()], ORG_LIVE.hub, true)) { ORG_LIVE.homing = true; orgLiveRun(); }   // a click that stopped a glide: finish it
+    }
     was.el.classList.remove('dragging');
     /* 🛑 THE CLICK THAT ENDS A DRAG MUST NOT OPEN THE AGENT (#381). The first
        version swallowed it with a one-shot capture listener removed on a
