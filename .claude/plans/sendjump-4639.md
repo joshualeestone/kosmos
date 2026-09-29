@@ -10,8 +10,8 @@ A browser check per surface proves each of those, and goes red with the send's j
 
 ## Change
 - `web/index.html`: `jumpToOwnSend(el, query)`, beside `pinToBottom`, which it calls, except while a search is
-  filtering that list (`TALK_QUERY` / `PJ_ROOM_QUERY`): their message may not be in it, and a filtered list does
-  not follow the tail, so a send leaves them where they are. Two call sites:
+  filtering that list (`TALK_QUERY` / `PJ_ROOM_QUERY`): their message may not be in it (the DM draws no "Sending"
+  row while filtering, and the room's filtered paint never scrolls), so a send leaves them where they are. Two call sites:
   - `sendTalk` (DM), right after `talkPaintPending` draws the "Sending" bubble, so that row is where they land.
     The reply's repaint (`paintTalk` -> `setThread`) then measures them at the floor and keeps them there.
   - `pjPostSend` (room), at the press (where Post is disabled), as the DM does. Not when the server answers: a
@@ -23,7 +23,8 @@ A browser check per surface proves each of those, and goes red with the send's j
   control (really scrolled back), J2 agent message arriving does not move them, J3 own send lands at the bottom
   with the row in view, J4 the next agent message keeps them there, J5 with a search filtering the thread their
   send does not move them, J6 someone who scrolls up while a slow send is in flight is not pulled back when it
-  lands, J7 a thread not read yet (no "Sending" bubble to draw) still ends with their message in view. Listed in
+  lands, J7 with no "Sending" bubble drawn (the thread's last read gone) the reply's repaint still ends with their
+  message in view. Listed in
   `gated.txt` and the README.
 - `docs/browser-checks/render-room-scroll.js` arm 4b (`sendJumpArms`), run in the tab view and again in the
   consolidated view: the same four for the room on a sandboxed board (a post arriving by the poll, own post typed
@@ -57,8 +58,8 @@ A browser check per surface proves each of those, and goes red with the send's j
 The fixture's "arriving" post is posted through the person's room route, not as an agent: it reaches the screen
 by the same poll an agent's post does, which is the path the rule is about.
 
-The DM jump relies on the "Sending" bubble being painted synchronously by `talkPaintPending`. When the thread has
-not been read yet (first open) it paints nothing, and the jump lands on the old tail; the reply's repaint then
-follows the floor, so they still end at their message, one repaint later (J7 measures it with the bubble
-suppressed). A failed room send also jumps (at the press) with nothing new below; the room check measures that
+The DM jump relies on the "Sending" bubble being painted synchronously by `talkPaintPending`. With no last read
+to draw into it paints nothing, and the jump lands on the old tail; the reply's repaint then follows the floor,
+so they still end at their message, one repaint later (J7 measures it with the bubble suppressed). A real first
+open shows the "Opening" note, not a list anyone can be scrolled back in, and its first read lands at the bottom. A failed room send also jumps (at the press) with nothing new below; the room check measures that
 the sentence is beside the composer they are at.

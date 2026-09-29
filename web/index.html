@@ -56952,15 +56952,15 @@ async function pjPostSend(attachment) {
   const sentText = text.trim();
   PJ_POSTING = true;
   document.getElementById('pj-post-go').disabled = true;
-  /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
-     seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
-     send that then fails has still moved them; its sentence is beside this composer. */
-  jumpToOwnSend(document.getElementById('pj-room'), PJ_ROOM_QUERY);
   const verdict = (line) => {
     if (PJ_CURRENT === sentProject) msg.textContent = line;
     pjRoomAnnounce(line);
   };
   try {
+    /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
+       seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
+       send that then fails has still moved them; its sentence is beside this composer. */
+    jumpToOwnSend(document.getElementById('pj-room'), PJ_ROOM_QUERY);
     const replying = PJ_REPLY[sentProject] || null;   // #3745: the post this answers, if any
     PJ_REPLY_SENDING = replying ? { project: sentProject, id: replying.id } : null;
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {

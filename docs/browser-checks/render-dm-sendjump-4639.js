@@ -11,7 +11,7 @@
  *   J4  after that, the agent's next message keeps them at the bottom
  *   J5  with a search filtering the thread, their send does not move them
  *   J6  someone who scrolls up while a slow send is in flight is not pulled back when it lands
- *   J7  a thread not read yet (first open: no "Sending" bubble can be drawn) still ends with their message in view
+ *   J7  with no "Sending" bubble drawn (the thread's last read gone), the reply's repaint still ends with their message in view
  *
  * Harness: loaded over file:// with fetch answered here (render-dm-reply-4256.js's posture), so the
  * DM goes through the real paintTalk and the real sendTalk.
@@ -147,7 +147,7 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     // J7
     await page.evaluate(() => {
       const el = document.getElementById('d-dmthread');
-      delete el.__lastBody;   // as on first open: talkPaintPending has nothing to draw into
+      delete el.__lastBody;   // talkPaintPending has nothing to draw into, so no "Sending" bubble
       el.scrollTop = Math.floor(el.scrollHeight * 0.35);
     });
     const firstUp = await pos();
@@ -164,7 +164,7 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
       return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
     });
     chk(firstUp.gap > 200 && afterFirst.gap <= 8 && firstVisible,
-      'J7 a thread not read yet still ends with their message in view', JSON.stringify({ firstUp, afterFirst, firstVisible }));
+      'J7 with no "Sending" bubble drawn, the reply\'s repaint still ends with their message in view', JSON.stringify({ firstUp, afterFirst, firstVisible }));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } catch (e) {
