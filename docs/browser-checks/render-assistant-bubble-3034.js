@@ -209,6 +209,15 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk((await saOn()) === true, 'B2x and it does not switch the Guide off');
     await page.evaluate(() => asbFold());
     chk(await waitFor(page, () => !document.getElementById('asb').hidden && document.getElementById('asp').hidden, 4000), 'B2x precondition: the chat folded back to the bubble');
+    // After a fold (which focuses the bubble by script, not by keyboard), a hold shows the X and leaving hides it.
+    {
+      const fb = await xs();
+      await page.mouse.move(fb.bx, fb.by); await page.waitForTimeout(1250);
+      const heldOn = (await xs()).on;
+      await page.mouse.move(2, 2); await page.waitForTimeout(500);
+      const after = await page.evaluate(() => ({ on: document.getElementById('asb-close').classList.contains('on'), focus: document.activeElement && document.activeElement.id }));
+      chk(heldOn && !after.on, 'B2x after a fold, a hold shows the X and leaving hides it (the fold\'s focus does not pin it)', JSON.stringify({ heldOn, ...after }));
+    }
     // Keyboard: reaching the bubble shows the X at once, and Tab goes on to it.
     await page.mouse.move(2, 2);
     await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });   // the click above left the bubble focused
@@ -218,6 +227,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Tab');
     const kb2 = await page.evaluate(() => document.activeElement && document.activeElement.id);
     chk(kb && kb2 === 'asb-close', 'B2x from the keyboard, the X shows when the bubble is reached and Tab goes on to it', JSON.stringify({ kb, kb2, tabs }));
+    // Keyboard focus on the X is visible INSIDE its clip (an outline would be cut): its ring changes colour.
+    const ring = await page.evaluate(() => { const x = document.getElementById('asb-close'); const f = getComputedStyle(x).borderTopColor; x.blur(); const u = getComputedStyle(x).borderTopColor; x.focus(); return { f, u }; });
+    chk(ring.f !== ring.u, 'B2x keyboard focus on the X paints a ring inside its clip', JSON.stringify(ring));
     // Keyboard focus leaving backwards (X -> bubble -> the element before it) takes the X away.
     await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Shift+Tab'); await page.waitForTimeout(100);
     const kbOff = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id, on: document.getElementById('asb-close').classList.contains('on') }));

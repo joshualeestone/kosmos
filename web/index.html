@@ -1680,7 +1680,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
   background: var(--k-ink); color: var(--k-surface); font: 700 13px/16px system-ui, sans-serif;
   text-align: center; cursor: pointer; opacity: 0; visibility: hidden; transition: opacity .12s; }
 .asb-close.on { opacity: 1; visibility: visible; }
-.asb-close:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The clip cuts an outline too, so keyboard focus is marked INSIDE the circle: its ring turns gold. */
+.asb-close:focus-visible { outline: none; border-color: var(--gold-bright); }
 .asb-close-msg { position: fixed; right: 16px; bottom: 76px; z-index: 44; max-width: calc(100vw - 100px); padding: 6px 10px; border-radius: 8px;
   background: var(--k-surface); box-shadow: 0 0 0 1px var(--k-rule); font-size: 13px; }
 .asb-close-msg[hidden] { display: none; }
@@ -65635,7 +65636,8 @@ async function asbSwitchOff(opts) {
   let ok = false;
   try { ok = await asbSaveSetting({ on: false }); } catch { ok = false; }
   const m = document.getElementById('asb-row-msg');
-  if (m && !fromX) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  // The X says its own failure; a success from either place clears the Settings row's old failure.
+  if (m && (ok || !fromX)) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
   ctls.forEach((c) => { c.disabled = false; });
   ASB.turning = false;
   asbPaintSetting();
@@ -65659,7 +65661,7 @@ function asbCloseWire() {
   const bub = document.getElementById('asb'), x = document.getElementById('asb-close');
   let timer = 0, leave = 0;
   const enter = () => { clearTimeout(leave); if (!x.classList.contains('on')) { clearTimeout(timer); timer = setTimeout(() => asbCloseShow(true), ASB_CLOSE_HOLD_MS); } };
-  const out = () => { clearTimeout(timer); clearTimeout(leave); leave = setTimeout(() => { if (document.activeElement !== x && document.activeElement !== bub) asbCloseShow(false); }, 250); };
+  const out = () => { clearTimeout(timer); clearTimeout(leave); leave = setTimeout(() => { if (!x.matches(':focus-visible') && !bub.matches(':focus-visible')) asbCloseShow(false); }, 250); };   // only KEYBOARD focus keeps it (a fold focuses the bubble by script)
   bub.addEventListener('pointerenter', enter);
   bub.addEventListener('pointerleave', out);
   x.addEventListener('pointerenter', () => clearTimeout(leave));
