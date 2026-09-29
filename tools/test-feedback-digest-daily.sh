@@ -26,6 +26,7 @@ export FEEDBACK_DIGEST_CARDS_CMD="$T/cards.sh"
 cat > "$T/post.sh" <<EOF
 #!/bin/bash
 cp "\$1" "$T/posted.json"; date +%s > "$T/post-at"
+[ -f "$T/steal" ] && { cat "$T/steal" > "$T/state/lock/pid"; rm -f "$T/steal"; }   # another run takes the lock mid-post
 if [ -f "$T/arrive" ]; then
   at=\$(date +%s); printf -- '---\\ndate: x\\ninstall: x\\ngenerated_at: %s\\n---\\n- %s\\n' "\$(date -u -r "\$at" '+%Y-%m-%dT%H:%M:%SZ')" 'The settings page freezes and is broken when a provider is added.' > "$T/reports/2026-09-29-during.md"
   rm -f "$T/arrive"
@@ -94,8 +95,44 @@ mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
 out="$(run)" || fail "a locked-out run exited non-zero"
 printf '%s' "$out" | grep -q 'another run' || fail "a second run did not step aside: $out"
 [ ! -f "$T/posted.json" ] || fail "two runs both posted"
-echo 999999 > "$T/state/lock/pid"   # a dead holder: the next run takes over
-run >/dev/null 2>&1; [ ! -d "$T/state/lock" ] || fail "a lock left by a dead run was not taken over and released"
+# A dead holder: the next run takes over AND posts, then releases the lock.
+echo 999999 > "$T/state/lock/pid"
+report 2026-09-29-dead.md "$(before_next)" 'The dead-holder check report is broken on purpose.'
+rm -f "$T/posted.json"
+out="$(run 2>&1)" || fail "a run after a dead holder failed: $out"
+printf '%s' "$out" | grep -q 'took over a stale lock' || fail "a dead holder's lock was not taken over: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'dead-holder check' || fail "the run that took over did not post"
+[ ! -d "$T/state/lock" ] || fail "the lock was not released after the run"
+
+# Review 4: a lock with NO pid yet is a run starting, not a dead one: step aside while it is fresh.
+mkdir "$T/state/lock"; rm -f "$T/posted.json"
+out="$(run)" || fail "a run beside a starting one exited non-zero"
+printf '%s' "$out" | grep -q 'another run (starting)' || fail "a starting run's lock was treated as dead: $out"
+[ -d "$T/state/lock" ] || fail "a starting run's lock was removed by another run"
+# ...but an empty lock a minute old is stale, and so is a LIVE pid on a lock an hour old (a reused pid).
+touch -t "$(date -v-2M '+%Y%m%d%H%M.%S')" "$T/state/lock"
+run >/dev/null 2>&1; [ ! -d "$T/state/lock" ] || fail "an empty lock two minutes old was never taken over"
+mkdir "$T/state/lock"; echo $$ > "$T/state/lock/pid"; touch -t "$(date -v-2H '+%Y%m%d%H%M.%S')" "$T/state/lock"
+out="$(run 2>&1)"; printf '%s' "$out" | grep -q 'took over a stale lock' || fail "a live but reused pid held the lock for good: $out"
+
+# Review 4: a run never removes a lock that is not its own, even one taken over from it while it was posting.
+mkdir "$T/state/lock"; echo $$ > "$T/state/lock/pid"
+run >/dev/null 2>&1
+[ "$(cat "$T/state/lock/pid" 2>/dev/null)" = "$$" ] || fail "a stepping-aside run removed another run's lock"
+rm -rf "$T/state/lock"
+echo $$ > "$T/steal"
+report 2026-09-29-steal.md "$(before_next)" 'The lock-steal check report is broken on purpose.'
+run >/dev/null 2>&1
+[ ! -f "$T/steal" ] || fail "the test did not take the lock mid-post"
+[ "$(cat "$T/state/lock/pid" 2>/dev/null)" = "$$" ] || fail "a finishing run removed the lock another run had taken over"
+rm -rf "$T/state/lock"
+
+# Review 4: a watermark in the future is not trusted (every window would be empty for good).
+echo "$(( $(date +%s) + 86400 ))" > "$T/state/last-posted"
+report 2026-09-29-future.md "$(before_next)" 'The future-watermark check report is broken on purpose.'
+rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "a run with a future watermark failed: $out"
+printf '%s' "$out" | grep -q 'in the future' || fail "a future watermark was trusted: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'future-watermark check' || fail "a future watermark hid a new report"
 
 # 3. A failed post: exits non-zero and the watermark stays, so the next run retries the same reports.
 echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"
@@ -119,4 +156,4 @@ printf '#!/bin/bash\nfor i in $(seq 1 2000); do echo "#$i card $i"; done\n' > "$
 if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a card list at its limit was trusted"; fi
 [ ! -f "$T/posted.json" ] || fail "posted with a truncated card list"
 
-echo "PASS: feedback-digest-daily (nothing new, posted, mid-post arrival once, unwritable watermark, lock, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"

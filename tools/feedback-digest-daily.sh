@@ -36,16 +36,27 @@ DRY="${FEEDBACK_DIGEST_DRY_RUN:-}"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') feedback-digest: $*"; }
 mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE"; exit 2; }
 WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
-# One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid, and a
-# lock whose owner is gone (a killed run) is taken over rather than blocking every later day.
+# One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid.
+# Review 4, the races: a lock with no pid yet is a run STARTING, not a dead one (unless it is a minute old); a live
+# pid counts for an hour only (a real run takes about a minute, and a pid can be reused); a stale lock is taken over
+# by RENAMING it away, which only one run can win; and a run removes the lock only if it is still its own.
 LOCK="$STATE/lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
+take_lock() { mkdir "$LOCK" 2>/dev/null && echo $$ > "$LOCK/pid"; }
+if ! take_lock; then
   holder=$(cat "$LOCK/pid" 2>/dev/null)
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then log "another run ($holder) is posting; this one does nothing"; rm -rf "$WORK"; exit 0; fi
-  rm -rf "$LOCK" && mkdir "$LOCK" 2>/dev/null || { log "FAILED: could not take the lock $LOCK"; rm -rf "$WORK"; exit 2; }
+  age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) ))
+  if { [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null && [ "$age" -lt 3600 ]; } || { [ -z "$holder" ] && [ "$age" -lt 60 ]; }; then
+    log "another run (${holder:-starting}) is posting; this one does nothing"; rm -rf "$WORK"; exit 0
+  fi
+  if mv "$LOCK" "$STATE/lock.stale.$$" 2>/dev/null; then
+    # If what we moved is not the stale lock we judged (another run took over in between), put it back.
+    if [ "$(cat "$STATE/lock.stale.$$/pid" 2>/dev/null)" != "$holder" ] && [ ! -e "$LOCK" ]; then mv "$STATE/lock.stale.$$" "$LOCK" 2>/dev/null; fi
+    rm -rf "$STATE/lock.stale.$$"
+  fi
+  take_lock || { log "another run took the lock; this one does nothing"; rm -rf "$WORK"; exit 0; }
+  log "took over a stale lock (${holder:-no pid}, ${age}s old)"
 fi
-echo $$ > "$LOCK/pid"
-trap 'rm -rf "$WORK" "$LOCK"' EXIT
+trap 'rm -rf "$WORK"; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
 
 # The watermark this run writes on success: its START, before the pull, so a report that arrives while the run is
 # pulling and posting is not older than the next watermark and skipped for good.
@@ -55,13 +66,17 @@ RUN_START=$(( $(date +%s) - 1 ))
 since=0
 [ -f "$STATE/last-posted" ] && read -r since < "$STATE/last-posted"
 case "$since" in ''|*[!0-9]*) since=0 ;; esac
+# Review 4: a watermark in the FUTURE (a clock stepped back, a hand edit) would make every window empty and say "no new
+# reports" for good. It is treated as unreadable: the last day, as on a first run.
+[ "$since" -gt "$RUN_START" ] && { log "the watermark $since is in the future; using the last day"; since=0; }
 # First run: the last day only, not the whole history.
 [ "$since" -eq 0 ] && since=$(( $(date +%s) - 86400 ))
 
 if [ -n "${FEEDBACK_DIGEST_CARDS_CMD:-}" ]; then
   $FEEDBACK_DIGEST_CARDS_CMD > "$WORK/cards" || { log "FAILED: could not read the open cards"; exit 2; }
 else
-  gh issue list --repo joshualeestone/kosmos --state open --limit 2000 --json number,title \
+  # Review 4: bounded (no `timeout` on macOS; perl's alarm), so a hung gh cannot hold the lock for good.
+  perl -e 'alarm 120; exec @ARGV' gh issue list --repo joshualeestone/kosmos --state open --limit 2000 --json number,title \
     -q '.[]|"#\(.number) \(.title)"' > "$WORK/cards" 2>/dev/null || { log "FAILED: could not read the open cards"; exit 2; }
 fi
 

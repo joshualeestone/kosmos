@@ -281,3 +281,14 @@ test('#4415 review 3: a negation takes ONE problem word (across "or" only), and 
   assert.equal(t.classify('No errors or crashes today.').score, 0, 'control: a negation still carries across "or"');
   assert.equal(t.classify('Nothing appears broken.').score, 0, 'control: a plain negation still negates');
 });
+
+test('#4415 review 4: praise in failure words is not a problem, and one statement counts once', () => {
+  const t = require('./feedback-triage');
+  const hits = (s) => (t.classify(s).reasons.find((r) => r.startsWith('names something')) || '');
+  for (const s of ['I cannot wait for this feature', "Can't recommend it enough, works great", 'There is no way to break it',
+    'I could not be happier with the export', 'Can not complain, it works', 'Could not find any errors, all good']) {
+    assert.equal(hits(s), '', s + ': praise or an absent problem counted as a problem');
+  }
+  assert.match(hits('Export cannot add a provider'), /\(cannot, add\)$/, '"cannot" was counted twice (as itself and as "could not")');
+  assert.match(hits('I could not add a file to the project.'), /could not/, 'control: a real failure still counts');
+});

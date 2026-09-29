@@ -78,7 +78,19 @@ const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
 const NEG_CARRIES = new Set(['or', 'nor']);
 /** Review 3: saying something could not be done IS the problem ("could not add a file", "no way to add a provider"),
  *  though its verb reads as negated. Matched on the normalised clause (apostrophes already gone). */
-const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\b/;
+const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\s+(\S+)(?:\s+(\S+))?/;
+/** Review 4: praise and eagerness wear the same words ("cannot wait for this", "can't recommend it enough", "no way to
+ *  break it", "could not be happier", "can not complain"); after these, it is not a failure. */
+const FAILED_TO_PRAISE = new Set(['wait', 'recommend', 'complain', 'be', 'break', 'stop', 'believe', 'thank', 'imagine', 'praise', 'ask']);
+/** "could not find / see any <problem>" says the problem was ABSENT. */
+const LOOKED_FOR = new Set(['find', 'see', 'spot', 'detect', 'notice', 'reproduce']);
+function failedTo(clauseWords) {
+  const m = FAILED_TO.exec(clauseWords.join(' '));
+  if (!m) return false;
+  if (FAILED_TO_PRAISE.has(m[1])) return false;
+  if (LOOKED_FOR.has(m[1]) && /^(?:any|a|anything|no)$/.test(m[2] || '')) return false;
+  return true;
+}
 
 /** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
  *  of their own. Matched exactly, not by shape: a short line ending in "?" is often a real report ("Why does export
@@ -222,6 +234,7 @@ function classify(item) {
     const negates = (j) => NEGATORS.has(cw[j]) && !NOT_NEGATING_NEXT.has(cw[j + 1]);
     cw.forEach((w, i) => {
       if (!ACTION.has(w)) return;
+      if ((w === 'cannot' || w === 'cant' || w === 'couldnt') && FAILED_TO_PRAISE.has(cw[i + 1])) return;   // "cannot wait", "cant recommend it enough"
       let negated = false;
       for (let j = i - 1; j >= Math.max(0, i - NEGATION_REACH); j--) {
         if (negates(j)) { negated = true; break; }
@@ -229,7 +242,8 @@ function classify(item) {
       }
       if (!negated) actionHits.push(w);
     });
-    if (FAILED_TO.test(cw.join(' '))) actionHits.push('could not');
+    // Once per statement: a clause already counted through "cannot"/"cant"/"couldnt" is not counted again (review 4).
+    if (failedTo(cw) && !cw.some((x) => x === 'cannot' || x === 'cant' || x === 'couldnt')) actionHits.push('could not');
   }
   /* A short line ending in ":" that starts like a question is an agent's own heading ("What would make it better:"),
      written in its own words so no exact list can hold it; a lead-in that does not ("Export fails with this error:")

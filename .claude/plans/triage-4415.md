@@ -38,6 +38,15 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   "nor", and "could not / cannot / unable to / no way to" counts as the problem. NITs: the watermark is written
   beside and renamed, and a failed write exits 2 instead of logging "posted"; one run at a time (a pid lock taken
   over from a dead run); at-least-once delivery on a lost Discord answer is stated in the header.
+- Review iteration 4 (Sonnet): (WARNING) the lock's races: an empty pid (a run starting) was treated as dead, a
+  takeover was not exclusive, and the exit trap removed another run's lock. Now an empty pid is "starting" for a
+  minute, a live pid counts for an hour only (pid reuse), a stale lock is taken over by renaming it away (one winner;
+  what was moved is put back if it was not the stale lock judged), and a run removes the lock only if it is its own.
+  (WARNING) "could not / cannot" counted praise ("cannot wait", "can't recommend it enough", "no way to break it",
+  "could not be happier", "could not find any errors"): those are skipped, and one statement is counted once.
+  NITs: a watermark in the future is treated as unreadable (last day); gh is bounded at 120 s; the dead-holder arm
+  asserts the run posted. The shell test drives a lock taken over mid-post. Residual, stated: two runs judging the
+  same stale lock in the same instant is narrowed by the rename, not proven impossible.
 ## Rejected
 - Opening cards from the digest: a person decides (#2246).
 - A digest over all reports every day: the same wall each morning. Only what arrived since the last post.
