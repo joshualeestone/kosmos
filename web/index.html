@@ -9531,6 +9531,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tksay,
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkunk { grid-column: 2 / -1; grid-row: 2; font-size: .75rem; font-style: normal; color: var(--nl-ink-3); text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tsk-chip { grid-column: 4; grid-row: 1; border: 0; background: none; padding: 0; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470: the left box's section headings as drawn: sentence case in the drawing's grey, no
+   letter-spacing ("Members", "Tasks", "Files"). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
 /* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
    end behind a dot. The state washes go ONLY because the word and dot now carry the state
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
