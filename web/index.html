@@ -21596,7 +21596,8 @@ async function tick() {
     // reached `#grid` was invisible exactly where it mattered most.
     /* #4562 review: a timed-out poll's error is the browser's own abort text ("signal is aborted without
        reason"), which would sit in the board's parenthesis for a frozen board. Say what happened instead. */
-    BOARD_LOOK_FAILED = statusTimedOut ? 'nothing answered for ' + Math.round((typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000) / 1000) + ' seconds'
+    // Only when nothing answered: a refusal whose body stalled past the limit keeps its own words (#268).
+    BOARD_LOOK_FAILED = statusTimedOut && !answered ? 'nothing answered for ' + Math.round((typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000) / 1000) + ' seconds'
       : err && err.message ? err.message : 'we could not read the agents';
     /* #2023: a fetch that never ANSWERED is an outage, not a signin state. The
        403 path above (answered) sets BOARD_NEEDS_SIGNIN correctly; a genuine
