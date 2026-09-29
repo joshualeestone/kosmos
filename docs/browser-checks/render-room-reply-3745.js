@@ -515,6 +515,9 @@ function chk(ok, label, extra) {
     chk(said4653.msg === NOTE_4653, '#4653: an ambiguous @-word leaves the engine\'s sentence under the composer', JSON.stringify(said4653));
     chk(said4653.say.endsWith(NOTE_4653), '#4653: and a screen reader hears it after the receipt', JSON.stringify(said4653.say));
     chk(said4653.box === '', '#4653: the post still went, so the box clears', JSON.stringify(said4653.box));
+    await p.type('#pj-post', 'n');
+    chk(await p.evaluate(() => document.getElementById('pj-room-msg').textContent) === '', '#4653: typing the next post takes the stale note away');
+    await p.fill('#pj-post', '');
     await p.evaluate(() => { document.getElementById('pj-room-msg').textContent = ''; });
 
     // A jump to a post the search is hiding says so on screen, not only to a screen reader.

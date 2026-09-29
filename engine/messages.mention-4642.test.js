@@ -172,7 +172,9 @@ const CLASH = () => [
 const CLASH_ROOM = ['leo', 'subzero', 'frost', 'mara'];
 
 test('#4653: the post answer tells the sender who an ambiguous @-word could mean, by the names the page shows', () => {
-  assert.equal(post('@Sub-Zero. please', CLASH(), CLASH_ROOM).note,
+  const dotted = post('@Sub-Zero. please', CLASH(), CLASH_ROOM);
+  assert.deepEqual(dotted.row.ambiguousMentions, ['Sub-Zero'], 'the log row keeps the word without its full stop');
+  assert.equal(dotted.note,
     '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.');
   assert.equal(post('@subzero please', CLASH(), CLASH_ROOM).note, undefined, 'a unique mention carried a note');
   // kosmos post reads the note anchored on the end of the answer, so it must stay the last key

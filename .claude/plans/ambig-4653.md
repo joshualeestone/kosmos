@@ -24,7 +24,7 @@ reads exactly as before.
 - tools/windows/kosmos-cli.js: the Windows `kosmos post` prints the note after its verdict too (placed on
   stdout, unconfirmed on stderr with the verdict), exit codes unchanged.
 - web/index.html: pjPostSend leaves the sentence under the composer (#pj-room-msg) and appends it to the
-  receipt the screen reader hears.
+  receipt the screen reader hears. The first edit of the next post takes the note away (only that note).
 
 ## Tests
 - engine/messages.mention-4642.test.js: a real post with a clash returns the sentence naming both by display
@@ -37,6 +37,9 @@ reads exactly as before.
   control: no note prints nothing extra and still exits 0 (it caught `[ ] && say` leaking exit 1);
   control: post text quoting the field name is never read as the note; control: an outcome keyed
   `ambiguousNote` is never read as the note (red with the unanchored read).
+- server.post-ambiguous-4653.test.js: a real /api/post room post with a clash; the CLI's own sed read,
+  lifted from install/kosmos and run by the real sed, finds the note in the raw answer (red when another key
+  is put after `delivery`); control: a unique mention gives no note and the read finds nothing.
 - tools.windows-kosmos-cli-ambig-4653.test.js: placed prints verdict then note (exit 0); unconfirmed keeps
   exit 3 with the note last; control: no, empty or non-string note prints only the verdict.
 - docs/browser-checks/render-room-reply-3745.js: a stubbed answer carrying the note leaves it under the

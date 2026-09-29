@@ -1517,13 +1517,16 @@ function mentionedMembers(cleaned, recipients, roster) {
    CLI and the page say the same thing. A member is shown as its display name with its exact handle
    ("Sub Zero (@frost)"), since the page shows display names and the handle is what to type. The CLI
    reads the sentence out of JSON with sed, so a display name loses any quote, backslash or control
-   character here; the words and handles are [A-Za-z0-9._-] already. '' when there is nothing to say. */
+   character here. The @-word is [A-Za-z0-9._-] by the tokenizer; handles are session names, held to
+   NAME_RE (engine/create.js) for agents Kosmos made, and cleaned the same way in case an adopted one is
+   not. '' when there is nothing to say. */
 function ambiguousNote(ambiguous, mentioned, shown) {
   /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths, bidi controls and
      lone surrogates: the name is printed straight to an agent's terminal. */
   const clean = (s) => String(s == null ? '' : s)
     .replace(/["\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
-  const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== m ? n + ' (@' + m + ')' : '@' + m; };
+  const handle = (m) => clean(m);
+  const who = (m) => { const n = clean(shown && shown.get(m)); return n && n !== handle(m) ? n + ' (@' + handle(m) + ')' : '@' + handle(m); };
   const list = (xs) => (xs.length === 1 ? xs[0] : xs.length === 2 ? xs.join(' or ') : xs.slice(0, -1).join(', ') + ' or ' + xs[xs.length - 1]);
   const out = [];
   for (const { word, members } of ambiguous.values()) {
@@ -1531,8 +1534,8 @@ function ambiguousNote(ambiguous, mentioned, shown) {
     if (!left.length) continue;   // every candidate was named on its own too: nothing was lost
     const could = '@' + word + ' could mean ' + list(members.map(who)) + ', so ';
     out.push(left.length === members.length
-      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name, like @' + left[0] + '.'
-      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name, like @' + left[0] + '.');
+      ? could + 'it reached ' + (members.length === 2 ? 'neither' : 'none of them') + ' as a request. To ask one of them, use the exact name, like @' + handle(left[0]) + '.'
+      : could + 'it did not ask ' + list(left.map(who)) + '. To ask ' + (left.length === 1 ? 'that one' : 'one of them') + ', use the exact name, like @' + handle(left[0]) + '.');
   }
   return out.join(' ');
 }
