@@ -427,21 +427,26 @@ function measure() {
         const sw = await page.evaluate(() => {
           const R = (e) => e && e.getBoundingClientRect();
           const c = R(document.querySelector('#d-swarm .swc')); const slot = R(document.querySelector('.dhead .detail-av'));
-          const stop = R(document.getElementById('d-swarm-stop')); const head = R(document.querySelector('.dhead'));
+          /* #4433: the swarm's controls left the header for the Swarm Settings view; the phone reaches it from the
+             Swarm Settings pill in the section strip, which is on screen above the conversation. */
+          const box = R(document.getElementById('d-nav-swarm')); const nav = R(document.getElementById('d-nav'));
           const th = document.getElementById('d-dmthread');
-          return { panelShown: !document.getElementById('d-swarm-panel').hidden, cw: c && c.width, slotW: slot && slot.width, stopTop: stop && stop.top, stopBottom: stop && stop.bottom, headBottom: head && head.bottom, vh: innerHeight, threadH: th.clientHeight };
+          return { panelShown: !document.getElementById('d-swarm-panel').hidden, cw: c && c.width, slotW: slot && slot.width,
+            inHeader: !!document.querySelector('.dhead #d-swarm-panel, .dhead #d-swarm-stop, .dhead .swcard'),
+            boxShown: !document.getElementById('d-nav-swarm').hidden && !!box && box.height > 0, boxTop: box && box.top, boxBottom: box && box.bottom,
+            inStrip: !!box && !!nav && box.top >= nav.top - 0.5 && box.bottom <= nav.bottom + 0.5, vh: innerHeight, threadH: th.clientHeight };
         });
         chk(sw.panelShown && sw.cw && sw.cw <= sw.slotW + 0.5, `${t} the swarm cluster fits the compact avatar slot`, JSON.stringify(sw));
-        chk(sw.stopTop >= 0 && sw.stopBottom <= sw.headBottom + 0.5 && sw.stopBottom <= sw.vh, `${t} Stop now is on screen in the header, not inside a scroll`, JSON.stringify(sw));
+        chk(!sw.inHeader && sw.boxShown && sw.inStrip && sw.boxTop >= 0 && sw.boxBottom <= sw.vh, `${t} no swarm control in the header; Swarm Settings is a pill in the section strip, on screen (#4433)`, JSON.stringify(sw));
         chk(sw.threadH >= 60, `${t} the thread keeps room to read`, `threadH=${sw.threadH}`);
         const swn = await page.evaluate(() => {
           const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
           show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
           show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
-          const stop = document.getElementById('d-swarm-stop').getBoundingClientRect(); const head = document.querySelector('.dhead').getBoundingClientRect();
-          return { stopTop: stop.top, stopBottom: stop.bottom, headTop: head.top, headBottom: head.bottom, threadH: document.getElementById('d-dmthread').clientHeight };
+          const box = document.getElementById('d-nav-swarm').getBoundingClientRect();
+          return { boxTop: box.top, boxBottom: box.bottom, boxH: box.height, vh: innerHeight, threadH: document.getElementById('d-dmthread').clientHeight };
         });
-        chk(swn.stopTop >= swn.headTop - 0.5 && swn.stopBottom <= swn.headBottom + 0.5 && swn.threadH >= 60, `${t} with notes showing too, Stop now stays visible and the thread keeps room`, JSON.stringify(swn));
+        chk(swn.boxH > 0 && swn.boxTop >= 0 && swn.boxBottom <= swn.vh && swn.threadH >= 60, `${t} with notes showing too, the Swarm Settings pill stays on screen and the thread keeps room`, JSON.stringify(swn));
         chk(serrs.length === 0, `${t} no page errors`, serrs.join(' | '));
         await page.close();
       }

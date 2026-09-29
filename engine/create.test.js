@@ -1568,17 +1568,14 @@ test('the startup script, actually run, hands the pane its account and its board
     const set = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: launchdEnv, ...b });
     assert.ok(set.newSession, `${label}: nothing was launched, so the assertions below never ran`);
     const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e').sort();
-    /* \u26a0\ufe0f #1139: THE SENDER TOKEN RIDES TOO, AND THIS ASSERTION USED TO PASS
-       BECAUSE IT DID NOT. The supervisor resolved the engine as `$0/../engine`,
-       which is false in the installed layout, so the mint was silently skipped
-       and this exact-set check stayed green on the broken behaviour. It is a
-       witness to that defect, not a victim of the fix.
-       Checked by SHAPE and then set aside: the value is fresh per launch, so it
-       cannot be pinned by equality, and the point of the check below is that
-       nothing UNEXPECTED rides -- which still holds, on the remainder. */
+    /* #4497: THE SENDER TOKEN MUST NOT RIDE AS TMUX ENV. The entrypoint path and
+       owner-only token-file path follow the -e pairs as ordinary launch argv;
+       supervisor.agent-token-argv-4497.test.js executes that entrypoint and
+       proves the fresh token reaches every provider. This older assertion now
+       pins the complementary security property at its original seam. */
     const minted = passed.filter((v) => v.startsWith('KOSMOS_AGENT_TOKEN='));
-    assert.equal(minted.length, 1, `${label}: expected exactly one sender token in the pane env: ` + JSON.stringify(passed));
-    assert.match(minted[0], /^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$/, `${label}: the token is not the 32-byte hex the supervisor validates`);
+    assert.equal(minted.length, 0, `${label}: the sender token leaked into tmux argv: ` + JSON.stringify(passed));
+    assert.ok(set.newSession.includes('--pane-entry'), `${label}: the owner-only token-file entrypoint is absent`);
     /* #3953: a codex pane is also handed PATH, with the node its report bridge needs appended to the
        server's PATH. Asserted here by name and shape, then set aside so the exact set below still holds. */
     const paths = passed.filter((v) => v.startsWith('PATH='));
@@ -2310,15 +2307,21 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     // community.json in this sandbox is the default, ON), so it is taken out with its siblings too.
     const communityblock = require('./communityblock');
     assert.ok(projects.findBlock(text, communityblock.START, communityblock.END), 'a new agent created with the Community switch ON did not get the community block at birth');
+    // #4420: and the files pointer, which sits between the person's words and the working rules.
+    assert.ok(projects.findBlock(text, dmfiles.TOP_START, dmfiles.TOP_END), 'the person\'s own agent did not get the files pointer at birth');
+    assert.ok(text.indexOf(dmfiles.TOP_START) > text.indexOf(mine.split('\n')[0]), 'the files pointer went above the person\'s own words (#591)');
     const without = projects.removeBlock(
       projects.removeBlock(
         projects.removeBlock(
-          projects.removeBlock(text, reports.START, reports.END),
-          connections.START, connections.END,
+          projects.removeBlock(
+            projects.removeBlock(text, reports.START, reports.END),
+            connections.START, connections.END,
+          ),
+          dmfiles.START, dmfiles.END,
         ),
-        dmfiles.START, dmfiles.END,
+        communityblock.START, communityblock.END,
       ),
-      communityblock.START, communityblock.END,
+      dmfiles.TOP_START, dmfiles.TOP_END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
@@ -2372,6 +2375,11 @@ test('an agent made from a role is taught how to work, not only what it is', () 
   assert.ok(text.includes('your reply goes back to that'), 'the answer-where-you-were-asked rule is missing');
   assert.ok(text.includes('Look for what is already on this computer'), 'the look-before-you-install rule is missing');
   assert.ok(text.includes('When you make something for a person'), 'the what-you-hand-a-person rule is missing');
+  /* #4467: this file is on the Windows CI job too (tools/windows-tests.js ALSO), and the block has
+     no win32 branch, so on that job this line also shows the tab rule reaches a boot file created
+     on Windows. */
+  assert.ok(text.includes('Close every browser tab or window you open'), 'the close-your-tabs rule is missing');
+  assert.ok(text.includes('Never remove another agent unless the person asked you to and you created it'), 'the removing-another-agent rule is missing (#4475)');
 });
 
 test('nothing in an agent boot file breaks the rule that boot file states', () => {
@@ -3545,8 +3553,10 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 8, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity; #3939: +1 muse
-  for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
+  assert.equal(launches.length, 2, 'the supervisor launch seams moved; update this test with them');
+  for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch seam does not pass the pane environment: ' + l);
+  const helperCalls = script.split('\n').filter((l) => /^\s+launch_pane(?!\(\))\b/.test(l));
+  assert.equal(helperCalls.length, 7, 'a provider stopped using the shared pane launch that carries PANE_ENV');
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
   // home reaches the pane the same way CODEX_HOME does.
@@ -4927,7 +4937,7 @@ test('#3391: the shipped supervisor launches a grok agent with bypass, always-ap
     'the grok launch must set GROK_CLAUDE_HOOKS_ENABLED=0 so the agent does not run the fleet ~/.claude hooks via claude-compat');
 });
 
-test('#4426: the Mac grok launch turns off every claude-compat cell, the same list the Windows turn env sets', () => {
+test('#4426 #4446: the Mac grok launch turns off every claude- and cursor-compat cell, the same list the Windows turn env sets', () => {
   // Without these a grok agent loads the person's own ~/.claude/CLAUDE.md, skills, rules and MCP
   // servers on top of its AGENTS.md. Two launch sites carry the list (the supervisor's grok arm
   // and win32keyed.js), so this pins them equal: a cell added to one and not the other goes red.
@@ -4935,11 +4945,13 @@ test('#4426: the Mac grok launch turns off every claude-compat cell, the same li
   const arm = script.slice(script.indexOf('GROK_MODEL="${MODEL:-grok-4.6}"'));
   const launch = arm.slice(0, arm.indexOf('"$CLAUDE" --permission-mode bypassPermissions --always-approve --trust'));
   const onMac = {};
-  for (const m of launch.matchAll(/-e "(GROK_CLAUDE_[A-Z]+_ENABLED)=([^"]*)"/g)) onMac[m[1]] = m[2];
-  const { GROK_CLAUDE_COMPAT_OFF } = require('./win32keyed');
-  assert.deepEqual(onMac, { ...GROK_CLAUDE_COMPAT_OFF });
-  for (const cell of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) {
-    assert.ok(`GROK_CLAUDE_${cell}_ENABLED` in onMac, `the grok launch must turn off the ${cell.toLowerCase()} cell`);
+  for (const m of launch.matchAll(/-e "(GROK_[A-Z]+_[A-Z]+_ENABLED)=([^"]*)"/g)) onMac[m[1]] = m[2];
+  const { GROK_COMPAT_OFF } = require('./win32keyed');
+  assert.deepEqual(onMac, { ...GROK_COMPAT_OFF });
+  for (const vendor of ['CLAUDE', 'CURSOR']) {   // #4446: both vendor families grok reads by default
+    for (const cell of ['HOOKS', 'AGENTS', 'RULES', 'SKILLS', 'MCPS']) {
+      assert.ok(`GROK_${vendor}_${cell}_ENABLED` in onMac, `the grok launch must turn off ${vendor.toLowerCase()}'s ${cell.toLowerCase()} cell`);
+    }
   }
 });
 
@@ -5017,6 +5029,9 @@ test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a
     // The "where your files go" doctrine reached the file the agent actually reads.
     assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Where the files you make go/,
       'the doctrine did not reach the codex brief -- the whole #2245 point');
+    // #4467: the tab rule reaches a Codex agent's AGENTS.md too, not only a Claude CLAUDE.md.
+    assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Close every browser tab or window you open/,
+      'the close-your-tabs rule did not reach the codex brief');
     // The runner->filename mapping and both resolvers agree.
     assert.equal(create.briefFilename('codex'), 'AGENTS.md');
     assert.equal(create.briefFilename('claude'), 'CLAUDE.md');

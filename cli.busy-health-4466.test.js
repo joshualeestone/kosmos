@@ -281,6 +281,17 @@ test('#4466 a board that never answers: busy, and NO start or restart advice any
   assert.doesNotMatch(post.stdout + post.stderr, START_ADVICE);
 }));
 
+test('#4466 the verbs that arrived after it (connections, connect, community read) say busy, not start, too', () => withBoard('hang', async (port) => {
+  // They came in from main with their own "Start it with: kosmos start" line; each goes through say_not_up now.
+  const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
+  for (const [args, input] of [[['connections']], [['connect', 'brave-search'], 'tok'], [['community', 'read']]]) {
+    const out = await runCli(args, env, 40000, input === undefined ? '' : input);
+    assert.notEqual(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.match(out.stdout, /running but too busy to answer/, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout + out.stderr, START_ADVICE, args.join(' '));
+  }
+}));
+
 test('#4466 a stranger on the port is still not taken for Kosmos', () => withBoard('stranger', async (port) => {
   const out = await runCli(['status'], baseEnv(port));
   assert.equal(out.code, 1);

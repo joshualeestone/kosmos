@@ -51,6 +51,17 @@ test('counts only the agent\'s replies, never the operator\'s own messages', () 
   assert.equal(chat.dmUnread(a), 2);
 });
 
+test('#4428: the same DIRECT pass carries the latest conversation and agent-reply times', () => {
+  const a = 'ava-sort-times';
+  agentReply(a, T1);
+  operatorMsg(a, T_CURSOR);
+  agentReply(a, T2);
+  const row = chat.dmSummaryAll()[a];
+  assert.deepEqual(row, { unread: 2, lastAt: T2, lastAgentAt: T2 });
+  chat.markDmSeen(a, Date.parse(T2) + 1);
+  assert.deepEqual(chat.dmSummaryAll()[a], { unread: 0, lastAt: T2, lastAgentAt: T2 }, 'reading changes only unread, not the sort evidence');
+});
+
 test('the read cursor excludes replies at or before it', () => {
   const a = 'ava-cursor';
   agentReply(a, T1); // before the cursor

@@ -3,6 +3,8 @@
 # merge cleanly. Each name is docs/browser-checks/<name>.js. Blank lines and # comments are
 # skipped. tools.browser-checks-wired.test.js checks every name has its file, the list is
 # sorted with no duplicates, and the runner really iterates this file.
+# A check that takes a board URL does not belong here: it would also run with no address and
+# fail. The same test fails if a name here is also launched anywhere else in the runner (#4464).
 emoji-picker-2254
 live-connect
 render-account-badge-1921
@@ -16,6 +18,7 @@ render-agent-lines
 render-agent-msg-gray-2805
 render-agent-nav
 render-agent-pill-3958
+render-agent-sort-4428
 render-agentdm-3414
 render-agentpage-fullwidth-2012
 render-alltasks
@@ -39,6 +42,7 @@ render-cluster-reorder-2929
 render-codex-account-picker-2811
 render-composer-reset
 render-composer-stroke
+render-conn-ask-4451
 render-conn-top-3708
 render-connect-win32-install-570
 render-connlost-reconnect-3410
@@ -72,6 +76,7 @@ render-fed-external-3311
 render-fed-plus-gate
 render-firstrun-access-onebox
 render-firstrun-agy-4081
+render-firstrun-choice-4356
 render-firstrun-connect-box-2187
 render-firstrun-connect-fires
 render-firstrun-enter-2186
@@ -122,6 +127,7 @@ render-openai-only-2096
 render-org-drag
 render-org-rings-2576
 render-orgchart-phone-718
+render-personal-instr-4446
 render-phone-offline-718
 render-picker-provider-2097
 render-pj-clear-2575
@@ -151,6 +157,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-live-3595
 render-remove-force-2651
+render-rename-4421
 render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019

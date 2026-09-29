@@ -101,7 +101,7 @@ test('the post and react routes resolve a token sender through the same helper',
   assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: senderFromAgentToken\(req, body, roster\)/);
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
   assert.match(shared, /if \(sender && !sender\.ok\) return \{ state: 'could_not', because: sender\.because \}/);
-  assert.match(shared, /messages\.sendPost\(\{[^}]*\bsender,/);
+  assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\bsender,/);
   const react = src.slice(src.indexOf("pathname === '/api/react'"), src.indexOf('/api/agent/:name/conversation'));
   assert.match(react, /senderFromAgentToken\(req, body, roster\) \|\| messages\.resolveSender/);
 });
@@ -119,7 +119,7 @@ test('#2908: reply_expected threads route -> sendRoomPostAsAgent -> sendPost, AN
   assert.match(post, /replyExpected: body\.reply_expected/);
   // The shared helper forwards it to sendPost.
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
-  assert.match(shared, /messages\.sendPost\(\{[^}]*\breplyExpected,/);
+  assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\breplyExpected,/);
   // THE DRAIN forwards it too: this arm reds if deliverPost drops entry.body.reply_expected.
   const drain = src.slice(src.indexOf('deliverPost: (entry) =>'), src.indexOf('onExpired:'));
   assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');
@@ -138,16 +138,26 @@ test('sendPost and send use a sender the route already resolved, and resolve fro
   assert.match(bare.because, /cannot tell which agent/, 'control: with no sender and no pane the old refusal stands');
 });
 
-test('msg, post and react stay BEHIND the board-token gate: neither exempt set may name them', () => {
-  /* What makes accepting an agent token here safe is that the caller must ALSO
-     hold the board token (only report and reply are exempt, for remote agents).
-     Adding these routes to either set would let a bare agent token speak. */
+test('msg, post and react: never exempt for a network peer or with NO credential; msg and post only with a valid header agent token (#4491)', () => {
+  /* #4491 changed this invariant on purpose. msg and post pass the board-token gate ONLY with
+     a valid agent token in the header (AGENT_TOKEN_ROUTES, checked at the gate), so an agent
+     need not hold the person's credential. They must never join REMOTE_AGENT_ROUTES (a network
+     peer) or LOOPBACK_AGENT_ROUTES (exempt before any token is checked), and react is not
+     exempt at all yet. AGENT_TOKEN_ROUTES is pinned exactly, so widening it is a deliberate
+     edit here, never a silent one. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const lineOf = (set) => (src.match(new RegExp('const ' + set + ' = new Set\\(\\[[^\\]]*\\]\\)')) || [''])[0];
   for (const set of ['REMOTE_AGENT_ROUTES', 'LOOPBACK_AGENT_ROUTES']) {
-    const line = (src.match(new RegExp('const ' + set + ' = new Set\\(\\[[^\\]]*\\]\\)')) || [''])[0];
+    const line = lineOf(set);
     assert.ok(line, set + ' moved; this pin reads nothing');
-    for (const route of ['/api/msg', '/api/post', '/api/react']) {
+    for (const route of ['/api/msg', '/api/post', '/api/react', '/api/whoami']) {
       assert.ok(!line.includes(route), route + ' is now exempt from the board token via ' + set);
     }
   }
+  const agentOnly = lineOf('AGENT_TOKEN_ROUTES');
+  assert.ok(agentOnly, 'AGENT_TOKEN_ROUTES moved; this pin reads nothing');
+  const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
+  assert.deepEqual(routes, ['POST /api/msg', 'POST /api/post', 'POST /api/whoami'],
+    'AGENT_TOKEN_ROUTES changed: every route added here must be checked to identify its caller from the header token');
+  assert.match(src, /AGENT_TOKEN_ROUTES\.has\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
 });

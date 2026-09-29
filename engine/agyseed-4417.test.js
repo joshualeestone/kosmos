@@ -94,7 +94,7 @@ test('#4417: the supervisor seeds idle AFTER claiming the session, only for an a
   /* The seed itself: after the claim, because the board ties a report to an agent only through @kosmos_agent. */
   const claim = sh.indexOf('"$TMUX_BIN" set-option -t "$SESSION" @kosmos_agent "$SESSION"');
   const runner = sh.indexOf('"$TMUX_BIN" set-option -t "$SESSION" @kosmos_runner "$RUNNER"');
-  const seed = sh.indexOf('"$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true');
+  const seed = sh.indexOf('"$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1');
   assert.ok(claim > -1 && runner > -1 && seed > -1, 'the claim, the runner record or the seed is gone: re-anchor this pin');
   assert.ok(seed > claim && seed > runner, 'the seed is sent before the session is claimed, so the board cannot tie it to the agent');
   const gateAt = sh.lastIndexOf('if [ "$RUNNER" = antigravity ]', seed);

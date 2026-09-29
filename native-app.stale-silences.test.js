@@ -51,13 +51,15 @@ test('every quiet exit declares which one it is, and no two say the same thing',
   const body = checkBody();
   const said = [...body.matchAll(/sayQuietStaleReason\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
 
-  /* 🛑 FOUR, AND THE NUMBER IS THE POINT. If somebody adds a fifth `return`
+  /* 🛑 FIVE (four before #4356), AND THE NUMBER IS THE POINT. If somebody adds another `return`
      that says nothing, this goes red and they have to decide whether it is a
      correct silence (equal versions, notice already shown) or one more
      invisible way for the notice not to appear. That decision is the whole
      value; the file cannot make it for them. */
-  assert.equal(said.length, 4,
-    `expected 4 declared quiet exits, found ${said.length}: ${said.join(' | ')}. `
+  /* 5 since #4356: a connect computer runs no board of its own to compare, and says so (a declared
+     silence, not a new invisible one). */
+  assert.equal(said.length, 5,
+    `expected 5 declared quiet exits, found ${said.length}: ${said.join(' | ')}. `
     + `A new silent return must either declare itself with sayQuietStaleReason, or be a genuinely correct `
     + `silence (equal versions, notice already shown) and this count updated in the same commit.`);
 

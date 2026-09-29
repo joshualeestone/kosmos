@@ -43,10 +43,13 @@ const SENTIMENT = new Set([
 const ACTION = new Set([
   'error', 'errors', 'fail', 'failed', 'fails', 'failing', 'crash', 'crashed',
   'crashes', 'broke', 'broken', 'bug', 'wrong', 'incorrect', 'missing', 'cannot',
-  'cant', 'couldnt', 'doesnt', 'wont', 'should', 'would', 'could', 'add', 'adds',
+  'cant', 'couldnt', 'doesnt', 'wont', 'should', 'add', 'adds',
   'added', 'allow', 'support', 'confusing', 'confused', 'unclear', 'slow', 'hang',
-  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'expected', 'instead', 'but',
-  'because', 'when', 'if', 'need', 'needs', 'needed', 'improve', 'better', 'fix',
+  'hangs', 'hung', 'stuck', 'timeout', 'timed', 'instead', 'jump', 'jumps', 'jumping',
+  // kosmos#4415: 'but', 'because', 'when', 'if', 'would', 'could' and 'expected' are gone: they are in nearly every
+  // sentence (measured on the 39 live reports, 2026-09-28: 158 of 177 items cleared the bar), and 'expected' mostly
+  // arrives as "worked as expected".
+  'need', 'needs', 'needed', 'improve', 'better', 'fix',
   'unable', 'blocked', 'blocker', 'refused', 'rejected', 'empty', 'blank', 'lost',
   'duplicate', 'duplicated', 'twice', 'race', 'stale', 'silent', 'silently',
   // Visual / layout bugs are a big share of fresh-install feedback and rarely
@@ -56,6 +59,57 @@ const ACTION = new Set([
   'misaligned', 'misplaced', 'truncated', 'garbled', 'offscreen', 'overflow',
   'overflows', 'overflowing', 'cramped', 'tiny', 'huge', 'unreadable',
 ]);
+
+/** kosmos#4415: words that NEGATE an action word shortly after them. "Nothing appears broken", "no errors", "did not
+ *  crash" name a thing that went RIGHT; counting the action word made a clean report the top candidate (raised 7
+ *  times in the live store). An action word within NEGATION_REACH words after one of these, IN THE SAME CLAUSE, does
+ *  not count; a comma, a full stop, "and" or "but" ends a negation's reach ("never finishes, stuck forever" is a bug:
+ *  the comma keeps `never` off `stuck`). A negated word is neutral, not evidence of a clean report: only the CLEAN
+ *  phrases below say that ("didn't load" is a failure, not a success). */
+const NEGATORS = new Set(['no', 'not', 'nothing', 'never', 'none', 'without', 'zero', 'didnt', 'isnt', 'wasnt', 'arent',
+  'werent', 'nor', 'neither', 'rather']);   // 'rather': "ready for work rather than stuck or blocked" (live, 09-28)
+const NEGATION_REACH = 4;   // 4, not 3: "rather than stuck or blocked" puts `blocked` four words after `rather`
+/** A negator directly followed by one of these is an idiom about the reporter, not about the problem: "not sure why
+ *  export crashed", "wasn't able to save", "not clear why it fails". It negates nothing. */
+const NOT_NEGATING_NEXT = new Set(['sure', 'clear', 'certain', 'obvious', 'able', 'why', 'how', 'possible', 'only']);
+const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
+/** Review 3: a negation reaches ONE problem word, and carries past it only across "or"/"nor" ("no errors or crashes").
+ *  Past any other action word it stops: "did not fix the crash" negates the fix, not the crash. */
+const NEG_CARRIES = new Set(['or', 'nor']);
+/** Review 3: saying something could not be done IS the problem ("could not add a file", "no way to add a provider"),
+ *  though its verb reads as negated. Matched on the normalised clause (apostrophes already gone). */
+const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\s+(\S+)(?:\s+(\S+))?/g;
+/** Review 4, narrowed by review 5: praise and eagerness wear the same words ("cannot wait for this", "can't
+ *  recommend it enough", "could not be happier", "can not complain", "no way to break it"). Only these IDIOMS are
+ *  praise: a lone "be", "stop" or "break" is how most failures are written ("cannot be created", "could not be
+ *  opened", "cannot stop the agent", "cannot break out of the loop"). */
+const PRAISE_WORD = new Set(['wait', 'recommend', 'complain', 'believe', 'thank', 'imagine', 'praise']);
+const PRAISE_PAIR = new Set(['be happier', 'be better', 'be more', 'be easier', 'be simpler', 'be prouder', 'break it', 'break this', 'fault it']);
+function praiseAfter(w1, w2) { return PRAISE_WORD.has(w1) || PRAISE_PAIR.has(w1 + ' ' + (w2 || '')); }
+/** "could not find / see ANY <problem>" says the problem was absent; "could not find A button" is a missing feature. */
+const LOOKED_FOR = new Set(['find', 'see', 'spot', 'detect', 'notice', 'reproduce']);
+function failedTo(clauseWords) {
+  // Review 5: every occurrence in the clause, not the first only ("could not be simpler or could not save").
+  for (const m of clauseWords.join(' ').matchAll(FAILED_TO)) {
+    if (praiseAfter(m[1], m[2])) continue;
+    if (LOOKED_FOR.has(m[1]) && /^(?:any|anything|no)$/.test(m[2] || '')) continue;
+    return true;
+  }
+  return false;
+}
+
+/** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
+ *  of their own. Matched exactly, not by shape: a short line ending in "?" is often a real report ("Why does export
+ *  crash?"). feedback-triage.test.js holds this list equal to roles.js. */
+const FORM_QUESTIONS = [
+  'What bugs did you hit today, or what did your user ask for that is not wired up yet?',
+  'Is anything broken?',
+  'What would make the app better, on the technical side or for the people using it?',
+  'How are tasks going?',
+];
+
+/** kosmos#4415: an item made only of this kind of statement reports that nothing was wrong. */
+const CLEAN = /\b(?:worked|works|working) (?:as expected|fine|correctly|well)\b|\bno (?:issues?|problems?|errors?|bugs?|crashes?)\b|\bnothing (?:appears |seemed |seems |was |is )?(?:broken|wrong|failed|off)\b|\bwithout (?:any )?(?:issues?|errors?|problems?)\b|\brather than (?:stuck|blocked|broken|failing|failed)\b/;
 
 /** Stop-words removed before token overlap so two phrasings of one issue match. */
 const STOP = new Set([
@@ -147,6 +201,14 @@ function parseItems(body) {
   return items;
 }
 
+/** kosmos#4415: an item that is one of the report form's questions, or the start of one (a question wrapped over two
+ *  lines arrives as two items). A question followed by an answer is NOT one. */
+function isFormQuestion(item) {
+  const n = normalize(item);
+  if (!n) return false;
+  return FORM_QUESTIONS.some((q) => { const qn = normalize(q); return qn === n || (qn.startsWith(n) && n.split(' ').length >= 3); });
+}
+
 /**
  * Advisory signal/noise score for one item. Returns { score, reasons }.
  *
@@ -167,7 +229,54 @@ function classify(item) {
     return { score: 0, reasons };
   }
 
-  const actionHits = words.filter((w) => ACTION.has(w));
+  if (isFormQuestion(item)) {
+    reasons.push('a question from the report form, not an answer');
+    return { score: 0, reasons };
+  }
+  /* kosmos#4415: an action word negated in its own clause does not count ("no errors", "nothing broken"). */
+  const actionHits = [];
+  for (const clause of String(item).split(CLAUSE_BREAK)) {
+    const cw = normalize(clause).split(' ').filter(Boolean);
+    const negates = (j) => NEGATORS.has(cw[j]) && !NOT_NEGATING_NEXT.has(cw[j + 1]);
+    cw.forEach((w, i) => {
+      if (!ACTION.has(w)) return;
+      if ((w === 'cannot' || w === 'cant' || w === 'couldnt') && praiseAfter(cw[i + 1], cw[i + 2])) return;   // "cannot wait", "cant recommend it enough"
+      let negated = false;
+      for (let j = i - 1; j >= Math.max(0, i - NEGATION_REACH); j--) {
+        if (negates(j)) { negated = true; break; }
+        if (ACTION.has(cw[j]) && !NEG_CARRIES.has(cw[j + 1])) break;   // another problem word in between took the negation
+      }
+      if (!negated) actionHits.push(w);
+    });
+    // Once per statement: a clause already counted through "cannot"/"cant"/"couldnt" is not counted again (review 4).
+    if (failedTo(cw) && !cw.some((x) => x === 'cannot' || x === 'cant' || x === 'couldnt')) actionHits.push('could not');
+  }
+  /* A short line ending in ":" that starts like a question is an agent's own heading ("What would make it better:"),
+     written in its own words so no exact list can hold it; a lead-in that does not ("Export fails with this error:")
+     is a report and is kept. A line ending in "?" is only dropped when it is the form's own question (above). */
+  if (words.length <= 8 && /:\s*$/.test(String(item).trim())
+    && /^(?:what|how|is|are|any|anything|which|where|when|who|why)\b/.test(norm)) {
+    reasons.push('a heading, not a report');
+    return { score: 0, reasons };
+  }
+  /* Clean when a clause is a clean phrase and no OTHER clause carries a negation: "could not find the button but it
+     works fine" has a problem in its other clause and is a report; "the queue is idle and ready rather than stuck" is
+     clean. (A problem WORD anywhere already made actionHits non-empty.) */
+  const clauses = String(item).split(CLAUSE_BREAK).map((c) => normalize(c)).filter(Boolean);
+  /* Review 5: a clean phrase with a negation just before it is the OPPOSITE ("not working correctly", "never works
+     correctly", "has not worked well"): only an un-negated clean phrase makes a clause clean. */
+  const cleanClause = (c) => {
+    const m = CLEAN.exec(c);
+    if (!m) return false;
+    const before = c.slice(0, m.index).split(' ').filter(Boolean).slice(-NEGATION_REACH);
+    return !before.some((x) => NEGATORS.has(x));
+  };
+  const cleanAt = clauses.findIndex(cleanClause);
+  if (!actionHits.length && cleanAt !== -1
+    && clauses.every((c, k) => k === cleanAt || cleanClause(c) || !c.split(' ').some((x) => NEGATORS.has(x) || x === 'cannot' || x === 'cant'))) {
+    reasons.push('reports that nothing was wrong');
+    return { score: 0, reasons };
+  }
   if (actionHits.length) {
     score += Math.min(actionHits.length, 3);
     reasons.push('names something to change or fix (' + [...new Set(actionHits)].slice(0, 4).join(', ') + ')');
@@ -413,7 +522,60 @@ function digestFor(reports, cardsText) {
   return renderDigest(result, { range });
 }
 
+/**
+ * kosmos#4415 slice 2: the pulled reports that ARRIVED after `sinceSec` (epoch seconds), read from each report's
+ * own `generated_at` line (engine/feedbackpull.js writes it into the frontmatter). A report with no readable
+ * generated_at is left out rather than guessed at: the daily post covers what is new, and an undated report
+ * cannot be placed on either side of the last post. Pure; the daily job (tools/feedback-digest-daily.sh) reads
+ * the files and hands them in as { name, body }.
+ */
+function freshSince(files, sinceSec, nowSec) {
+  const since = Number(sinceSec);
+  /* The window is (since, now]: exactly the watermark the job writes (its run START), so consecutive windows meet and
+     never overlap and no report is posted twice (review 3: a +10 min allowance here overlapped the next window). A
+     stamp ahead of this run (a report arriving mid-run, or an install whose clock runs fast) is DEFERRED to the digest
+     whose window reaches it, never dropped and never posted twice. */
+  const latest = Number.isFinite(Number(nowSec)) ? Number(nowSec) : Date.now() / 1000;
+  const { stripFrontmatter } = require('./feedback');
+  const out = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const body = String((f && f.body) || '');
+    const m = /(?:^|\n)generated_at:\s*(\S+)/.exec(body);
+    const at = m ? Date.parse(m[1]) : NaN;
+    if (Number.isFinite(at) && Number.isFinite(since) && at / 1000 > since && at / 1000 <= latest) {
+      /* The pulled frontmatter (date, install, generated_at) comes off here, as the CLI's reportsForTriage does:
+         left in, it was glued onto the first item and put an install id into #admin. */
+      out.push({ date: String((f && f.name) || '').slice(0, 10), body: stripFrontmatter(body) });
+    }
+  }
+  return out;
+}
+
+/**
+ * kosmos#4415 slice 2: the SHORT post the daily job puts in #admin: the counts, the top five candidates, and the
+ * link to /admin's Reports inbox, where every report is read and marked triaged. '' when there is nothing new, so
+ * the job posts nothing rather than a daily "0 new". It never opens a card (#2246: a person decides).
+ */
+const ADMIN_TOP = 5;
+function adminSummary(reports, cardsText, adminUrl) {
+  const fresh = Array.isArray(reports) ? reports : [];
+  if (!fresh.length) return '';
+  const openCards = String(cardsText == null ? '' : cardsText).split('\n').map((x) => x.trim()).filter(Boolean);
+  const res = triage(fresh, { openCards });
+  const lines = ['Daily reports: ' + fresh.length + ' new since the last digest. ' + res.candidates.length + ' to review, '
+    + res.duplicatesOfOpenCards.length + ' look already carded, ' + res.noise.length + ' below the bar.'];
+  /* Report text is written by any install on the internet and lands where agents read, under the bot's name: each
+     line goes in as inline code (backticks swapped out), so a markdown link does not render and nothing reads as the
+     bot's own words. */
+  for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- `' + String(c.text).replace(/\s+/g, ' ').replace(/`/g, "'").slice(0, 220) + '`');
+  if (res.candidates.length > ADMIN_TOP) lines.push('...and ' + (res.candidates.length - ADMIN_TOP) + ' more.');
+  lines.push('This counts reports that arrived since the last digest; one delivered late is only in the inbox. '
+    + 'Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
+  return lines.join('\n').slice(0, 1900);   // one Discord message
+}
+
 module.exports = {
   normalize, tokens, parseItems, classify, similarity,
   groupDuplicates, matchOpenCard, triage, renderDigest, digestFor,
+  freshSince, adminSummary, FORM_QUESTIONS, // kosmos#4415
 };

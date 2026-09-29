@@ -218,6 +218,20 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   state (deferred rounds 13 and 16, invariant stated where read); the page probe's half-second floor after
   a slow `/api/health` (the round 8 one-budget design; the reviewer notes it errs toward busy, the safe way).
 
+## Merge of origin/main (174 commits, 2026-09-29 05:0x), after convergence
+- Merged rather than rebased (19 commits, one resolution; the PR squashes). Conflicts: CLAUDE.md (both
+  routing rows kept) and install/setup.sh, where #4356's mode file now decides whether the installer
+  stops, starts and restarts the board. Kept #4356's logic and put this branch's `--force` (and
+  `KOSMOS_RECLAIM_BUSY=1` on the start) on each of its calls, including its new end-of-run `stop` for a
+  computer that became connect: the installer acts on its own board and must not be refused as an agent.
+- main brought three verbs with their own "Kosmos is not running ... Start it with: kosmos start" line
+  (`connections`, `connect`, `community read`), which is this card's bug on a busy board. All three now
+  use `say_not_up` (a down board gets the same sentence as before). New arm "the verbs that arrived after
+  it", red with main's sentence restored.
+- Weakest premise: the three were found by grepping for the sentence; a new verb that words its own
+  "not running" differently would not be. The Mac app's `kosmos stop`/`start` run as the person (no agent
+  markers), so the guard does not touch them.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

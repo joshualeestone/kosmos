@@ -772,7 +772,10 @@ function status() {
          ever grows (stopChild is the sole other reset), so a board that has
          been up for days would reconnect on a 60s delay after one blip. */
       backoffMs = 1000;
-      return { state: 'up', address: raw.address || address(), because: null };
+      /* #4419: admits_hooks is written by the running connector about itself (relay#195 computes it
+         from its own admission check), so only an explicit true counts; an older connector never
+         writes it, and its absence means no internet link for webhooks. */
+      return { state: 'up', address: raw.address || address(), because: null, admitsHooks: raw.admits_hooks === true };
     }
     return {
       state: raw.state === 'restarting' ? 'restarting' : 'connecting',

@@ -21,6 +21,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
+/* #4495: the same isolated temp cwd as win32anchor.test.js (#2603), for this file's own reason: the claim directory
+   below is a path.win32 join, one cwd-relative backslash name on a Mac, and both this file's mkdirSync and the
+   board's claim() wrote there, into the worktree root. The last arm checks nothing leaked. */
+const _win32OrigCwd = process.cwd();
+const _backslashBefore = new Set(fs.readdirSync(_win32OrigCwd).filter((n) => n.startsWith('\\')));
+const _win32LeakCwd = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-win32board-cwd-'));
+process.chdir(_win32LeakCwd);
+
 /* An anchor sandbox, so `install` writes its shim somewhere disposable rather
    than into the operator's real LOCALAPPDATA. */
 const ANCHOR = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-win32board-570-'));
@@ -102,7 +110,11 @@ test.beforeEach(() => {
   fs.mkdirSync(CLAIM_DIR, { recursive: true });
   try { fs.rmSync(nodePath.join(CLAIM_DIR, board.CLAIM_NAME), { force: true }); } catch { /* best effort */ }
 });
-test.after(() => { try { fs.rmSync(ANCHOR, { recursive: true, force: true }); } catch { /* best effort */ } });
+test.after(() => {
+  try { fs.rmSync(ANCHOR, { recursive: true, force: true }); } catch { /* best effort */ }
+  try { process.chdir(_win32OrigCwd); } catch { /* the process is ending anyway */ }
+  try { fs.rmSync(_win32LeakCwd, { recursive: true, force: true }); } catch { /* best effort */ }
+});
 
 // ── the namespace: a board task is not an agent task ────────────────────────
 
@@ -716,4 +728,14 @@ test('#2973 one derivation: the board and an agent read the same definition the 
   } finally {
     win32job.setRunner(null);
   }
+});
+
+/* On Windows the claim directory is an ordinary absolute path under the anchor (and no Windows name holds a
+   backslash), so there is no leak to look for there: the arm runs where its premise holds, a relative CLAIM_DIR. */
+test('#4495: this file leaves no backslash-named folder in the directory it was started from',
+  { skip: nodePath.isAbsolute(CLAIM_DIR) && 'the claim directory is an absolute path on this host, so it cannot leak into the cwd' }, () => {
+  // The claim directory is a backslash name on this Mac, so the arms above really did write one: into the temp cwd.
+  assert.ok(fs.readdirSync(process.cwd()).some((n) => n.startsWith('\\')), 'CONTROL: no backslash name was written at all, so this proves nothing');
+  const leaked = fs.readdirSync(_win32OrigCwd).filter((n) => n.startsWith('\\') && !_backslashBefore.has(n));
+  assert.deepEqual(leaked, [], 'a backslash-named folder leaked into the worktree: ' + leaked.join(', '));
 });

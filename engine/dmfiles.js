@@ -38,6 +38,8 @@ const instructions = require('./instructions');
 
 const START = projects.DMFILES_START;
 const END = projects.DMFILES_END;
+const TOP_START = projects.DMFILES_TOP_START;
+const TOP_END = projects.DMFILES_TOP_END;
 
 /* The folder's name inside the agent's own folder (#3614's call, written on the card). */
 const FOLDER = 'Files';
@@ -58,10 +60,20 @@ const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
  * folder is derived: change it here, never rebuild it elsewhere.
  */
 function filesDir(sessionName) {
+  return ownDir(sessionName, FOLDER);
+}
+
+/**
+ * #4447: a named folder of the agent's OWN, beside the file its instructions are written into:
+ * the one derivation filesDir uses, shared so the Inbox (engine/messages.js, where a long
+ * message is spilled) can never name a different folder than Files does. Null when the agent
+ * has no usable folder, or the path could not be stated safely.
+ */
+function ownDir(sessionName, folder) {
   let file = null;
   try { file = instructions.fileFor(sessionName); } catch { file = null; }
   if (typeof file !== 'string' || !file) return null;
-  const dir = path.join(path.dirname(file), FOLDER);
+  const dir = path.join(path.dirname(file), folder);
   /* A path the block cannot state safely is no path: NUL (create.workerDir's sentinel for
      an unusable name), or a line break or backtick that would break out of the code span
      and write lines of its own into the agent's instructions (a recorded folder is only
@@ -105,12 +117,19 @@ function blockBody(dir) {
     '',
     '`' + where + '`',
     '',
+    /* #4420 (Josh, 2026-09-28 15:29): a Gemini agent saved a file for him in its own folder, the one ABOVE this
+       one, then told him it was in the files panel. Neither is possible if the agent reads these two lines. */
+    'Directly inside that folder: not in your own folder above it, and not in a',
+    'subfolder. Only files there appear on your page; a file anywhere else is',
+    'invisible to the person. Never tell them a file is under Files unless you',
+    'saved it at that exact path.',
+    '',
     /* "Kosmos lists what is in it on your page": the Files list on the agent page (April's
        half of #3614) shipped in the same change as that sentence, so promise and page agree. */
     'Tell them in one line where you saved it, in words that mean something to them:',
     'the file\'s name, and that it is under Files on your page in Kosmos (to them it',
-    'is not "your Files folder"). This Files folder is inside your own folder, and it',
-    'is only for files made for the person: your running summaries and other working',
+    'is not "your Files folder"). This Files folder is only for files made for the',
+    'person: your running summaries and other working',
     'files stay where your instructions put them. Create the folder if it is not',
     'there yet. Keeping what you make in a direct conversation in one place means',
     'they always know where to find it: Kosmos lists what is in it on your page,',
@@ -139,6 +158,67 @@ function blockBody(dir) {
     'When the conversation itself happens inside a project, not in a direct',
     'conversation, keep using that project\'s own folder, as you already do there.',
   ].join('\n');
+}
+
+/* #4420: the pointer, for EVERY agent (Splinter, 15:34: the fix is for all agents, not Gemini's). It
+   sits above the doctrine's "Where the files you make go", which an existing agent holds as plain text Kosmos may not
+   rewrite without consent, so this is the line that reaches them. One line; the rule itself stays in the block. PURE. */
+function topLine(dir) {
+  const where = projects.neutralise(String(dir == null ? '' : dir));
+  return 'A file you make for the person goes directly in `' + where + '` (or in a project\u2019s folder when it is that '
+    + 'project\u2019s work): it is the only folder they see on your page in Kosmos. Your own folder above it is for your '
+    + 'working notes. The full rule is under "Where to save files you make for the person" in these instructions.';
+}
+
+/* Where the pointer goes. It exists to be read BEFORE the working rules' "Where the files you make go": an existing
+   agent obeyed that section's old sentence, and its copy of the rules is text Kosmos may not rewrite (#122).
+   - The working rules' heading is on a line of its own: the pointer goes right before that line, or, when that line
+     sits inside a managed span (a consented refresh puts the rules between DOCTRINE markers), right before that
+     span's start marker, never inside it (a block inside another block would make the refresh read as out of date
+     forever, and the two would take turns deleting each other).
+   - ⚠️ THAT IS AN EXCEPTION TO #1071, stated as one: when the rules are plain text, which is the person's (#122),
+     this INSERTS a marked block in the middle of their file. It is insert-only: exactly `block + "\n\n"` goes in at
+     the start of a line and no existing byte changes, so cutting out exactly that string gives the file back byte
+     for byte (dmfiles.top-4420.test.js pins it). A future remover must cut exactly that, not projects.removeBlock,
+     which also collapses the blank line before it. The person's own words above the rules stay first (#591).
+   - No working rules in the file: appended like every other managed block, so the person's text is untouched. A
+     pointer placed that way stays where it is if rules arrive later (replaced in place, never moved).
+   - Review 2: a file saved with Windows line endings (CRLF, e.g. from Notepad) matches too, and the pointer is written
+     with the file's own line ending, so the insert-only cut-out above holds for it byte for byte as well.
+   Replaced where it already is; refused (text unchanged) on two pointers. PURE. */
+const DOCTRINE_HEADING = '## How you work, whatever the job';
+const HEADING_LINE = /(^|\n)## How you work, whatever the job[ \t]*\r?(?=\n|$)/;
+function spliceTop(text, dir) {
+  const original = String(text == null ? '' : text);
+  const eol = original.includes('\r\n') ? '\r\n' : '\n';   // the file's own line ending
+  const block = TOP_START + eol + topLine(dir) + eol + TOP_END;
+  const at = projects.findBlock(original, TOP_START, TOP_END);
+  if (at && at.ambiguous) return original;
+  if (at) return original.slice(0, at.start) + block + original.slice(at.end);
+  const m = HEADING_LINE.exec(original);
+  if (m) {
+    let pos = m.index + m[1].length;   // the start of the heading's line
+    const all = projects.ALL_MARKERS();
+    for (let i = 0; i + 1 < all.length; i += 2) {
+      if (all[i] === TOP_START) continue;
+      const span = projects.findBlock(original, all[i], all[i + 1]);
+      if (span && !span.ambiguous && span.start <= pos && pos < span.end) {
+        const ls = original.lastIndexOf('\n', span.start - 1) + 1;   // the start of the marker's line
+        pos = ls;
+        break;
+      }
+    }
+    return original.slice(0, pos) + block + eol + eol + original.slice(pos);
+  }
+  return projects.spliceBlock(original, topLine(dir), TOP_START, TOP_END);
+}
+
+/* #4420: both managed parts for one agent, the block and the pointer (spliceTop says where it goes). The ONE composition, used at birth
+   (create.js) and by tellAgent. Null when the agent has no folder to name. */
+function applyTo(text, sessionName) {
+  const dir = filesDir(sessionName);
+  if (!dir) return null;
+  return spliceTop(projects.spliceBlock(text, blockBody(dir), START, END), dir);
 }
 
 /** The body for an agent, or null when it has no folder to name. */
@@ -180,7 +260,12 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos files blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = projects.spliceBlock(current.text || '', body, START, END);
+    const topFound = projects.findBlock(current.text || '', TOP_START, TOP_END);
+    if (topFound && topFound.ambiguous) {
+      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${topFound.pairs} Kosmos files pointers, so we cannot tell which is ours and did not change anything` };
+    }
+    const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer
+    if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
     /* Unchanged is TOLD, not a failure: the block already says this. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
@@ -209,4 +294,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, FOLDER, filesDir, blockBody, bodyFor, tellAgent, syncEveryone };
+module.exports = { START, END, TOP_START, TOP_END, FOLDER, filesDir, ownDir, blockBody, bodyFor, topLine, spliceTop, applyTo, tellAgent, syncEveryone };

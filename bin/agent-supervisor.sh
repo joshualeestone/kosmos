@@ -48,6 +48,23 @@
 
 set -u
 
+# #4497: the same installed script is the tiny pane entrypoint. The supervisor
+# writes one launch token to an owner-only file and puts only this file's path on
+# tmux argv. The child reads and unlinks it before exec, so the agent receives
+# KOSMOS_AGENT_TOKEN in its environment while `ps` never sees the token value.
+if [ "${1:-}" = --pane-entry ]; then
+  _token_file="${2:?a launch-token file is required}"
+  shift 2
+  _pane_token="$(head -1 "$_token_file" 2>/dev/null || true)"
+  rm -f -- "$_token_file" 2>/dev/null || true
+  case "$_pane_token" in
+    ''|*[!0-9a-f]*) unset KOSMOS_AGENT_TOKEN ;;
+    *) export KOSMOS_AGENT_TOKEN="$_pane_token" ;;
+  esac
+  unset _pane_token _token_file
+  exec "$@"
+fi
+
 SESSION="${1:?an agent name is required}"
 WORKDIR="${2:?a working directory is required}"
 CLAUDE="${3:?the path to claude is required}"
@@ -237,6 +254,9 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
+  TOKEN_ENTRY=()
+  TOKEN_FILE=""
+  _LAUNCH_TOKEN=""
     # ── #570: the sender token, minted HERE because this is the launch ──────
     #
     # `/api/report` learns who is reporting by handing `from_pane` to tmux. A
@@ -255,8 +275,8 @@ if [ -z "$adopt" ]; then
     # 🛑 EVERY FAILURE PATH LEAVES THE AGENT STARTING NORMALLY. This file's own
     # header is the reason: a mistake here respawns every agent every thirty
     # seconds forever with nothing anywhere saying why. So no new argument, no
-    # `set -e` reliance, and an unmintable token simply means no `-e` flag and
-    # today's pane-derived identity. A missing token costs attribution; a broken
+    # `set -e` reliance, and an unmintable token simply means no token entrypoint
+    # and today's pane-derived identity. A missing token costs attribution; a broken
     # launch costs the fleet.
     KOSMOS_AGENT_TOKEN=""
     _app="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || true)"
@@ -375,8 +395,44 @@ if [ -z "$adopt" ]; then
       ''|*[!0-9a-f]*) KOSMOS_AGENT_TOKEN="" ;;
     esac
     if [ -n "$KOSMOS_AGENT_TOKEN" ]; then
-      PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
+      # Never put this value in tmux's `-e NAME=value`: tmux is a separate
+      # process, so another macOS account can read that command line with ps.
+      # The per-run file is 0600 inside a 0700 directory. The pane entrypoint
+      # above consumes and removes it before starting any provider.
+      _launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"
+      _old_umask="$(umask)"
+      umask 077
+      if mkdir -p "$_launch_secret_dir" 2>/dev/null && chmod 700 "$_launch_secret_dir" 2>/dev/null; then
+        TOKEN_FILE="$(mktemp "$_launch_secret_dir/agent-token.XXXXXX" 2>/dev/null || true)"
+      fi
+      if [ -n "$TOKEN_FILE" ] && printf '%s\n' "$KOSMOS_AGENT_TOKEN" > "$TOKEN_FILE" 2>/dev/null \
+        && chmod 600 "$TOKEN_FILE" 2>/dev/null; then
+        TOKEN_ENTRY=("$_app/bin/agent-supervisor.sh" --pane-entry "$TOKEN_FILE")
+        # Kept only in this shell for Antigravity's one launch-time status
+        # report. It is inherited as environment by that helper, never placed
+        # in an argv entry.
+        _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
+      else
+        [ -n "$TOKEN_FILE" ] && rm -f -- "$TOKEN_FILE" 2>/dev/null || true
+        TOKEN_FILE=""
+      fi
+      umask "$_old_umask"
+      unset _old_umask _launch_secret_dir
     fi
+    KOSMOS_AGENT_TOKEN=""
+
+  cleanup_launch_token() {
+    [ -n "${TOKEN_FILE:-}" ] && rm -f -- "$TOKEN_FILE" 2>/dev/null || true
+  }
+  trap cleanup_launch_token EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  launch_pane() {
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      ${TOKEN_ENTRY[@]+"${TOKEN_ENTRY[@]}"} "$@"
+  }
 
   # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
   # or keys): the setup guide gets NONE of the tokens Kosmos holds for the person
@@ -610,6 +666,13 @@ if [ -z "$adopt" ]; then
     # quotes nor backslashes can appear in SUPPORT_DIR paths we write.
     BRIDGE="$(cd "$(dirname "$0")" && pwd)/codex-report-bridge.js"
     NOTIFY_CFG="notify=[\"$BRIDGE\"]"
+    # #4477: codex reads AGENTS.md only up to project_doc_max_bytes (32 KiB by default) and
+    # silently drops the rest, which is Kosmos's own rules (appended after the person's brief).
+    # This number is a COPY of twice engine/workerfile.js MAX_BYTES (2 x 256 KiB): codex spends one
+    # budget across every AGENTS.md from the repository root down, not only the agent's own. Held equal by
+    # engine/codex-docbytes-4477.test.js; the Windows launch computes it from that constant.
+    # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
+    DOCBYTES_CFG="project_doc_max_bytes=524288"
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
       # whatever is current NOW, which is what stops an EXISTING agent meeting a
@@ -630,11 +693,9 @@ if [ -z "$adopt" ]; then
       # update-notice dismissal into a different home than the running agent.
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
     fi
   elif [ "$RUNNER" = gemini ]; then
     # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's
@@ -670,8 +731,7 @@ if [ -z "$adopt" ]; then
       unset _gkey
     fi
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
+    launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
   elif [ "$RUNNER" = grok ]; then
     # #3391: the Grok runner. Like gemini, self-reporting is NOT a launch flag (as
     # codex's notify is) -- Grok Build has its own hook system, and engine/create.js
@@ -699,7 +759,9 @@ if [ -z "$adopt" ]; then
     # live [claude] entries to 0). A plain CLAUDE.md in the agent's own folder still
     # loads (grok's docs). An agent ADOPTED at board start keeps the env it launched
     # with, so a running grok agent gets this at its next launch. Same list as
-    # win32keyed.js GROK_CLAUDE_COMPAT_OFF; a test pins the two equal. The default account reads
+    # win32keyed.js GROK_COMPAT_OFF; a test pins the two equal. #4446: the five cursor-compat
+    # cells too, or it loads the person's ~/.cursor rules, skills, agents, MCPs and hooks
+    # (measured, grok 1.0.41: 2 live [cursor] entries to 0). The default account reads
     # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
@@ -779,11 +841,15 @@ if [ -z "$adopt" ]; then
     fi
     unset _GROK_ACCT _GROK_KIND
     GROK_MODEL="${MODEL:-grok-4.6}"
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+    PANE_ENV+=( \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" -e "GROK_CLAUDE_AGENTS_ENABLED=false" \
       -e "GROK_CLAUDE_RULES_ENABLED=false" -e "GROK_CLAUDE_SKILLS_ENABLED=false" \
       -e "GROK_CLAUDE_MCPS_ENABLED=false" \
-      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      -e "GROK_CURSOR_HOOKS_ENABLED=false" -e "GROK_CURSOR_AGENTS_ENABLED=false" \
+      -e "GROK_CURSOR_RULES_ENABLED=false" -e "GROK_CURSOR_SKILLS_ENABLED=false" \
+      -e "GROK_CURSOR_MCPS_ENABLED=false"
+    )
+    launch_pane ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   elif [ "$RUNNER" = antigravity ]; then
     # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps
     # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
@@ -815,7 +881,7 @@ if [ -z "$adopt" ]; then
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
     # #4417: -P -F prints the new pane's id, taken at creation rather than looked up by session name afterwards.
-    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${TOKEN_ENTRY[@]+"${TOKEN_ENTRY[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     unset _AGY_ARGS
   elif [ "$RUNNER" = muse ]; then
@@ -834,9 +900,8 @@ if [ -z "$adopt" ]; then
     if [ -n "$_MUSE_DIR" ] && [ -f "$_MUSE_DIR/agy-report-bridge.js" ]; then
       _MUSE_ENV+=(-e "KOSMOS_MUSE_BRIDGE=$_MUSE_DIR/agy-report-bridge.js")
     fi
-    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      "${_MUSE_ENV[@]}" \
-      "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
+    PANE_ENV+=("${_MUSE_ENV[@]}")
+    launch_pane "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
     unset _MUSE_ENV _MUSE_DIR
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
@@ -873,11 +938,9 @@ if [ -z "$adopt" ]; then
       unset _mcp
     fi
     if [ -n "$MODEL" ]; then
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
+      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
+      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi
@@ -917,7 +980,9 @@ fi
 #   - the folder is in agy's trusted list (_AGY_TRUSTED, from agytrust in the launch arm);
 #   - agystatus.lastKnown() has signedIn true.
 # Sent as the new pane (its id from new-session). Of the pane's own env list, only entries named KOSMOS_*,
-# AGENT_WORKFORCE_* or HOME are added (among them the launch token, port, world and store root the bridge reads).
+# AGENT_WORKFORCE_* or HOME are added (among them the port, world and store root the bridge reads).
+# The launch token is inherited from this supervisor shell, not rebuilt as an
+# `env NAME=value` argv entry.
 # `auto`, so it never erases a deliberate blocked. Best-effort: `|| true`, and its output goes nowhere.
 if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] && [ -f "${_AGY_BRIDGE:-}" ] \
   && [ "${_AGY_HOOKED:-}" = hooked ] && [ "${_AGY_TRUSTED:-}" = trusted ] && [ -n "${_AGY_PANE:-}" ]; then
@@ -927,13 +992,17 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
     for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
       case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
     done
-    env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1 || true
+    (
+      export KOSMOS_AGENT_TOKEN="${_LAUNCH_TOKEN:-}"
+      env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1
+    ) || true
     unset _AGY_SEED_ENV _x
   fi
   unset _AGY_SIGNED
 fi
 unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
 unset _AGY_BRIDGE
+unset _LAUNCH_TOKEN
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.

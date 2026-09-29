@@ -224,8 +224,8 @@ test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs u
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
   assert.ok(rec.includes('new-session'), 'the grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY value of any kind reaches the pane');
-  // The prefix follows the last claude-compat -e (which cells, and their order, create.test.js pins, #4426).
-  assert.match(rec, /GROK_CLAUDE_[A-Z]+_ENABLED=\S+ \/usr\/bin\/env -u XAI_API_KEY \S*fake-grok\.sh /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
+  // The prefix follows the last vendor-compat -e (which cells, and their order, create.test.js pins, #4426 #4446).
+  assert.match(rec, /GROK_[A-Z]+_[A-Z]+_ENABLED=\S+ (?:\S+ --pane-entry \S+ )?\/usr\/bin\/env -u XAI_API_KEY \S*fake-grok\.sh /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
   // The pair structure survived the filter: every -e is still followed by a NAME=value.
   const argv = rec.trim().split(/\s+/);
   argv.forEach((a, i) => { if (a === '-e') assert.match(argv[i + 1] || '', /^[A-Z_][A-Z0-9_]*=/, 'every -e still carries a NAME=value after the filter'); });

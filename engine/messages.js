@@ -122,7 +122,78 @@ function unread(projectId) {
   const all = unreadAll();
   return all === null ? null : (all[String(projectId)] || 0);
 }
-const SPILL_DIR = path.join(store.ROOT, 'messages');
+/* Long messages USED to spill into one board-wide folder, <board root>/messages/. Nothing writes
+   there since #4447 (below). Its existing files are left where they are; nothing reads them, and
+   removing them is a separate call (recorded on #4447). */
+/* #4447 (Baron's #4424 rehearsal, run 7): a long message spills into the RECIPIENT's own folder,
+   one copy per recipient. In the shared folder above, an agent allowed to read its own long message
+   could list and read every room's and every DM's, and reaching outside its folder broke the
+   "stay inside your own folder" rule on camera. Its own Inbox holds only what was sent to it. */
+const INBOX = 'Inbox';
+/* The Inbox's .gitignore: git ignores the whole folder, and its exact words mark the folder as Kosmos's. */
+const INBOX_MARK = '*\n';
+/**
+ * Write a long message into one recipient's Inbox. Returns `{ file }`, the path written, or `{ because }`,
+ * why it was not (always an object, so test `.file`, never the value itself). The caller refuses that
+ * recipient: there is no shared folder to fall back to, by design.
+ *
+ * The folder is the agent's, so the agent could have put a link there. A linked worker folder or a
+ * linked Inbox is refused (lstat: the spill writes only into real folders, unlike Files, which follows
+ * a linked worker folder). The file goes through `securewrite.writeSecret`, the codebase's one
+ * link-safe writer: a fresh 0600 temp created `wx`, then renamed over the name, so a symbolic OR a
+ * hard link planted at a predictable id only loses its name, never its target's contents, and its
+ * win32 path (no O_NOFOLLOW there) is already the audited one. Same OS user as the agent, so this is
+ * care, not a privilege boundary; a swap of the Inbox itself between the check and the write is not
+ * closed.
+ *
+ * Inbox/.gitignore ignores the whole folder: for a CONNECTED agent the folder is the person's own
+ * project, often a git repository, and colleagues' messages must not ride a `git add .` out of it.
+ * It is also how an Inbox is known to be KOSMOS's: it is written when the spill creates the folder,
+ * and an `Inbox` that already exists without it is the person's own folder of that name, which a
+ * spill never writes into (review round 2). That recipient is refused a long message instead.
+ */
+function spillInto(recipient, id, text) {
+  /* Every refusal says which of these it is (review round 3): each is a different thing for the person to fix. */
+  const who = String(recipient);
+  const dir = require('./dmfiles').ownDir(recipient, INBOX);   // lazy: dmfiles -> projects -> this module
+  if (!dir) return { because: who + ' has no folder of its own to hold a long message' };
+  let home = null;
+  try { home = fs.lstatSync(path.dirname(dir)); } catch { home = null; }
+  /* The agent's own folder must already exist and be a real folder: a spill never creates a worker folder. */
+  if (!home || !home.isDirectory()) return { because: who + ' has no folder of its own to hold a long message' };
+  let made = false;
+  try { fs.mkdirSync(dir); made = true; } catch (e) { if (!e || e.code !== 'EEXIST') return { because: 'we could not make ' + dir }; }
+  let d = null;
+  try { d = fs.lstatSync(dir); } catch { d = null; }
+  if (!d || !d.isDirectory()) return { because: dir + ' is not a folder (a file or a link is there), so we did not write into it' };   // lstat: a link is not the agent's folder
+  const marker = path.join(dir, '.gitignore');
+  if (made) {
+    try { fs.writeFileSync(marker, INBOX_MARK, { flag: 'wx' }); }   // 'wx' never follows or reuses anything already there
+    catch {
+      /* A folder we made but could not mark would read as the person's own forever after; take it back. */
+      try { fs.rmdirSync(dir); } catch { /* not empty or already gone: left as it is */ }
+      return { because: 'we could not finish making ' + dir };
+    }
+  }
+  /* Ours only if the marker is a real file saying exactly that (a link or other words: not ours). A missing or
+     edited marker is NOT repaired: from here that is indistinguishable from the person's own Inbox folder. */
+  let ours = false;
+  try { const m = fs.lstatSync(marker); ours = m.isFile() && fs.readFileSync(marker, 'utf8') === INBOX_MARK; } catch { ours = false; }
+  if (!ours) return { because: dir + ' already exists and is not the Inbox Kosmos made (its .gitignore is missing or changed), so we did not write into it' };
+  const file = path.join(dir, id + '.txt');
+  try {
+    /* Whatever sits at this name goes first, so writeSecret's rare in-place fallback (it opens the NAME with
+       O_TRUNC) never meets a link planted there (review round 3). If the name cannot be removed, nothing is
+       written: the unlink needs the same folder permission that the fallback's temp would have needed. */
+    try { fs.unlinkSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+    require('./securewrite').writeSecret(file, text + '\n', 0o600);
+  } catch { return { because: 'we could not write the file in ' + dir }; }
+  return { file };
+}
+/* A spill whose delivery failed is removed, so nothing is left for a message nobody received. */
+function unspill(file) {
+  if (file) { try { fs.rmSync(file, { force: true }); } catch { /* best effort */ } }
+}
 
 /* Long bodies spill to a file and the pane gets a pointer. Fleet lesson
    (Splinter, 2026-08-17, learned by failing six times in one night): long
@@ -861,7 +932,7 @@ function filteredText(from, text) {
   try { return senderTextFilter(from, text); } catch { return text; }
 }
 
-function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
+function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster, deliverToPane) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
      here (a Windows agent has no pane to derive one from). Without one, the pane
@@ -1030,30 +1101,29 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
      SPILL_AT the pane gets the head and a path instead of the wall. */
   const cleaned = chat.cleanMessage(text);
   let body = cleaned;
+  let spillFile = null;
   if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
-    try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
-    } catch {
-      return refuse(toName, 'that message is long enough to need a file, and we could not write one');
-    }
-    body = cleaned.slice(0, 200) + '… (long message; the full text is at ' + spillFile + ')';
+    /* An agent that cannot be typed into is refused for THAT reason, before any file is written
+       (a misspelt name must not read as a folder problem). */
+    const can = chat.addressable(toName, roster);
+    if (!can.ok) return refuse(toName, can.because);
+    const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
+    if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
+    spillFile = spill.file;
+    body = cleaned.slice(0, 200) + '… (long message; the full text is in your own folder at ' + spillFile + ')';
   }
   const envelope = '[message from your colleague ' + from
     + ' · ' + id
     + (replyTo ? ' · answers ' + replyTo : '')
     + '] ' + body;
 
-  const sent = chat.deliver(toName, envelope, roster);
-  if (sent.state === chat.DELIVERY.COULD_NOT) {
+  const finish = (sent) => {
+    if (sent.state === chat.DELIVERY.COULD_NOT) {
     // A refused delivery must not orphan its spill: the next send mints
     // the same id and would silently overwrite it with unrelated text.
-    if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
+      unspill(spillFile);
+      return refuse(toName, sent.because);
     }
-    return refuse(toName, sent.because);
-  }
 
   /* Logged only when something was actually typed (placed or unconfirmed --
      unconfirmed means the text MAY have landed -- typed with Enter
@@ -1061,8 +1131,19 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
      on the side of "this may have been read"). The five
      fields are the screens' contract; kind and state ride along so a
      conversation view can mark the unconfirmed case honestly. */
-  appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state });
-  return { state: sent.state, because: sent.because || null, id, at };
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state });
+    return { state: sent.state, because: sent.because || null, id, at };
+  };
+  const sent = deliverToPane(toName, envelope, roster);
+  return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+}
+
+function send(input, roster) {
+  return sendWithDelivery(input, roster, chat.deliver);
+}
+
+function sendAsync(input, roster) {
+  return Promise.resolve(sendWithDelivery(input, roster, chat.deliverAsync));
 }
 
 /**
@@ -1222,7 +1303,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1570,17 +1651,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      room does NOT render: the delivered pane envelope (an agent reads a line),
      @mention detection, the spill-length decision and validation. The two are
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
-  let body = cleaned;
-  if (cleaned.length > SPILL_AT) {
-    const spillFile = path.join(SPILL_DIR, id + '.txt');
-    try {
-      fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
-    } catch {
-      return refuse('that post is long enough to need a file, and we could not write one');
-    }
-    body = cleaned.slice(0, 200) + '\u2026 (long message; the full text is at ' + spillFile + ')';
-  }
+  /* #4447: a long post is spilled per member, into each one's own Inbox, inside the delivery loop
+     below; `spilled` keeps the files so a member the post never reached leaves none behind. */
+  const long = cleaned.length > SPILL_AT;
+  const spilled = {};
 
   const replied = answeredParts(answered);   // #3745: the same for every recipient
   /* #3745: what this post answers, so the agent knows which message is meant: the id, who wrote it
@@ -1602,8 +1676,18 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
   let reached = 0;
-  for (const name of recipients) {
-    if (offHere.has(name)) continue;
+  const deliverOne = (name) => {
+    if (offHere.has(name)) return null;
+    /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
+       file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
+    let bodyHere = cleaned;
+    if (long && chat.addressable(name, roster).ok) {   // one that cannot be typed into is refused by deliver below, with its reason, and gets no file
+      const spill = spillInto(name, id, cleaned);
+      if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; return null; }
+      const file = spill.file;
+      spilled[name] = file;
+      bodyHere = cleaned.slice(0, 200) + '\u2026 (long message; the full text is in your own folder at ' + file + ')';
+    }
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
        room-wide form, which is the person speaking to the room rather
@@ -1672,7 +1756,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
         : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
-      + ' ' + quoteFor(name) + body;
+      + ' ' + quoteFor(name) + bodyHere;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
@@ -1693,10 +1777,17 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
-    const sent = chat.deliver(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
-    outcomes[name] = sent.state;
-    if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
-  }
+    const finish = (sent) => {
+      outcomes[name] = sent.state;
+      if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
+      else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      return sent;
+    };
+    const sent = deliverToPane(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
+    return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+  };
+
+  const finishDeliveries = () => {
 
   /**
    * ⚠️ AND `reached` COUNTS PANES, so with nobody to type into it is zero and
@@ -1709,9 +1800,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */
-    if (cleaned.length > SPILL_AT) {
-      try { fs.rmSync(path.join(SPILL_DIR, id + '.txt'), { force: true }); } catch { /* best effort */ }
-    }
+    /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
     return failed;
@@ -1753,7 +1842,25 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-  return { state, because: null, id, at, outcomes, from, text: stored };
+    return { state, because: null, id, at, outcomes, from, text: stored };
+  };
+
+  if (asynchronousDelivery) {
+    return (async () => {
+      for (const name of recipients) await deliverOne(name);
+      return finishDeliveries();
+    })();
+  }
+  for (const name of recipients) deliverOne(name);
+  return finishDeliveries();
+}
+
+function sendPost(input, roster, members) {
+  return sendPostWithDelivery(input, roster, members, chat.deliver, false);
+}
+
+function sendPostAsync(input, roster, members) {
+  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true));
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
@@ -2363,7 +2470,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
+  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

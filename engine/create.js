@@ -505,6 +505,11 @@ function cleanName(raw) {
  * otherwise print `undefined` at eleven sites the day it changed. **It is
  * unreachable, therefore untested, and I am not claiming otherwise.**
  */
+/* #4474: the role key a create request asks for, read ONE way: createAgent and team.vetAgentMember (which refuses
+   the setup role to an agent) both call this, so a role sent as ["setup"] cannot read as one thing to the vetting
+   and another to create. */
+function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -1065,6 +1070,27 @@ function plannedModelArg(name) {
   // Anything shorter is the five-argument job an agent without a model choice
   // gets, which is a real and permanent state rather than a malformed file.
   return args.length > 7 && args[7] ? args[7] : null;
+}
+
+/* #4416: the job's raw model id on EITHER platform. plannedModelArg reads the plist only, so on Windows (a
+   Scheduled Task, no plist) it is null for every agent; readJob reads both. Null means the job names none. */
+function plannedModelId(name) {
+  const p = plannedModelOf(name);
+  return p && !p.isDefault ? p.id : null;
+}
+
+/* #4416: what a stopped or not-yet-running agent will start on, from ONE read of its job (a plist on a Mac, a
+   Scheduled Task on Windows): { id, isDefault }. The job's own model when it records one; else, for Gemini and Grok,
+   the model the launcher pins when none is given (win32keyed.DEFAULT_MODEL, held equal to bin/agent-supervisor.sh by
+   engine/modelname-4416.test.js), marked isDefault; else null (Claude with no --model, Codex and Antigravity pick
+   their own). Tested against real launch files in engine/modelname-4416.test.js. */
+function plannedModelOf(name) {
+  let job = null;
+  try { job = readJob(name); } catch { job = null; }
+  if (!job) return null;
+  if (job.model) return { id: job.model, isDefault: false };
+  const pinned = require('./win32keyed').DEFAULT_MODEL;   // required here: win32keyed requires this file lazily too
+  return job.runner && Object.prototype.hasOwnProperty.call(pinned, job.runner) ? { id: pinned[job.runner], isDefault: true } : null;
 }
 
 /**
@@ -4045,7 +4071,7 @@ function createAgentInner(opts) {
    */
   const shown = cleanName(opts && opts.name);
   const name = slugFor(opts && opts.name);
-  const roleKey = String((opts && opts.role) || '').trim();
+  const roleKey = roleKeyOf(opts);
   const wantAccountDir = opts && opts.account;
   /* Trimmed and self-refused at the door, the same posture as `who` on a task:
      a value that cannot be right is refused rather than quietly dropped, and
@@ -5042,9 +5068,10 @@ function createAgentInner(opts) {
           // dmfiles.bodyFor is the ONE derivation of "this agent's Files folder" (the sweep uses it too).
           // It resolves through instructions.fileFor (workerDir(safeKey(name))) while the file here is written
           // through workerDir(name): the same folder only because creation names already pass [a-z0-9_-].
-          const body = dmMod.bodyFor(name);
-          if (!body) throw new Error('no folder to name');
-          const spliced = require('./projects').spliceBlock(text, body, dmMod.START, dmMod.END);
+          // #4420: applyTo also adds the one-line pointer: before the working rules (the person's words stay first,
+          // #591), or appended when the file has none (dmfiles.spliceTop).
+          const spliced = dmMod.applyTo(text, name);
+          if (spliced === null) throw new Error('no folder to name');
           const { MAX_BYTES } = require('./instructions');
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; filesLanded = true; }
         } catch { /* reported below rather than swallowed */ }
@@ -5422,10 +5449,10 @@ function createAgentInner(opts) {
        STABLE supportDir location installSupervisor keeps current on every refresh, NOT
        the app tree -- so it survives an app-tree move exactly as the codex/gemini
        bridges do, and the path.join form makes the #731 bundle guard require the build
-       to ship the bridge. Claude-compat (~/.claude hooks, and since #4426 its CLAUDE.md,
-       rules, skills and MCP servers) is separately turned off at launch
-       (agent-supervisor.sh, win32keyed.js), so a grok agent does not run the person's
-       Claude Code hooks. (Hooks configured in the grok home itself still run; for a
+       to ship the bridge. Vendor compat (~/.claude hooks, and since #4426 its CLAUDE.md,
+       rules, skills and MCP servers; since #4446 every ~/.cursor cell too) is separately
+       turned off at launch (agent-supervisor.sh, win32keyed.js), so a grok agent does not
+       run the person's Claude Code or Cursor hooks. (Hooks configured in the grok home itself still run; for a
        default-account agent that home is the person's ~/.grok.)
        ⚠️ The one residual, deferred per #3136 (the same as gemini): a WIPED ~/.grok loses
        the hook file until the agent is remade. See the plan file's Deferred section. */
@@ -5638,6 +5665,9 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
+  spokenName,
+  roleKeyOf,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
   underRoot,
@@ -5737,6 +5767,8 @@ module.exports = {
   writePlistFile,
   realLaunchAgentsDir,
   plannedModelArg,
+  plannedModelId, // #4416
+  plannedModelOf, // #4416
   forgetCodexFolder,
   trustCodexFolder,
   /* #3439: exported so the escaping/rendering can be unit-tested deterministically

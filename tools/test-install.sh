@@ -812,6 +812,82 @@ chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$POR
 # the marker guard deleted, so a first-pass count check cannot fail.
 chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$SB/zprofile\")\" = 1 ]"
 
+echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
+# The installer also writes board.stopped itself when it declines to start (a run that did not pause
+# first would otherwise leave launchd free to start it); checked by a grep below, since every run here
+# is an update whose pause already wrote the marker.
+# The Mac app writes $KOSMOS_HOME/mode and runs `kosmos stop` when a person picks "Connect to agents
+# on another computer". An install or update must not start that board again, whether it finishes
+# or fails, and an unreadable choice must not become "run" either. The controls: the same update with
+# `run` or `both` in the file DOES start the board, so the stopped checks above them can fail.
+printf 'connect\n' > "$SB/home/mode"
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+chk "CONTROL: the connect computer's board is down before the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+RC=0; cat "$SETUP" | sh > "$SB/update-connect.log" 2>&1 || RC=$?
+chk "an update on a connect computer exits 0" "rc_ok $RC"
+chk "it says why it did not start Kosmos" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/update-connect.log\""
+chk "its summary says no board runs here, on purpose" "grep -q 'No board of this install runs here, on purpose: this computer connects to agents on another computer' \"$SB/update-connect.log\""
+chk "and never tells the person to start a board on another port" "! grep -q 'Start yours on a different port' \"$SB/update-connect.log\""
+chk "nor that Kosmos will bring the board back" "! grep -q 'Kosmos will bring the board back' \"$SB/update-connect.log\""
+chk "the pause does not say it is pausing a board that is already off" "grep -q 'making sure Kosmos is paused for the update' \"$SB/update-connect.log\" && ! grep -q 'pausing Kosmos for the update' \"$SB/update-connect.log\""
+chk "a connect computer's pause leaves another install's board on the port alone instead of refusing" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -B1 'it is not this install.s, and this install does not start a board here now, so it is left alone' | grep -q 'if _kosmos_mode_keeps_board_off; then'"
+chk "an update of a set-up install from before #4356 records run, so it is never asked (source; the run-it arm is below)" "sed -n '/^if \\[ \"\$FRESH_INSTALL\" = no \\] && \\[ ! -e \"\$KOSMOS_HOME\/mode\" \\]/,/^fi\$/p' \"$SETUP\" | grep -q \"printf 'run\\\\\\\\n' > \\\"\\\$KOSMOS_HOME/mode.new\""
+chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos running after a restart|Watching the board so it comes back' \"$SB/update-connect.log\" && grep -q 'It stays off while this computer connects to agents on another computer' \"$SB/update-connect.log\""
+chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login \$(_kosmos_off_why)' \"$SETUP\""
+chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
+# ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
+# nothing here would start it, so these pass with or without #4356's check. Once #4342 lands (it
+# restarts only a board the update itself paused, and a connect computer's was already stopped),
+# they are the guard that a failed update on a connect computer stays down.
+RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/update-connect-failed.log" 2>&1 || RC=$?
+chk "the forced failure on a connect computer is a failure (or this arm tests nothing)" "rc_refused $RC"
+chk "a failed update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and leaves board.stopped" "[ -e \"$SB/home/board.stopped\" ]"
+printf 'garbled\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-unreadable.log" 2>&1 || RC=$?
+chk "an update with an unreadable choice exits 0" "rc_ok $RC"
+chk "an unreadable choice does not become run: the board stays down" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and board.stopped is there for launchd and the watchdog" "[ -e \"$SB/home/board.stopped\" ]"
+chk "its step lines give the unreadable reason, not the connect one" "grep -q \"It stays off until this computer.s setup is chosen in the Kosmos app\" \"$SB/update-unreadable.log\""
+chk "and it says the choice could not be read, not that this computer connects" "grep -q 'setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'connects to agents on another computer' \"$SB/update-unreadable.log\""
+chk "its summary says why no board was started, not 'on purpose'" "grep -q 'No board was started, because this computer.s setup choice could not be read' \"$SB/update-unreadable.log\" && ! grep -q 'No board of this install runs here, on purpose' \"$SB/update-unreadable.log\""
+# The migration, measured by running it (the grep above only finds its lines): an update of an install
+# from before #4356 with no choice records run when first run is done, records nothing when it is not,
+# and never overwrites a choice that exists.
+rm -f "$SB/home/mode" "$SB/data/Kosmos/first-run.json"
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate-none.log" 2>&1 || RC=$?
+chk "CONTROL: an update with no choice and first run NOT done exits 0" "rc_ok $RC"
+chk "CONTROL: and records nothing (a fresh computer is still asked)" "[ ! -e \"$SB/home/mode\" ]"
+mkdir -p "$SB/data/Kosmos" && printf '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate.log" 2>&1 || RC=$?
+chk "an update of a set-up install with no choice exits 0" "rc_ok $RC"
+chk "and records run, so it is never asked" "[ \"\$(cat \"$SB/home/mode\" 2>/dev/null)\" = run ]"
+chk "and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+printf 'connect\n' > "$SB/home/mode"
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+RC=0; cat "$SETUP" | sh > "$SB/update-migrate-keep.log" 2>&1 || RC=$?
+chk "that update exits 0 (or the check below tests nothing)" "rc_ok $RC"
+chk "with first run done, an existing connect choice is not overwritten" "[ \"\$(cat \"$SB/home/mode\" 2>/dev/null)\" = connect ]"
+rm -f "$SB/data/Kosmos/first-run.json"
+printf 'run\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-run.log" 2>&1 || RC=$?
+chk "CONTROL: the same update on a run computer exits 0" "rc_ok $RC"
+chk "CONTROL: and starts its board" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+# `both` runs agents too (it also signs in to Kosmos Plus at the end of first run), so it starts.
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+printf 'both\n' > "$SB/home/mode"
+RC=0; cat "$SETUP" | sh > "$SB/update-both.log" 2>&1 || RC=$?
+chk "CONTROL: an update on a run-and-connect computer exits 0" "rc_ok $RC"
+chk "CONTROL: and starts its board, as run does" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "a run that declines to start writes board.stopped itself" "grep -q ': > \"\$KOSMOS_HOME/board.stopped\" 2>/dev/null || true' \"$SETUP\""
+chk "the launchd bootstrap's restart reads the choice again first" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -B1 'restart >/dev/null 2>&1 || true' | grep -q '_kosmos_board_decide'"
+chk "and the restart itself is held by the board-off decision (the sandbox never reaches it)" "grep -q '\\[ \"\$_kosmos_board_off\" = yes \\] || \"\$KOSMOS_HOME/bin/kosmos\" restart' \"$SETUP\""
+chk "a marker this run wrote goes if the choice became run or both during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^elif \\[ \"\$_kosmos_board_off\" = no \\] && \\[ \"\$_kosmos_wrote_marker\" = yes \\]; then' | grep -q 'rm -f \"\$KOSMOS_HOME/board.stopped\"'"
+chk "and the run ends by stopping a board that became connect during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' | grep -q 'kosmos\" stop'"
+rm -f "$SB/home/mode"
+chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+
 echo "== refusals speak sentences =="
 OUT="$(sh -s -- --uninstal < "$SETUP" 2>&1 || true)"
 chk "typo flag refuses instead of installing" "echo \"\$OUT\" | grep -q 'The only option is --uninstall'"

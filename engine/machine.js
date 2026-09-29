@@ -1691,7 +1691,16 @@ function win32BoardAutostartCheck(opts) {
    regrown. Removed agents are excluded (they are not expected to come back),
    keyed by create.cleanName the way remove.js keys its own record. Both reads are
    injectable via opts (opts.disabled / opts.removed) for tests, the same seam
-   style as boardAutostartCheck's opts.installedRoot. */
+   style as boardAutostartCheck's opts.installedRoot.
+
+   #4479 (an external tester, 2026-09-28: "11 agents ... alexis, eric, larry, and 8 more", none of them his agents'
+   names): launchd's disabled-overrides list KEEPS an entry after its plist is gone, so an agent deleted any way
+   but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
+   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent's plist is still
+   there, and it is named by the name the person sees (create.spokenName). A stale override is left out and NOT
+   cleaned: this is a read, and a disabled override on a label with no plist is harmless to leave. This path reads
+   the disk per disabled agent (its plist, its profile and perhaps its instructions); the OK path still does not.
+   opts.live(name) and opts.shownName(name) are the seams. */
 function agentAutostartCheck(runner, opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
@@ -1736,10 +1745,24 @@ function agentAutostartCheck(runner, opts) {
   } catch { /* unreadable -> treat none as removed (safe direction, above) */ }
   const removedSet = new Set(removedNames.map((n) => create.cleanName(n)));
 
-  const concerning = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)));
-  if (concerning.length === 0) return okRow;   // every disabled agent is a removed one
+  /* Only a plist that is NOT THERE (ENOENT, create.jobPresence 'no') makes a job a leftover: a check that could
+     not look ('unknown': a denied or broken folder) counts the agent as live, the safe direction, as for the
+     removed list above. The name is create.spokenName, the board's own (the profile's name, then the identity
+     line in the agent's instructions), so this row and the board cannot name one agent two ways. */
+  const live = typeof o.live === 'function' ? o.live
+    : (n) => { try { return create.jobPresence(n, 'darwin') !== 'no'; } catch { return true; } };
+  const shownName = typeof o.shownName === 'function' ? o.shownName
+    : (n) => { try { return create.spokenName(n) || n; } catch { return n; } };
+  const kept = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)) && live(n));
+  const shownAs = kept.map((n) => ({ job: n, shown: shownName(n) }));
+  /* Two agents can share a display name (a copied agent keeps its own): each of those carries its job name too,
+     so "Harbor, Harbor" is never shown for two different agents. */
+  const seen = new Map();
+  for (const x of shownAs) seen.set(x.shown, (seen.get(x.shown) || 0) + 1);
+  const concerning = shownAs.map((x) => (seen.get(x.shown) > 1 && x.shown !== x.job ? x.shown + ' (' + x.job + ')' : x.shown));
+  if (concerning.length === 0) return okRow;   // every disabled job is a removed agent's, or a leftover with no agent
 
-  concerning.sort();
+  concerning.sort((a, b) => a.localeCompare(b));
   const shown = concerning.slice(0, 3);
   const list = shown.join(', ') + (concerning.length > shown.length
     ? ', and ' + (concerning.length - shown.length) + ' more' : '');
@@ -1750,7 +1773,8 @@ function agentAutostartCheck(runner, opts) {
       + ' login job switched off right now, so '
       + (one ? 'it will not come back on its own' : 'they will not come back on their own')
       + ' after a restart. You can turn ' + (one ? 'it' : 'them')
-      + ' back on in System Settings, under General then Login Items.' };
+      + ' back on in System Settings, under General then Login Items, where '
+      + (one ? 'it may not be listed by this name.' : 'they may not be listed by these names.') };
 }
 
 function check(opts) {
