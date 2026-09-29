@@ -112,6 +112,8 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           // #4642: a served row carries `mentioned`; blue follows what the engine recorded, not today's rule.
           servedNone: pjRoomBody({ text: 'hey @Mona', from: null, operator: true, mentioned: [] }, { agents: [{ sessionName: 'mona', name: 'Mona' }] }),
           servedHit: pjRoomBody({ text: 'hey @Mona', from: null, operator: true, mentioned: ['mona'] }, { agents: [{ sessionName: 'mona', name: 'Mona' }] }),
+          servedTwins: pjRoomBody({ text: '@subzero and @Sub-Zero', from: null, operator: true, mentioned: ['subzero'] },
+            { agents: [{ sessionName: 'sub-zero', name: 'Frost' }, { sessionName: 'subzero', name: 'Sub-Zero' }] }),
           external: pjRoomBody({ text: 'hey @mona', from: 'visitor', external: true }, { agents: ['mona'] }),
           scoped: pjRichSpans('@mona', null),   // no agentNames -> dialogue path
           color,
@@ -158,6 +160,8 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         !/pjmention/.test(state.servedNone) && /@Mona/.test(state.servedNone), state.servedNone);
       check(`${tag} #4642: a served post that addressed mona paints @Mona blue`,
         /pjmention">@Mona</.test(state.servedHit), state.servedHit);
+      check(`${tag} #4642: a token the engine found ambiguous stays plain in the posted message`,
+        /pjmention">@subzero</.test(state.servedTwins) && !/pjmention">@Sub-Zero</.test(state.servedTwins), state.servedTwins);
       check(`${tag} #4642: an external post (recorded, never delivered) paints no blue`,
         !/pjmention/.test(state.external), state.external);
 

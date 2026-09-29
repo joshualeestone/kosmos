@@ -33,7 +33,9 @@ never paints blue a mention the engine would not deliver.
 A posted message is painted from what happened, not from today's rule: the room API now serves each post's
 recorded `mentioned` (always an array on a post row), and pjRoomBody limits blue to those agents. So a post
 sent before this change (`@Kano`, delivered as background) is not repainted as a request, and an external post
-(recorded, never delivered) paints no blue. A hand-built row without the field keeps the rule alone.
+(recorded, never delivered) paints no blue. A hand-built row without the field keeps the rule alone. The
+recorded set filters AFTER resolving (pjMentionAddressed), so ambiguity is still judged against the whole room:
+`@subzero and @Sub-Zero` with sessions `sub-zero` and `subzero` paints only `@subzero`, as the engine addressed.
 A post row written before #185 persisted `mentioned` (2026-08-24) is served as `[]` like any post that
 addressed nobody, since the engine omits the field when empty and the two cannot be told apart; its @names show
 plain. Measured on this board: 221 posts, the first on 09-10, 0 affected (detector control: 12 of 12 rows that

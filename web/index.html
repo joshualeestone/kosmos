@@ -55917,9 +55917,10 @@ function pjRoomBody(m, p) {
      that reached kano as background) is not repainted as a request, and neither is an external post,
      which is recorded but never delivered. A row without the field (a test's hand-built row) keeps the
      rule alone. */
+  /* The keys stay whole so ambiguity is judged against the room the engine saw: removing the agents
+     not addressed would let `@Sub-Zero` resolve to the one left, though the engine found two. */
   if (m && (Array.isArray(m.mentioned) || m.external === true)) {
-    const addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
-    for (const k of [...agentNames.keys()]) if (!addressed.has(k)) agentNames.delete(k);
+    agentNames.addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
   }
   const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
   const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
@@ -56938,14 +56939,20 @@ function pjMentionResolve(word, keys) {
   const sm = word.match(/^(.*?)([._-]+)$/);
   const core = sm && sm[1] ? sm[1] : word;
   const tail = sm && sm[1] ? sm[2] : '';
-  if (isKey(word)) return { key: word, core: word, tail: '' };
-  if (tail && isKey(core)) return { key: core, core, tail };
+  if (isKey(word)) return pjMentionAddressed({ key: word, core: word, tail: '' }, keys);
+  if (tail && isKey(core)) return pjMentionAddressed({ key: core, core, tail }, keys);
   if (!/^[A-Za-z0-9._-]+$/.test(word)) return null;
   const norm = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
   const k = norm(word);
   if (k.length < 2) return null;
   const hit = new Set(pairs.filter((p) => norm(p[0]) === k || (typeof p[1] === 'string' && norm(p[1]) === k)).map((p) => p[0]));
-  return hit.size === 1 ? { key: [...hit][0], core, tail } : null;
+  return hit.size === 1 ? pjMentionAddressed({ key: [...hit][0], core, tail }, keys) : null;
+}
+/* A posted message's keys may carry `addressed` (pjRoomBody: who the engine recorded as addressed);
+   a resolved agent outside it is not painted. Applied after resolving, never before, so ambiguity is
+   still judged against every agent in the room. */
+function pjMentionAddressed(hit, keys) {
+  return keys && keys.addressed instanceof Set && !keys.addressed.has(hit.key) ? null : hit;
 }
 
 /* The project's own agents -- exactly what the @ picker offers and what the

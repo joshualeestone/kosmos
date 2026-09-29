@@ -221,3 +221,14 @@ test('pjMentionPaint is hidden-safe: it bails when the composer is not laid out 
   assert.match(vBody, /if \(which === 'one'\) pjMentionPaint\(\)/,
     "pjView must call pjMentionPaint() for which==='one' so every room-show path re-engages the mirror");
 });
+
+test('#4642: a posted message paints only who the engine addressed, judging ambiguity against the whole room', () => {
+  const room = () => new Map([['sub-zero', 'Frost'], ['subzero', 'Sub-Zero'], ['kano', 'Kano']]);
+  const posted = (text, addressed) => { const k = room(); k.addressed = new Set(addressed); return H(text, k); };
+  // engine: @subzero addresses subzero exactly; @Sub-Zero names two members, so it addressed nobody
+  assert.equal(posted('@subzero and @Sub-Zero', ['subzero']),
+    '<span class="pj-live-mention">@subzero</span> and @Sub-Zero', 'an ambiguous token was painted because the other twin was dropped');
+  // a mention the engine did not record (a post sent before the rule widened) stays plain
+  assert.equal(posted('@Kano look', []), '@Kano look');
+  assert.equal(posted('@Kano look', ['kano']), '<span class="pj-live-mention">@Kano</span> look');
+});

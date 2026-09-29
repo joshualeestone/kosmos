@@ -1625,7 +1625,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      Measured before this: in a week, 10 posts named a colleague as `@Kano` or
      `@Sub-Zero` and reached it marked background. Promotion is still the
      direction to be strict about, so tier 3 is whole-token equality only (no
-     prefix: `@kanobot` does not name `kano`), needs the @ (a plain word never
+     prefix: `@kanobot` does not name `kano`; the old exact-case rule is gone on
+     purpose, so a member whose session name is a word like `all` is named by
+     `@All`), needs the @ (a plain word never
      addresses), ignores keys under two characters, and when two members share
      a normalised name (sessions `sub-zero` and `subzero`, or two agents shown
      as "Sub-Zero") it names NEITHER: an ambiguous mention demotes to
