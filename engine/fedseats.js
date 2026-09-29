@@ -785,6 +785,10 @@ function post(projectId, { from, kind, text }) {
       say(projectId, 'That message stayed on this computer: the connection to the external project has ended.');
       return false;
     }
+    if (s && s.status === 'waiting' && s.ownRefused) {
+      say(projectId, 'That message stayed on this computer: this project is not connected to your other computers right now.');
+      return false;
+    }
     if (s && s.status === 'waiting') {
       say(projectId, 'That message stayed on this computer: nobody outside has joined this shared project yet.');
       return false;

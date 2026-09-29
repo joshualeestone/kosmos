@@ -147,6 +147,10 @@ test('#4649 an owner\'s OWN room refused for good stops seating it and says so o
   assert.ok(!Array.isArray(link.refused) || link.refused.length === 0, 'no fake edge is filed as refused');
   assert.strictEqual(await fedseats.ensure('proj-or'), 'waiting');
   assert.strictEqual(h.spawned.length, 1, 'the refused own room is not seated again this session');
+  // A post that stays local says why in own-room words, not "nobody outside has joined".
+  assert.strictEqual(fedseats.post('proj-or', { from: 'Josh', kind: 'person', text: 'hello' }), false);
+  const last = h.notes.filter((n) => n.projectId === 'proj-or').pop();
+  assert.match(last.text, /not connected to your other computers right now/);
 });
 
 test('#4649 an owner\'s own room on a connector too old for it (exit 2) stops, and its guests are still seated', async () => {

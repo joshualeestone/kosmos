@@ -16032,8 +16032,11 @@ const server = http.createServer(async (req, res) => {
         // A second Join of the same own code (the snapshot is forgotten only after the first
         // finishes) would make a second project in the same room.
         if (snap.own) {
-          let here = false;
-          try { here = federation.ownRefHere(snap.ref); } catch { here = false; }
+          let here;
+          try { here = federation.ownRefHere(snap.ref); } catch {
+            sendJson(res, 500, { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' });
+            return;
+          }
           if (here) { sendJson(res, 409, { reason: 'already_joined', error: 'This project is already on this computer.' }); return; }
         }
         const roster = safeRoster();

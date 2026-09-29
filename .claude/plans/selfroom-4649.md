@@ -38,6 +38,9 @@ it needs none.
 - **Sharing with your other computers is one-way for now.** Once a project is shared that way (or joined
   by own code), an outside invite for it is refused (409 `self-shared`): sealing it would lock those
   computers out. The settings hint says so. Undoing it, and inviting both, waits on #4658.
+- **An invite refused after the coordinator answered is left to expire.** The re-check in invite() (an own
+  code made during the await) returns 409 after the coordinator minted the invite. The code never leaves
+  this computer, so nobody can redeem it, and the board has no invite revoke; it expires unused.
 - **A sealed mark is never cleared.** A project that once handed out a sealing invite (even one that expired
   unused) is refused an own code for good. That is #4658's to undo, with sealing for own computers.
 - **A refused own room stops for the session, never for good.** Exit 3 or 2 on an owner's own room or on a
