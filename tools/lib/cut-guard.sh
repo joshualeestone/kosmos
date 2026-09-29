@@ -515,7 +515,9 @@ kosmos_refuse_if_suite_live() {
 # still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
 # re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
 # for one pass: one briefly unmarked by its second ask, or one whose marker a failed ps removed until it writes it again
-# (the loop re-marks a run whose own marker vanished). The cost: behind a HUNG suite each waiter in turn spends one
+# (the loop re-marks a run whose own marker vanished). So the restart is a heuristic, not proof the queue moved: a
+# waiter is in its second ask only when its own check had just passed (the box was clear), and the fall is false only
+# if a harness took the box in that moment, so each false restart costs a queue-jumping harness. The cost: behind a HUNG suite each waiter in turn spends one
 # bound at the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
@@ -609,7 +611,7 @@ kosmos_refuse_if_earlier_suite_waiter() {
 # The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP.
 # A seam that prints anything but a number falls back to the real clock.
 _kosmos_wait_now() {
-  local t=""; [ -n "${KOSMOS_WAIT_NOW:-}" ] && t="$("$KOSMOS_WAIT_NOW" 2>/dev/null)"
+  local t=""; [ -n "${KOSMOS_WAIT_NOW:-}" ] && { t="$("$KOSMOS_WAIT_NOW" 2>/dev/null)" || t=""; }
   case "$t" in ''|*[!0-9]*) date +%s ;; *) printf '%s\n' "$t" ;; esac
 }
 
@@ -657,7 +659,8 @@ kosmos_wait_until_clear() {
     else
       wblk="$waited"
     fi
-    # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
+    # The bound is reached by the time slept or the wall clock, whichever gets there first, so slow checks cannot
+    # stretch it (review 1).
     if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2

@@ -713,6 +713,11 @@ rm -f "$W/calls"
 out="$(WPASS_AFTER=2 KOSMOS_WAIT_NOW=qbad KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && ! has "$out" "syntax error"; } && pass "#4574 a clock seam that prints no number falls back to the real clock" \
   || fail "#4574 a non-numeric KOSMOS_WAIT_NOW broke the wait (rc=$rc, $out)"
+qfail() { return 3; }
+rm -f "$W/calls"
+out="$( set -e; WPASS_AFTER=2 KOSMOS_WAIT_NOW=qfail KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1; echo "survived" )"; rc=$?
+{ [ "$rc" -eq 0 ] && has "$out" "survived"; } && pass "#4574 a clock seam that fails falls back too, even under set -e" \
+  || fail "#4574 a failing KOSMOS_WAIT_NOW killed a set -e caller (rc=$rc, $out)"
 rm -f "$W/calls"
 # A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
 out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
