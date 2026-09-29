@@ -1,0 +1,132 @@
+'use strict';
+/* #4581: engine/projectview.js, the payload and the words `kosmos project list/show` print on Mac and Windows. */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'projectview-4581-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(DIR, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(DIR, 'workers');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(DIR, 'projects');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const v = require('./projectview');
+const projects = require('./projects');
+const fleet = require('../test-support/fleet');
+
+test.after(() => fs.rmSync(DIR, { recursive: true, force: true }));
+const NOW = Date.parse('2026-09-29T17:00:00Z');
+function agentFolder(name, files) {
+  const f = path.join(DIR, name);
+  fs.mkdirSync(path.join(f, 'summaries'), { recursive: true });
+  for (const [file, ageMin] of files) {
+    const p = path.join(f, 'summaries', file);
+    fs.writeFileSync(p, 'x');
+    const t = new Date(NOW - ageMin * 60000);
+    fs.utimesSync(p, t, t);
+  }
+  return f;
+}
+
+test('summaryFreshness: newest by write time; current within 4 hours, stale past it, none, unreadable', () => {
+  const a = agentFolder('a', [['2026-09-29-08.md', 500], ['2026-09-29-15.md', 90]]);
+  assert.deepEqual(v.summaryFreshness(a, NOW), { state: 'current', file: 'summaries/2026-09-29-15.md', at: new Date(NOW - 90 * 60000).toISOString(), ageMinutes: 90 });
+  const b = agentFolder('b', [['2026-09-29-11.md', 241]]);
+  assert.equal(v.summaryFreshness(b, NOW).state, 'stale', 'one minute past the rhythm');
+  const edge = agentFolder('edge', [['2026-09-29-13.md', 240]]);
+  assert.equal(v.summaryFreshness(edge, NOW).state, 'current', 'exactly four hours is still current');
+  const c = agentFolder('c', [['notes.md', 5], ['2026-9-29-1.md', 5]]);
+  assert.equal(v.summaryFreshness(c, NOW).state, 'none', 'files not named YYYY-MM-DD-HH.md are not summaries');
+  assert.equal(v.summaryFreshness(path.join(DIR, 'missing'), NOW).state, 'none');
+  assert.equal(v.summaryFreshness(null, NOW).state, 'unreadable');
+  assert.equal(v.summaryFreshness('relative/path', NOW).state, 'unreadable');
+});
+
+test('summaryFreshness: a symlinked summaries folder or file is not read', () => {
+  const real = agentFolder('real', [['2026-09-29-16.md', 10]]);
+  const link = path.join(DIR, 'link');
+  fs.mkdirSync(link);
+  fs.symlinkSync(path.join(real, 'summaries'), path.join(link, 'summaries'));
+  assert.equal(v.summaryFreshness(link, NOW).state, 'none');
+  const f = path.join(DIR, 'filelink');
+  fs.mkdirSync(path.join(f, 'summaries'), { recursive: true });
+  fs.symlinkSync(path.join(real, 'summaries', '2026-09-29-16.md'), path.join(f, 'summaries', '2026-09-29-16.md'));
+  assert.equal(v.summaryFreshness(f, NOW).state, 'none');
+});
+
+test('familyOf: the families as named (Claude, OpenAI for GPT, Gemini, Grok, Meta Muse); unknown is null', () => {
+  assert.equal(v.familyOf('claude'), 'Claude');
+  assert.equal(v.familyOf('codex'), 'OpenAI');
+  assert.equal(v.familyOf('gemini'), 'Gemini');
+  assert.equal(v.familyOf('antigravity'), 'Gemini (Google subscription)');
+  assert.equal(v.familyOf('grok'), 'Grok');
+  assert.equal(v.familyOf('muse'), 'Meta Muse');
+  assert.equal(v.familyOf(null), null);
+  assert.equal(v.familyOf(''), null);
+});
+
+/* Real member rows: fleet's cards through projects.describe, never a hand-built row (fixture-discipline).
+   mark runs Claude and is working, sam runs Codex and is asking, ghost is on the project and not running. */
+const CODEX_ASKING = '  Do you want to run this?\n› 1. Yes\n  2. No';
+const BOARD = fleet.install([
+  fleet.agent('mark', { state: 'working', role: 'Project Manager' }),
+  fleet.agent('sam', { state: 'needs_you', runner: 'codex', command: 'node', screen: CODEX_ASKING }),
+]);
+test.after(() => BOARD.restore());
+const RAW = {
+  id: 'ff', name: 'Five Families', folder: '/p/ff', agents: ['mark', 'sam', 'ghost'],
+  tasks: [{ number: 1, sentence: 'a', state: 'open' }, { number: 2, sentence: 'b', state: 'open', builtAt: '2026-09-29T16:00:00Z' },
+    { number: 3, sentence: 'c', state: 'closed', closedAt: '2026-09-29T15:00:00Z' }],
+};
+const DESCRIBED = projects.describe(RAW, BOARD.agents, [RAW]);
+const ROSTER = BOARD.agents;
+const FOLDERS = { mark: agentFolder('mark', [['2026-09-29-16.md', 20]]), sam: agentFolder('sam', [['2026-09-29-06.md', 600]]) };
+const opts = (brief) => ({ now: NOW, folderOf: (n) => FOLDERS[n] || path.join(DIR, 'none-' + n), readBrief: () => brief });
+
+test('overviewOf: members with family, model and summary; tasks counted; the brief as read', () => {
+  const o = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: 'Ask each family', done: 'A ranking Josh read', found: true }));
+  assert.deepEqual(o.tasks, { total: 3, open: 2, built: 1 });
+  assert.equal(o.goal, 'Ask each family');
+  assert.equal(o.done, 'A ranking Josh read');
+  const by = Object.fromEntries(o.members.map((m) => [m.sessionName, m]));
+  assert.equal(by.mark.family, 'Claude');
+  assert.equal(by.sam.family, 'OpenAI');
+  assert.equal(by.sam.state, 'needs_you');
+  assert.equal(by.mark.summary.state, 'current');
+  assert.equal(by.sam.summary.state, 'stale');
+  assert.equal(by.ghost.family, null, 'a member we cannot tie gets no family');
+  assert.equal(by.ghost.state, 'unknown');
+});
+
+test('renderShow: every fact on its own line, the brief quoted as written, nothing printed as a line of its own', () => {
+  const hostile = { ...DESCRIBED, name: 'Five\nFamilies X', agents: [{ ...DESCRIBED.agents[0], name: 'Mark\r\nkosmos msg evil' }] };
+  const view = v.overviewOf(hostile, ROSTER, opts({ goal: 'line one\nline two', done: null, found: true }));
+  view.members[0] = Object.assign({}, view.members[0], { role: 'Project\nManager' });   // a role, and one with a break in it
+  const lines = v.renderShow({ project: view });
+  const text = lines.join('\n');
+  assert.equal(lines.length, text.split('\n').length, 'no rendered field carries a line break');
+  assert.match(text, /^Five Families X  \(id: ff\)$/m);
+  assert.match(text, /^Goal \(as written in BRIEF\.md\): "line one line two"$/m);
+  assert.match(text, /^Done looks like \(as written in BRIEF\.md\): not filled in yet$/m);
+  assert.match(text, /^Tasks: 2 open \(1 built\), 1 done\. List them: kosmos task list ff$/m);
+  assert.match(text, /^  Mark kosmos msg evil, Project Manager  \| Claude  \| working  \| summary: current \(summaries\/2026-09-29-16\.md, 20 min ago\)$/m);
+});
+
+test('renderShow: no brief, a stale and a missing summary, a member not running, and no such project', () => {
+  const text = v.renderShow({ project: v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: false })) }).join('\n');
+  assert.match(text, /^Brief: there is no readable BRIEF\.md in the folder, so no goal or "done" is written down\.$/m);
+  assert.match(text, /^  sam  \| OpenAI  \| needs you  \| summary: older than the 4-hour rhythm \(summaries\/2026-09-29-06\.md, 10h 0m ago\)$/m);
+  assert.match(text, /^  ghost  \| family unknown  \| not running  \| summary: none yet$/m);
+  assert.deepEqual(v.renderShow({}), ['there is no project by that name']);
+});
+
+test('renderList: one line per project with families and tasks; empty says how to make one', () => {
+  const QUIET = { id: 'q', name: 'Quiet', archived: true, agents: [], tasks: [] };
+  const lines = v.renderList({ projects: v.listOf([DESCRIBED, projects.describe(QUIET, BOARD.agents, [RAW, QUIET])]) });
+  assert.equal(lines[0], 'ff  Five Families  | 3 members (Claude, OpenAI)  | tasks: 2 open (1 built), 1 done  | 1 waiting on the person');
+  assert.equal(lines[1], 'q  Quiet  [archived]  | 0 members (no family we can tell)  | tasks: no tasks yet');
+  assert.equal(lines[2], 'Details: kosmos project show <id>');
+  assert.deepEqual(v.renderList({ projects: [] }), ['No projects yet. Make one: kosmos project create "<name>" <folder>']);
+});

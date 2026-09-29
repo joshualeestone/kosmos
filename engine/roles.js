@@ -1485,8 +1485,9 @@ const OVERSIGHT_RHYTHM = [
   '  its owner; and you tell the person when a queue is empty or stuck.',
   '  Use the task list itself, never a tracker of your own.',
   '- Check that the agents on your projects are keeping their summary',
-  '  files current. A missing or stale one is a finding to raise, never',
-  '  silence.',
+  '  files current: kosmos project show <project-id> lists each member\'s',
+  '  newest summary and how old it is. A missing or stale one is a',
+  '  finding to raise, never silence.',
 ].join('\n');
 /* pm and director, exactly (#519): the two roles Josh named. */
 const OVERSEERS = new Set(['pm', 'director']);

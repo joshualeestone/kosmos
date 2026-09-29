@@ -96,7 +96,9 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <create>',
+    'Usage: kosmos project <list|show|create>',
+    '  kosmos project list                                             every project: members, model families, tasks',
+    '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
@@ -669,6 +671,31 @@ async function projectCreate(ctx, args) {
   return 1;
 }
 
+/* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
+   printed by engine/projectview.js, the renderer the Mac command uses, so the two say the same words. */
+async function projectRead(ctx, route, render, what) {
+  const r = await ctx.call('GET', route);
+  if (!r.reached) return ctx.unreachable('read its projects');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (!r.json) { ctx.out(String(r.text || '')); return 0; }
+  let lines;
+  try { lines = ctx.engine('projectview')[render](r.json); } catch (_) { ctx.out(String(r.text || '')); return 0; }
+  for (const line of lines) ctx.out(line);
+  return 0;
+}
+async function projectList(ctx, args) {
+  if (args.length) { ctx.err('Usage: kosmos project list   (no arguments; for one project: kosmos project show <project-id>)'); return 2; }
+  return projectRead(ctx, '/api/projects/overview', 'renderList');
+}
+async function projectShow(ctx, args) {
+  const id = args[0];
+  if (!id || args.length !== 1) { ctx.err('Usage: kosmos project show <project-id>   (ids are in kosmos project list)'); return 2; }
+  /* Looked up EXACTLY (#2702/#3035), so refused, never stripped: projectSlug would turn a garbled id into a
+     different real project. Same sentence as the board's 404 and install/kosmos. */
+  if (/[^A-Za-z0-9._-]/.test(id)) { ctx.err('there is no project by that name'); return 1; }
+  return projectRead(ctx, '/api/project/' + id + '/overview', 'renderShow');
+}
+
 /* #3734: kosmos agent create / roles, as install/kosmos's cmd_agent: a one-member team (POST /api/team,
    #1279) with this agent's launch token, so the board records who asked and why and runs the new agent
    where the asker runs. */
@@ -994,7 +1021,7 @@ const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
-  project: { create: projectCreate },
+  project: { list: projectList, show: projectShow, create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead },
