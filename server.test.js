@@ -15552,10 +15552,10 @@ test('#4256: a DM reply tells the agent what it answers, keeps replyTo, and refu
     /* deliver gets the person's words UNCHANGED as the message, and the quote in the envelope: every check
        deliver makes on the message (its length budget, the commands a paused swarm may take) sees exactly what
        the person typed, reply or not. */
-    const realDeliver = chatEngine.deliver;
+    const realDeliver = chatEngine.deliverAsync;
     const seen = [];
-    chatEngine.deliver = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
-    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliver = realDeliver; }
+    chatEngine.deliverAsync = (...args) => { seen.push({ raw: args[1], envelope: args[3] }); return realDeliver(...args); };
+    try { await say({ text: '/status', reply_to: AT }); } finally { chatEngine.deliverAsync = realDeliver; }
     assert.equal(seen.length, 1, 'CONTROL: deliver was not reached, so this arm tests nothing');
     assert.equal(seen[0].raw, '/status', 'the quote was glued onto the person\'s words: ' + JSON.stringify(seen[0].raw));
     assert.match(seen[0].envelope, /\] \(answering: "Done with the login fix"\)$/, 'the quote is not in the envelope: ' + seen[0].envelope);
