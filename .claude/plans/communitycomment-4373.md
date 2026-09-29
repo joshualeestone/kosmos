@@ -154,3 +154,9 @@ Mutations red: no re-read in sinceForOnPeriod; the route skipping markNotSent; w
 - (N) the not_sent record's post id is lowercased like the row's.
 The reviewer verified every writer of comments.json keeps the notSent mark, and that a notSent row can be neither
 released nor served.
+
+## Review iteration 8 (blind): CONVERGED (nothing new at BLOCKER or WARNING)
+Four low findings, taken anyway (cheap): the three comments describing when the send window starts now name the comment
+and release requests (first writer wins); a POST test covers the release window, with a control that without the
+recorded start the post falls before it; recordPeriodStart refuses an address the sweep will not send to, like
+willSend; the release route says a failed release records the start too (it only moves the window earlier while ON).

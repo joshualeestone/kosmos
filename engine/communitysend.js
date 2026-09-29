@@ -33,7 +33,8 @@
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
- * `since` when a sweep first finds the switch ON and clears it when a sweep finds it OFF;
+ * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
+ * the switch ON (first writer wins), and clears it when a sweep finds it OFF;
  * a post is due only if it became published (released, or stored published) at or after
  * `since`. Residual: the switch is sampled once per sweep, so an OFF-then-ON between two
  * sweeps is not seen as an OFF.
@@ -129,7 +130,7 @@ function switchOn() {
   } catch { return false; }
 }
 
-// `since` for this ON period: recorded by the first sweep that finds the switch ON.
+// `since` for this ON period: recorded by the first sweep, or comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
   // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
@@ -661,7 +662,7 @@ function willSend(agentKey, now = Date.now()) {
  * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
  */
 function recordPeriodStart() {
-  if (!switchOn()) return false;
+  if (!switchOn() || !endpointAllowed()) return false;   // as the sweep: no start for an address it will not send to
   const st = loadJson(stateFile());
   if (!st) return false;
   return Boolean(sinceForOnPeriod(st));
