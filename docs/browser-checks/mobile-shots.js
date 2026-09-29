@@ -172,6 +172,11 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=plus');
     const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
     await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
     /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
        point at the first laid-out Allow button's centre must be that button (or inside it), so anything drawn
        over it, or the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint
@@ -183,7 +188,9 @@ const SCREENS = [
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
       const top = document.elementFromPoint(x, y);
-      return top && b.contains(top) ? '' : 'covered by ' + (top ? top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') : 'nothing readable');
+      if (top && b.contains(top)) return '';
+      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+      return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
     };
     let hit = await page.evaluate(whatIsAt, allow);
     for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
@@ -211,8 +218,6 @@ const SCREENS = [
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
     await at(page, '?tab=settings&sec=automation');
     await page.waitForSelector('#rec-guards-row', { state: 'visible', timeout: 5000 });
-    // The one-time community notice can open over Settings on a desktop; this screen is the block.
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
@@ -726,7 +731,9 @@ async function fitOf(page) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   // A control with a mistyped name would arm nothing and pass; refuse it instead.
-  if (COVER_CONTROL && COVER_CONTROL !== 'cmnotice') throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, not ' + COVER_CONTROL);
+  if (COVER_CONTROL && COVER_CONTROL !== 'cmnotice' && COVER_CONTROL !== 'overlay') {
+    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice or overlay, not ' + COVER_CONTROL);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
