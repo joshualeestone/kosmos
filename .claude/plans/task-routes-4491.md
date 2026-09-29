@@ -52,8 +52,9 @@ onto main.
   list cannot be read at delivery time, everyone is told, as before. This applies to every sender, the person included: a
   departed agent is not told about its old task's messages; the person can still message it directly. Residual, stated: task built still refuses a
   departed assignee's mark (it did before this slice, on the pane path).
-  The other task notifications (parts, close, reopen, heard-by) still reach departed assignees: filed as #4540
-  (claimed:angel), out of this slice's scope.
+  The other task notifications do not reach a departed assignee with a reply to make (measured: close and reopen
+  re-sync instructions from the projects it is on now; a part cannot be given to a non-member). The CLIs' "any
+  agents assigned to it were notified" sentence is now also false for a departed assignee: #4540.
 - The paneless test is one helper (panelessCaller), shared by both handlers with sameAgentName/projectHasAgent.
 
 - Residual, stated: a paneless token is matched by store.safeKey, which is lossy (lowercases, strips), so "ghost"
