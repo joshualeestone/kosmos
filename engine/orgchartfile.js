@@ -309,9 +309,14 @@ function tableToPeople(table) {
     people.push({ person: plain(person, MAX_PERSON), title: plain(title, MAX_TITLE), ids: col.ids.map((i) => plain(String(r[i] || ''), MAX_TITLE)).filter(Boolean), manager: plain(cell(r, 'manager'), MAX_PERSON) });
   }
   const out = resolve(people, table.length - 1 > MAX_ROWS);
+  /* No manager column reads the same as a chart where everyone reports to the person, so it is said, not left
+     for them to notice: reporting lines are what this upload is for. */
+  if (col.manager == null && people.length) out.problems.push(NO_MANAGER_COLUMN);
   if (untitled) out.problems.push(untitledSentence(untitled));
   return out;
 }
+
+const NO_MANAGER_COLUMN = 'We found no manager column (Manager or Reports to), so everyone is shown reporting to you. Add one and upload again, or set each person\'s manager in the preview.';
 
 const untitledSentence = (n) => n + (n === 1 ? ' person has' : ' people have')
   + ' no title in the file and ' + (n === 1 ? 'was' : 'were') + ' left out. Add the title and upload again, or add them to the list by hand.';
@@ -590,4 +595,5 @@ async function readWithModel(name, bytes, opts = {}) {
   return fromModel(got.structured);
 }
 
-module.exports = { NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+module.exports = {
+  NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
