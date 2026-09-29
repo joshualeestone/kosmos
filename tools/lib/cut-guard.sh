@@ -590,11 +590,14 @@ kosmos_refuse_if_earlier_suite_waiter() {
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
-  local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-1200}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
-  local waited=0 said=0 err ts="" start next_note=300
-  start="$(date +%s)"
+  # #4574: in the suite queue the bound is 45 minutes, not 20, and it counts from the last time the run this one
+  # waits on CHANGED (see the queue note above), not from the start.
+  local dflt=1200; [ "$queue" = 1 ] && dflt=2700
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
+  local waited=0 said=0 err ts="" start next_note=300 blk="" wblk=0 bstart
+  start="$(date +%s)"; bstart="$start"
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
-  case "$max" in ''|*[!0-9]*) max=1200 ;; esac
+  case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   while :; do
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
@@ -612,11 +615,23 @@ kosmos_wait_until_clear() {
       if [ "$queue" = 1 ]; then err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
       else err="the box is busy (the check refused without saying why)."; fi
     fi
+    # #4574: in the queue, a new first line of the refusal (another suite running, another waiter ahead) is the
+    # queue moving, so the bound starts again. The same line for the whole bound is a run that is not moving.
+    if [ "$queue" = 1 ]; then
+      local sig; sig="$(printf '%s\n' "$err" | head -1)"
+      if [ "$sig" != "$blk" ]; then blk="$sig"; wblk=0; bstart="$(date +%s)"; fi
+    else
+      wblk="$waited"; bstart="$start"
+    fi
     # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
-    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$waited" -ge "$max" ] || [ $(( $(date +%s) - start )) -ge "$max" ]; then
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(date +%s) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
-      [ "$waited" -gt 0 ] && echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      if [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
+        echo "gave up after waiting ${waited}s: the run ahead did not change for ${max}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      elif [ "$waited" -gt 0 ]; then
+        echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      fi
       return 1
     fi
     if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
@@ -629,7 +644,7 @@ kosmos_wait_until_clear() {
       next_note=$((next_note + 300))
     fi
     "$sleeper" "$every"
-    waited=$((waited + every))
+    waited=$((waited + every)); wblk=$((wblk + every))
   done
 }
 

@@ -652,9 +652,43 @@ seen="$(sort -u "$W/seen" | grep -c .)"
   && pass "#4498 a harness that appears as the suite unqueues sends it back to waiting in its old place" \
   || fail "#4498 the second ask misbehaved (rc=$rc, calls=$(cat "$W/calls"), queue times seen=$seen, $out)"
 rm -f "$W/calls"
-out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+# #4574: a STUCK run ahead (the same refusal every time). wcheck's message changes each call, which the queue now
+# reads as the queue moving, so the give-up arms use wsame.
+wsame() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"; [ "$n" -gt "${WPASS_AFTER:-0}" ] && return 0; echo "busy: stand-in run" >&2; return 1; }
+out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4498 a suite that gives up leaves the queue" \
   || fail "#4498 a suite that gave up left its marker (rc=$rc, $out)"
+
+# --- #4574: the queue's bound counts from the last time the run ahead CHANGED ---------------------
+# A moving queue (a new refusal each call: the run ahead finished, the next one started) is waited through far past
+# the bound; the SAME refusal for the whole bound (a stuck run ahead) still gives up.
+rm -f "$W/calls"
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+# 12 calls: 10 refusals, the clear one, and the #4498 second ask made after leaving the queue.
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 12 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 a queue that keeps moving is waited through past the bound (300 s asleep on a 60 s bound), then the run starts" \
+  || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "did not change for 60s"; } \
+  && pass "#4574 CONTROL: the same run ahead for the whole bound still gives up, and says the queue did not move" \
+  || fail "#4574 a stuck run ahead was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 outside the queue the bound is unchanged: a changing refusal still gives up at it" \
+  || fail "#4574 a non-queue wait was stretched by a changing refusal (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(unset KOSMOS_WAIT_MAX_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 91 ]; } \
+  && pass "#4574 the queue's default bound is 45 minutes (90 waits of 30 s), longer than a full suite (14 to 26 min measured)" \
+  || fail "#4574 the queue default bound is not 2700 s (rc=$rc, calls=$(cat "$W/calls"))"
+rm -f "$W/calls"
+out="$(unset KOSMOS_WAIT_MAX_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 41 ]; } \
+  && pass "#4574 CONTROL: outside the queue the default bound stays 20 minutes (40 waits)" \
+  || fail "#4574 the non-queue default bound moved (rc=$rc, calls=$(cat "$W/calls"))"
+rm -f "$W/calls"
 
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
 sleep 60 & wp=$!
