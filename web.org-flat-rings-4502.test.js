@@ -125,8 +125,8 @@ test('#4502: the second lane sits in the first lane\'s gaps (midway between two 
   }
 });
 
-test('#4502: the physics keeps lines a face plus 4px off (ORG_SIM.clearReach is ORG_FACE_R + 4)', () => {
-  assert.equal(sim.ORG_SIM.clearReach, FACE + 4, 'the clearance and the face radius drifted apart');
+test('#4502: the physics and the placement use one face radius (ORG_SIM.faceR is ORG_FACE_R)', () => {
+  assert.equal(sim.ORG_SIM.faceR, FACE, 'the physics and the placement disagree on a face\'s radius');
 });
 
 test('#4502: an agent joining a settled flat chart (the others keep their spots) leaves at most 2 near passes, 6 to 24', () => {

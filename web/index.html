@@ -29140,7 +29140,7 @@ const ORG_SIM = {
   minGap: 52,      // two 44px discs plus breathing room
   home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
   clear: 0.6,      // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
-  clearReach: 26,  // #4502: how near a line may run to a face before that push starts: ORG_FACE_R + 4 (pinned by a test)
+  faceR: 22,       // a 44px node's radius (#4502: the same fact as ORG_FACE_R, pinned equal by a test)
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29165,7 +29165,7 @@ function orgStep(nodes, hub, alpha, box) {
       let f = ORG_SIM.repel / d2;
       // Bodies have size: a 104px hub and a 44px node need more room than two
       // nodes do, or the first ring sits touching the hub.
-      const gap = (a.size || 22) + (b.size || 22) + 8;
+      const gap = (a.size || ORG_SIM.faceR) + (b.size || ORG_SIM.faceR) + 8;
       if (d < gap) f += (gap - d) * 0.35;
       f = cap(f) * alpha;
       const fx = (dx / d) * f; const fy = (dy / d) * f;
@@ -29204,7 +29204,7 @@ function orgStep(nodes, hub, alpha, box) {
      line runs within a face (plus a little) of a nearer face is pushed sideways, away from that face, which
      swings its line off it. Flat only: a tree's own placement and repair keep its lines (#4434). */
   if (!nodes.some((n) => n.parent)) {
-    const reach = ORG_SIM.clearReach;
+    const reach = ORG_SIM.faceR + 4;   // a face, plus a little
     for (const n of nodes) {
       if (n.fixed) continue;
       const nx = n.x - hub.x; const ny = n.y - hub.y;
