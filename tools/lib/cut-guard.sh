@@ -512,10 +512,10 @@ kosmos_refuse_if_suite_live() {
 # the front gives up when no waiter ahead has left for the whole bound. The bound covers EVERY blocker run-tests.sh
 # waits on in the queue, a release claim and an install harness as well as a suite, so a queued suite now waits up to
 # 45 minutes behind those too (20 before); all three are long runs, and a claim or a harness that outlives the bound
-# still ends the wait. A harness or a suite's own
-# subshells are not waiters, so they never restart it. A rise (a waiter re-marked by the second ask) only arms the next
-# fall, so each restart still needs a waiter ahead to leave. The cost: behind a HUNG suite each waiter in turn spends
-# one bound at the front before giving up.
+# still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
+# re-marked by the second ask) only arms the next fall, so each restart still needs a waiter ahead to leave, or to read
+# as gone for one pass (a ps that failed). The cost: behind a HUNG suite each waiter in turn spends one bound at the
+# front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -647,6 +647,7 @@ kosmos_wait_until_clear() {
       # Before this run holds a marker (the first pass) every live waiter counts as ahead, so a waiter that marked in the
       # same second behind this one can read as a fall on the second pass: one early restart, harmless.
       ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true
+      ahead="${ahead:-0}"
       if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
       prev="$ahead"
     else

@@ -68,3 +68,13 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
   to date (a test pins it); the default-bound arms unset KOSMOS_WAIT_EVERY_S too; the refusal's comment is back above
   it; a comment on the first-pass early restart.
 - (N, left) KOSMOS_WAIT_NOW runs a command from the environment, as KOSMOS_WAIT_SLEEP already does.
+
+## Review iteration 4 (blind, sonnet)
+0 BLOCKER, 1 WARNING, taken:
+- (W, SELF) run-tests.sh's comment said every suite wait gives up only after 45 minutes "whatever the blocker"; a run
+  that skips the suite check (the override, a run inside a test) does not queue and keeps 20 minutes from its start. The
+  comment now says both.
+- (N, taken) ahead defaults to 0 if the count prints nothing; the #4574 note is reflowed and names a failed ps (a waiter
+  ahead read as gone for one pass) as the other way a restart can happen.
+- (N, left) start only seeds bstart (kept: it reads as the wait's start); a trap to reap the stand-in waiters if the test
+  file is killed mid-arm (they end on their own in 5 minutes).
