@@ -372,3 +372,24 @@ test('#4569 review round 1: a digest carries at most 40 posts, the newest, and s
   assert.ok(!d.includes('thanks 5\n') && d.includes('thanks 6\n') && d.endsWith('thanks 45'), 'not the newest 40');
   assert.equal(h.calls.length, 2);
 });
+
+test('#4569 review round 2: a digest also stops at 32 KB of posts, keeping the newest; Escape drops a waiting stop note cleanly', async () => {
+  const big = (n) => '[background from your colleague Sam \u00b7 m' + n + ' \u00b7 project p \u00b7 not addressed to you] ' + String(n).padStart(3, '0') + 'x'.repeat(3000);
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 20; n++) h.f.feed(big(n) + '\r');
+  h.pending[0](OK('done')); await h.f.drained();
+  const d = h.calls[1].prompt;
+  assert.ok(d.length < 34 * 1024, 'the digest is ' + d.length + ' characters');
+  assert.match(d, /^\[Kosmos: 20 room posts arrived .* The \d+ oldest are left out;/);
+  assert.ok(d.includes('] 020x'), 'the newest post was left out');
+  // Escape while a stop note waits: the note is dropped and a later stop still gets its own note.
+  const e = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));   // 0 long job, 1 another job, 2 the later stop's note
+  e.f.feed('long job\r'); e.f.feed(OP('stop') + '\r');   // the note waits behind the ending turn
+  e.f.feed('\u001b');                                       // Escape: drops the waiting note
+  await within(e.f.drained(), 'Escape did not settle');
+  assert.equal(e.calls.length, 1, 'a dropped stop note still ran');
+  e.f.feed('another job\r'); e.f.feed(OP('stop') + '\r');
+  await within(e.f.drained(), 'the later stop did not end the turn');
+  assert.match(e.calls[e.calls.length - 1].prompt, /^\[Kosmos: your operator asked you to stop/, 'a later stop was treated as "already stopping"');
+});

@@ -112,9 +112,11 @@ function shortOf(text) {
 }
 
 /** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
-const WORKING_EVERY_MS = 50 * 1000;
+const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
 /* #4569 review round 1: the most background posts one digest turn carries. */
-const DIGEST_MAX = 40;   // under the report bridge's 60 s throttle, so no beat is dropped
+const DIGEST_MAX = 40;
+/* ...and at most this many characters of them (review round 2: forty long posts are still one argv string). */
+const DIGEST_MAX_CHARS = 32 * 1024;
 
 /**
  * The front's logic, with its edges passed in so a test can drive it:
@@ -147,6 +149,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (!rest.length) return first;
     const all = [first, ...rest];
     const kept = all.slice(-DIGEST_MAX);   // the newest, which the room has not moved past yet
+    while (kept.length > 1 && kept.reduce((n, t) => n + t.length + 1, 0) > DIGEST_MAX_CHARS) kept.shift();
     const left = all.length - kept.length;
     return '[Kosmos: ' + all.length + ' room posts arrived while you were busy, all background, none addressed to you.'
       + (left ? ' The ' + left + ' oldest are left out; run kosmos room to read them if you need to.' : '')
@@ -203,6 +206,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   function stop() {
     const dropped = queue.length;
     queue.length = 0;
+    STOP_NOTES.clear();   // a stop note Escape drops is no longer waiting (review round 2)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
     if (stopTurn) { const f = stopTurn; stopTurn = null; try { f(); } catch { /* the turn is ending anyway */ } }
