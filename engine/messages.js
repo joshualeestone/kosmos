@@ -153,24 +153,41 @@ const INBOX_MARK = '*\n';
  * spill never writes into (review round 2). That recipient is refused a long message instead.
  */
 function spillInto(recipient, id, text) {
+  /* Every refusal says which of these it is (review round 3): each is a different thing for the person to fix. */
+  const who = String(recipient);
   const dir = require('./dmfiles').ownDir(recipient, INBOX);   // lazy: dmfiles -> projects -> this module
-  if (!dir) return null;
+  if (!dir) return { because: who + ' has no folder of its own to hold a long message' };
+  let home = null;
+  try { home = fs.lstatSync(path.dirname(dir)); } catch { home = null; }
+  /* The agent's own folder must already exist and be a real folder: a spill never creates a worker folder. */
+  if (!home || !home.isDirectory()) return { because: who + ' has no folder of its own to hold a long message' };
+  let made = false;
+  try { fs.mkdirSync(dir); made = true; } catch (e) { if (!e || e.code !== 'EEXIST') return { because: 'we could not make ' + dir }; }
+  let d = null;
+  try { d = fs.lstatSync(dir); } catch { d = null; }
+  if (!d || !d.isDirectory()) return { because: dir + ' is a link, not a folder, so we did not write into it' };   // lstat: a link is not the agent's folder
+  const marker = path.join(dir, '.gitignore');
+  if (made) {
+    try { fs.writeFileSync(marker, INBOX_MARK, { flag: 'wx' }); }   // 'wx' never follows or reuses anything already there
+    catch {
+      /* A folder we made but could not mark would read as the person's own forever after; take it back. */
+      try { fs.rmdirSync(dir); } catch { /* not empty or already gone: left as it is */ }
+      return { because: 'we could not finish making ' + dir };
+    }
+  }
+  /* Ours only if the marker is a real file saying exactly that (a link or other words: not ours). A missing or
+     edited marker is NOT repaired: from here that is indistinguishable from the person's own Inbox folder. */
+  let ours = false;
+  try { const m = fs.lstatSync(marker); ours = m.isFile() && fs.readFileSync(marker, 'utf8') === INBOX_MARK; } catch { ours = false; }
+  if (!ours) return { because: dir + ' already exists and is not the Inbox Kosmos made (its .gitignore is missing or changed), so we did not write into it' };
+  const file = path.join(dir, id + '.txt');
   try {
-    /* The agent's own folder must already exist: a spill never creates a worker folder. */
-    const home = fs.lstatSync(path.dirname(dir));
-    if (!home.isDirectory()) return null;
-    let made = false;
-    try { fs.mkdirSync(dir); made = true; } catch (e) { if (!e || e.code !== 'EEXIST') return null; }
-    if (!fs.lstatSync(dir).isDirectory()) return null;   // lstat: a link is not the agent's folder
-    const marker = path.join(dir, '.gitignore');
-    if (made) fs.writeFileSync(marker, INBOX_MARK, { flag: 'wx' });   // 'wx' never follows or reuses anything already there
-    /* Ours only if the marker is a real file saying exactly that (a link or other words: not ours). */
-    const m = fs.lstatSync(marker);
-    if (!m.isFile() || fs.readFileSync(marker, 'utf8') !== INBOX_MARK) return null;
-    const file = path.join(dir, id + '.txt');
-    require('./securewrite').writeSecret(file, text + '\n', 0o600);   // throws on failure: caught below as "no file"
-    return file;
-  } catch { return null; }
+    /* Whatever sits at this name goes first, so even writeSecret's rare in-place fallback (it opens the NAME
+       with O_TRUNC) can never write through a hard link planted there (review round 3). */
+    try { fs.unlinkSync(file); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+    require('./securewrite').writeSecret(file, text + '\n', 0o600);
+  } catch { return { because: 'we could not write the file in ' + dir }; }
+  return { file };
 }
 /* A spill whose delivery failed is removed, so nothing is left for a message nobody received. */
 function unspill(file) {
@@ -1089,8 +1106,9 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
        (a misspelt name must not read as a folder problem). */
     const can = chat.addressable(toName, roster);
     if (!can.ok) return refuse(toName, can.because);
-    spillFile = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
-    if (!spillFile) return refuse(toName, 'that message is long enough to need a file, and we could not write one in ' + toName + '\'s own folder');
+    const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
+    if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
+    spillFile = spill.file;
     body = cleaned.slice(0, 200) + '… (long message; the full text is in your own folder at ' + spillFile + ')';
   }
   const envelope = '[message from your colleague ' + from
@@ -1652,8 +1670,9 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
     let bodyHere = cleaned;
     if (long && chat.addressable(name, roster).ok) {   // one that cannot be typed into is refused by deliver below, with its reason, and gets no file
-      const file = spillInto(name, id, cleaned);
-      if (!file) { outcomes[name] = chat.DELIVERY.COULD_NOT; continue; }
+      const spill = spillInto(name, id, cleaned);
+      if (!spill.file) { outcomes[name] = chat.DELIVERY.COULD_NOT; continue; }
+      const file = spill.file;
       spilled[name] = file;
       bodyHere = cleaned.slice(0, 200) + '\u2026 (long message; the full text is in your own folder at ' + file + ')';
     }

@@ -63,3 +63,16 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
   - Tested, with a control showing Kosmos's own Inbox takes repeated messages. A mutant dropping the marker check is red.
 - **WARNING** The git test ran `git init` and removed `.git` with no sandbox-containment assertion. Fixed: it asserts the folder is inside SANDBOX first.
 - Focus 2 (addressable before deliver) and focus 3 (nothing reads the pointer from the log) were confirmed clean.
+
+## Validation (4bd9ffd4): PASSED (11486 tests, 0 fail), before round 3's fixes.
+
+## Review round 3 (opus, blind): 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- **WARNING** A made-but-unmarked Inbox (the marker write failed, or the agent removed or edited the marker) refused every later long message with a folder-sounding reason, and nothing ever said why.
+  - Fixed: spillInto returns a reason for each case (no folder of its own / a link, not a folder / an Inbox that is not the one Kosmos made, "its .gitignore is missing or changed" / could not write the file). The DM refusal carries it.
+  - A just-made Inbox whose marker write fails is removed again.
+  - A missing marker is deliberately NOT repaired: from here it is indistinguishable from the person's own Inbox.
+  - Tested (the marker removed: refused, the reason names the Inbox, the marker not put back).
+- **WARNING** writeSecret's in-place fallback (it opens the NAME with O_TRUNC when no temp can be made) could write through a planted hard link. Fixed: the name is unlinked first.
+  - Tested by forcing the fallback (a read-only Inbox). The mutant without the unlink goes red: it wrote through the link.
+- **NIT** A room member refused over its folder is recorded as COULD_NOT without the reason. KEPT: outcomes carry states only across the room code, and the DM path (where a person reads a reason) has it.
+- **NIT** writeSecret's orphan-temp reap now also sweeps Inboxes. KEPT: harmless, as the reviewer measured.

@@ -2593,7 +2593,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
     const t2 = arm([ok(), ok()]);
     const dm = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
     assert.equal(dm.state, chat.DELIVERY.COULD_NOT);
-    assert.match(dm.because, /own folder/);
+    assert.match(dm.because, /mara has no folder of its own to hold a long message/);
     assert.equal(t2.pastedSends().length, 0, 'a refused long DM was typed anyway');
     // CONTROL: a short message to the same agent still goes (the refusal is about the file, not the agent).
     armSender('leo-discord');
@@ -2684,6 +2684,7 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     arm([ok(), ok()]);
     const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a long message was written into the person\'s own Inbox folder');
+    assert.match(out.because, /already exists and is not the Inbox Kosmos made/, 'the refusal does not say why: ' + out.because);
     assert.deepEqual(fs.readdirSync(inboxOf('mara')).sort(), ['.gitignore', 'notes.md'], 'the person\'s folder was changed');
     assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*.log\n', 'the person\'s .gitignore was rewritten');
     // The same with no .gitignore at all: still not ours.
@@ -2701,6 +2702,44 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     arm([ok(), ok()]);
     assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
     assert.equal(messageFiles(inboxOf('mara')).length, 2);
+  });
+});
+
+test('#4447: an Inbox whose marker was removed is refused with a reason that names it, and is never silently repaired', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));   // the agent deletes it
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(out.state, chat.DELIVERY.COULD_NOT);
+    assert.ok(out.because.includes(inboxOf('mara')) && /missing or changed/.test(out.because), 'the reason does not name the Inbox and what is wrong: ' + out.because);
+    assert.ok(!fs.existsSync(path.join(inboxOf('mara'), '.gitignore')), 'the marker was silently put back');
+  });
+});
+
+test('#4447: writeSecret\'s in-place fallback cannot write through a hard link planted at the next id', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder that forces the fallback' : false }, () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    const victim = path.join(SANDBOX, 'victim-fallback-' + Date.now() + '.txt');
+    fs.writeFileSync(victim, 'untouched\n');
+    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
+    /* A read-only Inbox: no temp can be created there, so writeSecret's atomic path fails and only its in-place
+       fallback (open the NAME with O_TRUNC) remains. That is the path a hard link could be written through. */
+    fs.chmodSync(inboxOf('mara'), 0o555);
+    try {
+      armSender('leo-discord');
+      arm([ok(), ok()]);
+      messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the fallback wrote through the planted hard link');
+    } finally { fs.chmodSync(inboxOf('mara'), 0o755); }
   });
 });
 
