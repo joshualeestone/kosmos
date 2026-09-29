@@ -7175,7 +7175,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
-/* #3614: the agent page's Files block, under the four-pack. */
+/* #3614: the agent page's Files block, under the pack (a pair since #4550). */
 .dfiles { margin-top: 18px; }
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
@@ -34728,7 +34728,7 @@ function detailSection(key) {
 /* #718 mobile: an ARRIVAL at an agent to answer it (the Answer button on a card, or a
    push tap, which opens ?tab=detail&agent=) must show the conversation, where the
    question is and where you answer. On a phone the page stacks (max-width 56rem, the
-   .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
+   .dbody and #d-nav rules): the identity block, three full-width section boxes (five before #4550) and Files
    come first, so the question sat about two screens down on an iPhone SE (measured).
    Only arrivals call this: a page load with ?agent= in its address, whatever the tab (a push
    tap opens ?tab=detail&agent=; a reload of an agent page also lands on the conversation),
