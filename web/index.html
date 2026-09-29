@@ -17602,7 +17602,11 @@ function kplusBar() {
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
-  if (typeof ResizeObserver === 'function') new ResizeObserver(kplusBarFit).observe(head);
+  /* #4506: the header's BORDER box. When the scrollbar gutter comes or goes (the boot cover drops it while it is up,
+     Talk drops it), the header's padding moves with it by design (#3497), so its CONTENT box stays the same size
+     and a content-box observer never fires: the bar kept the margins it was fitted with under the cover and hung
+     15px past the page once the gutter came back (CI, render-plus-bar-3837 P2, on a real 15px scrollbar). */
+  if (typeof ResizeObserver === 'function') new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
   const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
   out.addEventListener('click', async () => {
     out.disabled = true; msg.textContent = '';
