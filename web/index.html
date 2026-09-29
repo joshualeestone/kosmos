@@ -54430,10 +54430,14 @@ function pjInline(text) {
    strikethrough, inline code, fenced code block, one heading size, unordered
    and ordered list rows, blockquote, horizontal rule, emoji (free -- UTF-8
    passes through `esc`), and the pre-existing bare-URL autolink. A markdown
-   `[text](url)` renders as its TEXT only, never a clickable anchor: a link an
-   agent authored is a navigation risk for a non-technical reader (Josh can
-   flip this to clickable later -- it is one branch). The bare-URL autolink
-   that predates this is unchanged.
+   `[text](url)` never becomes a label that hides where it goes: a link an
+   agent authored is a navigation risk for a non-technical reader. #4627: it
+   renders as its text followed by the address in full, `text (url)`, and a
+   web address there is linked exactly as a bare URL is (the address is what
+   the reader sees and clicks, so nothing is hidden). Before #4627 the address
+   was dropped, and agents pasted bare URLs to get it seen. A non-web address
+   (mailto:, javascript:, a relative path) stays visible text, never a link.
+   The bare-URL autolink that predates this is unchanged.
 
    NOT here, deliberately: the project-ROOM activity thread (pjRoomBody ->
    pjBody -> pjLinkPaths) already renders fenced blocks, filename "Show me"
@@ -54448,7 +54452,8 @@ function pjRichSpans(seg, names, agentNames) {
        1. pull inline code out to a held placeholder (its body is never
           markdown-parsed or linkified),
        2. escape everything else (every tag below is one we emit),
-       3. resolve [text](url) to its text (the url is dropped before autolink),
+       3. resolve [text](url) to `text (url)`, the url held as a link when it is
+          a web address and as plain text otherwise (#4627),
        4. autolink bare URLs -- and, when a `names` set is supplied, turn a cited
           project file into a "Show me" chip -- BY WHITESPACE TOKEN, holding the
           built anchor/chip, so each is atomic: an underscore inside it is never
@@ -54471,7 +54476,17 @@ function pjRichSpans(seg, names, agentNames) {
   let s = String(seg == null ? '' : seg).replace(/￼/g, '');
   s = s.replace(/`([^`\n]+)`/g, (mm, code) => hold('<code class="mdc">' + esc(code) + '</code>'));
   s = esc(s);
-  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
+  /* #4627: the address is shown, never hidden behind the label. `s` is already escaped, so the
+     url is escaped text, the same form the bare-URL autolink below puts in its href. */
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
+    const u = url.trim();
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
+      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+      /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
+         inside the address): restoring is one pass, so a placeholder held inside another would leak. */
+      : (u.includes('\uFFFC') ? u : hold(u));
+    return label + ' (' + shown + ')';
+  });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
      (`**url**`) are peeled off; a trailing underscore is kept, because URLs use
