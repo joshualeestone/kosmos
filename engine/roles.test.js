@@ -106,6 +106,17 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
   // CONTROL, the opposite arm: only the guide and the PM are taught to make agents.
   for (const r of roles.ROLES) {
     if (r.key === 'pm' || r.key === 'setup') continue;
-    assert.doesNotMatch(roles.instructionsFor(r.key, 'X').replace(/\s+/g, ' '), /kosmos agent create/, `role ${r.key} was taught to make agents`);
+    assert.doesNotMatch(roles.instructionsFor(r.key, 'X').replace(/\s+/g, ' '), /kosmos agent create|kosmos agent role-draft/, `role ${r.key} was taught to make agents`);
+  }
+});
+
+test('#4474: when no role fits, the PM and the guide write one from the default text, after the same confirmation', () => {
+  const roles = require('./roles');
+  for (const [key, who] of [['pm', 'the operator'], ['setup', 'them']]) {
+    const flat = roles.instructionsFor(key, 'X').replace(/\s+/g, ' ');
+    assert.match(flat, /If no role on that list fits, write one: run `kosmos agent role-draft > role\.md`/, `${key} is not told to start from the default text`);
+    assert.match(flat, new RegExp('then tell ' + who + ' the role\'s name and what it does, and only after they say yes run'), `${key} is not told to confirm before it makes an agent with a new role`);
+    assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role\.md "<why>"/, `${key} is not told the new-role verb`);
+    assert.match(flat, /To make another agent with that role later, use the same file\./);
   }
 });

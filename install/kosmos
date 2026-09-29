@@ -2632,19 +2632,28 @@ cmd_project() {
 # Project Manager's instructions name it too, kosmos#1279). It asks for a one-member team (POST /api/team,
 # #1279) with the agent's launch token, so the board records who asked and why, bounds how many
 # one agent makes, and runs the new agent where the asker runs. `roles` lists the role keys.
+# kosmos#4474: when no role fits, `role-draft` prints the default text to start from, and
+# `create "<name>" --new-role "<label>" --from <file>` makes an agent from the agent's own text.
 cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <create|roles>"
+      say "Usage: kosmos agent <create|roles|role-draft>"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
+      say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
+      say "                                                  make one with a role you wrote, when none fits"
       say "  kosmos agent roles                              list the roles an agent can be made with"
+      say "  kosmos agent role-draft                         print the default text to write a new role from"
       exit 2 ;;
     create)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; } ;;
-    roles) : ;;
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; }
+      if [ "$2" = "--new-role" ]; then
+        { [ -n "${3:-}" ] && [ "${4:-}" = "--from" ] && [ -n "${5:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]   (kosmos agent role-draft prints the text to start from)"; exit 2; }
+        [ -f "$5" ] && [ -r "$5" ] || { say "We could not read $5. Write the role's text to a file first (kosmos agent role-draft > role.md, then edit it)."; exit 2; }
+      fi ;;
+    roles|role-draft) : ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: create, roles"
+      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -2662,9 +2671,18 @@ cmd_agent() {
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
         || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
       ;;
+    role-draft)
+      # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
+      # fills it with the agent's name when it is made.
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to get the role text. Is it running at $URL?"; exit 1; fi
+      printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const t=j&&j.own&&typeof j.own.instructions==="string"?j.own.instructions:"";if(!t)process.exit(1);process.stdout.write(t.endsWith("\n")?t:t+"\n")})' \
+        || { say "Kosmos gave an answer we could not read when getting the role text."; exit 1; }
+      ;;
     create)
-      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data
       name="$1"; role="$2"; why="${3:-the person asked for it}"
+      if [ "$role" = "--new-role" ]; then role="own"; label="$3"; from="$5"; why="${6:-the person asked for it}"; fi
       case "${KOSMOS_AGENT_TOKEN:-}" in
         ''|*[!0-9a-f]*) ;;
         *) _tok="$KOSMOS_AGENT_TOKEN" ;;
@@ -2673,12 +2691,19 @@ cmd_agent() {
         say "kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead."
         exit 1
       fi
-      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      if [ -n "$from" ]; then
+        # A role the agent wrote: its text is a whole file, so the body is built by node (JSON escaping), not sed.
+        data=$(KOSMOS_AC_NAME="$name" KOSMOS_AC_LABEL="$label" KOSMOS_AC_WHY="$why" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({purpose:e.KOSMOS_AC_WHY,members:[{name:e.KOSMOS_AC_NAME,role:"own",label:e.KOSMOS_AC_LABEL,instructions:fs.readFileSync(process.argv[1],"utf8")}]}))' "$from") \
+          || { say "We could not read $from to make that agent."; exit 1; }
+      else
+        esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+        data="{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}"
+      fi
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
         -H 'content-type: application/json' \
-        --data "{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}" 2>/dev/null) || rc=$?
+        --data "$data" 2>/dev/null) || rc=$?
       # 28 is curl's timeout: the request left, so the agent may have been made.
       if [ "$rc" -eq 28 ]; then
         say "Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again: $URL/"

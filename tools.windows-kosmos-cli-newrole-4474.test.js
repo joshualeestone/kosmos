@@ -1,0 +1,67 @@
+'use strict';
+/**
+ * #4474 on Windows, at parity with install/kosmos: `kosmos agent role-draft` prints the default text a new role
+ * starts from, and `kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]` sends the `own`
+ * role with that label and the file's text, verbatim. Driven through main() with its seams; nothing leaves the
+ * process and no file is read from disk (readFile is injected).
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const cli = require('./tools/windows/kosmos-cli');
+
+const OWN = 'You are **{{NAME}}**, an assistant.\n\n## Who you are\nThe default text.\n';
+
+function harness({ token = 'abc123', answer, files = {} } = {}) {
+  const sent = [];
+  const lines = { out: [], err: [] };
+  const io = {
+    env: {},
+    url: 'http://127.0.0.1:16180',
+    out: (s) => lines.out.push(s),
+    err: (s) => lines.err.push(s),
+    readFile: (f) => { if (!Object.prototype.hasOwnProperty.call(files, f)) throw new Error('ENOENT'); return files[f]; },
+    hook: { agentToken: () => token, readBoardToken: () => null, resolveUrl: () => 'http://127.0.0.1:16180' },
+    fetch: async (u, init) => {
+      sent.push({ url: u, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined });
+      const [status, json] = answer(u);
+      return { status, ok: status < 400, headers: { get: () => 'application/json' }, text: async () => JSON.stringify(json), json: async () => json };
+    },
+  };
+  return { io, sent, lines };
+}
+
+const MADE = () => [200, { outcome: 'created', created: [{ name: 'ann', shownAs: 'Ann' }], refused: [] }];
+
+test('#4474 Windows role-draft prints the default text, {{NAME}} left for Kosmos to fill', async () => {
+  const h = harness({ answer: () => [200, { roles: [], own: { key: 'own', instructions: OWN } }] });
+  const code = await cli.main(['agent', 'role-draft'], h.io);
+  assert.equal(code, 0, h.lines.err.join('\n'));
+  assert.match(h.sent[0].url, /\/api\/roles$/);
+  assert.equal(h.lines.out.join('\n') + '\n', OWN);
+});
+
+test('#4474 Windows create --new-role sends the own role, the label and the file\'s text verbatim, with the token', async () => {
+  const text = 'You are **{{NAME}}**, a grant writer.\n\n- Quote "exactly", keep C:\\paths as written.\n';
+  const h = harness({ answer: MADE, files: { 'C:\\role.md': text } });
+  const code = await cli.main(['agent', 'create', 'Ann', '--new-role', 'Grant writer', '--from', 'C:\\role.md', 'grants'], h.io);
+  assert.equal(code, 0, h.lines.err.join('\n'));
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0].headers['x-kosmos-agent-token'], 'abc123');
+  assert.deepEqual(h.sent[0].body, { purpose: 'grants', members: [{ name: 'Ann', role: 'own', label: 'Grant writer', instructions: text }] });
+  assert.match(h.lines.out.join('\n'), /Made "Ann"\./);
+});
+
+test('#4474 Windows create --new-role with no readable file, or no --from, sends nothing and says how', async () => {
+  const h = harness({ answer: MADE });
+  assert.equal(await cli.main(['agent', 'create', 'Ann', '--new-role', 'Writer', '--from', 'C:\\missing.md'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /could not read C:\\missing\.md.*role-draft/);
+  assert.equal(await cli.main(['agent', 'create', 'Ann', '--new-role', 'Writer'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /--new-role "<label>" --from <file>/);
+  assert.equal(h.sent.length, 0, 'a create went out without a role text');
+});
+
+test('#4474 Windows CONTROL: the existing form still sends only a name and a role', async () => {
+  const h = harness({ answer: MADE });
+  assert.equal(await cli.main(['agent', 'create', 'Ann', 'pm', 'why'], h.io), 0);
+  assert.deepEqual(h.sent[0].body, { purpose: 'why', members: [{ name: 'Ann', role: 'pm' }] });
+});

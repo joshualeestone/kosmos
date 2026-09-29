@@ -101,9 +101,12 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles>',
+    'Usage: kosmos agent <create|roles|role-draft>',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
+    '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
+    '                                                  make one with a role you wrote, when none fits',
     '  kosmos agent roles                              list the roles an agent can be made with',
+    '  kosmos agent role-draft                         print the default text to write a new role from',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
@@ -660,12 +663,28 @@ async function projectCreate(ctx, args) {
 async function agentCreate(ctx, args) {
   const name = args[0];
   const role = args[1];
-  const why = args[2] || 'the person asked for it';
+  let why = args[2] || 'the person asked for it';
   if (!name || !role) { ctx.err(USAGE.agent); return 2; }
+  /* #4474: a role the agent wrote, from a file: the `own` role with its label and the file's text. */
+  let member = { name, role };
+  if (role === '--new-role') {
+    const label = args[2];
+    if (!label || args[3] !== '--from' || !args[4]) {
+      ctx.err('Usage: kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]   (kosmos agent role-draft prints the text to start from)');
+      return 2;
+    }
+    let text;
+    try { text = ctx.readFile(args[4]); } catch (_) {
+      ctx.err('We could not read ' + args[4] + '. Write the role\'s text to a file first (kosmos agent role-draft > role.md, then edit it).');
+      return 2;
+    }
+    why = args[5] || 'the person asked for it';
+    member = { name, role: 'own', label, instructions: text };
+  }
   if (!ctx.agentToken()) { ctx.err('kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead.'); return 1; }
   // A create waits on a live account check and the create itself, so it gets the long timeout; a timeout
   // after the request left is "may have been made", never "not made".
-  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [{ name, role }] }, { timeoutMs: POST_TIMEOUT_MS });
+  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [member] }, { timeoutMs: POST_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again.') : ctx.unreachable('make that agent');
   const j = r.json || {};
   const made = Array.isArray(j.created) && j.created[0] ? j.created[0] : null;
@@ -682,6 +701,15 @@ async function agentRoles(ctx) {
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
   for (const x of roles) if (x && x.key) ctx.out(x.key + '  ' + (x.label || ''));
+  return 0;
+}
+/* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
+async function agentRoleDraft(ctx) {
+  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  if (!r.reached) return ctx.unreachable('get the role text');
+  const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
+  if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
+  ctx.out(text.replace(/\n$/, ''));
   return 0;
 }
 
@@ -916,7 +944,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
   project: { create: projectCreate },
-  agent: { create: agentCreate, roles: agentRoles },
+  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost },
 };
@@ -1007,6 +1035,7 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
+    readFile: o.readFile || ((f) => fs.readFileSync(f, 'utf8')),   // #4474: agent create --from
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),

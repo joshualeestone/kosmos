@@ -10,9 +10,9 @@
  * This is the NARROW version Baron Draxum's design pass recommended on the card:
  * a creator makes agents OF ROLE TYPES THAT ALREADY EXIST, with the two safety
  * rails that have a real substrate to build on. It is "most of the value and
- * almost none of the risk"; "create a new role type from scratch" is a separate
- * card, because that is where the default-text generator and the permission
- * model all have to be right at once.
+ * almost none of the risk"; "create a new role type from scratch" was a separate
+ * card (#4474, below), because that is where the default-text generator and the
+ * permission model all have to be right at once.
  *
  * 🔑 KOSMOS OWNS THE BOUND, NOT THE PROMPT (Baron's runaway question). A PM agent
  * asked for "a team for purpose X" has no natural limit on team size, and an
@@ -35,9 +35,12 @@
  *     role and project access are separate axes, none a capability set -- so
  *     there is nothing to narrow yet. Recording `createdBy` is the PREREQUISITE
  *     for ever enforcing it; the enforcement is the separate card.
- *   - It does not create a role type that does not exist. Each member's role is
- *     handed to create.createAgent, which refuses an unknown role with its own
- *     sentence, captured per-member below.
+ *   - It does not add a role to Kosmos's list. Each member's role is handed to
+ *     create.createAgent, which refuses an unknown role with its own sentence,
+ *     captured per-member below. #4474: an AGENT may give a made-up role, but
+ *     only as the `own` role with its label and text (vetAgentMember below), the
+ *     same one-agent shape the person's "Describe it yourself" makes; nothing is
+ *     saved as a new role, and the agent reuses its role by reusing its file.
  *   - It does not verify the creator is a live roster agent. The creator string
  *     is recorded as provenance; verifying it belongs to a real agent is the
  *     authoring surface's job (the chat request -> createTeam seam), not this
@@ -106,6 +109,38 @@ function resolveCap(deps, env) {
 }
 
 /**
+ * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
+ * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
+ *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769);
+ *     an agent asking for it would mint a second, hidden guide.
+ *   - A role's own label or text are not replaced under a built-in role's key: a made-up role is the `own` role
+ *     with a label and text, so no agent reads as a Bookkeeper while carrying other instructions.
+ *   - In made-up text, {{NAME}} becomes the member's name (the page does the same for "Describe it yourself"),
+ *     and text that does not open with the identity line gets one, "You are **<name>**, <label>.", the line
+ *     every role's text starts with (the board's fallback for the agent's name, status.readIdentity).
+ * The shared working rules are appended by create (defaults.appendTo) to any text, so a made-up role cannot drop
+ * them. Returns { member } (a copy, possibly with its text completed) or { because }.
+ */
+const IDENTITY_LINE = /^\s*You are \*\*[^*\n]+\*\*,/;
+function vetAgentMember(member) {
+  const role = typeof member.role === 'string' ? member.role.trim() : member.role;
+  if (role === 'setup') {
+    return { because: 'the setup guide is Kosmos\'s own and only Kosmos makes it; pick another role, or write a new one with --new-role' };
+  }
+  const madeUp = member.label !== undefined || member.instructions !== undefined;
+  if (madeUp && role !== 'own') {
+    return { because: 'a role\'s own label and text are not replaced; to make an agent with a role of your own, use role own with a label and text (kosmos agent create "<name>" --new-role "<label>" --from <file>)' };
+  }
+  if (typeof member.instructions !== 'string') return { member };
+  const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
+  let text = member.instructions.split('{{NAME}}').join(name);
+  if (!IDENTITY_LINE.test(text) && name && typeof member.label === 'string' && member.label.trim()) {
+    text = 'You are **' + name + '**, ' + member.label.trim() + '.\n\n' + text.replace(/^\s+/, '');
+  }
+  return { member: Object.assign({}, member, { instructions: text }) };
+}
+
+/**
  * Build a team of agents on behalf of a creator, for a stated purpose.
  *
  * @param {object} opts
@@ -116,6 +151,8 @@ function resolveCap(deps, env) {
  *   reason -- recording WHY is the drift guard, so a team with no why defeats it.
  * @param {Array<object>} opts.members  one create.createAgent opts object per
  *   agent ({name, role, ...}). Must be a non-empty array no longer than the cap.
+ * @param {boolean} [opts.fromAgent]  #4474: the request came from an agent's token, so each member is vetted
+ *   (vetAgentMember) before create; a member it refuses lands in refused[] like any other.
  *   NOTE: `opts` carries the REQUEST only. It deliberately has no cap field -- a
  *   cap on the request would let a model raise its own bound.
  * @param {object} [deps]  { createAgent, readAgentId, cap, env } -- the TRUSTED
@@ -154,7 +191,8 @@ function createTeam(opts, deps) {
 
   const created = [];
   const refused = [];
-  for (const member of members) {
+  for (const asked of members) {
+    let member = asked;
     /* A member that is not even an object cannot be handed to create (the spread
        below would be meaningless), so it is refused here by shape rather than
        reaching createAgent as an empty create. Its own name, if any, is echoed so
@@ -162,6 +200,14 @@ function createTeam(opts, deps) {
     if (!member || typeof member !== 'object' || Array.isArray(member)) {
       refused.push({ name: null, because: 'a team member must be a create spec object ({ name, role, ... })' });
       continue;
+    }
+    if (opts.fromAgent === true) {
+      const vet = vetAgentMember(member);
+      if (vet.because) {
+        refused.push({ name: String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null, because: vet.because });
+        continue;
+      }
+      member = vet.member;
     }
     /* The creator and purpose ride onto every member as provenance. They are set
        BY the team, so a member that tries to name its own createdBy/purpose does
@@ -206,4 +252,4 @@ function createTeam(opts, deps) {
   return { outcome, created, refused, because, creator, purpose, cap };
 }
 
-module.exports = { createTeam, resolveCap, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };
+module.exports = { createTeam, resolveCap, vetAgentMember, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };

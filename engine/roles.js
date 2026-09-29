@@ -34,6 +34,17 @@ const HANDS_OFF_LINES = [
   '  their way around. If they ask you to change one for them, say so kindly and',
   '  walk them through it instead.',
 ];
+/* #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
+   when no role on the list fits, the guide and the PM write one, starting from the default text, and make the
+   agent from it after the same one-line confirmation. `who` is whom they confirm with. The same file makes more
+   agents with that role; Kosmos keeps no list of made-up roles. */
+const NEW_ROLE_LINES_FOR = (who) => [
+  '  If no role on that list fits, write one: run `kosmos agent role-draft > role.md`,',
+  '  make it say what this agent is for and how it works, then tell ' + who,
+  '  the role\'s name and what it does, and only after they say yes run',
+  '  `kosmos agent create "<name>" --new-role "<role name>" --from role.md "<why>"`.',
+  '  To make another agent with that role later, use the same file.',
+];
 /* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
    for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
    Manager (PM_MAKES_AGENTS below, #1279) are the roles that name the verb. */
@@ -46,6 +57,7 @@ const MAKE_AGENTS_LINES = [
   '  lists the roles). Then tell them it is on their board, with the link Kosmos',
   '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
   '  through New agent.',
+  ...NEW_ROLE_LINES_FOR('them'),
 ];
 /* #1279: a Project Manager builds the team the work needs ("PM, build me a team"). Same verb and the
    same one-line confirmation as the guide. The confirmation is the PM's instruction, not a server
@@ -64,6 +76,7 @@ const PM_MAKE_AGENTS_LINES = [
   '  prints. If Kosmos refuses, tell the operator its reason in plain words.',
   '  If it says the agent may have been made, look at the board before trying',
   '  again.',
+  ...NEW_ROLE_LINES_FOR('the operator'),
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */
