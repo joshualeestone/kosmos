@@ -19,6 +19,9 @@ test('#4449: the section says where, why, and what to do instead', () => {
   assert.match(text, /~\/\.local\/share\/kosmos/, 'it no longer names the folder an agent would recognise');
   assert.match(text, /every agent on this computer/, 'it no longer says why: the board is shared');
   assert.match(text, /say so and describe it/, 'it no longer says what to do instead');
+  assert.match(text, /wherever it is installed/, 'it names only the Mac folder, so a Windows agent has nothing to go on');
+  assert.match(text, /Updating Kosmos with its own update or its install line is fine/,
+    'an agent asked to update Kosmos would read this as a refusal');
   assert.doesNotMatch(s.text, /—/, 'an em dash in agent-facing copy');
 });
 

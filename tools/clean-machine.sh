@@ -68,7 +68,7 @@ cleanup() {
   # KEEP preserves the DIRECTORY for inspection, never the processes: a
   # kept failed run must not leave a sandbox board listening forever.
   kill_sandbox
-  if [ -n "${KEEP:-}" ]; then say "sandbox kept at $SB"; else rm -rf "$SB"; fi
+  if [ -n "${KEEP:-}" ]; then say "sandbox kept at $SB"; else chmod -R u+w "$SB" 2>/dev/null || true; rm -rf "$SB"; fi   # #4449: an install's app may be read-only
 }
 trap cleanup EXIT
 # INT/TERM must EXIT after cleaning, or a Ctrl+C mid-walk deletes the
