@@ -652,8 +652,7 @@ seen="$(sort -u "$W/seen" | grep -c .)"
   && pass "#4498 a harness that appears as the suite unqueues sends it back to waiting in its old place" \
   || fail "#4498 the second ask misbehaved (rc=$rc, calls=$(cat "$W/calls"), queue times seen=$seen, $out)"
 rm -f "$W/calls"
-# #4574: a STUCK run ahead (the same refusal every time). wcheck's message changes each call, which the queue now
-# reads as the queue moving, so the give-up arms use wsame.
+# #4574: wsame refuses with the same words every call; the give-up arms use it so nothing in them varies but the queue.
 wsame() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"; [ "$n" -gt "${WPASS_AFTER:-0}" ] && return 0; echo "busy: stand-in run" >&2; return 1; }
 out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4498 a suite that gives up leaves the queue" \
@@ -663,7 +662,9 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 # Three live stand-in waiters with earlier queue times sit ahead of this run. A waiter leaves the queue by removing its
 # marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
 # (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
-q_ahead() { local i; : > "$W/ahead"; for i in 1 2 3; do sleep 300 & echo "$!" >> "$W/ahead"
+q_ahead() { local i j; : > "$W/ahead"; for i in 1 2 3; do sleep 300 & echo "$!" >> "$W/ahead"
+  # Until the child has exec'd, ps shows the forking shell's command, and a marker recording that reads as stale.
+  for j in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$!")" in sleep*) break ;; esac; sleep 0.1; done
   printf '%s %s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
 q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
 qnow() { cat "$W/clock" 2>/dev/null || echo 0; }
@@ -695,6 +696,18 @@ out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qno
   && pass "#4574 CONTROL: with nobody leaving, the wall clock alone ends the wait at the bound (one 100 s sleep)" \
   || fail "#4574 the wall-clock arm did not fire (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear
+# A queued run whose own marker vanished (what a failed ps does) writes it again, with its old queue time.
+wmark() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
+  sed -n '1p' "$W/markers/suitewait.$$" 2>/dev/null | cut -d' ' -f1 >> "$W/marks"
+  [ "$n" -gt 3 ] && return 0; echo "busy: stand-in run" >&2; return 1; }
+wlose() { [ "$(cat "$W/calls")" = 2 ] && rm -f "$W/markers/suitewait.$$"; return 0; }
+rm -f "$W/calls" "$W/marks"
+out="$(KOSMOS_WAIT_MAX_S=600 KOSMOS_WAIT_SLEEP=wlose kosmos_wait_until_clear "this test run" --suite-queue wmark 2>&1)"; rc=$?
+# calls 2 and 3 see the marker (3 because the loop re-marked it before asking), with ONE queue time throughout.
+{ [ "$rc" -eq 0 ] && [ "$(sed -n '3p' "$W/marks")" != "" ] && [ "$(grep -c . "$W/marks")" -ge 3 ] && [ "$(sort -u "$W/marks" | grep -c .)" = 1 ]; } \
+  && pass "#4574 a queued run whose marker vanished writes it again with its old queue time" \
+  || fail "#4574 a lost marker was not restored in place (rc=$rc, marks=$(tr '\n' ' ' < "$W/marks"), $out)"
+rm -f "$W/calls" "$W/marks"
 qbad() { echo "not a time"; }
 rm -f "$W/calls"
 out="$(WPASS_AFTER=2 KOSMOS_WAIT_NOW=qbad KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?

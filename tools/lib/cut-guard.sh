@@ -513,9 +513,10 @@ kosmos_refuse_if_suite_live() {
 # waits on in the queue, a release claim and an install harness as well as a suite, so a queued suite now waits up to
 # 45 minutes behind those too (20 before); all three are long runs, and a claim or a harness that outlives the bound
 # still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
-# re-marked by the second ask) only arms the next fall, so each restart still needs a waiter ahead to leave, or to read
-# as gone for one pass (a ps that failed). The cost: behind a HUNG suite each waiter in turn spends one bound at the
-# front before giving up.
+# re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
+# for one pass: one briefly unmarked by its second ask, or one whose marker a failed ps removed until it writes it again
+# (the loop re-marks a run whose own marker vanished). The cost: behind a HUNG suite each waiter in turn spends one
+# bound at the front before giving up.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -626,6 +627,9 @@ kosmos_wait_until_clear() {
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   while :; do
+    # #4574: a queued run whose own marker vanished (a failed ps reads it as stale and removes it) writes it again with its
+    # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
+    if [ "$queue" = 1 ] && [ -n "$ts" ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then kosmos_mark_suite_waiting "$ts"; fi
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
         kosmos_unmark_suite_waiting
