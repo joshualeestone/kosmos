@@ -639,10 +639,11 @@ test('#460: a verbatim requote of another author\'s earlier post is tagged with 
     assert.equal(rows[0].quotes, undefined, 'the original author\'s own words must never be marked');
     assert.deepEqual(rows[1].quotes, [{ of: first.id, from: 'mara', start: body.indexOf(QUOTE), end: body.indexOf(QUOTE) + QUOTE.length }]);
     assert.equal(body.slice(rows[1].quotes[0].start, rows[1].quotes[0].end), QUOTE);
-    // Negative control (a): the same words posted again by their original author.
+    // Negative control (a): the same words posted again by their original author (with a tail: an
+    // identical repeat inside two minutes is one post since #4580).
     armSender('mara-discord');
     arm([ok(), ok()]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE + ', as I said' }, board.agents, MEMBERS);
     // Negative control (b): a paraphrase, and a one-word overlap.
     armSender('april-discord');
     arm([ok(), ok()]);
@@ -2563,13 +2564,18 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
   });
 });
 
+/* #4580: identical sends inside two minutes are one message now, so each spill brief is numbered: the
+   tests are about where a long message lands, not about repeats. */
+let briefN = 0;
+const brief = () => 'brief ' + (++briefN) + ': ' + 'the lease detail '.repeat(80);
+
 test('#4447: a long DM leaves one file, in the recipient\'s own Inbox, and nothing in the old folder or the sender\'s', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     workerFolders(['leo', 'mara']);
     const before = oldSpillFiles().length;
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     assert.deepEqual(messageFiles(inboxOf('mara')), [sent.id + '.txt']);
     assert.ok(!fs.existsSync(inboxOf('leo')), 'the sender got an Inbox copy of its own DM');
@@ -2583,7 +2589,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
     fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara'), { recursive: true, force: true });   // mara has no folder
     const before = oldSpillFiles().length;
     const tmux = arm([]);
-    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents, MEMBERS);
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: brief() }, board.agents, MEMBERS);
     assert.notEqual(out.state, chat.DELIVERY.COULD_NOT, 'the post reached nobody: ' + (out.because || ''));   // partial reach is the room's own "unconfirmed"
     const row = messages.record().rows.filter((m) => m.kind === 'post').pop();
     assert.equal((row.outcomes || out.outcomes || {}).mara, chat.DELIVERY.COULD_NOT, 'mara, with no folder, was reported reached');
@@ -2593,7 +2599,7 @@ test('#4447: a recipient with no folder of its own is refused a long message, an
     // DM: refused with a reason, nothing typed.
     armSender('leo-discord');
     const t2 = arm([ok(), ok()]);
-    const dm = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const dm = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(dm.state, chat.DELIVERY.COULD_NOT);
     assert.match(dm.because, /mara has no folder of its own to hold a long message/);
     assert.equal(t2.pastedSends().length, 0, 'a refused long DM was typed anyway');
@@ -2615,7 +2621,7 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     fs.symlinkSync(elsewhere, inboxOf('mara'));
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const a = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const a = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(a.state, chat.DELIVERY.COULD_NOT, 'a linked Inbox was written through');
     assert.deepEqual(fs.readdirSync(elsewhere).sort(), ['victim.txt'], 'a file appeared through the linked Inbox');
     // (b) and (c): a real Inbox with a SYMBOLIC, then a HARD, link planted at the next message's file name.
@@ -2629,12 +2635,12 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
       if (kind === 'symbolic') fs.symlinkSync(victim, at); else fs.linkSync(victim, at);
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const b = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const b = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(b.state, chat.DELIVERY.PLACED, kind + ': ' + (b.because || ''));
       assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'a ' + kind + ' link planted at the file name redirected the board\'s write');
       const st = fs.lstatSync(at);
       assert.ok(st.isFile() && !st.isSymbolicLink() && st.nlink === 1, kind + ': the message file is not a fresh file of its own');
-      assert.match(fs.readFileSync(at, 'utf8'), /^brief: the lease detail/, kind + ': the message file does not hold the message');
+      assert.match(fs.readFileSync(at, 'utf8'), /^brief [0-9]+: the lease detail/, kind + ': the message file does not hold the message');
     }
   });
 });
@@ -2644,7 +2650,7 @@ test('#4447: a long DM to a name that is not on the board is refused for THAT re
     workerFolders(['leo', 'mara', 'marra']);   // even a folder by that name must not be written for an agent that is not there
     armSender('leo-discord');
     const tmux = arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'marra', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'marra', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT);
     assert.match(out.because, /cannot see an agent by exactly this name/, 'a misspelt name read as something else: ' + out.because);
     assert.ok(!fs.existsSync(inboxOf('marra')), 'a long message was written for an agent that is not on the board');
@@ -2657,7 +2663,7 @@ test('#4447: the Inbox ignores itself in git, so a connected agent\'s project re
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*\n');
     // Measured, not assumed: git itself ignores the message file.
     const root = path.dirname(inboxOf('mara'));
@@ -2684,7 +2690,7 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*.log\n');
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a long message was written into the person\'s own Inbox folder');
     assert.match(out.because, /already exists and is not the Inbox Kosmos made/, 'the refusal does not say why: ' + out.because);
     assert.deepEqual(fs.readdirSync(inboxOf('mara')).sort(), ['.gitignore', 'notes.md'], 'the person\'s folder was changed');
@@ -2693,16 +2699,16 @@ test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos
     fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.COULD_NOT);
     assert.deepEqual(fs.readdirSync(inboxOf('mara')), ['notes.md'], 'a marker or message was added to the person\'s folder');
     // CONTROL: an Inbox Kosmos made (its marker in place) takes the next one.
     fs.rmSync(inboxOf('mara'), { recursive: true, force: true });
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
     assert.equal(messageFiles(inboxOf('mara')).length, 2);
   });
 });
@@ -2712,11 +2718,11 @@ test('#4447: an Inbox whose marker was removed is refused with a reason that nam
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));   // the agent deletes it
     armSender('leo-discord');
     arm([ok(), ok()]);
-    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT);
     assert.ok(out.because.includes(inboxOf('mara')) && /missing or changed/.test(out.because), 'the reason does not name the Inbox and what is wrong: ' + out.because);
     assert.ok(!fs.existsSync(path.join(inboxOf('mara'), '.gitignore')), 'the marker was silently put back');
@@ -2733,7 +2739,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     workerFolders(['leo', 'mara']);
     armSender('leo-discord');
     arm([ok(), ok()]);
-    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     const victim = path.join(SANDBOX, 'victim-fallback-' + Date.now() + '.txt');
     fs.writeFileSync(victim, 'untouched\n');
     const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
@@ -2742,7 +2748,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'the spill was not refused where the planted name could not be removed');
       assert.match(out.because, /could not write the file in/, out.because);
       assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n', 'the planted hard link was written through');
@@ -2757,7 +2763,7 @@ test('#4447: a plain FILE where the Inbox should be is refused as "not a folder"
     try {
       armSender('leo-discord');
       arm([ok(), ok()]);
-      const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+      const out = messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents);
       assert.equal(out.state, chat.DELIVERY.COULD_NOT);
       assert.match(out.because, /is not a folder \(a file or a link is there\)/, out.because);
       assert.equal(fs.readFileSync(inboxOf('mara'), 'utf8'), 'a file named Inbox\n', 'the file was changed');
@@ -2780,4 +2786,93 @@ test('#4631: messageIdOf reads the ways a person writes a message id', () => {
   }
   assert.equal(messages.messageIdOf(null), '');
   assert.equal(messages.messageIdOf(undefined), '');
+});
+
+/* ── #4580 / #4466: the same send, twice, is one message ────────────────── */
+
+function ageLog(ms) {
+  // Moves every logged row back in time, as if it had been sent ms ago.
+  const rows = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  for (const r of rows) if (r.at) r.at = new Date(Date.parse(r.at) - ms).toISOString();
+  fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  messages.resetForTests();
+}
+
+test('#4580: the SAME message sent again (a retry after a timeout) is not sent twice: the first receipt comes back', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'the lease is signed' }, board.agents);
+    assert.equal(first.state, chat.DELIVERY.PLACED);
+    const pastedAfterFirst = tmux.pastedMessages().length;
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'the lease is signed' }, board.agents);
+    assert.equal(again.duplicate, true);
+    assert.equal(again.id, first.id, 'the retry gets the first message\'s id');
+    assert.equal(again.state, first.state);
+    assert.equal(tmux.pastedMessages().length, pastedAfterFirst, 'nothing was typed a second time');
+    assert.equal(messages.list('leo').length, 1, 'one message in the record');
+    // CONTROL: a different text is a new message.
+    const other = messages.send({ fromPane: '%7', to: 'mara', text: 'and the keys are in the box' }, board.agents);
+    assert.notEqual(other.id, first.id);
+    assert.equal(other.duplicate, undefined);
+  });
+});
+
+test('#4580: the same message after the window is a new message (a deliberate repeat later is sent)', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'standup in five' }, board.agents);
+    ageLog(messages.SEND_DEDUP_WINDOW_MS + 5000);
+    armSender('leo-discord');   // ageLog's reset clears the armed sender
+    arm([ok(), ok()]);
+    const later = messages.send({ fromPane: '%7', to: 'mara', text: 'standup in five' }, board.agents);
+    assert.equal(later.duplicate, undefined, JSON.stringify(later));
+    assert.notEqual(later.id, first.id);
+    assert.equal(messages.list('leo').length, 2);
+  });
+});
+
+test('#4580: the SAME room post sent again is posted once; a person\'s identical posts are never folded', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    const tmux = arm([ok(), ok(), ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    const typed = tmux.pastedMessages().length;
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, true, JSON.stringify(again));
+    assert.equal(again.id, first.id);
+    assert.equal(tmux.pastedMessages().length, typed, 'nobody was typed to a second time');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1);
+    // CONTROL: the same text from ANOTHER agent is its own post.
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const fromLeo = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'draft is in the folder' }, board.agents, MEMBERS);
+    assert.notEqual(fromLeo.id, first.id);
+    assert.equal(fromLeo.duplicate, undefined);
+  });
+});
+
+test('#4580: a retry that arrives while the first send is STILL delivering waits for it, and nothing is sent twice', async () => {
+  // The first send is held open (a busy board); the retry arrives meanwhile.
+  const roster = null;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let delivered = 0;
+  const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
+  const sender = { ok: true, card: { sessionName: 'leo' } };
+  const input = { sender, to: 'mara', text: 'on my way' };
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery(input, board.agents, slow);
+    const p2 = messages._sendWithDelivery(input, board.agents, slow);
+    assert.equal(delivered, 1, 'the retry did not start a second delivery');
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.equal(b.duplicate, true);
+    assert.equal(b.id, a.id);
+    assert.equal(messages.list('leo').length, 1);
+  });
+  void roster;
 });
