@@ -31,11 +31,17 @@ function label(id) {
   return `${frame.functionName || '(anonymous)'} ${url}:${Number(frame.lineNumber || -1) + 1}`;
 }
 
+function grouped(values) {
+  const out = new Map();
+  for (const [id, us] of values) out.set(label(id), (out.get(label(id)) || 0) + us);
+  return out;
+}
+
 function top(values) {
-  return [...values.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([id, us]) => ({
+  return [...grouped(values).entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([frame, us]) => ({
     seconds: Math.round(us / 1000) / 1000,
     percent: Math.round((us / elapsedUs) * 1000) / 10,
-    frame: label(id),
+    frame,
   }));
 }
 
