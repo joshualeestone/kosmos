@@ -26,6 +26,7 @@
  *   K8 the race: openCreate's roles load answers AFTER the Swarm path's, and the Swarm screen still opens on the
  *      role menu with no Project Manager picked (ROLES_GEN);
  *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
+ *   K11 Back and Team again keep the team the person had picked.
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -264,6 +265,14 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         JSON.stringify(k6.opts) === JSON.stringify(['', 'marketing', 'home']) && /A CMO and four reports\. 5 agents\./.test(k6.desc) && !k6.go, JSON.stringify(k6));
       await page.click('#team-seeded-go');
       ok(t + ' K6 Create hands the chosen team to openTeamCreate (#4557)', await page.evaluate(() => window.__opened === 'marketing'));
+      // K11: Back and Team again keep the team they had picked (the list is not rebuilt out from under them).
+      await page.selectOption('#team-seeded', 'home');
+      await page.click('#create-path-back');
+      await page.waitForTimeout(200);
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForFunction(() => !document.getElementById('team-seeded').disabled, null, { timeout: 5000 }).catch(() => {});
+      const k11 = await page.evaluate(() => ({ v: document.getElementById('team-seeded').value, go: document.getElementById('team-seeded-go').disabled }));
+      ok(t + ' K11 Back and Team again keep the team they had picked', k11.v === 'home' && !k11.go, JSON.stringify(k11));
 
       // K7: focus follows the step, and Back returns it to the card the person came from.
       const focusId = () => page.evaluate(() => { const a = document.activeElement; return a ? (a.id || (a.dataset && a.dataset.path) || a.tagName) : ''; });

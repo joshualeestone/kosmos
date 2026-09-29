@@ -46372,8 +46372,10 @@ async function loadSeededTeams() {
     teamSaySeeded('Ready-made teams are coming soon.');
     return;
   }
+  const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
   sel.innerHTML = '<option value="">Choose a team</option>'
     + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
   sel.disabled = false;
   paintSeededTeam();
 }
@@ -46445,12 +46447,18 @@ async function loadRoles(initialMode) {
     /* #591: the working rules, shown under the instructions box. Absent
        from an older engine, the fold hides rather than showing an empty box. */
     if (!ROLES.length) throw new Error('none came back');
+    if (gen !== ROLES_GEN) return;   // #4556: a newer load owns the screen and paints it when it answers
     msg.textContent = '';
     buildPicker();
-    if (gen === ROLES_GEN) pickMode(mode);
+    pickMode(mode);
   } catch (err) {
     if (gen !== ROLES_GEN) return;   // #4556: a newer load owns the screen; a stale failure must not empty it
-    if (ROLES && ROLES.length) return;   // another load already filled the list; this failure must not empty it
+    if (ROLES && ROLES.length) {   // an older load filled the list; paint from it rather than empty it
+      msg.textContent = '';
+      buildPicker();
+      pickMode(mode);
+      return;
+    }
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
@@ -46502,14 +46510,9 @@ function buildPicker() {
   // Continue silently does nothing (roleByKey('own') -> null -> return) is
   // worse than the option being absent from an older server.
   document.getElementById('pick-own').hidden = !OWN_ROLE;
-  // Import uses the `own` role's key, so it is offered on exactly the same
-  // condition the `own` option is.
   paintPathOptions();
 }
 
-/* #4556: which role-screen options this path offers. Run on every open (buildPicker runs only on the first
-   fetch), so a Swarm visit after a Single one does not keep the Single options. A swarm has no Project Manager
-   and no import (Josh, #4554). */
 /* #4556 (Mona's design review): the roles that direct other agents or projects. A swarm has no one directing it
    (Josh, #4554: no project-manager option), so on the Swarm path these are left out and the menu opens on the first
    role that remains. Operations Manager stays: it keeps recurring work moving, it does not direct agents. */
@@ -46535,10 +46538,14 @@ function paintRoleMenu() {
   const sig = rest.map((r) => r.key + ':' + r.label).join(',');   // round 3/4: keys and names, not the whole menu
   if (sel.dataset.menu !== sig) { sel.innerHTML = html; sel.dataset.menu = sig; }
 }
+/* #4556: which role-screen options this path offers. Run on every open (buildPicker runs only on the first
+   fetch), so a Swarm visit after a Single one does not keep the Single options. A swarm has no Project Manager
+   and no import (Josh, #4554). */
 function paintPathOptions() {
   const swarmPath = CREATE_PATH === 'swarm';
   if (ROLES && ROLES.length) paintRoleMenu();
   document.getElementById('pick-pm').hidden = swarmPath;
+  // Import uses the `own` role's key, so it is offered on the same condition the `own` option is.
   document.getElementById('pick-import').hidden = !OWN_ROLE || swarmPath;
   /* #4556 design shots: with no Project Manager above it (the Swarm path), "another" has nothing to follow. */
   const listName = document.querySelector('#pick-list .p2n');
