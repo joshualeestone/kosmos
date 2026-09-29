@@ -24,8 +24,9 @@ Card: joshualeestone/kosmos#4569 (claimed:angel), Josh's 10:47 and 10:48 comment
 - No Check now: the only way to check Muse is a real turn on the person's Meta account. Josh asked for it "if the
   Muse status can be checked"; it cannot be checked for free, so the row says a turn or signing in again updates it.
 - A refused sign-in is a red row with Sign in again, not no row: a vanished row reads as "never set up".
-- The first-run screen's "Llama / Meta" row is left: it names models (Claude, GPT, Gemini, Llama), and the card
-  names only the dropdown.
+- The first-run screen's Meta row reads "Muse / Meta" once Muse is switched on (review round 3, and Splinter's
+  "everywhere"), as its neighbours read "Gemini / Google" and "Grok / xAI"; switched off it keeps today's
+  coming-soon "Llama".
 - The spinner is added to the first-run Meta sign-in too (same controller); its success stays the row turning
   Connected (that place has no window to close).
 

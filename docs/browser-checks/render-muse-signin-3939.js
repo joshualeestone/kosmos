@@ -761,15 +761,18 @@ const chk = (ok, label, extra) => {
     const row = document.getElementById('fr-meta-row'); const btn = document.getElementById('fr-meta-connect');
     return { off: row.classList.contains('off'), on: row.classList.contains('on'), soon: !document.getElementById('fr-meta-soon').hidden,
       btn: !btn.hidden, btnText: btn.textContent.trim(), btnOff: btn.disabled, flow: !document.getElementById('fr-muse-flow').hidden,
-      msg: document.getElementById('fr-muse-msg').textContent.trim(), box: document.getElementById('fr-muse-msg').className };
+      msg: document.getElementById('fr-muse-msg').textContent.trim(), box: document.getElementById('fr-muse-msg').className,
+      name: row.querySelector('.llm-w b').textContent.trim() };
   });
   await q(() => { MUSE_CREATE = null; window.__museOn = false; window.__museSignedIn = false; window.__museInstalled = true; frOpen(); frGo(5); });
   await settle(); await settle();
   let fm = await frMeta();
   chk(fm.off && !fm.on && fm.soon && !fm.btn && !fm.flow, 'first run, switched off: the Meta row is today\'s Coming soon, no Connect, no panel', JSON.stringify(fm));
+  chk(fm.name === 'Llama', 'first run, switched off: the row keeps its coming-soon Llama (CONTROL for #4569)', fm.name);
   await q(() => { MUSE_CREATE = null; window.__museOn = true; }); await q(() => frPaintMeta()); await settle();
   fm = await frMeta();
   chk(fm.on && !fm.off && !fm.soon && fm.btn && fm.btnText === 'Connect' && !fm.btnOff && !fm.flow, 'first run, switched on and signed out: Connect, no pill, panel shut', JSON.stringify(fm));
+  chk(fm.name === 'Muse', 'first run, switched on: the row names Muse (from Meta), not Llama (#4569)', fm.name);
   const frOpenState = () => q(() => ({ flow: !document.getElementById('fr-muse-flow').hidden, focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName), exp: document.getElementById('fr-meta-connect').getAttribute('aria-expanded') }));
   await q(() => document.getElementById('fr-meta-connect').click()); await settle();
   const opened = await frOpenState();

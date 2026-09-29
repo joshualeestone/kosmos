@@ -26979,7 +26979,8 @@ function museSigninFlow(prefix, opts) {
       if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
     } else clearCode();
     if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
-    const sp = el('spin'); if (sp) sp.hidden = st.state === 'expired';   // #4569: waiting on the person, not on Meta
+    // #4569: an expired code waits on the person pressing Get a new code; while a code is live Kosmos is still polling Meta.
+    const sp = el('spin'); if (sp) sp.hidden = st.state === 'expired';
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
@@ -27140,6 +27141,9 @@ async function frPaintMeta(opts) {
   const mark = row.querySelector('.pmark');
   if (mark) { mark.classList.toggle('live', live); mark.classList.toggle('dim', !live); }
   const soon = document.getElementById('fr-meta-soon'); if (soon) soon.hidden = live;
+  /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
+     as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
+  const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
