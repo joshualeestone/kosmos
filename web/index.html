@@ -11587,7 +11587,9 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </section>
   </section>
-  <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
+  <!-- #4550: this section opens under the AI Settings button now (there is no Advanced pill). It keeps
+       aria-label "Terminal" to match its own content. History, #2916: the pill was renamed "Advanced", and
+       this region kept aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
        convention as d-sec-model staying "Model" under the "AI Settings" pill (data-go="model"). -->
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
@@ -34291,7 +34293,7 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
-  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
+  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
     // Clear the previous agent's rows now, not when the fetch returns: a click in between would
@@ -34836,7 +34838,7 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile'
    keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
    is added and must focus ON the member, teach detailGo to focus the requested section rather
    than group[0]. */
-/* #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
+/* History (superseded by #4550 below): #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
    fold mechanism model+memory and instr+skills already use, so the top-level Remove pill can
    leave the nav and free the clean four-pack. The Advanced pill now reveals both the terminal
    section and the remove section; section 'remove' maps to the 'term' pill. */
@@ -34929,6 +34931,13 @@ function detailGo(section, opts) {
     const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
     if (fresh) swarmPagePaint(fresh, { force: true });
   }
+  /* #2916 / #4550: the Skills list lazy-loads when its section is revealed, now under Profile. Here, beside
+     the group reveal, so every way in loads it (the Profile click, openDetail(name, 'instr' | 'skills'),
+     detailGo), not only a click; SKILLS_LOADED_FOR keeps a return visit from refetching. */
+  if (group.includes('skills') && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName && typeof loadSkills === 'function') {
+    SKILLS_LOADED_FOR = CURRENT.sessionName;
+    loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
+  }
   if (group.includes('term') && CURRENT && arriving) {   // #4550: the Terminal section opens under AI Settings
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
@@ -34996,20 +35005,7 @@ function detailGo(section, opts) {
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  detailGo(b.dataset.go);
-  /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
-     own pill; it folded under Instructions, and since #4550 under Profile, so load it when the Profile pill opens
-     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
-     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
-     rebuild the list on every visit.
-     ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
-     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
-     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
-     would render blank until the pill is clicked -- move this load beside the group reveal then. */
-  if (b.dataset.go === 'profile' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {   // #4550: Skills folds into Profile
-    SKILLS_LOADED_FOR = CURRENT.sessionName;
-    loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
-  }
+  detailGo(b.dataset.go);   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
 });
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
