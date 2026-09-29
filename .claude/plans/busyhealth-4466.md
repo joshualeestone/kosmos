@@ -158,6 +158,15 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Deferred NIT: "Kosmos is busy, retrying..." can appear inside SessionStart's "reporting is OFF"
   reason; it is true there.
 
+## Review round 14 decisions
+- The END TO END arm's floor is 10 s, not 11: whole-second SECONDS can give the POST a second less than
+  the true remainder, which landed the total just over 11 s; 10 s still tells a cut-short POST (~4.5 s)
+  and the old 15 s POST (~17 s) from the fix.
+- One `_lsof_present` for all three lsof checks, so the test seam governs every one.
+- The test file says it is slow on purpose; CLAUDE.md "Where to Find Things" has a row for this area; the
+  pane-claim comment says "usually" and why.
+- Deferred again: plan file name (round 13); HEAD on Windows (round 12).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

@@ -15,6 +15,8 @@
  *   - a stranger on the port, and an older board with no /api/health, still read as before;
  *   - agent start/stop/restart: refused while the board answers; on a down board, 10 rapid agent
  *     restarts go ahead at most once (the cooldown); a person, and --force, are unaffected.
+ * SLOW ON PURPOSE (about 90 s): the waits ARE the behaviour under test (a 20 s busy budget, curl's 15 s,
+ * a 12 s hook budget). Shortening a stub delay or a budget here can make an arm pass without measuring it.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -174,7 +176,9 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
   const out = await runCli(['report', 'started', '--auto'], env);
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.ok(out.ms < 15000, `the whole --auto report must end inside the hook's 15 s (took ${out.ms} ms)`);
-  assert.ok(out.ms >= 11000, `the POST must have been given what was left of the budget, not cut short (took ${out.ms} ms)`);
+  // 10 s, not 11: SECONDS counts whole seconds, so the POST can get a second less than the true remainder
+  // and the total can land just over 11 s. A POST cut short ends near 4.5 s, the old 15 s POST near 17.
+  assert.ok(out.ms >= 10000, `the POST must have been given what was left of the budget, not cut short (took ${out.ms} ms)`);
   assert.match(out.stdout, /did not answer in time, so we could not record that\. It may still have happened: check before doing it again\. It does not need a restart\./);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
   assert.match(out.stderr, /busy, retrying/, 'the first probe must have missed, or the arm never measured a slow health answer');

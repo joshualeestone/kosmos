@@ -254,6 +254,10 @@ esac
 say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
+# Whether this Mac has the lsof the port checks use (one answer for all three). A function so a test
+# can take it away.
+_lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
+
 # ⚠️ IDENTITY, NOT JUST A 200. Any process squatting on the port answers a
 # bare liveness probe, and then start/status/the app icon would all point a
 # person at a stranger's page and call it Kosmos. The board serves its own
@@ -364,8 +368,6 @@ AUTO_REPORT_TOTAL_S=12
 # restarts an hour came from agents that each saw "not running". Five minutes covers a slow boot of a
 # busy board. KOSMOS_AGENT_RESTART_COOLDOWN overrides it.
 AGENT_RESTART_COOLDOWN_S=300
-# Whether this Mac has the lsof the ownership check uses. A function so a test can take it away.
-_lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 # KOSMOS_BUSY_WAIT in whole seconds. Anything else is the default: "2.5" would be an arithmetic
 # error under set -e, and the messages must name the wait that was actually used.
 _busy_wait() {
@@ -458,7 +460,7 @@ port_taken_by_stranger() {
 # a specific non-loopback address. The trailing space also rules out a longer port
 # (` :18729 ` cannot match inside `:187290`).
 port_has_listener() {
-  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  _lsof_present || return 1
   case "$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
     *" 127.0.0.1:$PORT "*|*" *:$PORT "*) return 0 ;;
     *) return 1 ;;
@@ -478,7 +480,7 @@ port_has_listener() {
 # Pipe-free capture + case-match for the pipefail/SIGPIPE reason port_has_listener
 # documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
 port_listener_owner() {
-  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  _lsof_present || return 1
   local _lsof _pid _uid _cmd _iskos
   # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
   # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
@@ -763,7 +765,8 @@ EOF
 # person typing into an agent's pane); the refusal text never mentions it, so an agent is not taught it.
 # An agent is known by: KOSMOS_AGENT_SESSION (the supervisor exports it into every pane), the
 # per-launch KOSMOS_AGENT_TOKEN, or its pane's session carrying the supervisor's @kosmos_agent claim
-# (so an agent launched before this update, with neither variable, is still caught).
+# (so an agent launched before this update, with neither variable, is usually still caught: the claim
+# is read through the tmux this CLI resolved, and a tmux of another version cannot read that server).
 BOARD_STARTED_AT="$KOSMOS_HOME/board.started-at"
 _mark_board_started() { date +%s > "$BOARD_STARTED_AT" 2>/dev/null || true; }
 _invoked_by_agent() {
