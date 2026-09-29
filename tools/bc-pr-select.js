@@ -37,8 +37,8 @@
  *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
  *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
  *              from the page, or its end cannot be found, or it is declared twice; in those cases it
- *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines never
- *              name it, and
+ *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines
+ *              never name it, and
  *              render-assistant-hosted-3660 never calls it (it sees the bubble's image), so no rule
  *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
  *              every function body a check calls would select on most page diffs (openDetail's body
@@ -99,8 +99,10 @@ function declaredFunctions(src) {
    the declaration's own indentation followed by `}` (then optionally `;` and a `//` comment). A function
    whose braces open and close on its declaration line is that one line. null when the page does not
    declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation;
-   'duplicate' when it is declared more than once (the last declaration is the live one, and a check cannot
-   say which body it depends on). */
+   'duplicate' when more than one line declares it, nested declarations included (the last top-level one is
+   live, and a check cannot say which body it depends on). It reads indentation, not syntax: a `}` at the
+   declaration's indentation inside a multi-line string or template literal ends the body early (the plan's
+   weakest part; browser-checks-pr-select-4119.test.js checks each declared body's braces balance). */
 function functionRange(page, name) {
   const lines = page.split('\n');
   const decl = new RegExp(`^(\\s*)(?:async\\s+)?function\\s+${name.replace(/\$/g, '\\$')}\\s*\\(`);
@@ -341,6 +343,13 @@ function selectByPage(diff, text, add, page) {
   }
 }
 
+/* The page as of `head`, or '' when head has no web/index.html (the PR deleted or moved it): every declaring
+   check then selects. ls-tree answers an empty listing (exit 0) for a path head does not have, and throws for
+   anything else (a bad ref, a broken repository), so only a genuinely absent page reads as empty. */
+function pageAt(head) {
+  return git(['ls-tree', head, '--', 'web/index.html']).trim() === '' ? '' : git(['show', `${head}:web/index.html`]);
+}
+
 function main(argv) {
   const [base, head = 'HEAD'] = argv;
   if (!base) {
@@ -363,10 +372,7 @@ function main(argv) {
     // The head's own page: a `function` range is read against the lines this diff numbers.
     // A head without the page (the PR deleted or moved it) is an empty page, so every declaring check selects.
     // Only that case: any other git failure still exits 2 below, which fails the job loudly.
-    // ls-tree answers an empty listing (exit 0) for a path head does not have, and throws for anything else.
-    const hasPage = git(['ls-tree', head, '--', 'web/index.html']).trim() !== '';
-    const page = hasPage ? git(['show', `${head}:web/index.html`]) : '';
-    why = select(diff, changedChecks, page);
+    why = select(diff, changedChecks, pageAt(head));
   } catch (e) {
     process.stderr.write(`bc-pr-select: could not select for ${base}...${head}: ${e.message}\n`);
     return 2;
@@ -377,5 +383,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { KNOWN_RED, isPageScoped, declaredFunctions, functionRange, touchedLines, requirersOf, referrersOf, namersOf, usedAsSelector, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
+module.exports = { KNOWN_RED, isPageScoped, declaredFunctions, functionRange, touchedLines, pageAt, requirersOf, referrersOf, namersOf, usedAsSelector, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

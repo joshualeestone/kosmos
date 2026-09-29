@@ -314,7 +314,8 @@ test('every function a check declares is defined on the page today, so no declar
       if (r[0] === r[1]) {
         const lines = page.split('\n');
         const ind = (l) => /^(\s*)/.exec(l || '')[1].length;
-        assert.ok(ind(lines[r[0]]) <= ind(lines[r[0] - 1]), `${f}'s ${fn} reads as one line but the line after it is indented deeper`);
+        const after = lines.slice(r[0]).find((l) => l.trim() !== '');   // the next non-blank line
+        assert.ok(ind(after) <= ind(lines[r[0] - 1]), `${f}'s ${fn} reads as one line but the line after it is indented deeper`);
       }
     }
   }
@@ -369,4 +370,19 @@ test('touchedLines counts only web/index.html hunks, and places a -U0 pure delet
   // A header without a/ b/ prefixes (diff.noprefix) is still the page's.
   const noprefix = ['diff --git web/index.html web/index.html', '--- web/index.html', '+++ web/index.html', '@@ -5 +5 @@', '-a', '+b'].join('\n');
   assert.deepEqual(sel.touchedLines(noprefix), [5, 5]);
+});
+
+test('pageAt: the page at a head that has it, an empty page at one that does not, and a thrown error for a bad ref', () => {
+  assert.ok(sel.pageAt('HEAD').includes('<html'), 'the page at HEAD was not read');
+  const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';   // git's empty tree: no web/index.html in it
+  assert.equal(sel.pageAt(EMPTY_TREE), '', 'a head without the page must read as an empty page');
+  assert.throws(() => sel.pageAt('no-such-ref-4119'), 'a bad ref must fail loudly, not read as an empty page');
+});
+
+test('main() diffs with the flags that keep user git config out of the headers and line numbers', () => {
+  const src = fs.readFileSync(TOOL, 'utf8');
+  const call = src.slice(src.indexOf("diff = git(["), src.indexOf("'--', 'web/index.html']);") + 30);
+  for (const flag of ['diff.suppressBlankEmpty=false', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/']) {
+    assert.ok(call.includes(flag), `main()'s git diff lost ${flag}`);
+  }
 });
