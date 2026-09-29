@@ -836,10 +836,10 @@ chk "and no step heading promises a running board" "! grep -qE 'Keeping Kosmos r
 chk "the login-item line is held by the same decision (the sandbox never prints it)" "grep -q 'elif \\[ \"\$_kosmos_board_off\" = yes \\]; then' \"$SETUP\" && grep -q 'Kosmos will not start itself at login \$(_kosmos_off_why)' \"$SETUP\""
 chk "a good update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
-# ⚠️ What this pair can prove depends on #4342 (Raiden): until a failed update restarts the board,
-# nothing here would start it, so these pass with or without #4356's check. Once #4342 lands (it
-# restarts only a board the update itself paused, and a connect computer's was already stopped),
-# they are the guard that a failed update on a connect computer stays down.
+# ⚠️ With #4342 a failed update restarts a board the update itself paused. This connect computer's
+# board was stopped before the update, so the trap never arms and this pair holds for that reason. The
+# case where it does arm (the board running when the person picks connect mid-update) is the #4342
+# section's "a failed update after the choice became connect" arm below.
 RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/update-connect-failed.log" 2>&1 || RC=$?
 chk "the forced failure on a connect computer is a failure (or this arm tests nothing)" "rc_refused $RC"
 chk "a failed update does not start a connect computer's board" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
@@ -887,6 +887,136 @@ chk "a marker this run wrote goes if the choice became run or both during it" "g
 chk "and the run ends by stopping a board that became connect during it" "grep -v '^[[:space:]]*#' \"$SETUP\" | grep -A1 '^if \\[ \"\$_kosmos_mode_word\" = connect \\] && \\[ \"\$BOARD_OURS\" = yes \\]; then' | grep -q 'kosmos\" stop'"
 rm -f "$SB/home/mode"
 chk "the board is up for the checks below" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+echo "== a failed update does not leave the board stopped (#4342) =="
+# The update pauses the board with `kosmos stop`, which writes board.stopped, and everything that
+# would bring the board back (launchd's KeepAlive, board-run, the watchdog) obeys that file. An update
+# that died after the pause left it there, so the board stayed down until a person started it. The
+# failure is forced just after the pause: a local tmux source that does not exist makes fetch_tmux,
+# the first step after it, fail the way a download fails on a Mac that has just woken.
+RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/failed-update.log" 2>&1 || RC=$?
+chk "the forced update failure is a failure (or this arm tests nothing)" "rc_refused $RC"
+chk "it failed after the pause, where the marker is written" "grep -q 'pausing Kosmos for the update' \"$SB/failed-update.log\""
+chk "a failed update leaves no board.stopped behind" "[ ! -e \"$SB/home/board.stopped\" ]"
+# A bounded wait, not one probe: `kosmos start` waits for health, but a loaded machine is this file's known flake (#935).
+served_within() { local _i; for _i in $(seq 1 20); do curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" && return 0; sleep 0.5; done; return 1; }
+chk "a failed update brings the board back" "served_within"
+chk "it says the board was started again" "grep -q 'Kosmos was started again' \"$SB/failed-update.log\""
+# The control: a board the person stopped on purpose before the update stays stopped when it fails.
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/failed-update-stopped.log" 2>&1 || RC=$?
+chk "CONTROL: the forced failure is a failure here too" "rc_refused $RC"
+chk "CONTROL: a board stopped on purpose keeps its board.stopped" "[ -e \"$SB/home/board.stopped\" ]"
+# One probe on purpose: a wrongly fired trap's kosmos start waits until the board serves, so a wait would add nothing.
+chk "CONTROL: and is not started by the failed update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+"$SB/home/bin/kosmos" start > /dev/null 2>&1 || true
+chk "the board is back for the checks below" "served_within"
+# #4356 (Liu Kang's ruling, m2647; #4342 landed second): the trap reads this computer's choice again before it starts
+# anything. The race it closes: the board is running when the update pauses it (so the trap arms), and the person
+# picks "Connect to agents on another computer" before the update fails. The failed update must not start the board
+# they have just turned off. A mode file reading connect while the board is still up is exactly that moment.
+printf 'connect\n' > "$SB/home/mode"
+chk "CONTROL: the board is up and the choice reads connect before this update" "served_within && [ \"\$(cat \"$SB/home/mode\")\" = connect ]"
+RC=0; cat "$SETUP" | KOSMOS_TMUX_SRC="$SB/no-such-tmux-source" sh > "$SB/failed-update-connect.log" 2>&1 || RC=$?
+chk "a failed update after the choice became connect: the forced failure is a failure" "rc_refused $RC"
+chk "the trap armed and read the choice again (its own sentence)" "grep -q 'The update did not finish. Kosmos stays off while this computer connects to agents on another computer' \"$SB/failed-update-connect.log\""
+# One probe on purpose, as in the control above: a wrongly fired start waits until the board serves.
+chk "it does not start the board this computer turned off" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "and leaves board.stopped, which launchd and the watchdog obey" "[ -e \"$SB/home/board.stopped\" ]"
+chk "and never says it started Kosmos again" "! grep -q 'Kosmos was started again' \"$SB/failed-update-connect.log\""
+rm -f "$SB/home/mode"
+"$SB/home/bin/kosmos" start > /dev/null 2>&1 || true
+chk "the board is back for the checks below (after the connect arm)" "served_within"
+# Needs python3 (the held download) and perl (its own process group). Without python3 the port lookup below stops the
+# whole harness under set -e; without perl the "reached the held download" check goes red. Neither passes vacuously.
+# A signal, not a failed step: a closed terminal or a stopped job sends TERM to the installer's process group (its
+# progress logger too). The update is held right after the pause by a release host that accepts and never answers
+# the tmux download, then the group gets TERM, the way a closed window sends it.
+_hang_log="$SB/hang-server.log"; : > "$_hang_log"
+_hang_port="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+python3 - "$_hang_port" "$_hang_log" > /dev/null 2>&1 <<'PY' &
+import socket, sys, threading
+port, log = int(sys.argv[1]), sys.argv[2]
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", port)); s.listen(8)
+held = []
+def serve(c):
+    req = c.recv(4096).decode("latin-1")
+    open(log, "a").write(req.split("\r\n", 1)[0] + "\n")
+    if "tmux-" in req: held.append(c); return          # the download never answers
+    c.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"); c.close()
+while True:
+    c, _ = s.accept(); threading.Thread(target=serve, args=(c,), daemon=True).start()
+PY
+_hang_pid=$!
+( unset KOSMOS_TMUX_SRC; export KOSMOS_RELEASE_BASE="http://127.0.0.1:$_hang_port"
+  exec perl -e 'setpgrp(0,0); exec @ARGV' sh -c 'exec sh < "$1"' _ "$SETUP" ) > "$SB/term-update.log" 2>&1 &
+_upd_pid=$!
+for _i in $(seq 1 120); do grep -q 'tmux-' "$_hang_log" 2>/dev/null && break; sleep 0.5; done
+chk "the TERM arm reached the held download, after the pause (or it tests nothing)" "grep -q 'tmux-' \"$_hang_log\" && grep -q 'pausing Kosmos for the update' \"$SB/term-update.log\""
+kill -TERM -- "-$_upd_pid" 2>/dev/null || true
+for _i in $(seq 1 60); do kill -0 "$_upd_pid" 2>/dev/null || break; sleep 0.5; done
+# Only the installer itself if it is still there: the board the trap started is in this process group too.
+kill -0 "$_upd_pid" 2>/dev/null && kill -9 "$_upd_pid" 2>/dev/null || true
+kill "$_hang_pid" 2>/dev/null || true; wait "$_hang_pid" 2>/dev/null || true
+chk "a TERM after the pause leaves no board.stopped behind" "[ ! -e \"$SB/home/board.stopped\" ]"
+chk "a TERM after the pause brings the board back" "served_within"
+"$SB/home/bin/kosmos" start > /dev/null 2>&1 || true
+# Another Kosmos on our port while ours is down and unmarked (#964): the update refuses, and the trap must stay out
+# (review iteration 3). Measured with the disarm removed: kosmos start reads the stand-in as a healthy Kosmos and
+# returns, so nothing is killed, but the trap then claims "started again" for a board that is not ours: the claim
+# check below is the one that goes red.
+"$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+rm -f "$SB/home/board.stopped"
+mkdir -p "$SB/other-kosmos"
+printf 'import http.server,sys\nclass H(http.server.BaseHTTPRequestHandler):\n  def do_GET(s):\n    s.send_response(200); s.end_headers(); s.wfile.write(b"Kosmos")\n  def log_message(s,*a): pass\nhttp.server.HTTPServer(("127.0.0.1",int(sys.argv[1])),H).serve_forever()\n' > "$SB/other-kosmos/server.py"
+python3 "$SB/other-kosmos/server.py" "$PORT" > /dev/null 2>&1 &
+_other_pid=$!
+for _i in $(seq 1 20); do curl -s -m 1 "http://127.0.0.1:$PORT/" 2>/dev/null | grep -q Kosmos && break; sleep 0.25; done
+RC=0; cat "$SETUP" | sh > "$SB/other-kosmos-update.log" 2>&1 || RC=$?
+chk "another Kosmos on the port: the update refuses (or this arm tests nothing)" "rc_refused $RC && grep -q 'Another Kosmos is answering' \"$SB/other-kosmos-update.log\""
+chk "another Kosmos on the port: that board is left running" "kill -0 $_other_pid 2>/dev/null"
+chk "another Kosmos on the port: no restart is claimed" "! grep -q 'Kosmos was started again' \"$SB/other-kosmos-update.log\""
+chk "another Kosmos on the port: no board.stopped is left" "[ ! -e \"$SB/home/board.stopped\" ]"
+kill "$_other_pid" 2>/dev/null || true; wait "$_other_pid" 2>/dev/null || true
+"$SB/home/bin/kosmos" start > /dev/null 2>&1 || true
+chk "the board is back after the other-Kosmos arm" "served_within"
+# Another app (not Kosmos) on our port while ours is down and unmarked: the update refuses. The installer's own stop
+# writes board.stopped here ("already down"), so the trap must remove it without starting on that app's port, or the
+# board latches off once the app is gone (review iteration 5). Then a silent holder (a listener that never answers):
+# the "still holding the port" refusal, same rule.
+_standin() {  # $1: answer ("http" answers HTTP not as Kosmos, "silent" accepts and never answers)
+  python3 -c '
+import socket, sys, threading
+mode, port = sys.argv[1], int(sys.argv[2])
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", port)); s.listen(8)
+held = []
+def serve(c):
+    if mode == "silent": held.append(c); return
+    c.recv(4096); c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"); c.close()
+while True:
+    c, _ = s.accept(); threading.Thread(target=serve, args=(c,), daemon=True).start()
+' "$1" "$PORT" > /dev/null 2>&1 &
+  _standin_pid=$!
+  for _i in $(seq 1 20); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.25; done
+}
+for _mode in http silent; do
+  "$SB/home/bin/kosmos" stop > /dev/null 2>&1 || true
+  rm -f "$SB/home/board.stopped"
+  _standin "$_mode"
+  RC=0; cat "$SETUP" | sh > "$SB/standin-$_mode-update.log" 2>&1 || RC=$?
+  if [ "$_mode" = http ]; then _say='Another app on this computer is using port'; else _say='still holding port'; fi
+  chk "a $_mode stand-in on the port: the update refuses there (or this arm tests nothing)" "rc_refused $RC && grep -q \"$_say\" \"$SB/standin-$_mode-update.log\""
+  chk "a $_mode stand-in on the port: no board.stopped is left" "[ ! -e \"$SB/home/board.stopped\" ]"
+  chk "a $_mode stand-in on the port: it is left running and no restart is claimed" "kill -0 $_standin_pid 2>/dev/null && ! grep -q 'Kosmos was started again' \"$SB/standin-$_mode-update.log\""
+  kill "$_standin_pid" 2>/dev/null || true; wait "$_standin_pid" 2>/dev/null || true
+done
+"$SB/home/bin/kosmos" start > /dev/null 2>&1 || true
+chk "the board is back after the stand-in arms" "served_within"
+# The disarm, read from the installer itself: no failure after the board is started again may restart it, and the
+# start that fails must say only its own sentence. So the disarm comes after the trap and before that start.
+_arm_at="$(grep -n 'trap _kosmos_update_resume EXIT' "$SETUP" | head -1 | cut -d: -f1)"
+_disarm_at="$(grep -n 'kosmos-4342-disarm' "$SETUP" | head -1 | cut -d: -f1)"
+_start_at="$(grep -n 'bin/kosmos" start || die "Kosmos installed but would not start' "$SETUP" | head -1 | cut -d: -f1)"
+chk "the installer disarms #4342's trap after arming it and before its own start" "[ -n \"$_arm_at\" ] && [ -n \"$_disarm_at\" ] && [ -n \"$_start_at\" ] && [ \"$_arm_at\" -lt \"$_disarm_at\" ] && [ \"$_disarm_at\" -lt \"$_start_at\" ]"
 
 echo "== refusals speak sentences =="
 OUT="$(sh -s -- --uninstal < "$SETUP" 2>&1 || true)"

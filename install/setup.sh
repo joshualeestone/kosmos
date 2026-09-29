@@ -2691,6 +2691,58 @@ _kosmos_mode_keeps_board_off() {
 _kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
+  # #4342: a failed update must not leave the board stopped for good. The stop below writes
+  # board.stopped, which launchd's KeepAlive, `kosmos board-run` and the watchdog all obey, and only a
+  # person's `kosmos start` clears it; an update that died after this line (a download on a Mac that
+  # has just woken, a full disk) left the board down until the app was reopened. So from here until
+  # the board is started again, any non-zero exit removes the marker and starts the board. A board
+  # the person had stopped on purpose before the update (the marker already there) is left stopped.
+  _kosmos_stop_marker="$KOSMOS_HOME/board.stopped"   # the file install/kosmos calls STOP_MARKER
+  if [ -f "$_kosmos_stop_marker" ]; then _kosmos_resume_on_fail=no; else _kosmos_resume_on_fail=yes; fi
+  # Plain POSIX sh, no `local`: this file runs under sh, and a trap handler's variables are the script's own.
+  # _kosmos_resume_on_fail: yes = on failure remove our marker and start the board; clear = remove our marker only
+  # (the port is someone else's, so starting there is not ours to do; once they free it, launchd and the watchdog
+  # bring the board back); no = leave everything as it is (review iteration 5).
+  _kosmos_update_resume() {
+    _kosmos_rc=$?
+    _kosmos_undo="${_kosmos_resume_on_fail:-no}"
+    [ "$_kosmos_rc" -ne 0 ] && { [ "$_kosmos_undo" = yes ] || [ "$_kosmos_undo" = clear ]; } || return 0
+    _kosmos_resume_on_fail=no
+    trap '' HUP INT TERM   # a second Ctrl-C or hang-up must not cut the undo short (review iteration 5)
+    # #4356 (Liu Kang's ruling, m2647; this PR landed second): read this computer's choice again, as every other
+    # decision about the board in this file does. If it now keeps the board off (the person picked "Connect to agents
+    # on another computer" while this ran, or the choice cannot be read), nothing is undone: the marker our stop wrote
+    # is exactly what keeps it off, and no board is started.
+    _kosmos_board_decide
+    if [ "$_kosmos_board_off" = yes ]; then
+      trap '' PIPE
+      printf '     The update did not finish. Kosmos stays off %s.\n' "$(_kosmos_off_why)" >&2 2>/dev/null || true
+      return 0
+    fi
+    if [ "$_kosmos_undo" = clear ]; then rm -f "$_kosmos_stop_marker" 2>/dev/null || true; return 0; fi
+    # A closed terminal takes the progress logger with it (stderr is its pipe), and a write to it would kill this
+    # handler before the start (review iteration 1). So: start first, then ignore SIGPIPE only for the message
+    # (an ignored SIGPIPE would otherwise be inherited by the board the start launches; review iteration 3).
+    rm -f "$_kosmos_stop_marker" 2>/dev/null || true
+    _kosmos_back=no
+    if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
+       && "$KOSMOS_HOME/bin/kosmos" start >/dev/null 2>&1; then _kosmos_back=yes; fi
+    # Only what happened (review iteration 2): a start that failed must not read as one that worked.
+    trap '' PIPE
+    if [ "$_kosmos_back" = yes ]; then
+      printf '     The update did not finish, so Kosmos was started again.\n' >&2 2>/dev/null || true
+    else
+      printf '     The update did not finish, and Kosmos could not start again just now. Open Kosmos, or run: kosmos start\n' >&2 2>/dev/null || true
+    fi
+    return 0
+  }
+  trap _kosmos_update_resume EXIT
+  # A signal to the whole process group (a closed window, Ctrl-C) ends a running download at once and the trap runs.
+  # A TERM to this shell's pid alone waits until the foreground command returns, and the tmux download has no time
+  # limit (it had none before this change either), so a stalled download holds it (review iteration 3).
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
@@ -2748,6 +2800,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
             "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
             > "$_abortf"; } 2>/dev/null || true
+        _kosmos_resume_on_fail=no   # #4342 (review iteration 4): our board never stopped, so there is nothing to undo
         die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
@@ -2770,12 +2823,16 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         if _kosmos_mode_keeps_board_off; then
           info "another Kosmos is answering on port $PORT; it is not this install's, and this install does not start a board here now, so it is left alone"
         else
+          # #4342 (review iterations 3 and 5): the port answers as another install's Kosmos, so a start here is not
+          # ours to make; the marker our own stop wrote is still removed (clear), so nothing latches once that board goes.
+          [ "${_kosmos_resume_on_fail:-}" = yes ] && _kosmos_resume_on_fail=clear
           die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
       fi
       ;;
     "") ;;
     *)
+      [ "${_kosmos_resume_on_fail:-}" = yes ] && _kosmos_resume_on_fail=clear   # #4342: the same; the port is not ours
       die "Another app on this computer is using port $PORT, which Kosmos needs. Quit that app, then paste the install line again."
       ;;
   esac
@@ -2803,6 +2860,9 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     done
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
+      # #4342 (review iteration 5): the person is told to quit that process, so do not start over it; remove our marker
+      # so the board comes back by itself once the port is free.
+      [ "${_kosmos_resume_on_fail:-}" = yes ] && _kosmos_resume_on_fail=clear
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
   fi
@@ -3772,6 +3832,11 @@ fi
 # Read again now (_kosmos_board_decide): the person may have answered the first screen, or used the
 # menu, during this run. The latest reading decides whether this run starts the board.
 _kosmos_board_decide
+# #4342: disarmed here, before this run starts the board or decides to leave it off: `kosmos start` removes
+# board.stopped first, and the off branch writes it on purpose, so from this line on no failure may undo either, and a
+# start that fails says only its own sentence (review iteration 1).
+_kosmos_resume_on_fail=no   # kosmos-4342-disarm
+trap - HUP INT TERM         # the signal traps were for the armed window only (review iteration 5)
 _kosmos_started=no; _kosmos_wrote_marker=no
 if [ "$_kosmos_board_off" = yes ]; then
   _kosmos_wrote_marker=yes
