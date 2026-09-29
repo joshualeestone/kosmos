@@ -76,3 +76,9 @@ That "a token is stored" is a good enough answer for an agent. It can be stale (
   - The test now also counts `kosmos-auth.*` files. Mutant restoring round 2's `kill "$_cpid"` goes red with the header file left.
   - Stated honestly in the comment: a request the board already received may still be completed there; the interrupt stops this command waiting.
 - **NIT** The 2s bound against a 4s hold. The hold is now 8s.
+
+## Review round 4 (sonnet, blind): 0 BLOCKERs, 1 WARNING
+- **WARNING** The token WRITER (node reading stdin) still ran in the foreground, so a producer that never closed stdin left the command deaf to every interrupt, the same defect round 2 fixed for curl.
+  - Fixed: the writer runs in the background with stdin handed over (`<&0`; a background job's stdin is /dev/null otherwise) and is `wait`ed on. The trap kills it by its own pid.
+  - New test: SIGTERM while stdin is still open, with a control that the writer was reached. It stops in under 2s, exits 143, leaves no files, and sends nothing.
+  - Mutant: the writer back in the foreground. At first the test HUNG rather than failed (it waited for close with no limit), which left install/kosmos mutated until I killed the run and the script restored it (its hash matched). Both interrupt tests now kill the CLI after 6s and fail ("waited 6001ms"), so a deaf CLI fails the suite instead of hanging it.

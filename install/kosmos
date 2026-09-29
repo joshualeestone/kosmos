@@ -1574,10 +1574,13 @@ cmd_connect() {
   # leave the board token's header file on disk (review round 3). So the trap stops the CURL inside it and
   # then waits for the subshell, which removes that file itself. A request the board already received may
   # still be completed there; the interrupt stops this command waiting for it.
-  local _out="" _cpid=""
+  # The token WRITER is waited on the same way (review round 4): a producer that never closes stdin would
+  # otherwise hold node, and so this command, deaf to every interrupt.
+  local _out="" _cpid="" _npid=""
   _connect_stop() {
-    # `|| true`: this script runs under set -e, and pkill (nothing left to stop) or wait (a killed job's 143)
-    # returning non-zero would end it before the cleanup below.
+    # `|| true`: this script runs under set -e, and pkill (nothing left to stop), kill (already gone) or wait
+    # (a killed job's 143) returning non-zero would end it before the cleanup below.
+    if [ -n "$_npid" ]; then kill -TERM "$_npid" 2>/dev/null || true; wait "$_npid" 2>/dev/null || true; fi
     if [ -n "$_cpid" ]; then pkill -TERM -P "$_cpid" 2>/dev/null || true; wait "$_cpid" 2>/dev/null || true; fi
     rm -f "$tmp" "$_out"; exit "$1"
   }
@@ -1586,11 +1589,15 @@ cmd_connect() {
   trap '_connect_stop 129' HUP
   # The token goes stdin -> node -> the private file as JSON; it is never an argument or an environment variable.
   local wrc=0
+  # `<&0`: a background job's stdin is /dev/null unless it is handed over explicitly.
   "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       const t = s.trim(); if (!t) process.exit(3);
       require("fs").writeFileSync(process.argv[1], JSON.stringify({ token: t }), { mode: 0o600 });
-    });' "$tmp" || wrc=$?
+    });' "$tmp" <&0 &
+  _npid=$!
+  wait "$_npid" || wrc=$?
+  _npid=""
   if [ "$wrc" -ne 0 ]; then
     rm -f "$tmp"; trap - INT TERM HUP
     if [ "$wrc" -eq 3 ]; then say "Nothing to connect: the token on stdin was empty."; exit 2; fi

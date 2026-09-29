@@ -144,7 +144,11 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   assert.equal(during.length, 1, 'CONTROL: the token file is not there mid-request, so its absence after proves nothing');
   const at = Date.now();
   child.kill('SIGTERM');
-  const code = await new Promise((r) => child.on('close', (c, sig) => r(c === null ? sig : c)));
+  /* A CLI deaf to the signal must FAIL this test, not hang it: after 6s it is killed and reported. */
+  const code = await new Promise((r) => {
+    const hard = setTimeout(() => { child.kill('SIGKILL'); r('ignored the signal'); }, 6000);
+    child.on('close', (c, sig) => { clearTimeout(hard); r(c === null ? sig : c); });
+  });
   const took = Date.now() - at;
   /* Promptly, not after the door answers (the stub holds it for 8 seconds): a trap that waited for the request
      would still remove the file, so the file alone could not tell prompt from late (review round 2). */
@@ -152,5 +156,29 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   assert.equal(code, 143, 'TERM is not reported as 128 + 15');
   assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect') || f.startsWith('kosmos-auth')), [],
     'an interrupted connect left the token, its answer file, or the board token\'s header file on disk (review round 3)');
+}));
+
+test('#4451: an interrupt while the token is still arriving on stdin stops at once too, and leaves nothing behind', () => withStub({}, async (port, seen) => {
+  const tmp = privateDir();
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
+  delete env.KOSMOS_AGENT_TOKEN;
+  const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.write(TOKEN.slice(0, 8));   // a producer that has not finished (stdin stays open)
+  // Wait until the private token file exists: the writer is running and waiting for the rest of stdin.
+  for (let i = 0; i < 100 && !fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-connect.')); i += 1) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-connect.')), 'CONTROL: the private file was never made, so the writer was never reached');
+  await new Promise((r) => setTimeout(r, 300));
+  const at = Date.now();
+  child.kill('SIGTERM');
+  /* A CLI deaf to the signal must FAIL this test, not hang it: after 6s it is killed and reported. */
+  const code = await new Promise((r) => {
+    const hard = setTimeout(() => { child.kill('SIGKILL'); r('ignored the signal'); }, 6000);
+    child.on('close', (c, sig) => { clearTimeout(hard); r(c === null ? sig : c); });
+  });
+  const took = Date.now() - at;
+  assert.ok(took < 2000, 'an interrupt while stdin was still open waited ' + took + 'ms');
+  assert.equal(code, 143);
+  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-connect') || f.startsWith('kosmos-auth')), [], 'files were left behind');
+  assert.equal(seen.filter((q) => q.method === 'POST').length, 0, 'a half-read token was sent');
 }));
 
