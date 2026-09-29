@@ -37,6 +37,16 @@ test-support/codex-screens/.
   Never `--dangerously-bypass-hook-trust` (3b).
 - The weekly-limit line Codex shows is left to the #4588 class.
 
+## Residuals (named, not closed)
+- A capture that comes back blank (Codex has not drawn anything yet) falls back to the snapshot, which at
+  startup is usually not the dialog, so the message is typed. Typing into a Codex pane that has not drawn is
+  unsafe for reasons wider than this dialog; refusing every blank Codex screen would widen this change past
+  the card. The race is also narrow in practice: the first message follows the person seeing the agent on the
+  board and typing. What would change this: a report of a first message lost to a blank-screen send.
+- The dialog is matched to 0.149.1's footers; a later Codex that draws below them reads as no dialog.
+- No answer buttons are drawn for either screen (measured: chat.questionIn returns null on both fixtures), so
+  the refusal never meets a button the page offered.
+
 ## Weakest premise
 That the person re-sending is acceptable as "the held message arrives whole". The words are kept, visible and
 one press away; they are not sent by themselves.
