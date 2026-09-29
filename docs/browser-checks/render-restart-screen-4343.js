@@ -51,23 +51,27 @@ let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
 
 let MODE = 'down';
-const HELD = [];   // #4562: 'frozen' requests, held open and never answered (ended at the close)
+const HELD = [];
+let ONESTUCK_TAKEN = false, MODE_ONESTUCK_UP = false;   // #4562: 'frozen' requests, held open and never answered (ended at the close)
 const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/')) {
     if (MODE === 'down') { req.socket.destroy(); return; }   // nothing answers
     // #4562 'frozen': the board is RUNNING but stuck. The connection is accepted and nothing is ever sent,
-    // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 3 s late.
+    // which is what a frozen board's socket does (the kernel accepts it); 'slow' answers, 8 s late (just
+    // inside the page's 10 s limit); 'onestuck' holds ONE /api/status past the limit and answers the rest.
     if (MODE === 'frozen') { HELD.push(res); return; }
+    if (MODE === 'onestuck' && req.url.startsWith('/api/status') && !ONESTUCK_TAKEN) { ONESTUCK_TAKEN = true; HELD.push(res); return; }
+    if (MODE === 'onestuck') MODE_ONESTUCK_UP = true;
     if (MODE === 'slow' && req.url.startsWith('/api/status')) {
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() }));
-      }, 3000);
+      }, 8000);
       return;
     }
     if (req.url.startsWith('/api/status')) {
       // 'up' is the least a board can say and still paint cleanly; 'broken' makes the painters throw.
-      const body = MODE === 'up' ? { agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() } : { agents: null };
+      const body = (MODE === 'up' || MODE === 'onestuck') ? { agents: [], counts: { total: 0, working: 0, idle: 0, unreadableLines: 0 }, checkedAt: new Date().toISOString() } : { agents: null };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
       return;
@@ -342,8 +346,27 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     await page.waitForTimeout(20000);
     const st = await page.evaluate(() => ({ screen: !!document.querySelector('.restart-back'),
       note: /not answering/.test(document.getElementById('uoffline-slot').textContent || ''), since: BOARD_NO_ANSWER_SINCE }));
-    ok('[slow] a board answering 3 s late is polled and answers (control)', answeredOnce);
+    ok('[slow] a board answering 8 s late is polled and answers (control)', answeredOnce);
     ok('[slow] and it never counts as down: no note, no screen, no failure clock', !st.screen && !st.note && st.since === null, JSON.stringify(st));
+    await page.close();
+  }
+  // ── #4562 review: ONE poll stuck past the limit while the polls after it answer. Its timeout lands
+  //    after a newer poll's success, and must not paint "not answering" over a board that is answering. ──
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => problems.push('[onestuck] pageerror: ' + e.message));
+    MODE = 'up';
+    await page.goto('http://127.0.0.1:' + port + '/?tab=agents');
+    await page.waitForTimeout(1500);
+    ONESTUCK_TAKEN = false; MODE = 'onestuck';
+    await page.evaluate(() => { window.__noted = false; setInterval(() => {
+      if (/not answering/.test(document.getElementById('uoffline-slot').textContent || '')) window.__noted = true; }, 100); });
+    await page.waitForTimeout(18000);   // the stuck poll's 10 s limit passes, with later polls answering
+    const os = await page.evaluate(() => ({ noted: window.__noted, since: BOARD_NO_ANSWER_SINCE,
+      stamp: (document.getElementById('checked').textContent || '') }));
+    ok('[onestuck] the harness really held one poll and answered later ones (control)', ONESTUCK_TAKEN && MODE_ONESTUCK_UP, JSON.stringify({ ONESTUCK_TAKEN, MODE_ONESTUCK_UP }));
+    ok('[onestuck] a stuck poll timing out after a newer answer paints nothing: no note, no failure clock, no "could not refresh"',
+      !os.noted && os.since === null && !/could not refresh/.test(os.stamp), JSON.stringify(os));
     await page.close();
   }
   for (const r of HELD.splice(0)) { try { r.destroy(); } catch { /* already gone */ } }

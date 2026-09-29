@@ -19764,7 +19764,7 @@ async function engineRestartClick() {
   while (Date.now() < until) {
     await new Promise((res) => setTimeout(res, ENGINE_RESTART_POLL_MS));
     try {
-      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      const st = await (await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }))).json();   // #4562
       if (st && st.engine && st.engine.startedAt && st.engine.startedAt !== before) { location.reload(); return; }
     } catch { /* the board is away while it restarts */ }
   }
@@ -20368,7 +20368,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     await new Promise((r) => setTimeout(r, 2000));
     let versionNow = null; let attempt = null; let reached = false; let bootNow = null;
     try {
-      const ping = await fetch('/api/status', { cache: 'no-store' });
+      const ping = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));   // #4562
       if (ping.ok) {
         const st = await ping.json().catch(() => null) || {};
         versionNow = st.version || null; attempt = st.updateAttempt || null; reached = true;
@@ -20661,8 +20661,23 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    never starts, and the restart screen never shows (what Josh hit on Friday 2026-09-26). A poll with no
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit; any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a slow one that answers inside 10 s never does. */
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
+   answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
+/* #4562: the same limit for the waits that stand the restart screen down while they run (Restart
+   Kosmos, the update overlay, a world switch). Each has its own deadline, but with an unlimited fetch
+   a frozen board hung the wait on its first ping, the deadline was never reached, the stand-down never
+   ended, and the screen never came: the same bug by another door. The timer is not cleared on an
+   answer, so it also covers the body read; an abort after the body is read does nothing. */
+function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
+  if (typeof AbortController !== 'function') return fetch('/api/status', { cache: 'no-store' });
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), ms);
+  return fetch('/api/status', { cache: 'no-store', signal: ac.signal });
+}
+/* Callers write `typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch(...)`: some
+   tests lift a caller alone, where the helper does not exist. */
 /* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
    in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 function restartHowMac() {
@@ -20923,6 +20938,10 @@ async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
   let statusCut = null;   // #4562: the poll's time limit (STATUS_POLL_TIMEOUT_MS), cleared once it is read
+  /* #4562 review: polls overlap now (every 5 s, each allowed 10 s), so an older poll's timeout can land
+     after a newer poll has answered. Numbered on the function itself (tests lift tick() alone), and a
+     failure paints only if no newer poll has answered since this one went out. */
+  const pollSeq = tick.seq = (tick.seq || 0) + 1;
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
@@ -20963,6 +20982,7 @@ async function tick() {
     }
     const data = await res.json();
     clearTimeout(statusCut);   // #4562: answered and read in time
+    if (!(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;
     /* #4343: a parsed 200 is the board answering, whatever a painter below then does. Without this
        a painter that throws lands in the catch as "nothing answered", and the full-restart screen
        would lock a person out of a board that is up. */
@@ -21580,6 +21600,8 @@ async function tick() {
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
   } catch (err) {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
+    if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
+    if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -25506,7 +25528,7 @@ async function worldswReconnect(switchedId, switchedName, say, switchStart) {
       let booted = null;
       let abandoned = null;
       try {
-        const s = await fetch('/api/status', { cache: 'no-store' });
+        const s = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));   // #4562
         if (s.ok) {
           const body = await s.json().catch(() => null);
           booted = body && body.activeWorldId;
