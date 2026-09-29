@@ -15406,6 +15406,7 @@ window.kosmosMeasureScrollbarWidth();
                 aria-label="What done looks like"
                 aria-describedby="pj-add-done-hint"
                 placeholder="The new lease is signed and filed."></textarea>
+      <p class="ferr" id="pj-add-done-err" aria-live="polite"></p>
     </div>
 
     <!-- #2458 sub-projects: choose a parent project AT creation (optional; blank =
@@ -59081,6 +59082,7 @@ function openAddProject() {
   // #2606: clear the field-level errors so a reopened form is not pre-flagged.
   pjFieldOk('pj-name', 'pj-name-err');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   document.getElementById('pj-add-agent-row').hidden = true;
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -59644,6 +59646,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   const msg = document.getElementById('pj-add-msg');
   const btn = document.getElementById('pj-create');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   pjFieldOk('pj-name', 'pj-name-err');
   // #2606, the create half of Josh's "this probably applies to creating a project
   // too": the commonest name refusal (empty) caught AT the field before the round
@@ -59662,6 +59665,14 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     pjFieldBad('pj-add-desc', 'pj-add-desc-err',
       'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     // Same pointer as the settings save, for the same reason. See there.
+    msg.textContent = 'Nothing added. There is something to fix above.';
+    return;
+  }
+  /* #4583 (review round 4): the done box, pre-checked the same way at the engine's cap (cleanDone, 1000 code points,
+     the same as the description), so a long paste is caught at the box before the round trip. */
+  if (pjDescTooLong(document.getElementById('pj-add-done').value)) {
+    pjFieldBad('pj-add-done', 'pj-add-done-err',
+      'What done looks like is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     msg.textContent = 'Nothing added. There is something to fix above.';
     return;
   }
@@ -59723,6 +59734,10 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // one place still pasting a lowercase clause in as a whole sentence.
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+      msg.textContent = 'Nothing added. There is something to fix above.';
+    } else if (err && err.message && /done looks like/i.test(err.message)) {
+      // #4583: the engine's done refusals (cleanDone) name "done looks like", so they go to that box.
+      pjFieldBad('pj-add-done', 'pj-add-done-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else if (err && err.message && /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i.test(err.message)) {
       // #2606: route a project NAME-RULE refusal to the name field. Matched on the specific

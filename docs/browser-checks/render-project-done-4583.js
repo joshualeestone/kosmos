@@ -73,6 +73,29 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     await create('Given Done Project', 'The lease is signed.');
     ok('given: the create POST carries the typed done', posted.length === 2 && posted[1].done === 'The lease is signed.', JSON.stringify(posted[1]));
 
+    // Review round 4: a done that is too long is caught AT its box before any request; a done the engine refuses
+    // is shown at the box too.
+    const before = posted.length;
+    await p.click('[data-tab="projects"]');
+    await p.click('#pj-new');
+    await p.waitForSelector('#pj-add-view', { state: 'visible', timeout: 5000 });
+    await p.fill('#pj-name', 'Too Long Done');
+    await p.fill('#pj-add-done', 'x'.repeat(1001));
+    await p.click('#pj-create');
+    await p.waitForTimeout(300);
+    const longErr = await p.evaluate(() => ({ err: document.getElementById('pj-add-done-err').textContent, focus: document.activeElement && document.activeElement.id, open: !document.getElementById('pj-add-view').hidden }));
+    ok('too long: said at the done box, focused, form still open, nothing sent', /longer than 1000/.test(longErr.err) && longErr.focus === 'pj-add-done' && longErr.open && posted.length === before, JSON.stringify(longErr));
+    await p.route('**/api/projects', (route) => (route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'what done looks like has to be words' }) })
+      : route.continue()));
+    await p.fill('#pj-add-done', 'Short.');
+    await p.click('#pj-create');
+    await p.waitForTimeout(400);
+    const refused = await p.evaluate(() => document.getElementById('pj-add-done-err').textContent);
+    ok('refused by the engine: the reason is at the done box', refused === 'What done looks like has to be words.', refused);
+    await p.unroute('**/api/projects');
+    await p.evaluate(() => { document.getElementById('pj-add-view').hidden = true; });
+
     await p.evaluate(() => loadProjects());
     await p.evaluate(() => pjView('list'));
     const blank = await rowBadge('Blank Done Project');
