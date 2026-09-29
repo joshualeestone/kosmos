@@ -54,3 +54,16 @@ one press away; they are not sent by themselves.
 ## Tests
 engine/chat.codex-hooks-4589.test.js (9). On main's engine, the same delivery to either real screen reports
 "placed" with Enter typed and the card reads "unknown" (control script, measured).
+
+## Blind review round 1 (a separate reviewer agent, 2026-09-29 13:21) and what changed
+Earlier "rounds" on this branch were the loop reviewing its own work; this is the first separate reviewer.
+- A fresh read that comes back BLANK (Codex still drawing at startup) used to fall back to the startup snapshot and
+  type the message as raw keystrokes (paste-buffer without -p), where a "2" or "t" landing on the dialog trusts the
+  hooks. Now refused: "it is still starting (its screen is blank), so nothing was typed". Tested with '' and blank rows.
+- The footer on a narrow pane (under ~58 columns) wraps, and a last-row match missed the dialog. Now matched at the
+  end of the last three rows with whitespace ignored (a wrap may fall inside a word). Tested at 50, 30 and 20 columns,
+  with the quoted-then-prompt control.
+- The #571 gap test now feeds the capture a real idle screen (a blank capture is refused by design).
+Residuals, stated precisely: the claim is that no MESSAGE is typed into the dialog. Stop now (Escape) and the stop
+helpers (C-x C-k) are key actions, not messages, and still act on a Codex pane in the dialog; Escape there means "go
+back / close". A future Codex that changes the footer words is not recognised.

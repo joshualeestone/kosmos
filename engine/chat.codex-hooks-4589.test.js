@@ -180,3 +180,37 @@ test('#4589 only Codex agents pay the extra read', () => {
     assert.equal(tmux.captures().length, 0, 'a Claude agent is not captured before a send');
   } finally { board.restore(); }
 });
+
+/* Blind review round 1 (2026-09-29): two ways a message still reached the dialog as raw keystrokes. */
+const narrow = (txt, w) => txt.split('\n').flatMap((r) => {
+  r = r.replace(/\s+$/, '');
+  if (!r) return [''];
+  const out = [];
+  for (let i = 0; i < r.length; i += w) out.push(r.slice(i, i + w));
+  return out;
+}).join('\n');
+
+test('#4589 round 1: a fresh read that comes back BLANK (Codex still drawing) types nothing', () => {
+  withCodex(IDLE, (board) => {   // the startup snapshot: not the dialog
+    for (const blank of ['', '\n\n   \n']) {
+      const tmux = arm([ok(blank)]);
+      const v = chat.deliver('sam', 'Hello Sam, 2 things to do', board.agents);
+      assert.equal(v.state, chat.DELIVERY.COULD_NOT, JSON.stringify(blank));
+      assert.equal(v.because, status.CODEX_STARTING_SENTENCE);
+      assert.deepEqual(tmux.typedInto(), [], 'text reached a pane whose screen was blank');
+    }
+  });
+});
+
+test('#4589 round 1: the footer wrapped on a narrow pane is still the dialog, and nothing is typed', () => {
+  for (const [name, screen] of [['table@50', narrow(TABLE, 50)], ['table@30', narrow(TABLE, 30)], ['menu@30', narrow(MENU, 30)], ['menu@20', narrow(MENU, 20)]]) {
+    assert.ok(status.codexHookReview(screen), name + ' was not recognised once its footer wrapped');
+    withCodex(IDLE, (board) => {
+      const tmux = arm([ok(screen)]);
+      assert.equal(chat.deliver('sam', 'the letter t', board.agents).state, chat.DELIVERY.COULD_NOT, name);
+      assert.deepEqual(tmux.typedInto(), [], name + ': typed into a wrapped dialog');
+    });
+  }
+  /* CONTROL: the wrapped dialog quoted in the agent's output, with its prompt below, is still not the dialog. */
+  assert.equal(status.codexHookReview(narrow(TABLE, 30).trimEnd() + '\n\n' + IDLE), null);
+});

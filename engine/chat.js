@@ -1237,6 +1237,13 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      the choice is made in the agent's terminal. A channel-reached (Windows) agent has no tmux pane. */
   if (allowed.card && allowed.card.runner === 'codex' && allowed.card.reachedByChannel !== true) {
     const view = viewport(sessionName, roster);
+    /* Blind review round 1: a read that SUCCEEDS with a blank screen is Codex still drawing at startup, exactly when
+       the first message arrives and the dialog is about to appear. Falling back to the startup snapshot there typed
+       the message as raw keystrokes (paste-buffer without -p), where a "2" or "t" landing on the dialog trusts the
+       hooks. So a blank Codex screen is "not started yet": nothing is typed, and the sender is told to try again. */
+    if (view && typeof view.text === 'string' && !view.text.trim()) {
+      return { state: DELIVERY.COULD_NOT, because: status.CODEX_STARTING_SENTENCE, at, paneState: null, paneNote: null };
+    }
     const onDialog = view && view.text
       ? status.codexHookReview(view.text) !== null
       : allowed.card.state === status.STATE.NEEDS_YOU && status.isCodexHookEvidence(allowed.card.stateEvidence);

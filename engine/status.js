@@ -1580,20 +1580,35 @@ const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
 const CODEX_HOOK_MENU_FOOTER = /^\s*Press enter to confirm or esc to go back\s*$/;
 const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
 const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\.\s*$/;
+/* The same two footers matched at the END of a joined run of rows, so a wrapped footer still counts (round 1). */
+const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
+const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
+/* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
+const CODEX_STARTING_SENTENCE = 'it is still starting (its screen is blank), so nothing was typed: Codex may be about to ask '
+  + 'a question on that screen, and typed text would answer it. Send this again in a moment.';
 const CODEX_HOOK_ROWS = 30;
 function codexHookReview(paneText) {
   const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
   while (rows.length && !rows[rows.length - 1]) rows.pop();
   if (!rows.length) return null;
   const tail = rows.slice(-CODEX_HOOK_ROWS);
-  const last = tail[tail.length - 1];
-  if (CODEX_HOOK_MENU_FOOTER.test(last)) {
-    const title = tail.slice(0, -1).reverse().find((r) => CODEX_HOOK_MENU_TITLE.test(r));
+  /* Blind review round 1: on a pane narrower than the footer (about 58 columns: someone attached from a small
+     terminal), Codex wraps the footer over two or three rows, and a match on the last row alone missed the dialog
+     entirely. So the footer is matched at the END of the last three rows joined, and the heading / warning above it
+     is looked for in what precedes those rows. */
+  const WRAP = 3;
+  /* Whitespace is ignored: a wrap may fall between words or inside one, and a join cannot know which. */
+  const lastJoined = tail.slice(-WRAP).join('').replace(/\s+/g, '');
+  const above = tail.slice(0, -1);
+  if (CODEX_HOOK_MENU_FOOTER_END.test(lastJoined)) {
+    const title = above.slice().reverse().find((r) => CODEX_HOOK_MENU_TITLE.test(r));
     return title ? { screen: 'menu', evidence: title.trim() } : null;
   }
-  if (CODEX_HOOK_TABLE_FOOTER.test(last)) {
-    const warning = tail.slice(0, -1).reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
-    return { screen: 'table', evidence: (warning || last).trim().replace(/^⚠\s*/, '') };
+  if (CODEX_HOOK_TABLE_FOOTER_END.test(lastJoined)) {
+    const joined = above.map((r) => r.trim()).join(' ');
+    const warning = above.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const wrapped = warning ? null : (joined.match(/(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\./) || [null])[0];
+    return { screen: 'table', evidence: (warning || wrapped || 'Press t to trust all; enter to review hooks; esc to close').trim().replace(/^⚠\s*/, '') };
   }
   return null;
 }
@@ -8045,6 +8060,7 @@ module.exports = {
   codexHookReview, // #4589
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
+  CODEX_STARTING_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
   readableModelId, // #4416
