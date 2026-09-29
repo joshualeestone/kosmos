@@ -238,7 +238,9 @@ if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
   fi
 fi
-# #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing below reads them. Unset
+# #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing later in this script reads
+# them. Its descendants lose them on purpose, a nested run-tests.sh in a test included (it waits on its own terms, and
+# does not inherit an operator's KOSMOS_IGNORE_MACHINE_CLAIM either). Unset
 # now, so no test this suite runs inherits them: an inherited KOSMOS_TESTS_IGNORE_SUITE made the #4498 queue tests' own
 # run-tests.sh skip the queue and fail, and an inherited KOSMOS_NO_WAIT reds 19 of test-cut-guard.sh's arms (2026-09-29).
 # The list lives in tools/lib/cut-guard.sh (KOSMOS_WAIT_CONTROL_VARS); a lib that failed to load leaves it empty and unsets nothing.

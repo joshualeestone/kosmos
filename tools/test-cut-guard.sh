@@ -794,6 +794,12 @@ printf '100 %s\n%s\n\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/sui
 ( _kosmos_pid_started() { :; }; _kosmos_pid_started_local() { :; }; ! _kosmos_suite_waiter_live "$zp" ) \
   && pass "#4574 an empty start time from ps reads as stale, not as a match for an empty line" \
   || fail "#4574 an empty start time was taken for a live waiter"
+# A half-answering ps (the UTC reading empty, the local one fine and matching line 3) is stale too: -z "$want" alone
+# decides it, so this arm pins that term (review 20).
+printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
+( _kosmos_pid_started() { :; }; ! _kosmos_suite_waiter_live "$zp" ) \
+  && pass "#4574 an empty UTC reading is stale even when the local one matches" \
+  || fail "#4574 a half-answering ps kept a marker live"
 rm -f "$W/markers/suitewait.$zp"
 kill "$zp" 2>/dev/null; wait "$zp" 2>/dev/null
 # What this lib writes, an older copy reads: line 3 is the writer's local form, the one an older reader compares.
@@ -898,16 +904,19 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNO
 RT2="$(mktemp -d /tmp/rt4609.XXXXXX)"; mkdir -p "$RT2/tools/lib" "$T/fakebin"
 cp "$HERE/run-tests.sh" "$RT2/tools/"; cp "$HERE"/lib/*.sh "$RT2/tools/lib/"
 : > "$RT2/one.test.js"   # one root test file: the gate's two counts agree (1 == 1) and the list is not empty
-printf '#!/bin/sh\necho "IGNORE_SEEN=${KOSMOS_TESTS_IGNORE_SUITE:-unset} HARNESS_SEEN=${KOSMOS_TESTS_IGNORE_HARNESS:-unset} NOWAIT_SEEN=${KOSMOS_NO_WAIT:-unset} MAXS_SEEN=${KOSMOS_WAIT_MAX_S:-unset}"\nexit 0\n' > "$T/fakebin/node"
+# The stand-in node reports EVERY name in the lib's list, so the assertion follows the list (review 20).
+{ printf '#!/bin/sh\n'; for v in $KOSMOS_WAIT_CONTROL_VARS; do printf 'echo "SEEN %s=${%s:-unset}"\n' "$v" "$v"; done; printf 'exit 0\n'; } > "$T/fakebin/node"
 chmod +x "$T/fakebin/node"
 out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
   KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
-  KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
+  $(for v in $KOSMOS_WAIT_CONTROL_VARS; do case "$v" in KOSMOS_NO_WAIT|KOSMOS_WAIT_MAX_S) ;; *) printf '%s=1 ' "$v" ;; esac; done) \
+  PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
 rm -rf "$RT2"
 # One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
 grep -q '^unset ${KOSMOS_WAIT_CONTROL_VARS:-}$' "$HERE/run-tests.sh" && pass "#4609 run-tests.sh unsets the lib's one list of wait controls" \
   || fail "#4609 run-tests.sh does not unset KOSMOS_WAIT_CONTROL_VARS"
-{ has "$out" "IGNORE_SEEN=unset HARNESS_SEEN=unset NOWAIT_SEEN=unset MAXS_SEEN=unset" && ! has "$out" "IGNORE_SEEN=1"; } \
+_seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" || _seen_all=0; done
+{ [ "$_seen_all" = 1 ] && [ -n "$KOSMOS_WAIT_CONTROL_VARS" ]; } \
   && pass "#4609 the queue overrides and wait controls are not inherited by the suite's own processes" \
   || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"

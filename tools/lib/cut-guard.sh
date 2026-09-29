@@ -601,7 +601,7 @@ kosmos_mark_suite_waiting() {
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
-kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null; return 0; }
+kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null; return 0; }
 
 # _kosmos_suite_waiters_ahead: the pids of the live waiters ahead of this run in the suite queue, one per line (all of
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
