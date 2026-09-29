@@ -85,6 +85,13 @@ async function withBoard(mode, fn) {
     return { ...r, died };
   } finally { if (!died) child.kill('SIGKILL'); }
 }
+async function freePort() {
+  const srv = require('node:net').createServer();
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  const { port } = srv.address();
+  await new Promise((ok) => srv.close(ok));
+  return port;
+}
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
 test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', async () => {
@@ -151,7 +158,11 @@ test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly
 test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const py = spawn('/usr/bin/python3', ['-c', 'import socket,sys\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(5)\nprint(s.getsockname()[1],flush=True)\nimport time\ntime.sleep(120)'], { stdio: ['ignore', 'pipe', 'ignore'] });
   try {
-    const port = await new Promise((resolve) => py.stdout.once('data', (d) => resolve(Number(String(d).trim()))));
+    const port = await new Promise((resolve, reject) => {
+      py.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+      py.once('error', reject);
+      py.once('exit', (c) => reject(new Error('the python listener exited before listening: ' + c)));
+    });
     const s = await run(CLI, ['status'], env(port), true);
     assert.equal(s.code, 5, s.out);
     assert.match(s.out, /Something \(.+\) is listening on port/);
@@ -173,6 +184,29 @@ test('a sandboxed shell, a node listener that is NOT this install\'s recorded bo
   assert.doesNotMatch(r.out, /already running/);
 });
 
+test('a sandboxed shell, the board STOPPED: start launches it and says it started but this shell cannot reach it', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
+  const h = {};
+  const e = env(await freePort(), {}, h);
+  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n");
+  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
+  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  let pid = null;
+  try {
+    const t0 = Date.now();
+    const r = await run(CLI, ['start'], e, true);
+    pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null;
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Kosmos started at .*\(process \d+\), but this shell cannot connect to it/);
+    assert.doesNotMatch(r.out, /did not come up/);
+    assert.ok(Date.now() - t0 < 12000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
+  } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } }
+});
+
 test('CONTROL: without the guard, the sandboxed status says "not running" and start blames another app (the #4636 bug)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const s = await withBoard('ok', (p) => run(UNFIXED, ['status'], env(p), true));
   assert.equal(s.code, 1, s.out);
@@ -182,7 +216,9 @@ test('CONTROL: without the guard, the sandboxed status says "not running" and st
 });
 
 test('CONTROL: outside the sandbox, a stopped board is still "not running" at once, with the start advice', async () => {
+  const t0 = Date.now();
   const s = await run(CLI, ['status'], env(1));   // port 1: nothing listens
+  assert.ok(Date.now() - t0 < 5000, 'a stopped board took ' + (Date.now() - t0) + ' ms to read as not running');
   assert.equal(s.code, 1, s.out);
   assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
 });

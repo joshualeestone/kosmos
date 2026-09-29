@@ -8,7 +8,7 @@
 #   kosmos stop      stop it
 #   kosmos status    say whether it is running, in a sentence (exit 0 running,
 #                    1 not, 4 running but too busy to answer: #4466, 5 a listener is there but
-#                    this shell cannot connect to it: #4636; the watchdog reads 4 and 5)
+#                    this shell cannot connect to it: #4636, as `open` too; the watchdog reads 4 and 5)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -301,8 +301,9 @@ _lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 # lsof shows an IPv4 listener on 127.0.0.1:PORT or *:PORT is not a stopped board: an unrestricted shell
 # connects to such a socket, so this shell is blocked (a sandbox that denies even 127.0.0.1, or a local
 # network fault). That is HEALTH_STATE unreachable: never "not running", never start advice, never a
-# reclaim. The listener's command name (lsof, which works where ps is denied) decides the words: node is
-# "Kosmos is running", anything else is "something is listening". A HUNG board is not this: the OS still
+# reclaim. The words say "Kosmos is running" only when the listener's pid (lsof, which works where ps is
+# denied) is the one this install recorded in board.pid; any other listener, node included, is "something
+# (its name) is listening". A HUNG board is not this: the OS still
 # accepts the connect on its socket, so a hang is a timeout (busy), as before. (A proxy in the way is the
 # other shape of this, handled by the loopback NO_PROXY/no_proxy above, #4466.)
 # Returns 0 only for up. ⚠️ Call it as a plain statement or in `if`, never inside $( ): HEALTH_STATE is
@@ -347,7 +348,9 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # this shell is the one that cannot connect. lsof only (it works where ps is denied, as in a
 # network-blocking sandbox); a Mac with no lsof keeps the old reading, down. IPv4 only: an IPv6-only socket
 # (lsof also shows it as *:PORT) really does refuse a 127.0.0.1 connect, so it is not evidence.
-# The board binds 127.0.0.1 by default (engine/bindhost.js), and a wider bind is *:PORT, both IPv4.
+# The board binds 127.0.0.1 by default (engine/bindhost.js); KOSMOS_BIND_HOST=0.0.0.0 is *:PORT, also IPv4.
+# A dual-stack or IPv6 bind (KOSMOS_BIND_HOST=::) is not seen here, and keeps the old "down" reading.
+# The re-probe makes one refused probe with a listener cost more than its budget (lsof, 0.5 s, a second probe).
 # Before calling it unreachable, the probe runs ONCE more after half a second: a board that started
 # listening between curl's refusal and lsof (a boot in progress) then answers, instead of a start or
 # restart dying on a moment's race.
@@ -984,6 +987,12 @@ _await_board_up() {
         say "Kosmos is running at $URL (busy right now, so it is slow to answer)"
         return 0
       fi
+    fi
+    # #4636: the process just launched is listening, but this shell cannot connect to it (a sandbox): it
+    # started, and waiting longer cannot change what this shell can reach.
+    if [ "$HEALTH_STATE" = unreachable ] && [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ]; then
+      say "Kosmos started at $URL (process $_pid), but $(_unreachable_why), so this shell cannot use it. Run kosmos commands from a shell that can reach it."
+      return 0
     fi
     if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then return 1; fi
     sleep 0.5
