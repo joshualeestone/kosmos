@@ -97,6 +97,7 @@ const server = http.createServer((req, res) => {
   if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
   if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
     const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');
+    fsm.appendFileSync(firstFile + '.tokens', String(req.headers['x-kosmos-agent-token'] || '-') + '\\n');
     const n = fsm.readFileSync(firstFile + '.sends', 'utf8').length;
     req.resume();
     if (health === 'cutalways' || n === 1) { req.socket.destroy(); return; }
@@ -451,6 +452,14 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
     });
   }
 });
+
+test('#4580 the retry carries the agent\'s own token, as the first send did (#4491: the board tells agent from person by it)', () => withBoard('cutonce', async (port, firstFile) => {
+  const tok = 'ab'.repeat(16);
+  const out = await runCli(['msg', 'mara', 'signed'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: tok }));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  const sent = fs.readFileSync(firstFile + '.tokens', 'utf8').trim().split('\n');
+  assert.deepEqual(sent, [tok, tok], 'the retry went out without the agent token: ' + JSON.stringify(sent));
+}));
 
 test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', () => withBoard('posthang', async (port, firstFile) => {
   const out = await runCli(['post', 'proj', 'long fan-out'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_POST_TIMEOUT_S: '2' }));
