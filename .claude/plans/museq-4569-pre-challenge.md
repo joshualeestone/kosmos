@@ -15,16 +15,37 @@ converged: true
 **Converged:** Yes. Round 9 returned no BLOCKER, WARNING or CONVENTION. Its NITs were taken in the last code commit, which changed text only.
 Every fix was measured red with the fix taken out, except two lines that are documented as unobservable: `STOP_NOTES.clear` in Escape, and `stopTurn = null` after each busy attempt.
 
-## Rounds (findings, then where each was fixed)
-- **1 (opus), 2 WARNINGs.** A stop wrapped in Kosmos's framing was missed: a reply quote, or a reactions or catch-up note. A second stop discarded the first note's list of dropped messages. Also a digest size cap. Fixed in acb9596d0.
-- **2 (sonnet), 1 CONVENTION.** A comment had moved onto the wrong constant. Also a 32 KB cap and the Escape clean-up. Fixed in d7749e5e7.
-- **3 (opus), 1 WARNING.** A message sent between two stops was lost without a trace. It is now named in a follow-up note. "hold" was removed from the stop words. Fixed in 618046c9c.
-- **4 (sonnet), 1 WARNING, 1 CONVENTION.** Identical notes collapsed into one tracked entry. The plan was out of date. Fixed in 47b45ea35 and 753345dd5.
-- **5 (opus), 1 WARNING.** A stop note could meet a session Muse still holds. It is now retried when the answer is `muserun.BUSY`. A colleague's dropped message is counted. Fixed in e582b6407.
-- **6 (sonnet), 1 BLOCKER.** Escape during a retry wait still ran the cancelled note. It now re-checks after the wait. Fixed in 47f8f1499.
-- **7 (opus), 1 CONVENTION.** A test tail could not fail. It was replaced with the case it named. Fixed in 3b0981b28.
-- **8 (sonnet), 2 WARNINGs.** Test gaps: fake busy turns did not hand over onStop, and the retry limit and the ordinary-busy control were unpinned. Fixed in 118420a20.
-- **9 (opus), converged.** NITs only: the digest named a command that fails, the pane wording was wrong, and the plan had stale lines.
+## Iteration 1 (opus)
+- [WARNING] A stop wrapped in Kosmos's framing (a reply quote, or a reactions or catch-up note) was missed. Fixed in acb9596d0.
+- [WARNING] A second stop discarded the first note's list of dropped messages. Fixed in acb9596d0.
+- [NIT] Digest size cap: taken.
+
+## Iteration 2 (sonnet)
+- [CONVENTION] A comment had moved onto the wrong constant. Fixed in d7749e5e7, along with the 32 KB cap and the Escape clean-up.
+
+## Iteration 3 (opus)
+- [WARNING] A message sent between two stops was lost without a trace. It is now named in a follow-up note. "hold" was removed from the stop words. Fixed in 618046c9c.
+
+## Iteration 4 (sonnet)
+- [WARNING] Identical notes collapsed into one tracked entry. Fixed in 47b45ea35.
+- [CONVENTION] The plan was out of date. Fixed in 47b45ea35 and 753345dd5.
+
+## Iteration 5 (opus)
+- [WARNING] A stop note could meet a session Muse still holds. It is now retried when the answer is muserun.BUSY. A colleague's dropped message is counted. Fixed in e582b6407.
+
+## Iteration 6 (sonnet)
+- [BLOCKER] Escape during a retry wait still ran the cancelled note. It now re-checks after the wait. Fixed in 47f8f1499.
+
+## Iteration 7 (opus)
+- [CONVENTION] A test tail could not fail. It was replaced with the case it named. Fixed in 3b0981b28.
+
+## Iteration 8 (sonnet)
+- [WARNING] Test gaps: fake busy turns did not hand over onStop, and the retry limit and the ordinary-busy control were unpinned. Fixed in 118420a20.
+
+## Iteration 9 (opus)
+- NO NEW BLOCKER/WARNING/CONVENTION.
+- [NIT] The digest named a command that fails, the pane wording was wrong, and the plan had stale lines. All taken, text only.
+- [STRENGTH] The state machine was traced through every event. The only behaviour change is the ordering, stopping and folding the card asks for.
 
 ## Validation
 - engine/musefront.test.js plus engine/muserun.test.js: 46 pass, 0 fail.
