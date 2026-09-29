@@ -103,7 +103,8 @@ URL="http://127.0.0.1:$PORT"
 # sandbox that is proxy-only (http_proxy/HTTPS_PROXY/ALL_PROXY set, measured on a real agent's), curl sent
 # 127.0.0.1 through the proxy, which answered with an empty page, so a running board read as "another app
 # is using port" and start refused. Loopback is added to the caller's own NO_PROXY and no_proxy (curl reads
-# either), never replacing it; outside requests still use the proxy.
+# either), never replacing it; outside requests still use the proxy. Exported, so the board this CLI
+# starts, and through it every agent session, inherits the same loopback exemption (only loopback is added).
 case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
 case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
 export NO_PROXY no_proxy
@@ -824,6 +825,9 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   for _a in "$@"; do if [ "$_a" = --force ]; then return 0; fi; done
   if ! _invoked_by_agent; then return 0; fi
   healthy --once || true
+  # #4466: a listener that IS the board this install recorded is running, even if this probe could not read
+  # it (a proxy in the way): treat it as up, so an agent's start neither spends the start claim nor goes on.
+  if [ "$HEALTH_STATE" = stranger ] && _listener_is_our_board >/dev/null; then HEALTH_STATE=busy; fi
   case "$HEALTH_STATE" in
     up|busy)
       if [ "$_verb" = start ]; then say "Kosmos is already running at $URL"; exit 0; fi
@@ -961,7 +965,8 @@ cmd_start() {
       return 0
     fi
   fi
-  # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
+  # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale (and, since #4466, not
+  # the board.pid process: that one is "already running" above, unless KOSMOS_RECLAIM_BUSY=1)
   # Kosmos build (a common single-user update, where the old process still holds the
   # address the new build wants), reclaim it: kill it and start ours over it, no manual
   # step. A FOREIGN account's process (shared Mac, wrapped per-uid ports) or a same-uid
