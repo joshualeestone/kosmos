@@ -3783,6 +3783,14 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
+/* #4491 slice 3: is this agent on the project, per its stored record (agents are names)? Both sides go through
+   store.safeKey, because a token that resolves without a roster row names its agent by that key, not by the
+   stored spelling. A name that has no key is never a member. Shared by task message and task built. */
+function projectHasAgent(stored, name) {
+  const key = (n) => { try { return store.safeKey(n); } catch { return null; } };
+  const want = key(name);
+  return want !== null && (stored.agents || []).some((a) => key(a) === want);
+}
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
   /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
@@ -16485,7 +16493,7 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen) {
         /* Membership first, so a non-member hears why, not the breaker (review round 15). */
         const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
-        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+        if (card && proj && !projectHasAgent(proj, card.sessionName)) {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
@@ -16539,20 +16547,6 @@ const server = http.createServer(async (req, res) => {
          process can send Sec-Fetch-Site too. Read after the body, so a body token
          counts. Only a process is rate-valved. */
       const viaScreen = isViaScreen(req, body);
-      /* The valve, before the record+deliver: a looping agent must not be able to
-         spam a task's people. Counted for PROCESS senders only; the operator is
-         never valved (the person driving is the remedy, not the hazard -- the same
-         posture as the task-creation and room valves). */
-      const msgRefusal = viaScreen ? null : taskMessageRefusal();
-      if (msgRefusal) {
-        if (msgRefusal.retryAfterSecs !== null) {
-          res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
-          sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
-        } else {
-          sendJson(res, 429, { error: msgRefusal.because });
-        }
-        return;
-      }
       try {
         /* win32-cli-verbs: a Windows agent has no pane, so its `kosmos task message`
            names itself with its per-run agent token, resolved through the chain
@@ -16569,16 +16563,40 @@ const server = http.createServer(async (req, res) => {
         }
         const tokenSender = senderFromAgentToken(req, body, roster);
         if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
-        /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded
-           or delivered, as task built refuses it. Checked against the stored record (agents are names). */
-        const callerPane = typeof body.from_pane === 'string' ? body.from_pane : '';
-        const callerCard = tokenSender ? tokenSender.card : (callerPane && roster ? roster.find((c) => c && c.target === callerPane) : null);
-        if (!viaScreen && callerCard && callerCard.sessionName) {
+        /* The caller: the token's card, else the pane. A pane that IS a roster target (session:w.p) is that card,
+           as this route has always read it; otherwise it goes through messages.resolveSender, as task built does,
+           because the CLI sends tmux's %N, which no roster target equals. A pane nobody could look up is said so,
+           as for a token. */
+        const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+        if (roster === null && fromPane && !viaScreen) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
+          return;
+        }
+        const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane) || null : null;
+        const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
+        const senderCard = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
+        /* #4491 slice 3: an identified agent that is not on the project is refused before anything is recorded,
+           delivered or valved (so it hears why, not the breaker), as task built refuses it. */
+        if (!viaScreen && senderCard && senderCard.sessionName) {
           const stored = projects.readAll().find((x) => x.id === id) || null;
-          if (stored && !(stored.agents || []).includes(callerCard.sessionName)) {
+          if (stored && !projectHasAgent(stored, senderCard.sessionName)) {
             sendJson(res, 403, { error: 'that agent is not on this project, so it cannot write in its tasks' });
             return;
           }
+        }
+        /* The valve, before the record+deliver: a looping agent must not be able to
+           spam a task's people. Counted for PROCESS senders only; the operator is
+           never valved (the person driving is the remedy, not the hazard -- the same
+           posture as the task-creation and room valves). */
+        const msgRefusal = viaScreen ? null : taskMessageRefusal();
+        if (msgRefusal) {
+          if (msgRefusal.retryAfterSecs !== null) {
+            res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+            sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+          } else {
+            sendJson(res, 429, { error: msgRefusal.because });
+          }
+          return;
         }
         const t = tasks.say(id, taskSay[2], body.text);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
@@ -16602,14 +16620,11 @@ const server = http.createServer(async (req, res) => {
         const projName = clean((proj && proj.name) || id);
         const rawPreview = clean(body.text);
         const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
-        /* Resolve the sender from its pane, the same header-trusted way taskMake
-           resolves a paneCard. Two uses: exclude the sender from the recipients (an
+        /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
            message), and NAME it in the notification so a co-assignee can see which
            colleague spoke -- the room does the same (its pane envelope names `from`).
            The operator has no pane here and is not on `named` anyway. */
-        const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
-        const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
         const senderName = clean(senderCard && senderCard.sessionName);
         /* #3564: a swarm switched off in this project is not told about its tasks. */
         const offHere = projects.swarmOffSet(id);

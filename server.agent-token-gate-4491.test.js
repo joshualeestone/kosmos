@@ -212,6 +212,48 @@ test('task message refuses an agent that is not on the project, before recording
   assert.equal(member.code, 200, 'control: a member was not recorded: ' + member.code + ' ' + member.text.slice(0, 160));
   assert.equal(said.length, 1);
   assert.equal(said[0].text, 'my project');
+  /* The pane arm (no token, board token to pass the gate): a non-member's pane is refused, a member's recorded. */
+  const targetOf = (name) => (board.agents.find((c) => c.sessionName === name) || {}).target;
+  const pocTarget = targetOf('poc-agent');
+  assert.ok(pocTarget && targetOf('mara'), 'the fixture gave no pane targets');
+  const paneOut = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'by pane', from_pane: pocTarget } });
+  assert.equal(paneOut.code, 403, 'a non-member pane was not refused: ' + paneOut.code + ' ' + paneOut.text.slice(0, 160));
+  const paneIn = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD }, body: { text: 'by member pane', from_pane: targetOf('mara') } });
+  assert.equal(paneIn.code, 200, 'control: a member pane was not recorded: ' + paneIn.code + ' ' + paneIn.text.slice(0, 160));
+  assert.equal(said.length, 2);
+});
+
+test('membership compares agent names by their key, so a stored spelling still matches its token (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  const said = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['Mara'] }];
+  tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
+  tasksEngine.whoOf = () => [];
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'stored as Mara' } });
+  assert.equal(r.code, 200, 'a member stored under another spelling was refused: ' + r.code + ' ' + r.text.slice(0, 160));
+  /* CONTROL: a different agent is still refused against the same record. */
+  const other = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'not mara' } });
+  assert.equal(other.code, 403);
+  assert.deepEqual(said, ['stored as Mara']);
+});
+
+test('task built refuses a token-only agent that is not on the project (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  const realAll = projectsEngine.readAll;
+  const realSet = tasksEngine.setBuilt;
+  const marks = [];
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['mara'] }];
+  tasksEngine.setBuilt = (id, num, as) => { marks.push(as.by); return { ok: true, changed: false, task: { number: Number(num) } }; };
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.setBuilt = realSet; board.restore(); });
+  const outsider = await call('POST', '/api/project/p4491/task/1/built', { headers: { 'x-kosmos-agent-token': agentToken }, body: {} });
+  assert.equal(outsider.code, 403, 'a non-member marked a task: ' + outsider.code + ' ' + outsider.text.slice(0, 160));
+  const member = await call('POST', '/api/project/p4491/task/1/built', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: {} });
+  assert.equal(member.code, 200, 'control: a member could not mark: ' + member.code + ' ' + member.text.slice(0, 160));
+  assert.deepEqual(marks, ['mara'], 'the mark was not recorded as the token\'s agent');
 });
 
 test('a malformed agent token is refused at the gate without a store scan', async (t) => {
