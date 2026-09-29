@@ -92,6 +92,17 @@ const TABS = `(() => {
   const off = document.querySelector('.apphead .tab:not(.on)');
   return { onUnderline: on ? getComputedStyle(on).borderBottomColor : 'absent', onColor: on ? getComputedStyle(on).color : '', offColor: off ? getComputedStyle(off).color : '' };
 })()`;
+const GREY_OF = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
+/* The fill the room paints for your message and for an agent's, read from two sample bubbles put
+   in the thread for the measurement and removed after (no agent can post in this sandbox). */
+const BUBBLES = `(() => {
+  const room = document.getElementById('pj-room');
+  const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; room.appendChild(m); return m; };
+  const a = mk(true), b = mk(false);
+  const out = { you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor, agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor };
+  a.remove(); b.remove();
+  return out;
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -146,6 +157,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         const tabs = await page.evaluate(TABS);
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor, `${tag} On: the current tab is marked by ink, not an underline`, JSON.stringify(tabs));
       }
+      const bub = await page.evaluate(BUBBLES);
+      chk(bub.you === GREY_OF[theme] && bub.agent === 'rgba(0, 0, 0, 0)', `${tag} On: your message is grey, an agent's has no bubble`, JSON.stringify(bub));
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
@@ -157,6 +170,8 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
         const cbForced = await page.evaluate(COMPOSER_BG);
         chk(cbForced === GREY.dark, `${tag} On + chosen Dark: the composer is the dark grey`, cbForced);
+        const bubForced = await page.evaluate(BUBBLES);
+        chk(bubForced.you === GREY_OF.dark && bubForced.agent === 'rgba(0, 0, 0, 0)', `${tag} On + chosen Dark: your message is dark grey, an agent's has no bubble`, JSON.stringify(bubForced));
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
