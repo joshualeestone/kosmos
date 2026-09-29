@@ -243,8 +243,26 @@ publish-r2.ps1 published, refuses unless the zip matches both the pointer's sha2
 then runs that Kosmos.exe from a fresh folder under `%TEMP%`. Everything after that is the
 launcher's installer duties above: a temporary folder installs itself, a newer build updates the
 installed copy, the same or an older one hands off. The script removes the extracted copy once
-the launcher has handed over, and keeps it only when Kosmos is still running from it.
-`tools.win-setup-ps1.test.js` runs it through `irm | iex` against a fake host.
+the launcher has handed over; any doubt (Kosmos running from it, the engine pointer naming it,
+or either of those unreadable) keeps it. `tools.win-setup-ps1.test.js` runs it through
+`irm | iex` against a fake host, including the launch step with a stand-in launcher.
+
+What it trusts, stated plainly as `install/setup.sh` does for the Mac:
+
+- **The origin.** The zip's SHA-256 is checked against the pointer and the sidecar, and all three
+  come from the same origin: installkosmos.com over HTTPS, redirected to the Kosmos R2 bucket. That
+  catches corruption, truncation and a half-updated CDN. It adds nothing against a compromised
+  origin, which served the script too.
+- **The signature is defence in depth, not a check of `app\`.** Kosmos.exe must be Authenticode
+  Valid, with subject common name "Kosmos Agent Manager, Inc.", under Microsoft's ID Verified
+  code-signing chain (an intermediate named "Microsoft ID Verified Code Signing PCA <year>", ending
+  at Microsoft Identity Verification Root Certificate Authority 2020, matched by thumbprint). That
+  proves the launcher came from Kosmos's verified signing identity. The rest of the zip is covered
+  only by the checksums. That chain is Azure Artifact Signing's for every customer (node.exe is
+  signed under it too), so the chain says "Microsoft verified this name", and the name says "Kosmos".
+- **No signer thumbprint is pinned.** Azure Artifact Signing (Trusted Signing) certificates last
+  about three days and rotate constantly, so a pinned leaf thumbprint would break the installer
+  within days.
 
 ## Why it is committed rather than built during the release
 
