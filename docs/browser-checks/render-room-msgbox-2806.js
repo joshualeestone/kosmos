@@ -947,6 +947,10 @@ const now = () => new Date().toISOString();
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
+      // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
+      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it.
+      chk(!inPlaceHits.error && inPlaceHits.want === 6,
+        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the six-button bar`, JSON.stringify(inPlaceHits));
       chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
         `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const phoneGeometry = await phonePage.evaluate((ts) => {
@@ -1407,13 +1411,13 @@ const now = () => new Date().toISOString();
         setTimeout(() => {
           const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
           const hits = [...bar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits };
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 5 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
           button.blur();
-          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST, styled: !!(bar.style.left || bar.style.maxWidth) /* #4409: the fit's inline left and max-width are gone */ }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
         }, 300);
       }));
-      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length > 0 && focusOpen.placed.hits.every(Boolean)
-        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null,
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length === focusOpen.placed.want && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null && !focusOpen.afterBlur.styled,
         `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
       // Escape
       const openBeforeEscape = await freshBar();

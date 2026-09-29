@@ -53723,13 +53723,24 @@ function pjRxnResetRow(messageRow) {
    onto a second line only when the thread is narrower than the bar), then slide it back inside.
    Placed before the vertical checks, so they measure the bar's final shape. */
 function pjRxnFitWidth(quickBar, room) {
-  const R = room.getBoundingClientRect();
-  quickBar.style.maxWidth = Math.floor(R.width) + 'px';
+  const inLeft = room.getBoundingClientRect().left + room.clientLeft; const inRight = inLeft + room.clientWidth;   // inside its border and scrollbar: what clips
+  quickBar.style.maxWidth = Math.floor(room.clientWidth) + 'px';
   const B = quickBar.getBoundingClientRect();
-  let shift = B.right > R.right ? R.right - B.right : 0;
-  if (B.left + shift < R.left) shift = R.left - B.left;
+  let shift = B.right > inRight ? inRight - B.right : 0;
+  if (B.left + shift < inLeft) shift = inLeft - B.left;
   if (Math.abs(shift) < 0.5) return;
-  quickBar.style.left = Math.round(quickBar.offsetLeft + shift) + 'px'; quickBar.style.right = 'auto';
+  const left = parseFloat(getComputedStyle(quickBar).left);   // the used left, unrounded (offsetLeft rounds)
+  quickBar.style.left = ((Number.isFinite(left) ? left : quickBar.offsetLeft) + shift) + 'px'; quickBar.style.right = 'auto';
+}
+/* A bar opened by keyboard focus has no tap to re-place it (pjRxnReplaceSoon runs only for a tapped bar), so a turn
+   or the keyboard changing the thread's width fits it again here. */
+function pjRxnRefitFocused() {
+  if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
+  for (const id of rxnHosts()) {
+    const host = document.getElementById(id); const bar = host && host.querySelector('.rxn-quick:focus-within');
+    const row = bar && bar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) continue;
+    bar.removeAttribute('style'); pjRxnFitWidth(bar, host);
+  }
 }
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
@@ -53738,7 +53749,6 @@ function pjRxnPlace(row, fromTap) {
   const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
   if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   quickBar.removeAttribute('style');
-  pjRxnFitWidth(quickBar, room);
   const band = pjRxnVisibleBand(room);
   const rowRect = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
@@ -53746,6 +53756,7 @@ function pjRxnPlace(row, fromTap) {
   // Also when nothing of the thread is showing (a very short window, header and composer
   // taking the rest): with no place to put the bar, close it, tap or not.
   if (band.bottom <= band.top || rowRect.bottom <= band.top || rowRect.top >= band.bottom) { pjRxnClose(); return; }
+  pjRxnFitWidth(quickBar, room);   // #4409: before the above/below checks, so they measure the bar's final shape
   if (quickBar.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
   row.classList.add('rxn-below');
   if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
@@ -53866,6 +53877,7 @@ function pjRxnReplaceOpenBar() {
    re-places an open bar rather than closing it: the tap that opened it often closes the keyboard
    itself. pjRxnPlace closes it only if its post is no longer on screen. */
 window.addEventListener('resize', pjRxnReplaceSoon);
+window.addEventListener('resize', pjRxnRefitFocused);   // #4409: a bar opened by keyboard focus, too
 /* A bar opened by keyboard focus (an iPad with a keyboard, VoiceOver) opens without a tap, so
    pjRxnPlace never runs for it: flip it below its post where the thread's top would cut it, as a
    tapped bar does, and put it back when focus leaves the bar. */
@@ -53885,6 +53897,7 @@ for (const id of rxnHosts()) document.getElementById(id).addEventListener('focus
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
+  window.visualViewport.addEventListener('resize', pjRxnRefitFocused);
   window.visualViewport.addEventListener('scroll', pjRxnReplaceSoon);
 }
 /* A tap anywhere outside the thread holding the bar (the room or the DM) closes it too, except inside the shared emoji
