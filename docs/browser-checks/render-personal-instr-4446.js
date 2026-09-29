@@ -63,7 +63,7 @@ async function openInstr(page, agent) {
   await page.waitForSelector('[data-agent="' + agent + '"]', { timeout: 8000 });
   await page.click('[data-agent="' + agent + '"]');
   await page.waitForSelector('#panel-detail:not([hidden])');
-  await page.click('#d-nav button[data-go="instr"]');
+  await page.click('#d-nav button[data-go="profile"]');
 }
 
 function readNote(page) {

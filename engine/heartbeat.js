@@ -5,7 +5,7 @@
  * sweep used to hand its `toAsk` list to engine/notify.js (a `check_in`
  * notify.happened per agent), but that phone-home seam was deleted (Josh,
  * 2026-09-09, "invasion of privacy"). #3508 rebuilt delivery LOCAL: server.js
- * writes each tick's `toAsk` to engine/prompternudge.js (a 0600 file store) and the
+ * writes each tick's `toAsk` (#4544: narrowed by engine/agentnudge.js realStalls) to engine/prompternudge.js (a 0600 file store) and the
  * web UI polls GET /api/prompter-nudges to render the check-in. Nothing leaves the
  * Mac. Comments below that say "notify" describe the ORIGINAL removed delivery,
  * kept for the design record.

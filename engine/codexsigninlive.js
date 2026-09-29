@@ -143,7 +143,7 @@ const inflight = new Map();
 let generation = 0;
 /* #4064: answers are also recorded on the observed per-dir store (record below), which this does NOT clear: a test that
    resets here between cases clears that too (observed._clearForTest), or it inherits the previous case's green. */
-function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; generation += 1; }
+function resetForTest() { cache.clear(); inflight.clear(); deadAt.clear(); runner = defaultRunner; generation += 1; }
 /* #4064: every answer this cache keeps is also recorded on the observed per-dir store, dated when it was learned, as
    the Grok check's is: a live one keeps a working ChatGPT sign-in green for the observed freshness window rather than
    only this cache's 30s (reopening AI Models no longer flashes amber), and a dead one forgets that green. Here, at the
@@ -154,8 +154,18 @@ function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunne
    read is gated on authMode, so an answer recorded on any other folder is never shown. */
 function record(dir, verdict, at) {
   if (!dir) return;
-  if (verdict === 'live') observed.sawDir(observed.PROVIDER.OPENAI, String(dir), observed.OUTCOME.OK, at);
-  else if (verdict === 'dead') observed.forgetDir(observed.PROVIDER.OPENAI, String(dir));
+  if (verdict === 'live') { observed.sawDir(observed.PROVIDER.OPENAI, String(dir), observed.OUTCOME.OK, at); deadAt.delete(homeKey(dir)); }
+  else if (verdict === 'dead') { observed.forgetDir(observed.PROVIDER.OPENAI, String(dir)); deadAt.set(homeKey(dir), at); }
+}
+/* #4538: when this home last got a DEAD answer, kept past the 30s cache (a live answer clears it). forgetDir above drops
+   only the check's own recorded green; a Codex agent's success is kept by observed.saw per agent, so once the dead
+   answer left the cache, that older success painted the row green again until the next check said dead again (the
+   row flipped between the two for the agent observation's 5 minutes). deadAfter lets the overlay refuse any green
+   older than the last dead answer, however old the cache is. */
+const deadAt = new Map();
+function deadAfter(dir, observedAt) {
+  const d = deadAt.get(homeKey(dir));
+  return d !== undefined && Number.isFinite(observedAt) && d > observedAt;
 }
 
 /**
@@ -204,7 +214,7 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
 /**
  * livenessCached(dir, nowMs?) -> { verdict, cause }. The NON-BLOCKING read for the badge render
  * path (kosmos#1921): the FRESH cached result if there is one, else { verdict:'unknown',
- * cause:'indeterminate' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
+ * cause:'not_checked' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
  * effect (it does not spawn and does not kick a warm), so `/api/accounts` can read a chatgpt row's
  * verdict and return immediately (grey on a cold miss) without ever blocking on the 1.8-20s
  * handshake. The warm is codexauthprobe's (for a home with a running agent) and, since #3997, the
@@ -218,11 +228,16 @@ function deadIsNewer(dir, observedAt, nowMs) {
   const cur = cache.get(homeKey(dir));
   return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
 }
+/* #4538: a cold cache (no answer in the last TTL_MS) is its own cause, 'not_checked', and not the 'indeterminate' of a
+   check that ran and got no usable report: the list says "checking" for the first and "could not reach" only for the
+   second. Before this, any read more than 30s after the last check said "we could not reach ChatGPT" while the
+   check it had just started reached it within a second. */
+const NOT_CHECKED = 'not_checked';
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
   if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
-  return { verdict: 'unknown', cause: 'indeterminate' };
+  return { verdict: 'unknown', cause: NOT_CHECKED };
 }
 
 /* #3997: where this home's check stands, so /api/accounts can say "checking" only while one really is running (a
@@ -255,4 +270,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { NOT_CHECKED, liveness, livenessDetailed, livenessCached, deadIsNewer, deadAfter, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };

@@ -3106,8 +3106,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #3500 (Josh, 2026-09-23): the agent-view nav as icon+label rounded boxes. Scoped to #d-nav
    (an id, so it beats the shared `.snav button` rules by specificity) so the Settings nav #s-nav
    keeps its own styling, exactly as #3505 scoped its pill work to #s-nav. Direct Message is the
-   large default box; the four-pack (.dnav-pack) is a 2x2 grid of smaller boxes (see the
-   .dnav-pack rule below). */
+   large default box; since #4550 the pack (.dnav-pack) is a PAIR, Profile and AI Settings side by
+   side (see the .dnav-pack rule below). */
 #d-nav.dnav-boxed { gap: 10px; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
@@ -3130,7 +3130,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
 #d-nav.dnav-boxed button.dnav-dm { padding: 10px 16px; border-radius: 14px; }
-/* The four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
+/* #4550 (Josh, 2026-09-29): the pack is now TWO boxes, Profile and AI Settings, side by side at every
+   width (the narrow media query below keeps two columns). The two equal columns and the no-wrap label
+   rule below are unchanged; "AI Settings" is the longer label now. History, #3500:
+   the four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
    all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns plus
    `grid-auto-rows: 1fr` keep every tile identical in BOTH width and height (the two rows are forced
    equal, so "exact same size" holds by construction, not by the tiles happening to have symmetric
@@ -3165,7 +3168,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    contrast in both themes (a bright amber on dark, a dark amber on light). */
 #d-nav.dnav-boxed button.on .dot { background: var(--warn-ink); }
 /* Keep the boxes stacked (DM over the pack) at narrow width, overriding the shared `.snav` row rule. */
-@media (max-width: 56rem) { #d-nav.dnav-boxed { flex-direction: column; } #d-nav.dnav-boxed button { width: 100%; } #d-nav .dnav-pack { grid-template-columns: 1fr; } }
+@media (max-width: 56rem) { #d-nav.dnav-boxed { flex-direction: column; } #d-nav.dnav-boxed button { width: 100%; } #d-nav .dnav-pack { grid-template-columns: 1fr 1fr; } }   /* #4550: the pair stays side by side */
 .dsecs { min-width: 0; }
 /* #3385: mirror the .dleft padding-top so the section content starts at the same y as the
    identity block. .dleft carries 6px to keep the memory ring inside its overflow:auto box; without
@@ -3328,6 +3331,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
 .hb-nudge:first-of-type { border-top: 0; }
 .hb-nudge b { font-size: .9375rem; }
+/* #4544: the name links to the agent, underlined so it reads as a link on a touch screen too. */
+.hb-nudge-go { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration-thickness: 2px; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -7169,7 +7175,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
-/* #3614: the agent page's Files block, under the four-pack. */
+/* #3614: the agent page's Files block, under the pack (a pair since #4550). */
 .dfiles { margin-top: 18px; }
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
@@ -8102,6 +8108,17 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #4525: the held list reuses the row above. The person is deciding whether to publish these
+   words, so they must be able to read all of them: four lines show, and a longer one gets
+   "Read all" (added only when the text is actually cut). Not "Show all": the page keeps
+   that label out (web.tasks-cap-1193), and Josh's "View All" means a door to another screen,
+   which this is not. The buttons sit together. */
+.community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.community-held-row .community-held-body.open { display: block; overflow: visible; }
+.community-held-acts { display: flex; gap: 8px; }
+.community-held-reveal { display: block; margin-top: 4px; }
+/* The link out to a comment's post takes the page's ink, not the browser's blue (unreadable on dark). */
+.community-held-post { color: var(--k-ink-2); text-decoration: underline; font-weight: 600; }
 /* #514: the delete's own button. It must not look like the Remove beside
    it (a border) and must not be the calm one: filled with the warning
    tint, and disabled until the typed name matches when the files cannot
@@ -9836,6 +9853,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
   animation: boot-spin 0.8s linear infinite; }
 @keyframes boot-spin { to { transform: rotate(360deg); } }
+/* #4569 (Josh, 10:48): Meta's sign-in shows it is working from the click on ("I couldn't tell that anything had been
+   happening"), and a finished sign-in replaces the button with a plain success line. */
+.muse-connecting { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--label-2); }
+.muse-connecting .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--ok, #1f7a4d);
+  animation: boot-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .muse-connecting .spin { animation: none; } }
+.muse-done { margin: 12px 0 0; font-weight: 600; }
+.muse-done .acct-ok { margin-right: 6px; }
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
@@ -10888,8 +10913,14 @@ window.kosmosMeasureScrollbarWidth();
            no projects, which is a claim nobody made. -->
     </div>
   </div>
-  <!-- #3500 (Josh, 2026-09-23): icon+label rounded-box nav. Direct Message is the largest box and
-       the default; Profile / Instructions / AI Settings / Advanced form the four-pack below it.
+  <!-- #4550 (Josh, 2026-09-29 08:20): THREE buttons. The large Direct Message, then Profile and AI
+       Settings side by side (the .dnav-pack, now a pair). Profile holds the profile, Instructions and
+       Skills sections; AI Settings holds Model, Memory (with Fresh start), the Terminal section (this
+       agent's terminal, the window it runs in) and Remove. The instr and term buttons are gone; their
+       sections keep their data-sec and ids and fold in through DETAIL_SECTION_GROUPS, so a section
+       reached by name (detailGo('instr'), detailGo('term')) still opens, lighting its new button.
+       History, #3500 (Josh, 2026-09-23): icon+label rounded-box nav. Direct Message is the largest box and
+       the default; Profile / Instructions / AI Settings / Advanced formed a four-pack below it.
        Remove agent folded INTO Advanced (DETAIL_SECTION_PILL remove->term), which is what frees the
        clean four-pack, so the top-level Remove pill and its separator are gone and Advanced's
        aria-controls gains d-sec-remove. data-go and the folded-section ids are otherwise unchanged,
@@ -10905,22 +10936,14 @@ window.kosmosMeasureScrollbarWidth();
       <span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span>
     </button>
     <div class="dnav-pack">
-      <button type="button" data-go="profile" aria-controls="d-sec-profile">
+      <button type="button" data-go="profile" aria-controls="d-sec-profile d-sec-instr d-sec-skills">
         <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6"/></svg></span>
         <span class="dnav-lab">Profile</span>
-      </button>
-      <button type="button" data-go="instr" aria-controls="d-sec-instr d-sec-skills">
-        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></span>
-        <span class="dnav-lab">Instructions</span>
         <span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span>
       </button>
-      <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory">
+      <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory d-sec-term d-sec-remove">
         <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1.5 14h5M9.5 8h5M17.5 16h5"/></svg></span>
         <span class="dnav-lab">AI Settings</span>
-      </button>
-      <button type="button" data-go="term" aria-controls="d-sec-term d-sec-remove">
-        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></svg></span>
-        <span class="dnav-lab" data-win-copy="terminalTab">Advanced</span>
       </button>
     </div>
     <!-- #4433 (#3946 item 14, Mona's design on #3946): swarm agents only, below the four-pack, the same size and
@@ -11147,7 +11170,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
           <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
-          <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+          <option value="meta" disabled>Meta Muse &middot; coming soon</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -11285,6 +11308,127 @@ window.kosmosMeasureScrollbarWidth();
   <div class="fhint" id="d-fresh-foot" style="margin-top:12px;" hidden>Each one shows what it stands to lose before you choose.</div>
   </section>
   </div>
+  </section>
+  <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
+
+  <section class="dbox">
+  <div class="field">
+    <label class="flabel" for="d-file">Picture</label>
+    <div class="fhint">A face makes an agent easy to pick out at a glance.</div>
+    <!-- ⚠️ A REAL BUTTON OVER A HIDDEN INPUT, which is the pattern the create
+         form already uses and the reason is recorded there: a hidden file input
+         is out of the tab order and a label is not keyboard-activatable, so the
+         label-only version makes this the one control on the form a keyboard
+         cannot reach. A button that forwards the click keeps it reachable.
+         🛑 THIS SCREEN AND SETTINGS WERE LEFT ON THE BROWSER DEFAULT while
+         create got the treatment, so two of the three places a person picks a
+         picture rendered an unstyled "Choose File / No file chosen" in a
+         product where every other control is drawn. Same shape as the memory
+         figure earlier tonight: three surfaces, one job, and the ones nobody
+         was editing stayed behind. -->
+    <div class="frow">
+      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
+      <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
+             reads as removing the AGENT until you have pressed it (#406). (This
+             page also has a "Remove <name>" control, under AI Settings since #4550; in the Advanced section from
+             #3500, which folded it there.) -->
+        <button class="btn" id="d-remove" type="button">Remove picture</button>
+      <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    </div>
+    <div class="fmsg" id="d-msg"></div>
+  </div>
+  <!-- 🛑 THE ID IS `d-rename`, NOT `d-name`, AND THAT COST A REAL CATCH.
+       `d-name` was ALREADY TAKEN by the heading at the top of this page
+       (`<span class="dname" id="d-name">`). The first version of this field
+       reused it, and every symptom pointed the wrong way:
+       `getElementById('d-name')` returned the SPAN, so populating it set an
+       expando `.value` on a span, the browser check then read that expando
+       back and reported `nameValue: "angel"` — a confident pass measuring an
+       element that is not a control. The PUT would have sent `undefined` and
+       the server would have dropped it, and the untied-disable list would have
+       been disabling a heading. The tell was geometry: 59x16, which is text,
+       not a field. Never reuse an id; and when a check passes, confirm it
+       measured the element you meant.
+
+       ⚠️ RENAMING WAS UNREACHABLE UNTIL NOW, and the route was already there.
+       `PUT /api/agent/:name/profile` has accepted `displayName` since round 32,
+       written specifically so a Kosmos-created agent would stop having a
+       permanently unchangeable name — and no screen ever sent one. The comment
+       that removed the card's edit pencil said editing "lives on the detail
+       page (the pack's avedit/nameedit)"; the picture landed there and the role
+       landed there and the name never did, so the comment authorising the
+       removal is the comment that was wrong, in two places, since the rebuild.
+       Found by Mona Lisa.
+
+       ⚠️ NOT THE PACK'S MODAL, deliberately. The pack draws "Edit April" over
+       picture and name together. Josh's own rule from taking the pencils off
+       the project head applies here: renaming is rare, reading the name is
+       constant, so the rare thing goes behind a door and the constant thing
+       gets to be just words. The detail page already IS that door. -->
+  <div class="field" style="margin-top:18px;">
+    <label class="flabel" for="d-rename">Name</label>
+    <!-- ⚠️ THE SECOND SENTENCE WENT TRUE-BUT-INCOMPLETE the day a rename started
+         reaching the instruction file. It read only what a rename does NOT
+         touch, written when the record was the only thing that moved; a person
+         reading it now would not know the agent itself is told. The
+         disclaimers stay, because both are still true and both are things
+         people worry about. -->
+    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <div class="frow">
+      <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
+    </div>
+  </div>
+  <div class="field" style="margin-top:18px;">
+    <label class="flabel" for="d-role">What they do</label>
+    <div class="fhint">Shown under their name, and written into their own instructions.</div>
+    <!-- ⚠️ FOUR WORDS DOING THE JOB OF A SENTENCE. This read "Your words.
+         Nothing on this computer records it, so it is blank until you say."
+         Mona Lisa's three objections, all right: it is a MECHANISM sentence
+         told to someone who only needs the outcome, the same shape the pack
+         has now fixed twice in the composer; it stops being true after the
+         first save, because the profile record does hold it; and "blank until
+         you say" never says until you say WHAT. The half worth keeping is that
+         this is free text rather than a picked role, since a role catalogue
+         exists and would make a reader expect a list. The placeholder beside
+         it already carries the examples. -->
+    <div class="frow">
+      <input type="text" id="d-role" placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
+    </div>
+  </div>
+  <!-- ⚠️ HIDDEN WHEN THERE IS NOBODY ELSE, the same rule the projects picker
+       follows: a dropdown whose only entry is the agent you are looking at is
+       a decision presented to somebody who has none to make. It appears the
+       moment a second agent exists.
+       🛑 AND IT IS NEVER PREFILLED FROM A GUESS. There is already a function
+       in this product that works out "is this the manager" from role text, and
+       its own comment prices the looseness honestly: being wrong costs one
+       click on a dropdown. That price is right there and wrong here, because
+       the org view DRAWS this answer and a diagram does not look like a guess.
+       An empty reporting line is honest; an inferred one is a claim. -->
+  <div class="field" id="d-reports-wrap" hidden>
+    <label class="flabel" for="d-reports">Reports to</label>
+    <!-- 🔑 REPLACED WHOLE (#336, Mona Lisa and Splinter). The old hint was
+         "Only used to draw your org chart. Leave it blank if it does not
+         apply." Both sentences wrong: blank is not "does not apply", it is
+         "reports to you" (Josh, 2026-08-23 09:55); and "only used to draw"
+         expired the day the line started being written into the agent's
+         file. A hint that says "only used for X" is a capability claim with
+         an expiry date and nothing announces the day it expires. -->
+    <div class="fhint">Who they report their work to. Until you pick somebody, that is you.</div>
+    <div class="frow">
+      <select id="d-reports"></select>
+    </div>
+  </div>
+  <!-- ONE Save for the box, because it now writes two fields. A button sitting
+       inside the role row while also saving the name would misdescribe itself. -->
+  <div class="frow" style="margin-top:14px;">
+    <!-- Named for its BOX rather than its fields, because Reports to is
+         conditional: a label listing the fields would be wrong whenever that
+         row is hidden, which is most machines. "Save" survives verbatim. -->
+    <button class="btn" id="d-save" type="button" aria-label="Save name and role">Save</button>
+  </div>
+  <div class="fmsg" id="d-role-msg"></div>
+  </section>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
@@ -11454,128 +11598,9 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </section>
   </section>
-  <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
-
-  <section class="dbox">
-  <div class="field">
-    <label class="flabel" for="d-file">Picture</label>
-    <div class="fhint">A face makes an agent easy to pick out at a glance.</div>
-    <!-- ⚠️ A REAL BUTTON OVER A HIDDEN INPUT, which is the pattern the create
-         form already uses and the reason is recorded there: a hidden file input
-         is out of the tab order and a label is not keyboard-activatable, so the
-         label-only version makes this the one control on the form a keyboard
-         cannot reach. A button that forwards the click keeps it reachable.
-         🛑 THIS SCREEN AND SETTINGS WERE LEFT ON THE BROWSER DEFAULT while
-         create got the treatment, so two of the three places a person picks a
-         picture rendered an unstyled "Choose File / No file chosen" in a
-         product where every other control is drawn. Same shape as the memory
-         figure earlier tonight: three surfaces, one job, and the ones nobody
-         was editing stayed behind. -->
-    <div class="frow">
-      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
-      <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
-             reads as removing the AGENT until you have pressed it (#406). (This
-             page also has a "Remove <name>" control, in the Advanced section since
-             #3500 folded it there.) -->
-        <button class="btn" id="d-remove" type="button">Remove picture</button>
-      <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
-    </div>
-    <div class="fmsg" id="d-msg"></div>
-  </div>
-  <!-- 🛑 THE ID IS `d-rename`, NOT `d-name`, AND THAT COST A REAL CATCH.
-       `d-name` was ALREADY TAKEN by the heading at the top of this page
-       (`<span class="dname" id="d-name">`). The first version of this field
-       reused it, and every symptom pointed the wrong way:
-       `getElementById('d-name')` returned the SPAN, so populating it set an
-       expando `.value` on a span, the browser check then read that expando
-       back and reported `nameValue: "angel"` — a confident pass measuring an
-       element that is not a control. The PUT would have sent `undefined` and
-       the server would have dropped it, and the untied-disable list would have
-       been disabling a heading. The tell was geometry: 59x16, which is text,
-       not a field. Never reuse an id; and when a check passes, confirm it
-       measured the element you meant.
-
-       ⚠️ RENAMING WAS UNREACHABLE UNTIL NOW, and the route was already there.
-       `PUT /api/agent/:name/profile` has accepted `displayName` since round 32,
-       written specifically so a Kosmos-created agent would stop having a
-       permanently unchangeable name — and no screen ever sent one. The comment
-       that removed the card's edit pencil said editing "lives on the detail
-       page (the pack's avedit/nameedit)"; the picture landed there and the role
-       landed there and the name never did, so the comment authorising the
-       removal is the comment that was wrong, in two places, since the rebuild.
-       Found by Mona Lisa.
-
-       ⚠️ NOT THE PACK'S MODAL, deliberately. The pack draws "Edit April" over
-       picture and name together. Josh's own rule from taking the pencils off
-       the project head applies here: renaming is rare, reading the name is
-       constant, so the rare thing goes behind a door and the constant thing
-       gets to be just words. The detail page already IS that door. -->
-  <div class="field" style="margin-top:18px;">
-    <label class="flabel" for="d-rename">Name</label>
-    <!-- ⚠️ THE SECOND SENTENCE WENT TRUE-BUT-INCOMPLETE the day a rename started
-         reaching the instruction file. It read only what a rename does NOT
-         touch, written when the record was the only thing that moved; a person
-         reading it now would not know the agent itself is told. The
-         disclaimers stay, because both are still true and both are things
-         people worry about. -->
-    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
-    <div class="frow">
-      <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
-    </div>
-  </div>
-  <div class="field" style="margin-top:18px;">
-    <label class="flabel" for="d-role">What they do</label>
-    <div class="fhint">Shown under their name, and written into their own instructions.</div>
-    <!-- ⚠️ FOUR WORDS DOING THE JOB OF A SENTENCE. This read "Your words.
-         Nothing on this computer records it, so it is blank until you say."
-         Mona Lisa's three objections, all right: it is a MECHANISM sentence
-         told to someone who only needs the outcome, the same shape the pack
-         has now fixed twice in the composer; it stops being true after the
-         first save, because the profile record does hold it; and "blank until
-         you say" never says until you say WHAT. The half worth keeping is that
-         this is free text rather than a picked role, since a role catalogue
-         exists and would make a reader expect a list. The placeholder beside
-         it already carries the examples. -->
-    <div class="frow">
-      <input type="text" id="d-role" placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
-    </div>
-  </div>
-  <!-- ⚠️ HIDDEN WHEN THERE IS NOBODY ELSE, the same rule the projects picker
-       follows: a dropdown whose only entry is the agent you are looking at is
-       a decision presented to somebody who has none to make. It appears the
-       moment a second agent exists.
-       🛑 AND IT IS NEVER PREFILLED FROM A GUESS. There is already a function
-       in this product that works out "is this the manager" from role text, and
-       its own comment prices the looseness honestly: being wrong costs one
-       click on a dropdown. That price is right there and wrong here, because
-       the org view DRAWS this answer and a diagram does not look like a guess.
-       An empty reporting line is honest; an inferred one is a claim. -->
-  <div class="field" id="d-reports-wrap" hidden>
-    <label class="flabel" for="d-reports">Reports to</label>
-    <!-- 🔑 REPLACED WHOLE (#336, Mona Lisa and Splinter). The old hint was
-         "Only used to draw your org chart. Leave it blank if it does not
-         apply." Both sentences wrong: blank is not "does not apply", it is
-         "reports to you" (Josh, 2026-08-23 09:55); and "only used to draw"
-         expired the day the line started being written into the agent's
-         file. A hint that says "only used for X" is a capability claim with
-         an expiry date and nothing announces the day it expires. -->
-    <div class="fhint">Who they report their work to. Until you pick somebody, that is you.</div>
-    <div class="frow">
-      <select id="d-reports"></select>
-    </div>
-  </div>
-  <!-- ONE Save for the box, because it now writes two fields. A button sitting
-       inside the role row while also saving the name would misdescribe itself. -->
-  <div class="frow" style="margin-top:14px;">
-    <!-- Named for its BOX rather than its fields, because Reports to is
-         conditional: a label listing the fields would be wrong whenever that
-         row is hidden, which is most machines. "Save" survives verbatim. -->
-    <button class="btn" id="d-save" type="button" aria-label="Save name and role">Save</button>
-  </div>
-  <div class="fmsg" id="d-role-msg"></div>
-  </section>
-  </section>
-  <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
+  <!-- #4550: this section opens under the AI Settings button now (there is no Advanced pill). It keeps
+       aria-label "Terminal" to match its own content. History, #2916: the pill was renamed "Advanced", and
+       this region kept aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
        convention as d-sec-model staying "Model" under the "AI Settings" pill (data-go="model"). -->
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
@@ -11654,8 +11679,8 @@ window.kosmosMeasureScrollbarWidth();
   <section class="dsec" id="d-sec-remove" data-sec="remove" tabindex="-1" aria-label="Remove" hidden>
 
   <!-- ⚠️ THE ONE CONTROL THAT TAKES SOMETHING AWAY, and it is here rather than
-       on the card deliberately: its own section, last in the nav and below a
-       rule, on the one screen you have to open on purpose. Nothing about
+       on the card deliberately: its own section, drawn LAST in AI Settings (#4550, Josh's list),
+       below the restart box and a rule, on a screen you have to open on purpose. Nothing about
        removing an agent should be reachable in passing.
 
        It is offered for EVERY agent, including ones this app did not create.
@@ -12168,7 +12193,7 @@ window.kosmosMeasureScrollbarWidth();
              values are never selected or read by the change handler. -->
         <option value="google">Google Gemini</option>
         <option value="xai">xAI Grok</option>
-        <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+        <option value="meta" disabled>Meta Muse &middot; coming soon</option>
         <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -12233,7 +12258,9 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
+        <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span>
       </div>
+      <p class="muse-done" id="acct-muse-done" tabindex="-1" hidden><span class="acct-ok" aria-hidden="true">&#10003;</span>Signed in to Meta Muse. You can close this window.</p>
       <div class="frow" id="acct-muse-open-row" hidden style="margin-top:8px;">
         <a class="btn" id="acct-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
       </div>
@@ -13468,7 +13495,7 @@ window.kosmosMeasureScrollbarWidth();
                      (museSigninFlow) with the fr-muse- prefix; Kosmos does not install Muse Code, so a computer without it is told. -->
                 <div id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
                   <p class="fr-confirm-t" id="fr-muse-t"><b>Sign in to Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
-                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button></div>
+                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
                   <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
                     <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
                   </div>
@@ -14117,7 +14144,7 @@ window.kosmosMeasureScrollbarWidth();
             <option value="google" disabled data-off="Checking your accounts">Google Gemini (API key)</option>
             <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
-            <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
+            <option value="meta" disabled>Meta Muse &middot; coming soon</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -16266,7 +16293,7 @@ window.kosmosMeasureScrollbarWidth();
            delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
            (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
            and the #hb-nudges panel below polls it and renders one check-in per
-           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). Nothing leaves the Mac, so it is not the telemetry #2623
            removed. The copy no longer promises an undeliverable nudge because the
            nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
@@ -16284,7 +16311,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. When one has, it shows a check-in below so you know to look in on that agent. Everything stays on this computer. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks on your agents that have stopped while they still have tasks to finish, or that need reconnecting. It can remind the ones with tasks to pick their work back up, and shows a check-in below so you can look in on it. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -16296,7 +16323,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
            rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
-           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only who/from/to; the QUESTION is composed
            here (never a stored sentence), matching the removed payload's own rule and
            the heartbeat header. Self-contained (one container + paintPrompterNudges)
            so a more prominent placement later is a pure move (Mona's polish). Hidden
@@ -16369,6 +16396,14 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
       <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #4525: what the agents wrote that is held for the person (every new agent's post and
+           comment is held by default), each with Release and Discard. Release is also the only way
+           an agent climbs the trust ladder, so without this list held-by-default was held-forever.
+           Rows the safety check stopped (quarantined) say why and can only be discarded. -->
+      <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer and is not sent to the community.</p>
+      <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
+      <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. -->
@@ -18288,6 +18323,8 @@ function modelLine(a) {
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
+  // #4569 (Josh: "Unknown Model"): Muse picks Meta's model itself; the model its turn names, else the provider.
+  if (a.runner === 'muse') return name || 'Meta Muse';
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
      of them is a fault. No launch file at all means there was never anywhere
      to look, no restart will fill it in, and the wording (ruled on card #150)
@@ -22545,7 +22582,7 @@ async function paintHeartbeat() {
 }
 /* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
    through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
-   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   stalled agent (#4544: one holding an open task, or signed out or disconnected). The store carries only { session, from, to }; the QUESTION is
    COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
    Best-effort: any failure hides the panel rather than showing error noise, because
    the board's own status surfaces still show the truth and a missed nudge is only a
@@ -22591,9 +22628,12 @@ async function paintPrompterNudges() {
   }
   const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
   if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  /* #4544 (Josh): each name is a link to that agent. A real link (the ?tab=detail&agent= deep link
+     a push tap uses), so it is keyboard-reachable and a modified click opens it in a new tab; a plain click opens it in
+     place (prompterNudgeOpen). */
   const rows = nudges.map((n) =>
     '<div class="hb-nudge" role="listitem">' +
-      '<b>' + esc(n.session) + '</b> ' +
+      '<a class="hb-nudge-go" href="?tab=detail&amp;agent=' + encodeURIComponent(n.session) + '" data-hb-agent="' + esc(n.session) + '"><b>' + esc(n.session) + '</b></a> ' +
       '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
     '</div>').join('');
   const html =
@@ -22602,6 +22642,20 @@ async function paintPrompterNudges() {
   if (box.innerHTML !== html) box.innerHTML = html;
   box.hidden = false;
 }
+/* #4544: a plain click on a check-in's name opens that agent in place, the openDetail path the room's
+   names use. A modified click (new tab or window), or an agent this page does not have on its board,
+   is left to the link. Returns true when it opened the agent itself. */
+function prompterNudgeOpen(e) {
+  const t = e && e.target && e.target.closest ? e.target.closest('a[data-hb-agent]') : null;
+  if (!t) return false;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const session = t.getAttribute('data-hb-agent');
+  if (!session || !(Array.isArray(LAST) && LAST.some((a) => a && a.sessionName === session))) return false;
+  e.preventDefault();
+  openDetail(session);
+  return true;
+}
+{ const hbBox = document.getElementById('hb-nudges'); if (hbBox) hbBox.addEventListener('click', prompterNudgeOpen); }
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a
@@ -23573,11 +23627,27 @@ async function paintAccounts(opts) {
        Sign in again, which opens Add a provider on Meta's step. No Remove: Kosmos has nothing of its own
        to forget, and signing Muse out would touch a credential every Muse run on this Mac shares. */
     if (a && a.authMode === 'muse') {
-      // True of all three ways the row appears (round 1): Muse's own record, Kosmos's sign-in, a turn that worked.
-      const why = 'Muse Code is signed in to Meta as far as Kosmos knows: from Kosmos\'s own sign-in, a turn that worked, or Muse Code\'s own record. Kosmos does not check it by itself; a turn Meta refuses, or signing in again, updates it.';
+      /* #4569 (Josh, 10:47: "After I signed in I didn't get a green Signed In. It was black"): the three states
+         the other rows use. Green when Kosmos SAW it work (its own sign-in, or a turn that finished), amber when
+         only Muse Code's own record says signed in, red when Meta refused the last turn. No Check now: the only
+         check Muse has is a real turn on the person's Meta account, so a turn or signing in again updates it. */
+      const c = a.connection || {};
+      const ago = agoWords(c.observedAgeMs);
+      let pill;
+      if (c.badge === 'working') {
+        const why = (c.observedFrom === 'turn' ? 'A Muse turn on this sign-in finished' : 'Kosmos signed in to Meta through Muse Code')
+          + (ago ? ' ' + ago : ' recently') + ', so it is working. Kosmos does not check it by itself; a turn Meta refuses turns this red.';
+        pill = '<span class="acct-connected" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ago ? ' · confirmed ' + esc(ago) : '') + '<span class="vh"> (' + esc(why) + ')</span></span>';
+      } else if (c.badge === 'rejected') {
+        const why = 'Meta refused the last turn on this sign-in, so Muse agents cannot work until you sign in again.';
+        pill = '<span class="acct-none" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Not connected<span class="vh"> (' + esc(why) + ')</span></span>';
+      } else {
+        const why = 'Muse Code\'s own record says it is signed in to Meta, but Kosmos has not seen it work yet. It turns green after a turn finishes, or when you sign in again here.';
+        pill = '<span class="acct-unverified" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span>';
+      }
       return '<div class="acct-box" data-muse-row="1"><div class="acct-box-top"><div class="acct-who"><b>Meta account</b>'
         + '<span class="acct-tag"> through Muse Code on this computer</span></div>'
-        + '<span class="acct-unknown" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in<span class="vh"> (' + esc(why) + ')</span></span></div>'
+        + pill + '</div>'
         + '<div class="acct-actions">'
         + '<button class="acct-reauth" type="button" data-muse-reauth="1" aria-label="Sign in again to Meta through Muse Code" '
         + 'title="' + esc('Opens Meta\'s sign-in again, the same way as adding it.') + '">Sign in again</button>'
@@ -26980,7 +27050,13 @@ function museSigninFlow(prefix, opts) {
     for (const x of ['open-row', 'retry-row', 'cancel-row']) hideRow(x);
     clearCode();
     const g = el('go'); if (g) { g.hidden = false; g.disabled = false; }
+    const sp = el('spin'); if (sp) sp.hidden = true;
+    const dn = el('done'); if (dn) dn.hidden = true;
+    if (g) g.textContent = 'Sign in with Meta';   // a reopened step starts fresh (review round 1); a failure relabels after
+    if (opts && opts.onReset) opts.onReset();
   }
+  /* #4569: a sign-in that failed or ended offers Try again on the same button. */
+  const label = (t) => { const g = el('go'); if (g) g.textContent = t; };
   function show(st) {
     const a = el('open');
     if (a && st.url) { a.href = st.url; el('open-row').hidden = false; } else hideRow('open-row');
@@ -26991,6 +27067,8 @@ function museSigninFlow(prefix, opts) {
       if (c.__devKey !== st.code) { c.innerHTML = devCodeHtml('On that page, confirm this code:', st.code); c.__devKey = st.code; }
     } else clearCode();
     if (st.state === 'expired') el('retry-row').hidden = false; else hideRow('retry-row');
+    // #4569: an expired code waits on the person pressing Get a new code; while a code is live Kosmos is still polling Meta.
+    const sp = el('spin'); if (sp) sp.hidden = st.state === 'expired';
   }
   function finish(text) {
     // reset() hides each row through hideRow, which moves focus off a control that is going.
@@ -27006,12 +27084,18 @@ function museSigninFlow(prefix, opts) {
       catch { return; }   // a network blip: keep polling
       if (mine !== gen || !st) return;
       // No sign-in at all (the board restarted, say): not "another one started" (round 1).
-      if (!st.id || st.state === 'idle') { finish('That sign-in ended before it finished. You can try again.'); return; }
-      if (st.id !== id) { finish('Another sign-in started, so this one ended.'); return; }
+      if (!st.id || st.state === 'idle') { finish('That sign-in ended before it finished. You can try again.'); label('Try again'); return; }
+      if (st.id !== id) { finish('Another sign-in started, so this one ended.'); label('Try again'); return; }
       show(st);
       if (st.state === 'done') {
         finish('');
-        say('Signed in to Meta Muse.');
+        const dn = el('done');
+        if (dn) {
+          /* #4569 (Josh): the success line REPLACES the button, never sits under a live one. */
+          const g = el('go'); if (g) g.hidden = true;
+          dn.hidden = false;
+          if (opts && opts.onSuccess) opts.onSuccess(); else dn.focus();
+        } else say('Signed in to Meta Muse.');
         try { if (opts && opts.onDone) await opts.onDone(); } catch { /* the place repaints on the next visit */ }
         return;
       }
@@ -27019,6 +27103,7 @@ function museSigninFlow(prefix, opts) {
         const why = pjSentence(st.because) || 'That sign-in did not finish.';
         // Reasons that already say to start again are not told twice (round 5).
         finish(/again\.?$/.test(why) ? why : why + ' You can try again.');
+        label('Try again');
         return;
       }
       say(st.state === 'stuck' ? (pjSentence(st.because) || MUSE_SAY.starting) : (MUSE_SAY[st.state] || MUSE_SAY.starting));
@@ -27029,16 +27114,19 @@ function museSigninFlow(prefix, opts) {
     gen += 1;
     const mine = gen;
     const go = el('go'); if (go) go.disabled = true;
+    const spin = el('spin'); if (spin) spin.hidden = false;   // #4569: visible from the click until it ends
+    const dn = el('done'); if (dn) dn.hidden = true;
+    if (go) go.textContent = 'Sign in with Meta';
     say(MUSE_SAY.starting);
     let res; let out = null;
     // A refused or failed start re-arms the button and gives it focus back (round 1: it was disabled under focus).
-    const rearm = (t) => { if (go) { go.disabled = false; go.focus(); } say(t); };
+    const rearm = (t) => { if (spin) spin.hidden = true; if (go) { go.disabled = false; go.textContent = 'Try again'; go.focus(); } say(t); };
     try { res = await post('start', {}); out = await res.json().catch(() => null); }
     catch { if (mine === gen) rearm('We could not reach Kosmos to start that sign-in. Try again.'); return; }
     if (mine !== gen) { if (res.ok && out && out.id) post('stop', { id: out.id }).catch(() => {}); return; }
     if (!res.ok || !out || !out.id) { rearm(pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'); return; }
     id = out.id;
-    if (go) go.hidden = true;
+    // #4569: the button stays where it was, off, with Connecting beside it, so the person can see it is under way.
     el('cancel-row').hidden = false;
     show(out);
     const stop = el('cancel'); if (stop) stop.focus();
@@ -27078,7 +27166,12 @@ function museSigninWire(flow, prefix) {
     el('go').focus();
   });
 }
-const ACCT_MUSE = museSigninFlow('acct-muse-', { onDone: () => paintAccounts() });
+const ACCT_MUSE = museSigninFlow('acct-muse-', {
+  onDone: () => paintAccounts(),
+  /* #4569 (Josh): once signed in, Close is the thing to press. */
+  onSuccess: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.add('uprime'); c.setAttribute('aria-describedby', 'acct-muse-done'); c.focus(); } },
+  onReset: () => { const c = document.getElementById('acct-add-close'); if (c) { c.classList.remove('uprime'); c.removeAttribute('aria-describedby'); } },
+});
 /* Show Muse's step, or put it away (on === false): every open, close and provider switch reaches it. */
 function acctMuseShow(on) {
   const flow = document.getElementById('acct-muse-flow');
@@ -27136,6 +27229,9 @@ async function frPaintMeta(opts) {
   const mark = row.querySelector('.pmark');
   if (mark) { mark.classList.toggle('live', live); mark.classList.toggle('dim', !live); }
   const soon = document.getElementById('fr-meta-soon'); if (soon) soon.hidden = live;
+  /* #4569 (Josh: the Meta label everywhere): switched on, the row names what the person connects, Muse (from Meta),
+     as Gemini / Google and Grok / xAI do; off, it keeps today's coming-soon Llama. */
+  const nm = row.querySelector('.llm-w b'); if (nm) nm.textContent = live ? 'Muse' : 'Llama';
   const msg = document.getElementById('fr-muse-msg');
   if (!live) {
     frMuseCollapse();
@@ -28740,6 +28836,9 @@ function communityPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';
   paintSwitch('community-toggle', unread ? null : r.on === true);
   document.getElementById('community-off-note').hidden = unread || r.on !== false;
+  /* #4525: the send sweep only sends a post released while the switch is on (communitysend
+     sinceForOnPeriod), so Release under Off publishes on this board alone, for good. Say so. */
+  document.getElementById('community-held-off').hidden = unread || r.on !== false;
   document.getElementById('community-share').textContent = unread
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
@@ -29026,6 +29125,316 @@ function openCommunityDelete(r, li) {
   keep.focus();
 }
 
+/* #4525: what the agents wrote that is held for the person, from /api/community/moderation (held
+   and quarantined rows, posts and comments). Release POSTs {id} to /api/community/release, which
+   publishes the row and, for a post, records the approval on the agent's trust ladder; Discard asks
+   inside the row, then POSTs {id} to /api/community/discard. A quarantined row (the safety check
+   caught something) cannot be released, so it says why and offers only Discard. */
+/* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
+   two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
+   test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
+const COMMUNITY_SITE = 'https://community.installkosmos.com';
+function communityHeldReason(findings) {
+  const said = {
+    secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
+    email: 'an email address', phone: 'a phone number', ssn: 'an ID number', card: 'a card number',
+    home_path: 'a folder path that names someone on this computer', financial: 'an amount of money',
+    human_name: 'a person\u2019s name', bad_link: 'a link Kosmos does not allow',
+  };
+  const seen = [];
+  for (const f of Array.isArray(findings) ? findings : []) {
+    const w = f && said[f.cls];
+    if (w && !seen.includes(w)) seen.push(w);
+  }
+  const next = ' Discard it, and the agent can write it again without that.';
+  if (!seen.length) return 'Kosmos stopped this because it did not pass the safety check, so it cannot be released.' + next;
+  const list = seen.length === 1 ? seen[0] : seen.slice(0, -1).join(', ') + ' and ' + seen[seen.length - 1];
+  return 'Kosmos stopped this because it contains ' + list + ', so it cannot be released.' + next;
+}
+function communityHeldAgent(r) {
+  return (r.author && r.author.name) || r.agent || '';
+}
+/* The queue says which collection a row came from (`entry`, engine/communitystore.moderationQueue); a row without it
+   (an older board) falls back to a comment's routing fields. */
+function communityHeldIsComment(r) { return r && r.entry ? r.entry === 'comment' : Boolean(r && (r.postId || r.remotePostId)); }
+/* A comment has no title, so it is named by its agent: every row's buttons must say which row they act on. */
+function communityHeldTitle(r, stopped) {
+  /* A stopped post's topic is scanned like its body (engine/feedguard.js), so it may be what stopped it:
+     a stopped row is named neutrally, and its topic shows only with its words, when asked for. */
+  if (stopped) return (communityHeldIsComment(r) ? 'A comment' : 'A post') + (communityHeldAgent(r) ? ' by ' + communityHeldAgent(r) : '');
+  if (communityHeldIsComment(r)) return communityHeldAgent(r) ? 'A comment by ' + communityHeldAgent(r) : 'A comment';
+  return r.topic || 'Untitled post';
+}
+let COMMUNITY_HELD_EPOCH = 0;
+/* The moderation route's ceiling, engine/communitysite.js MOD_LIMIT_MAX (web.community-held-4525.test.js
+   pins the two equal: below it, the "there may be more" line could never show). */
+const COMMUNITY_HELD_MAX = 200;
+/* Read all shows when the text may run past the four lines .community-held-body clamps it to
+   (set from COMMUNITY_HELD_CLAMP_LINES below); 240 characters is about four lines at the Settings column's width. */
+const COMMUNITY_HELD_CLAMP_LINES = 4;
+const COMMUNITY_HELD_READ_ALL_CHARS = 240;
+/* How much of a comment names its buttons for a screen reader: enough to tell two apart. */
+const COMMUNITY_HELD_LABEL_CHARS = 40;
+function communityHeldPaint(rows, full) {
+  const list = document.getElementById('community-held-list');
+  const empty = document.getElementById('community-held-empty');
+  list.replaceChildren();
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = 'We could not read what is waiting for you just now. Try again in a moment.';
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'Nothing is waiting for you.';
+  if (full && (full.held || full.stopped)) {
+    empty.hidden = false;
+    const which = full.held && full.stopped ? 'waiting and the oldest ' + COMMUNITY_HELD_MAX + ' stopped' : full.held ? 'waiting' : 'stopped';
+    empty.textContent = 'Only the oldest ' + COMMUNITY_HELD_MAX + ' ' + which + ' are shown. There may be more; they show here as you release or discard these.';
+  }
+  /* Posts still waiting, and posts stopped (which can only be discarded): a comment under either would be
+     published under a post nobody can see. */
+  const heldPosts = new Set(rows.filter((r) => r.status === 'held' && !communityHeldIsComment(r)).map((r) => r.id));
+  const stoppedPosts = new Set(rows.filter((r) => r.status === 'quarantined' && !communityHeldIsComment(r)).map((r) => r.id));
+  rows.forEach((r, at) => {
+    const stopped = r.status === 'quarantined';
+    const isComment = communityHeldIsComment(r);
+    const name = communityHeldTitle(r, stopped);
+    /* The buttons' names: a post's title, or for a comment its agent plus how it starts, since
+       one agent can have several comments waiting. A stopped row's words must not be spoken either
+       (a screen reader reads a button's name aloud), so it is told apart by its place in the list. */
+    const said = typeof r.body === 'string' ? r.body.replace(/\s+/g, ' ').trim() : '';
+    const label = stopped ? name + ' (row ' + (at + 1) + ')'
+      : isComment && said ? name + ': ' + (said.length > COMMUNITY_HELD_LABEL_CHARS ? said.slice(0, COMMUNITY_HELD_LABEL_CHARS) + '…' : said) : name;
+    /* A comment under a post that is itself still waiting: releasing it now changes nothing anyone can see
+       (a comment shows only under a published post), so Release is not offered until the post is released. */
+    const underHeld = isComment && !stopped && r.postId && heldPosts.has(r.postId);
+    const underStopped = isComment && !stopped && r.postId && stoppedPosts.has(r.postId);
+    const li = document.createElement('li');
+    li.className = 'community-mine-row community-held-row';
+    li.dataset.id = r.id;
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = name;
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.style.webkitLineClamp = String(COMMUNITY_HELD_CLAMP_LINES);   // the one source of the clamp; .open ends it by leaving -webkit-box
+    body.textContent = (stopped && !isComment && typeof r.topic === 'string' && r.topic ? r.topic + '\n' : '')
+      + (typeof r.body === 'string' ? r.body : '');
+    /* A stopped row is stored exactly as the agent wrote it, and what stopped it may be a key or a
+       card number, so its words stay hidden until asked for (a shared screen must not show them). */
+    if (stopped) body.hidden = true;
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
+      /* The send sweep sends posts only, so a released comment is published on this board and
+         goes no further yet. The row must not promise the community. */
+      + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
+        : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
+    text.append(title, body);
+    /* A comment on a post in the public community has no post on this board to show, only the
+       service's id for it, so the row links out to that post. Only a plain id is linked.
+       ⚠️ `remotePostId` is #4373 part B's field and is not on main yet (its branch stores it on the
+       comment row); if part B lands with another name, this link is silently never drawn. */
+    if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+      const a = document.createElement('a');
+      a.className = 'community-held-post';
+      /* /post/<id> is the community site's own post page (kosmos-community web/components/PostCard.tsx links
+         '/post/' + post.id), read from that repo on 2026-09-29; this repo cannot import it to pin it. */
+      a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = 'See the post it answers';
+      const p = document.createElement('p');
+      p.className = 'dhint';
+      p.style.margin = '2px 0 0';
+      p.append(a);
+      text.append(p);
+    }
+    text.append(meta);
+    if (stopped) {
+      const why = document.createElement('p');
+      why.className = 'dhint community-held-why';
+      why.style.margin = '2px 0 0';
+      why.textContent = communityHeldReason(r.findings);
+      text.append(why);
+    }
+    li.append(text);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    if (!stopped && !underHeld && !underStopped) {
+      const rel = document.createElement('button');
+      rel.className = 'btn community-held-release';
+      rel.type = 'button';
+      rel.textContent = 'Release';
+      rel.setAttribute('aria-label', 'Release “' + label + '”');
+      rel.addEventListener('click', () => communityHeldRelease(r, li, rel));
+      acts.append(rel);
+    }
+    const dis = document.createElement('button');
+    dis.className = 'btn danger-btn community-held-start';
+    dis.type = 'button';
+    dis.textContent = 'Discard';
+    dis.setAttribute('aria-label', 'Discard “' + label + '”');
+    dis.addEventListener('click', () => openCommunityDiscard(r, li, label));
+    acts.append(dis);
+    li.append(acts);
+    const note = document.createElement('p');
+    note.className = 'dhint community-held-note community-mine-ask';
+    note.setAttribute('role', 'alert');
+    note.style.margin = '0';
+    note.hidden = true;
+    li.append(note);
+    list.append(li);
+    /* "Read all" when the text may run past four lines. Decided from the text, not measured:
+       this list is painted at page load, while Settings is hidden and every height reads 0. */
+    const txt = body.textContent;
+    if (stopped) {
+      const show = document.createElement('button');
+      show.className = 'linkish community-held-reveal';
+      show.type = 'button';
+      show.textContent = 'Show what it said';
+      show.setAttribute('aria-expanded', 'false');
+      show.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        if (!body.hidden) body.classList.add('open');
+        show.textContent = body.hidden ? 'Show what it said' : 'Hide what it said';
+        show.setAttribute('aria-expanded', String(!body.hidden));
+      });
+      body.after(show);
+    } else if (txt.length > COMMUNITY_HELD_READ_ALL_CHARS || txt.split('\n').length > COMMUNITY_HELD_CLAMP_LINES) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Read all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Read less' : 'Read all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      body.after(more);
+    }
+  });
+}
+async function refreshCommunityHeld() {
+  const mine = ++COMMUNITY_HELD_EPOCH;
+  try {
+    /* Held and stopped rows are asked for separately, each up to the route's ceiling (MOD_LIMIT_MAX),
+       oldest first, and the releasable ones are listed first: stopped rows can only be discarded, so
+       they must not fill the window and push a post the person could release out of sight. */
+    const ask = (status) => fetch('/api/community/moderation?status=' + status + '&limit=' + COMMUNITY_HELD_MAX)
+      .then(async (res) => { const b = res.ok ? await res.json() : null; return b && Array.isArray(b.queue) ? b.queue : null; });
+    const [held, stopped] = await Promise.all([ask('held'), ask('quarantined')]);
+    if (mine !== COMMUNITY_HELD_EPOCH) return;
+    if (!held || !stopped) { communityHeldPaint(null); return; }
+    communityHeldPaint(held.concat(stopped), { held: held.length >= COMMUNITY_HELD_MAX, stopped: stopped.length >= COMMUNITY_HELD_MAX });
+  } catch {
+    if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(null);
+  }
+}
+/* After a release or a discard both lists repaint (a released post joins "Your agents' posts"
+   once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
+async function communityHeldDone() {
+  await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  const head = document.getElementById('community-held-head');
+  if (head) { head.tabIndex = -1; head.focus(); }
+}
+async function communityHeldRelease(r, li, btn) {
+  const note = li.querySelector('.community-held-note');
+  const buttons = [...li.querySelectorAll('.community-held-acts button')];
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = 'Releasing…';
+  try {
+    const res = await fetch('/api/community/release', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: r.id }),
+    });
+    const out = await res.json().catch(() => null);
+    /* A server failure (5xx) may have landed partway (the post published, its credit not saved), so a retry
+       could only be refused: say so where the list says things, and repaint from the board. */
+    if (res.status >= 500) {
+      const say = document.getElementById('community-msg');
+      if (say) say.textContent = ((out && out.error) || 'Kosmos could not finish that.') + ' The list below shows where it stands now.';
+      await communityHeldDone();
+      return;
+    }
+    if (!res.ok) { note.textContent = (out && out.error) || 'We could not release it.'; buttons.forEach((b) => { b.disabled = false; }); btn.focus(); return; }
+  } catch {
+    note.textContent = 'We could not release it.';
+    buttons.forEach((b) => { b.disabled = false; });
+    btn.focus();
+    return;
+  }
+  /* Released. The repaint is outside the try: a refresh that fails must not tell the person the
+     release failed, when it landed. */
+  await communityHeldDone();
+}
+/* Discard asks inside the row, the same way Delete does above: both buttons name the act, and
+   Keep it takes focus so an unaimed Enter is harmless. */
+function openCommunityDiscard(r, li, name) {
+  const was = li.querySelector('.community-held-ask');
+  if (was) { was.querySelector('.community-held-keep').focus(); return; }
+  const ask = document.createElement('div');
+  ask.className = 'community-mine-ask community-held-ask';
+  ask.setAttribute('role', 'group');
+  ask.setAttribute('aria-label', 'Discard “' + name + '”?');
+  const say = document.createElement('p');
+  say.className = 'dhint';
+  say.style.margin = '0 0 6px';
+  say.textContent = 'It never goes to the community, and it cannot be brought back.'
+    + (communityHeldIsComment(r) ? '' : ' Any comments on it go with it.');
+  const keep = document.createElement('button');
+  keep.className = 'btn community-held-keep';
+  keep.type = 'button';
+  keep.textContent = 'Keep it';
+  const del = document.createElement('button');
+  del.className = 'btn danger-btn community-held-discard';
+  del.type = 'button';
+  del.textContent = 'Discard it';
+  const note = document.createElement('p');
+  note.className = 'dhint';
+  note.setAttribute('role', 'alert');
+  note.style.margin = '6px 0 0';
+  const acts = li.querySelector('.community-held-acts');
+  const start = li.querySelector('.community-held-start');
+  const closeAsk = () => { ask.remove(); if (acts) acts.hidden = false; if (start) start.focus(); };
+  keep.addEventListener('click', () => closeAsk());
+  ask.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !del.disabled) { e.stopPropagation(); closeAsk(); } });
+  del.addEventListener('click', async () => {
+    del.disabled = true;
+    keep.disabled = true;
+    note.textContent = 'Discarding…';
+    try {
+      const res = await fetch('/api/community/discard', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: r.id }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; del.focus(); return; }
+    } catch {
+      note.textContent = 'We could not discard it.';
+      del.disabled = false;
+      keep.disabled = false;
+      del.focus();
+      return;
+    }
+    await communityHeldDone();   // discarded: a failed repaint is not a failed discard
+  });
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '8px';
+  row.append(keep, del);
+  ask.append(say, row, note);
+  if (acts) acts.hidden = true;
+  li.append(ask);
+  keep.focus();
+}
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -29139,6 +29548,7 @@ refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
+refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -30630,9 +31040,9 @@ function sortAgents(list, mode, projects) {
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
       const aa = a.agent || {}, bb = b.agent || {};
-      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity'
+      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity' || aa.runner === 'muse'
         || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
-      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity'
+      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity' || bb.runner === 'muse'
         || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
       return cmpText(ak, bk) || byName(a, b);
     }
@@ -31325,6 +31735,7 @@ let CURRENT = null;
    load against a refetch + list-rebuild flicker on every return to Instructions. Reset per open
    (below) so reopening an agent gets a fresh list; a skill ADD refreshes it on its own path. */
 let SKILLS_LOADED_FOR = null;
+const SKILLS_LOAD_TICKET = {};   // #4550: per list, the newest load's ticket (see loadSkills)
 /* #2574: the project a detail view was opened FROM (a project-member click), so
    detail-back returns to that project instead of All agents. null for every
    other opener. */
@@ -33940,7 +34351,22 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
-  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
+  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first visit to its section (under Profile since #4550)
+  /* #4550: never the last agent's rows. The clear here, and a new ticket that retires a load still in
+     flight. That load is ALSO refused by skillsListIsFor when it answers (it names an agent no longer on
+     screen): two independent guards, each enough alone (measured: the Talk-landing arm in
+     render-agent-nav fails only with both removed). */
+  { const sl = document.getElementById('d-skills-list'); if (sl) sl.textContent = '';
+    const sm = document.getElementById('d-skills-msg'); if (sm) sm.textContent = '';
+    /* The Add form belongs to the agent too: its message ("Adding…" whose answer is now another
+       agent's) and a half-typed skill must not follow the person to the next agent. */
+    /* Only on a SWITCH: a reopen of the same agent keeps what the person typed (an Add still in
+       flight for it may yet fail, and its error should find the draft there to retry). */
+    if (cameFrom !== a.sessionName) {
+      const am = document.getElementById('d-skill-add-msg'); if (am) am.textContent = '';
+      for (const id of ['d-skill-name', 'd-skill-body']) { const f = document.getElementById(id); if (f) f.value = ''; }
+    }
+    SKILLS_LOAD_TICKET['d-skills-list'] = (SKILLS_LOAD_TICKET['d-skills-list'] || 0) + 1; }
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
   {
     // Clear the previous agent's rows now, not when the fetch returns: a click in between would
@@ -34356,7 +34782,7 @@ function detailSection(key) {
 /* #718 mobile: an ARRIVAL at an agent to answer it (the Answer button on a card, or a
    push tap, which opens ?tab=detail&agent=) must show the conversation, where the
    question is and where you answer. On a phone the page stacks (max-width 56rem, the
-   .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
+   .dbody and #d-nav rules): the identity block, three full-width section boxes (five before #4550) and Files
    come first, so the question sat about two screens down on an iPhone SE (measured).
    Only arrivals call this: a page load with ?agent= in its address, whatever the tab (a push
    tap opens ?tab=detail&agent=; a reload of an agent page also lands on the conversation),
@@ -34473,7 +34899,11 @@ function detailPaintWindow(a) {
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files', 'swarm'];   // #4433: swarm, only while the Swarm Settings box shows   // #3757: files has no pill (View All reaches it)
-/* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
+/* #4550: see DETAIL_SECTION_GROUPS below for today's two groups (Profile: profile, instr, skills;
+   AI Settings: model, memory, term, remove). instr, skills, memory, term and remove are all folded
+   members now. The focus note below still holds: a caller passing a folded member lands at the top
+   of its group (openDetail(name, 'instr') focuses Profile's top). No production caller passes one.
+   History, #2916 (Josh 6.59): two pills each covered two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
    reveals the instructions AND skills sections. The member sections keep their own data-sec and
@@ -34482,15 +34912,18 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile'
    detailSectionPill maps it to the pill that should light. Anything not folded maps to itself.
    ⚠️ FOCUS lands on the group's FIRST section (the pill's own), NOT a requested folded member: a
    future openDetail(name, 'memory') reveals model+memory but focuses the top of Model, so a
-   keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
+   keyboard user tabs past Model to reach Memory. No production caller passes a folded member; if one
    is added and must focus ON the member, teach detailGo to focus the requested section rather
    than group[0]. */
-/* #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
+/* History (superseded by #4550 below): #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
    fold mechanism model+memory and instr+skills already use, so the top-level Remove pill can
    leave the nav and free the clean four-pack. The Advanced pill now reveals both the terminal
    section and the remove section; section 'remove' maps to the 'term' pill. */
-const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'], term: ['term', 'remove'] };
-const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr', remove: 'term' };
+/* #4550 (Josh, 2026-09-29): three buttons. Profile reveals the profile, Instructions and Skills;
+   AI Settings reveals Model, Memory, the Terminal section and Remove. Every folded section maps to
+   the button that now lights for it. */
+const DETAIL_SECTION_GROUPS = { profile: ['profile', 'instr', 'skills'], model: ['model', 'memory', 'term', 'remove'] };
+const DETAIL_SECTION_PILL = { instr: 'profile', skills: 'profile', memory: 'model', term: 'model', remove: 'model' };
 function detailSectionGroup(section) {
   const pill = DETAIL_SECTION_PILL[section] || section;
   return DETAIL_SECTION_GROUPS[pill] || [pill];
@@ -34537,9 +34970,9 @@ function detailGo(section, opts) {
   target = detailSection(group[0]);
   /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
      is the first control of what they asked for rather than the next pill.
-     (Shift+Tab from there lands on the last pill, Advanced, because that is DOM
-     order - #3500 folded Remove under Advanced, so Advanced is now the last pill;
-     the pill they came from is a few more presses back. Known, not a trap.) On
+     (Shift+Tab from there lands on the last pill in DOM order, AI Settings since
+     #4550, or Swarm Settings on a swarm's page; the pill they came from is a few
+     more presses back. Known, not a trap.) On
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
@@ -34575,7 +35008,14 @@ function detailGo(section, opts) {
     const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
     if (fresh) swarmPagePaint(fresh, { force: true });
   }
-  if (section === 'term' && CURRENT && arriving) {
+  /* #2916 / #4550: the Skills list lazy-loads when its section is revealed, now under Profile. Here, beside
+     the group reveal, so every way in loads it (the Profile click, openDetail(name, 'instr' | 'skills'),
+     detailGo), not only a click; SKILLS_LOADED_FOR keeps a return visit from refetching. */
+  if (group.includes('skills') && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName && typeof loadSkills === 'function') {
+    SKILLS_LOADED_FOR = CURRENT.sessionName;
+    loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
+  }
+  if (group.includes('term') && CURRENT && arriving) {   // #4550: the Terminal section opens under AI Settings
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
   /* #718: the swarm cluster is sized from its avatar slot, which is 0px wide until the panel is
@@ -34642,20 +35082,7 @@ function detailGo(section, opts) {
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  detailGo(b.dataset.go);
-  /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
-     own pill; now it is folded under Instructions, so load it when the Instructions pill opens
-     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
-     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
-     rebuild the list on every visit.
-     ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
-     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
-     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
-     would render blank until the pill is clicked -- move this load beside the group reveal then. */
-  if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
-    SKILLS_LOADED_FOR = CURRENT.sessionName;
-    loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
-  }
+  detailGo(b.dataset.go);   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
 });
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
@@ -34740,6 +35167,8 @@ function settingsGo(section, opts) {
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
+  /* #4525: the held list too: an agent can post while the page is open. */
+  if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -35380,6 +35809,16 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
    The list is whatever the runtime's folder holds right now; painting from
    anything else would let the screen disagree with what a session loads. */
+/* #4550 review: the agent Skills list only ever shows the agent ON SCREEN. It loads whenever
+   Profile opens, so switching agents can leave work in flight (a list load, a Remove, an Add),
+   and an answer for agent A landing on agent B's page would list A's skills with Remove buttons
+   aimed at A. Two guards, checked after every await: the list's ticket (the newest load wins,
+   and openDetail retires a load in flight), and skillsListIsFor, that the URL is the agent now
+   open. The global Settings list is not per agent, so only the ticket applies to it. */
+function skillsListIsFor(listId, url) {
+  if (listId !== 'd-skills-list') return true;
+  return !!CURRENT && url === '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills';
+}
 async function loadSkills(url, listId, msgId) {
   /* Header only, no body text (Josh, 2026-08-23 20:01: "this page could get
      really gigantic... just have only the header"). Each row carries its
@@ -35387,10 +35826,14 @@ async function loadSkills(url, listId, msgId) {
      the consent, and looking away resets it. */
   const box = document.getElementById(listId);
   const msg = document.getElementById(msgId);
+  if (!skillsListIsFor(listId, url)) return;   // a reload for an agent no longer on screen
+  const ticket = (SKILLS_LOAD_TICKET[listId] = (SKILLS_LOAD_TICKET[listId] || 0) + 1);
+  const stale = () => SKILLS_LOAD_TICKET[listId] !== ticket || !skillsListIsFor(listId, url);
   msg.textContent = 'Looking\u2026';
   try {
     const got = await (await fetch(url, { cache: 'no-store' })).json();
-    if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); return; }
+    if (stale()) return;
+    if (got.ok === false) { box.textContent = ''; msg.textContent = pjSentence(got.because || 'we could not read the skills folder'); skillsRetryLater(listId); return; }
     box.textContent = '';
     const skills = got.skills || [];
     if (!skills.length) { msg.textContent = 'No skills here yet.'; return; }
@@ -35409,33 +35852,41 @@ async function loadSkills(url, listId, msgId) {
         try {
           const res = await fetch(url + '/' + encodeURIComponent(sk.key), { method: 'DELETE' });
           const out = await res.json();
+          if (!skillsListIsFor(listId, url)) return;   // the person moved to another agent meanwhile
           if (!res.ok) { msg.textContent = pjSentence(out.because || 'we could not remove it'); rm.disabled = false; return; }
           loadSkills(url, listId, msgId);
-        } catch { msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
+        } catch { if (!skillsListIsFor(listId, url)) return; msg.textContent = 'We could not reach Kosmos to remove it.'; rm.disabled = false; }
       });
       rm.addEventListener('blur', () => { armed = false; rm.textContent = 'Remove'; rm.classList.remove('armed'); });
       row.append(n, rm);
       box.append(row);
     }
-  } catch { box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; }
+  } catch { if (stale()) return; box.textContent = ''; msg.textContent = 'We could not reach Kosmos to list the skills.'; skillsRetryLater(listId); }
 }
+/* A failed agent Skills load is not "loaded": the next visit to Profile tries again (#4550 review). */
+function skillsRetryLater(listId) { if (listId === 'd-skills-list') SKILLS_LOADED_FOR = null; }
 function wireSkillAdd(btnId, nameId, bodyId, msgId, urlFor, saidFor) {
   document.getElementById(btnId).addEventListener('click', async () => {
     const msg = document.getElementById(msgId);
     const name = document.getElementById(nameId).value.trim();
     const body = document.getElementById(bodyId).value;
     msg.textContent = 'Adding\u2026';
+    /* #4550 review: the agent and the sentence are taken at the click, and nothing is written back
+       if the person has moved to another agent by the time the answer comes. */
+    const url = urlFor(), said = saidFor();
+    const here = () => btnId !== 'd-skill-add' || skillsListIsFor('d-skills-list', url);
     try {
-      const res = await fetch(urlFor(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, body }) });
+      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, body }) });
       const out = await res.json().catch(() => null);
+      if (!here()) return;
       if (!res.ok || !out || out.ok === false) { msg.textContent = pjSentence((out && out.because) || 'we could not add that skill'); return; }
       document.getElementById(nameId).value = ''; document.getElementById(bodyId).value = '';
-      msg.textContent = saidFor();
+      msg.textContent = said;
       /* The list is the receipt: repaint it so the new skill appears where
          it will be read from. */
       if (btnId === 'g-skill-add') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
       else if (CURRENT) loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
-    } catch { msg.textContent = 'We could not reach Kosmos to add that skill.'; }
+    } catch { if (here()) msg.textContent = 'We could not reach Kosmos to add that skill.'; }
   });
 }
 wireSkillAdd('g-skill-add', 'g-skill-name', 'g-skill-body', 'g-skill-add-msg',
@@ -36226,7 +36677,7 @@ function freshStartLabel(name) {
    name is carried by the DM header ("Direct Message to <name>") and the identity column, so the
    nav box stays short in its icon+label form. The Remove pill is gone (folded into Advanced), so
    its two former label writes are removed; the remove SECTION still names the agent via its
-   aria-label below, which is what a screen reader on the (now Advanced-revealed) section reads. */
+   aria-label below, which is what a screen reader on the (Advanced-revealed, under AI Settings since #4550) section reads. */
 function detailNavNames(name) {
   const n = (name || '').trim();
   document.getElementById('d-nav-talk').textContent = 'Direct Message';
@@ -36264,7 +36715,8 @@ function detailDots() {
   /* #1841: the Instructions tab dot also lights for the working-rules update
      state, now that it lives on that tab -- either the doctrine prompt (made
      before the rules) or the reports section (Kosmos-made change to re-read). */
-  set('instr', shown('d-instr-outdated') || shown('d-instr-stale')
+  /* #4550: Instructions folds into Profile, so its dot moves with it. */
+  set('profile', shown('d-instr-outdated') || shown('d-instr-stale')
     || shown('d-doctrine-note') || shown('d-instr-reports'));
 }
 (function watchDots() {
@@ -43123,6 +43575,10 @@ async function paintAccountPicker(a) {
      listener, which is unaffected, so the feature degrades rather than dies. Named so the
      coupling is known rather than rediscovered. */
   if (!sel || !go) return;
+  /* #4569 (Josh): an empty menu and a Move button that can never be pressed is a dead control, so for an agent
+     with no account to move to, the row is not drawn at all; the line under it says why. */
+  const moveRow = sel.parentElement;
+  if (moveRow) moveRow.hidden = false;
   /* #3568 (review round 7): an Antigravity agent signs in with Google inside its own window and has
      no Kosmos account, so there is nothing to move it to; the keyed branches below would call it a
      key and point at a Settings path that cannot add one. */
@@ -43130,6 +43586,7 @@ async function paintAccountPicker(a) {
     sel.innerHTML = '<option value="" selected></option>';
     sel.disabled = true;
     go.disabled = true;
+    if (moveRow) moveRow.hidden = true;
     if (msg) msg.textContent = a.runner === 'muse'
       ? 'It runs on your Meta sign-in through Muse Code, so there is no account to move it to.'
       : 'It runs on your Google subscription through Antigravity, so there is no account to move it to.';
@@ -64513,18 +64970,18 @@ const TIPS = [
       { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)', '#panel-projects .pj3 > .pjsplit > aside.pjcol'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
     ],
     show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated') },
-  /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then five small tips, one on
+  /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then small tips, one on
      each button. The ring step is left out when her page draws no ring (memory not known), since there is nothing
-     to point at. Josh's words, verbatim; in his paste "Instructions" slipped under Profile, it heads step 3. */
+     to point at. Josh's words, verbatim; in his paste "Instructions" slipped under Profile, it heads step 3.
+     #4550: the Instructions and Advanced buttons are gone, so their two tips went with them (nothing left to point
+     at); the other tips keep Josh's words unchanged. */
   { id: 'agentpage', steps: [
       /* Beside the ring (#3737): above and below it are her name and buttons. Shown here, it counts as the ring's own
          tip too (alsoSeen), so it does not come back on its own below. */
       { at: ['#panel-detail #d-ring svg'], side: true, title: 'Your agent\'s memory', html: true, alsoSeen: 'ring', body: TIP_RING_BODY },
       { at: ['#d-nav [data-go="talk"]'], title: 'Direct Message', body: 'Talk to your agent directly, ask questions, and give it work to do.' },
       { at: ['#d-nav [data-go="profile"]'], title: 'Profile', body: 'Give your agent a name, photo, and description.' },
-      { at: ['#d-nav [data-go="instr"]'], title: 'Instructions', body: 'Tell your agent what to do and how you want it to work.' },
       { at: ['#d-nav [data-go="model"]'], title: 'AI Settings', body: 'Choose the AI model your agent uses and manage its memory.' },
-      { at: ['#d-nav [data-go="term"]'], title: 'Advanced', body: 'Fine-tune your agent\'s technical settings.' },
     ],
     show: () => tipVisible('#panel-detail #d-sec-talk') },
   /* A new agent has no memory reading on its first visit, so her page's tips usually run without the ring step. The
