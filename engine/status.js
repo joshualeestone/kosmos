@@ -1627,7 +1627,10 @@ function codexHookReview(paneText) {
        the footer, which a long command cannot push away. */
     const warning = rows.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
     const hookRow = rows.some((r) => CODEX_HOOK_ONE_ROW.test(r));
-    const trustRow = rows.slice(-8).some((r) => CODEX_HOOK_TRUST_ROW.test(r));
+    /* Round 7: the Trust row is matched on the last rows JOINED with whitespace removed, as the footers are, so it is
+       found when a narrow pane wraps it (a long command and a narrow pane together hid every anchor). */
+    const trustRow = rows.slice(-8).some((r) => CODEX_HOOK_TRUST_ROW.test(r))
+      || /Trust[^]{0,40}reviewrequired/.test(rows.slice(-14).join('').replace(/\s+/g, ''));
     if (!warning && !hookRow && !trustRow) return null;
     return { screen: 'hook', evidence: (warning || 'Press t to trust; esc to go back').trim().replace(/^⚠\s*/, '') };
   }

@@ -33,6 +33,8 @@ const MENU = fs.readFileSync(path.join(SCREENS, 'hook-review-menu-0.149.1.txt'),
 const TABLE = fs.readFileSync(path.join(SCREENS, 'hook-review-table-0.149.1.txt'), 'utf8');
 /* Round 5: one hook's review, reached by Enter on the table; its footer is "Press t to trust; esc to go back". */
 const HOOK = fs.readFileSync(path.join(SCREENS, 'hook-review-hook-0.149.1.txt'), 'utf8');
+/* Round 7: the same page for an event with TWO hooks (the desktop plugins' "Stop 2 0 2" case), captured live. */
+const HOOK_TWO = fs.readFileSync(path.join(SCREENS, 'hook-review-hook-two-0.149.1.txt'), 'utf8');
 const IDLE = `╭────────────────────────────────────────────────╮
 │ >_ OpenAI Codex (v0.149.1)                     │
 ╰────────────────────────────────────────────────╯
@@ -301,4 +303,21 @@ test('#4589 round 6: a hook with a very long command (its anchors far above) is 
     assert.equal(chat.deliver('sam', 'the letter t', board.agents).state, chat.DELIVERY.COULD_NOT);
     assert.deepEqual(tmux.typedInto(), []);
   });
+});
+
+test('#4589 round 7: an event with two hooks (the real plugin case), and a long command on a narrow pane, are both guarded', () => {
+  assert.equal(status.codexHookReview(HOOK_TWO).screen, 'hook', 'the two-hook page was missed');
+  withCodex(HOOK_TWO, (board) => {
+    const tmux = arm([ok(HOOK_TWO)]);
+    assert.equal(chat.deliver('sam', 'the letter t', board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(tmux.typedInto(), []);
+  });
+  const rows = HOOK.split('\n');
+  const at = rows.findIndex((r) => /^\s*Command\s/.test(r));
+  const long = Array.from({ length: 80 }, (_, i) => '            echo line ' + i + ' of an inline hook script');
+  const big = [...rows.slice(0, at + 1), ...long, ...rows.slice(at + 1)].join('\n');
+  const lastRows = (t) => t.split('\n').slice(-60).join('\n');   // what one capture holds, roughly
+  for (const w of [30, 20]) {
+    assert.equal((status.codexHookReview(lastRows(narrow(big, w))) || {}).screen, 'hook', 'long command at ' + w + ' columns was missed');
+  }
 });

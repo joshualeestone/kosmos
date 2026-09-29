@@ -106,3 +106,13 @@ anchors above the last 30 rows, so the screen was missed and a "t" would have be
 40-line command is tested, and reverting to the tail-only search fails it. Stated, not changed: Stop now is refused on
 a blank or unreadable Codex screen too (the safe direction; a wedged Codex agent is stopped from its terminal); the menu
 is told apart from other Codex popups by its "Hooks need review" title, not by its footer (which may be generic).
+
+## Blind review round 7 (Opus, a separate reviewer, 2026-09-29 14:09)
+Two WARNINGs, both real, both fixed:
+- A long hook command AND a narrow pane together hid every per-hook anchor. The Trust row is now also matched on the
+  last rows joined with whitespace removed; tested with an 80-line command at 30 and 20 columns (removing it fails).
+- The per-hook page for an event with TWO hooks (the desktop plugins' "Stop 2 0 2" case) had never been captured.
+  Captured live (test-support/codex-screens/hook-review-hook-two-0.149.1.txt): same footer, a "[!] Hook N" row per hook,
+  the Trust row; recognised and tested.
+Floor, stated (NIT): below about 15 columns the menu, and below about 12 the table, are not recognised.
+The round-1 residual paragraph about Stop now's keys is superseded by round 2 (keys obey the same rule).
