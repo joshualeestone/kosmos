@@ -30,3 +30,11 @@ Three WARNINGs, all fixed with a test each that fails on revert (mutation, cmp-r
 - A reply to the member's own post was held as "nothing is asked of you". A reply to a member's post is never held for that member.
 NITs taken: removal forgets the held list (remove.js, tested); null-prototype store so any project id is an own key; the key-sharing limit (safeKey, same as the self-report) and the arrival-budget count are stated in the module header.
 Tests now: messages.roomhold-4624 (12), server.roomhold-idle-4624 (1), remove.test #4624 (1). Neighbours incl remove.test: 339/339.
+
+## Blind review round 2 (Sonnet, separate reviewer): nothing above NIT. Converged.
+NITs, accepted and why:
+- The web receipt sentence would call a `held` outcome "not confirmed", but only the person's own posts get that receipt and they are never held. Unreachable today; a UI that shows agents' per-recipient outcomes must map held to placed.
+- hold() runs before appendLog, so a failed log write leaves an id held for a post that was not logged (the line's count reads one high). Needs a log-write failure; accepted.
+- An interrupted turn (no Stop hook) keeps `working` fresh for up to REPORT_WORKING_DECAY_MS, so posts wait up to 5 minutes and then ride the next typed arrival; an auto idle refused over a standing needs_you still flushes. Bounded and stated.
+- Past KEEP (200) the oldest ids drop, so the count undercounts. Bounded and stated.
+Next: full validation after #4574 is on main (Splinter 12:50), then PR.
