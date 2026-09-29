@@ -49,6 +49,8 @@ const HEADERS = {
 };
 /* Plain text only, one line, capped: a cell can hold anything (a formula's text, a line break). */
 const plain = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+/* The extension, or '' when the name has none (a file called `png` is not a PNG). */
+const extOf = (name) => { const n = String(name || '').toLowerCase(); const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1) : ''; };
 const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /* ── CSV / TSV ─────────────────────────────────────────────────────────────────────────────── */
@@ -286,7 +288,7 @@ function markLoops(rows) {
 function readLocal(name, bytes) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than 10 MB. An org chart export is usually much smaller; try exporting just the people.'] };
-  const ext = String(name || '').toLowerCase().replace(/^.*\./, '');
+  const ext = extOf(name);
   try {
     if (ext === 'csv' || ext === 'tsv' || ext === 'txt') return tableToPeople(parseDelimited(buf.toString('utf8')));
     if (ext === 'xlsx') return tableToPeople(readXlsx(buf));
@@ -313,7 +315,6 @@ const MODEL_TYPES = {
   gif: { block: 'image', media: 'image/gif' },
   pdf: { block: 'document', media: 'application/pdf' },
 };
-const extOf = (name) => String(name || '').toLowerCase().replace(/^.*\./, '');
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 const MAX_WHY = 200;
