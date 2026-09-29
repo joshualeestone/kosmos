@@ -264,6 +264,26 @@ function chk(ok, label, extra) {
         const late2 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent }));
         chk(late2.who === 'casey' && !late2.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Skills answer for April paints nothing on Casey's page when it opens on Talk`, JSON.stringify(late2));
         await page.unroute(aprilSkills);
+        /* And a slow Remove: April's DELETE answers after the person has moved to Casey's Profile. Its
+           reload (and its message) must not land there either. */
+        let release3; const gate3 = new Promise((res) => { release3 = res; });
+        const oneSkill = JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] });
+        await page.route(aprilSkills, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: oneSkill }));
+        await page.route(aprilSkills + '/*', async (route) => { await gate3; await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+        await page.evaluate(() => openDetail('april', 'profile'));
+        await page.waitForSelector('#d-skills-list .skillrm', { timeout: 5000 });
+        await page.click('#d-skills-list .skillrm');
+        await page.click('#d-skills-list .skillrm');   // the second click is the consent
+        await page.waitForTimeout(150);
+        await page.evaluate(() => openDetail('casey', 'profile'));
+        await page.waitForTimeout(700);
+        release3();
+        await page.waitForTimeout(700);
+        const late3 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent,
+          msg: document.getElementById('d-skills-msg').textContent }));
+        chk(late3.who === 'casey' && !late3.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Remove on April's page reloads nothing onto Casey's page`, JSON.stringify(late3));
+        await page.unroute(aprilSkills + '/*');
+        await page.unroute(aprilSkills);
         await page.evaluate(() => openDetail('april'));
         await page.waitForTimeout(300);
       }
