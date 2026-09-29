@@ -51,10 +51,10 @@ const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 // Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
 // And lsof must work inside it: every sandboxed arm rests on it (measured on macOS; a stricter sandbox is a skip).
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
-  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true']).status === 0
-  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-v']).status === 0;
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true'], { timeout: 20000 }).status === 0
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-v'], { timeout: 20000 }).status === 0;
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
-const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
+const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 }).status !== 0;
 
 function env(port, extra = {}, homeOut, pid) {
   const e = { ...process.env };
@@ -285,7 +285,7 @@ function awaitWith(sandboxed, passPid, ours = false, reclaim = false, killFails 
 set -euo pipefail
 source "${CLI}"
 sleep 30 & SP=$!
-trap 'kill "$SP" 2>/dev/null || true' EXIT   # the stand-in board never outlives this script
+trap 'builtin kill "$SP" 2>/dev/null || true' EXIT   # the stand-in board never outlives this script (builtin: an arm stubs kill)
 healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
 _shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
 _unreachable_is_ours() { return ${ours ? 0 : 1}; }
@@ -324,6 +324,10 @@ test('after a launch the listener is unreachable: kept without sandbox evidence,
   const reclaim = await awaitWith(true, false, false, true);
   assert.match(reclaim, /does not count as a success/, reclaim);
   assert.match(reclaim, /board=alive rc=1/, reclaim);
+  // ...even when the listener IS this install's recorded board (the first-reading shortcut).
+  const reclaimOurs = await awaitWith(true, false, true, true);
+  assert.match(reclaimOurs, /does not count as a success/, reclaimOurs);
+  assert.match(reclaimOurs, /board=alive rc=1/, reclaimOurs);
 });
 
 /* The listener lookup on its own, with /usr/sbin/lsof stubbed: several processes, a non-loopback address first, a

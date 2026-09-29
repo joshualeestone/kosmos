@@ -1012,16 +1012,17 @@ _await_board_up() {
     #    report as a success: it is stopped again, its pidfile removed, and the start fails.
     if [ "$HEALTH_STATE" = unreachable ]; then
       _unreach_seen=$((_unreach_seen + 1))
-      # Under launchd: ours at once; any listener after two readings (board-run may not have written board.pid yet).
+      # Under launchd: ours on the first reading, any listener on the second (board-run may not have written
+      # board.pid yet). KOSMOS_RECLAIM_BUSY=1 (the watchdog, setup.sh's final start) never counts either as a
+      # success: this shell cannot confirm the old board went and the new one came up.
+      if [ -z "$_pid" ] && [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] && { _unreachable_is_ours || [ "$_unreach_seen" -ge 2 ]; }; then
+        die "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did, so this start does not count as a success; check from a shell that can reach it."
+      fi
       if [ -z "$_pid" ] && _unreachable_is_ours; then
         say "$(_unreachable_lead) $(_unreachable_why), so this shell cannot use it. It was started under launchd; run kosmos commands from a shell that can reach it."
         return 0
       fi
       if [ -z "$_pid" ] && [ "$_unreach_seen" -ge 2 ]; then
-        # KOSMOS_RECLAIM_BUSY=1 (the watchdog, setup.sh's final start) must not report success it cannot confirm.
-        if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ]; then
-          die "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did, so this start does not count as a success; check from a shell that can reach it."
-        fi
         say "$(_unreachable_lead) $(_unreachable_why). launchd was asked to start Kosmos, and this shell cannot confirm it did; check from a shell that can reach it."
         return 0
       fi
