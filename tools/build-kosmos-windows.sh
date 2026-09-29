@@ -114,6 +114,49 @@ cp "$REPO/bin/grok-report-bridge.js" "$STAGE/app/bin/"
 # #4043: the agy report bridge ships on both platforms (the cross-builder test requires bin/ to match).
 cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
 
+# ---- the Plus connector (kosmos#4597) ---------------------------------------
+# The program engine/remote.js starts for everything Kosmos Plus does (sign-in, the
+# running tunnel, the Allow verbs). Without it the Plus pane says "the Plus connector
+# is not installed on this computer yet", which is what every Windows build said
+# before this. It is kosmos-relay's kosmos-tunnel.exe, built on the Windows PC by
+# tools/build-tunnel-release-windows.ps1 -Sign, and it rides in app/bin, where
+# remote.js looks for it on Windows (bundledConnector: bin/kosmos-tunnel.exe).
+# 🛑 REFUSE, NEVER SHIP WITHOUT IT, like the Mac builder: missing or mismatched
+# sidecars (connector-provenance.sh), not a Windows x86-64 program, or unsigned
+# (connector-windows.sh) all stop the build.
+# 🔏 SIGNED BEFORE IT GETS HERE, NOT HERE, the launcher's rule (see Kosmos.exe
+# below): the .sha256 names the signed bytes, so provenance, signature and the
+# staged copy are one set of bytes. On Windows the build also asks Windows whether
+# the signature is Valid and by whom, checks the verbs the board uses, and runs the
+# staged copy with nothing but System32 on PATH. A non-Windows host can only check
+# that a signature is PRESENT, and says so.
+TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel.exe}"
+[ -f "$TUNNEL_BIN" ] || { echo "the Plus connector is missing: no kosmos-tunnel.exe at $TUNNEL_BIN (build it with kosmos-relay tools/build-tunnel-release-windows.ps1 -Sign <signing script>, or set KOSMOS_TUNNEL_BIN)" >&2; exit 1; }
+. "$REPO/tools/lib/connector-provenance.sh"
+. "$REPO/tools/lib/connector-windows.sh"
+_connector_provenance_check "$TUNNEL_BIN" || exit 1
+_tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+connector_pe_signed "$TUNNEL_BIN" || exit 1
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
+_tunnel_sig="present (not verified: this build did not run on Windows)"
+if [ "$_on_windows" = 1 ]; then
+  connector_authenticode "$TUNNEL_BIN" || exit 1
+  _tunnel_sig="Valid"
+  . "$REPO/tools/lib/connector-verbs.sh"
+  connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
+fi
+cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel.exe"
+_tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel.exe" | awk '{print $1}')"
+[ "$_tunnel_staged" = "$_tunnel_in" ] || { echo "the connector changed under its sidecars between the check and the copy (sidecar $_tunnel_in, staged $_tunnel_staged); re-run the build" >&2; exit 1; }
+if [ "$_on_windows" = 1 ]; then
+  # Nothing but Windows itself on PATH: a toolchain DLL found on the build PC would be
+  # missing on a customer's.
+  PATH="/c/Windows/System32" "$STAGE/app/bin/kosmos-tunnel.exe" --help >/dev/null 2>&1 || { echo "the staged connector does not run (--help failed with only System32 on PATH)" >&2; exit 1; }
+  echo "==> Plus connector: kosmos-tunnel.exe $_tunnel_staged, Authenticode Valid, runs with only System32 on PATH, built from kosmos-relay commit $_tunnel_src"
+else
+  echo "==> Plus connector: kosmos-tunnel.exe $_tunnel_staged, signature present (Authenticode and a test run need Windows; not done on this host), built from kosmos-relay commit $_tunnel_src"
+fi
+
 # #2007: the browser-open helper. It mirrors bash cmd_open's nonce flow so the
 # ENFORCING Windows board (it runs unsandboxed) authenticates the browser instead
 # of 403'ing it. It ships at the zip ROOT beside the launcher, NOT under app/,
@@ -392,7 +435,8 @@ cat > "$STAGE/manifest.json" <<JSON
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
   "webview2_loader": { "sdk_version": "$WEBVIEW2_SDK_VERSION", "download_sha256": "$WEBVIEW2_SDK_SHA256" },
-  "agents_supported": true
+  "agents_supported": true,
+  "connector": { "file": "app/bin/kosmos-tunnel.exe", "sha256": "$_tunnel_staged", "commit": "$_tunnel_src", "signature": "$_tunnel_sig" }
 }
 JSON
 
@@ -459,6 +503,11 @@ esac
 case "$LISTING" in
   *" runtime/WebView2Loader.dll"$'\n'*) ;;
   *) refuse "the zip is missing runtime/WebView2Loader.dll (Kosmos's own window)" ;;
+esac
+# kosmos#4597: the Plus connector, without which Kosmos Plus cannot sign in on Windows.
+case "$LISTING" in
+  *" app/bin/kosmos-tunnel.exe"$'\n'*) ;;
+  *) refuse "the zip is missing app/bin/kosmos-tunnel.exe (the Plus connector)" ;;
 esac
 # 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
 # His parallel builder's engine glob had no filter: it staged 137 .js of which
