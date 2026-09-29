@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: connteach-4451
-diff_hash: b0fcc119d02df87bc81d607a452b31bf6579e032bbb23a9a7518946168c12f7e
+diff_hash: f72d96c9678b0e0eec68176837f29d70fcee0a9c5f47edc37dbf999e0a310b60
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T03:13:56Z
-iterations: 6
+timestamp: 2026-09-29T05:12:53Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (iterations 5 and 6 raised no BLOCKER or WARNING)
-**Total findings:** 20 (0 BLOCKERs, 5 WARNINGs, 0 CONVENTIONs, 15 NITs; summed from the lines below)
-**Fixed:** 5 WARNINGs, 8 NITs | **Kept:** 7 NITs (reasons below and in the plan) | **Asked (awaiting user):** 0
+**Iterations:** 8
+**Converged:** Yes (iteration 8 raised no BLOCKER or WARNING)
+**Total findings:** 24 (0 BLOCKERs, 6 WARNINGs, 0 CONVENTIONs, 18 NITs; summed from the lines below)
+**Fixed:** 6 WARNINGs, 9 NITs | **Kept:** 9 NITs (reasons below and in the plan) | **Asked (awaiting user):** 0
 
 Iteration 6 was run because code changed after iteration 5 converged: validation found that the Windows `kosmos` command lacked the two verbs Kosmos now teaches, and the fix (de878601f) is new code.
 
@@ -67,12 +67,29 @@ Iteration 6 was run because code changed after iteration 5 converged: validation
 - [NIT] The "token was printed" check covers some paths only. KEPT for the same follow-up.
 **Self-generated:** 0
 
+#### Iteration 7
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 1 NIT
+- Reviewed the merge of main and the fold of #4450's identical `.gs-ask` into `.ask-agent` (9a6709e8): the rules match in every declaration, nothing references gs-ask, and the move changes no cascade.
+- [WARNING] Both notes are <p> in `<section class="panel">`, and `.panel p` (0,1,1) outranked `.ask-agent` (0,1,0), so both rendered in --label-2 at 13px (true of #4450 on main too; the contrast checks passed either way). Fixed: `.panel .ask-agent`. render-conn-ask-4451 gains an arm pinning --k-ink (read off a probe) at 15px, 40 checks. Mutant (the bare selector): every arm red, "13px", "rgb(74, 79, 87)".
+- [NIT] The comment carried the class's history and the last "gs-ask" string. Cut.
+**Self-generated:** 0
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [NIT] The fix also moves line-height (1.6 to 1.45) and margin-bottom (to 12px) to the rule's declared values; the plan names only colour and size. KEPT: recorded here (the plan is part of the validated hash).
+- [NIT] Only #conn-ask has the new colour-and-size arm; #g-skills-ask is held by the same rule and by render-gskills-ask-4450's contrast arm. KEPT.
+- Confirmed: `.panel .ask-agent` wins every property against every rule that matches both notes (neither is a last child); the probe inherits --k-ink as the notes do; 15px is stable (no root font-size); 40 is the right count.
+**Self-generated:** 0
+
 ### Final validation (6j)
-- PASSED on d89875105 (stack typescript, 11582 tests, 0 fail, build passed), hash b0fcc119d02d.
+- PASSED on 7d11074c (stack typescript, 11611 tests, 0 fail, build passed), hash f72d96c9678b. An earlier run on the merged branch had one red, engine/updating-988 (a timing test under load 28 on 10 cores); that file passed 40/40 three times alone, and this branch does not touch it.
+- Browser checks on the frozen commit 7d11074c: render-conn-ask-4451 (40), render-gskills-ask-4450, render-fields, all passed.
 - Earlier reds, all from this branch, none contention (each fixed and recorded in the plan):
   - The parity test: Kosmos taught `kosmos connect` and `kosmos connections`, and the Windows command had neither. Both added (tools/windows/kosmos-cli.js), with 6 tests and 4 mutants, each red.
-  - browser-checks-reason-grep: the new check's run-count guard is one more emit site (199 -> 200).
+  - browser-checks-reason-grep: the new check's run-count guard is one more emit site (199 -> 200; 201 after merging main, which added #4446's own site, measured).
   - cli.exit-code-mapping-3628: three spawn sites in cli.connections-4451.test.js did not check for a numeric exit code.
   - A leak of 8 kosmos-cli4451 temp dirs: the file now requires test-support/tmpscope.
   - tools/test-kosmos-help-exit0-3036.sh pinned exact verb lists. It now matches them as prefixes and asserts no read-only verb is in the exit-0 case (6 controls).
-- Gated browser check render-conn-ask-4451 (36 arms) passes.
+- Gated browser check render-conn-ask-4451 passed at 36 arms before iteration 7 and at 40 after it (above).
