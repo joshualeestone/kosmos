@@ -70,8 +70,13 @@ const VERBS = [
 ];
 
 // Async execFile, never execFileSync: a synchronous child blocks the event loop the stub answers on.
+// The exit code itself is not asserted (the headers the stub saw are), but a run that ended with no
+// numeric code (killed at the timeout, or never started) is a failure, not a pass (#3628).
 function runCli(args, env) {
-  return new Promise((resolve) => execFile(CLI, args, { env, timeout: 20000 }, () => resolve()));
+  return new Promise((resolve, reject) => execFile(CLI, args, { env, timeout: 20000 }, (err) => {
+    if (err && typeof err.code !== 'number') { reject(err); return; }
+    resolve();
+  }));
 }
 
 async function send(port, seen, home, args, token) {

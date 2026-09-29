@@ -136,13 +136,15 @@ test('a token-only react is recorded as the token\'s agent, even when the body n
   const realGet = projectsEngine.get;
   const realReact = messagesEngine.react;
   const reacts = [];
-  projectsEngine.get = (id) => (id === 'p4491' ? { id: 'p4491', agents: [{ sessionName: 'poc-agent' }, { sessionName: 'mara' }] } : null);
+  projectsEngine.get = (id) => (id === 'p4491' ? { id: 'p4491', agents: board.roster } : null);
   messagesEngine.react = (args) => { reacts.push(args); return { ok: true }; };
   t.after(() => { projectsEngine.get = realGet; messagesEngine.react = realReact; board.restore(); });
   const mara = board.roster.find((c) => c.sessionName === 'mara');
+  const maraToken = sendertoken.mint('mara').token;
+  // Another agent named by the body twice over (its pane AND its token): the header token still decides.
   const r = await call('POST', '/api/react', {
     headers: { 'x-kosmos-agent-token': agentToken },
-    body: { project: 'p4491', of: 'm1', emoji: 'thumbsup', from_pane: mara.session },
+    body: { project: 'p4491', of: 'm1', emoji: 'thumbsup', from_pane: mara.session, token: maraToken },
   });
   assert.equal(r.code, 200, r.text.slice(0, 160));
   assert.equal(reacts.length, 1, 'the react never reached the engine: ' + r.text.slice(0, 160));
@@ -151,7 +153,7 @@ test('a token-only react is recorded as the token\'s agent, even when the body n
      recorded as THAT agent, so the assertion above follows the presented token, not a constant. */
   const other = await call('POST', '/api/react', {
     headers: { 'x-kosmos-board-token': BOARD },
-    body: { project: 'p4491', of: 'm1', emoji: 'thumbsup', token: sendertoken.mint('mara').token },
+    body: { project: 'p4491', of: 'm1', emoji: 'thumbsup', token: maraToken },
   });
   assert.equal(other.code, 200, other.text.slice(0, 160));
   assert.equal(reacts[1] && reacts[1].from, 'mara', 'control: another agent\'s token did not identify it: ' + other.text.slice(0, 160));
