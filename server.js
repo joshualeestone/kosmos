@@ -976,6 +976,7 @@ const readConnectionsShelf = inflight.collapse(() => {
 
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
+const personalinstr = require('./engine/personalinstr'); // #4446: a personal instructions file the agent's CLI also loads
 const projects = require('./engine/projects');
 const autoretell = require('./engine/autoretell');
 /* #3923: when each agent-made Try again (`?retell=1`) happened, for its own hourly bound. */
@@ -14110,6 +14111,10 @@ const server = http.createServer((req, res) => {
          button can do: read's cheap check (a regular file is there) confirmed by the same reader the restore uses
          (not empty, readable, UTF-8). Here only, not in read(): its other callers do not need it. */
       if (readOut && readOut.hasPrevious) readOut.hasPrevious = instructions.readPrevious(name).exists;
+      /* #4446: whether the agent's own CLI also loads a personal instructions file from outside its
+         folder (Claude Code's user CLAUDE.md, and the Codex / Gemini / Grok equivalents). A tool name or
+         null, never the path or the text. It never throws, so it cannot turn this read into a 500. */
+      if (readOut && typeof readOut === 'object') readOut.personal = personalinstr.personalInstructions(name);
       sendJson(res, 200, readOut && readOut.staleness
         ? { ...readOut, staleness: projects.toldOverride(readOut.staleness, sessionOf(name) || name) }
         : readOut);

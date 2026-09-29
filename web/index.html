@@ -11077,6 +11077,12 @@ window.kosmosMeasureScrollbarWidth();
          the wrong box. A restart really does clear the memory ring and really
          does leave this file alone. -->
     <div class="fhint" id="d-instr-lede">What this agent is for, in your words. The first thing they read every time they start, and the only thing that survives a restart.</div>
+    <!-- #4446: the agent's own CLI (Claude Code, Codex, Gemini CLI, Grok) also loads the
+         person's personal instructions file from outside the agent's folder. Josh's box
+         showed it; a person who wrote that file for Claude Code has not been told it reaches
+         their Kosmos agents too. Ruling on the card: keep it, and say so. The sentence names
+         the tool, never the path (this panel does not show paths). -->
+    <div class="fhint" id="d-instr-personal" hidden></div>
     <!-- Ships DISABLED. `loadInstructions` enables it when there is something
          real in it. Without this, /?tab=detail (a deep link this file supports)
          never calls that function at all and renders a permanently enabled,
@@ -35053,7 +35059,7 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating', 'd-instr-loading', 'd-instr-retry-row', 'd-instr-personal']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -35178,6 +35184,19 @@ let INSTR_BANNER = false;
  * looks load-bearing.)
  */
 
+/* #4446: one sentence when the agent's CLI also loads a personal instructions file. `personal` is
+   `{ tool }` from the server or null; anything else says nothing. textContent, so a tool name is
+   never markup. */
+function paintPersonalInstr(personal) {
+  const el = document.getElementById('d-instr-personal');
+  if (!el) return;
+  const tool = personal && typeof personal.tool === 'string' ? personal.tool : '';
+  el.textContent = tool
+    ? 'They also follow your personal ' + tool + ' instructions, which are kept outside Kosmos and apply to your other '
+      + tool + ' sessions as well.'
+    : '';
+  el.hidden = !tool;
+}
 async function loadInstructions(sessionName) {
   const mine = ++INSTR_LOAD;
   INSTR_EPOCH += 1;
@@ -35215,6 +35234,7 @@ async function loadInstructions(sessionName) {
   // failed load showed "the version before your last save is kept" about an
   // agent with no folder at all.
   document.getElementById('d-instr-prev').hidden = true;
+  document.getElementById('d-instr-personal').hidden = true;   // #4446: the last agent's sentence is not this one's
   renderStale(null);
   /* #4406: an empty, greyed box while the load is in flight read as "the instructions are gone" (a restart can
      hold the answer for a while). It says it is loading until the answer lands, whichever way. */
@@ -35305,6 +35325,7 @@ async function loadInstructions(sessionName) {
     /* #4406: Try again moved focus to the status line, which this load rewrites: the box when it ended editable,
        else the line stays (never the page). */
     if (document.activeElement === msg && !box.disabled) box.focus();
+    paintPersonalInstr(data.personal);   // #4446
     loadDoctrine(sessionName); // #539: fire-and-forget beside the staleness read; its own guard inside
   } catch (err) {
     if (mine !== INSTR_LOAD) return;
