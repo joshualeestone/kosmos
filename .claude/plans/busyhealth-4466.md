@@ -167,6 +167,15 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   pane-claim comment says "usually" and why.
 - Deferred again: plan file name (round 13); HEAD on Windows (round 12).
 
+## Review round 15 decisions
+- A person's `kosmos restart` of a busy board of ours that nothing tracks now reclaims it: with auto-restart
+  off there is no watchdog to do it, and the round 2 refusal left only a reboot or a manual kill. Agents
+  cannot reach this (the guard refuses an agent's restart of a board that is up or busy); `stop` alone still
+  leaves it (setup.sh's update pause relies on that) and now names `kosmos restart` as the way out. This
+  REVERSES round 2's "restart refuses" for a person; the arm now pins the reclaim, with an agent control.
+- The watchdog clears `busy_since` when it attempts a reclaim, so a replacement that is also busy gets its
+  own grace instead of relying on THROTTLE x 2 outlasting BUSY_GRACE.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -203,7 +212,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   still 403 (control); HEAD; the page premise.
 - `tools.windows-kosmos-cli-busy-4466.test.js` (3 arms): a timed-out read says busy; a timed-out write adds that
   it may have happened; refused keeps the old line.
-- `tools/test-board-watchdog-2955.sh` arms 6e/6c/6d: busy 60 s no restart (red on the old watchdog), busy
+- `tools/test-board-watchdog-2955.sh` arms 6e/6c/6d/6f/6g (6f: down then busy, no reclaim; 6g: busy then down clears busy_since): busy 60 s no restart (red on the old watchdog), busy
   400 s recovered by the reclaim start, busy after a failed reclaim reclaims again (no kickstart).
 - Red-capability measured: on main's `install/kosmos`, 6 of the 10 CLI arms fail and the 4 that should
   hold on both (stopped, stranger, older board, control) pass.

@@ -229,5 +229,8 @@ fi
 # Count the attempt for the backoff/crash-loop guard; keep the down streak (the next
 # run clears it, the fail count, and the alert if the restart took hold and the
 # board now answers).
+# A reclaim attempt ends that busy spell: if what comes up is busy too, it gets its own full grace, rather
+# than relying on the throttle (THROTTLE x 2) happening to outlast BUSY_GRACE.
+if [ "$STATUS_RC" -eq 4 ]; then BUSY_SINCE_RAW=""; fi
 state_put "$DOWN_SINCE" "$NOW" "$((FAILS + 1))" "$BUSY_SINCE_RAW"
 exit 0

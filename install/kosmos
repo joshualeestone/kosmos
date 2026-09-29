@@ -1108,7 +1108,15 @@ cmd_stop() {
     die "Something is answering at $URL but it was not started by this command, so it was left alone."
   elif [ "$HEALTH_STATE" = busy ]; then
     # #4466: busy is running. Falling through would print "not running" and write the stop marker.
-    die "Kosmos is running at $URL but is busy, and it was not started by this command, so it was left alone."
+    # A RESTART is the way out for a board of ours that nothing tracks (no pidfile) and that never answers:
+    # the start after it reclaims the port (#3079). Only a person gets here: agent_board_guard refuses an
+    # agent's restart of a board that is up or busy, and setup.sh's update pause is a `stop`, not a restart.
+    if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then
+      say "Kosmos is running at $URL but not answering, and this command did not start it. Restarting it, because you asked."
+      _KOSMOS_RESTART_RECLAIM=1
+      return 0
+    fi
+    die "Kosmos is running at $URL but is busy, and it was not started by this command, so it was left alone. If it stays like this, 'kosmos restart' frees it."
   else
     # #2955: already down, but the user explicitly asked to stop it, so record
     # that intent too -- otherwise the watchdog would "recover" a board the user
@@ -2065,8 +2073,10 @@ cmd_restart() {
   # of stop exits the process outright -- and that is correct here too:
   # a port owned by something we refuse to kill is a port start cannot
   # bind, so continuing would only move the failure one line down.
+  _KOSMOS_RESTARTING=1
   cmd_stop || true
-  cmd_start
+  # #4466: a busy board of ours that the stop could not reach (nothing tracked it) is reclaimed by this start.
+  if [ "${_KOSMOS_RESTART_RECLAIM:-}" = 1 ]; then KOSMOS_RECLAIM_BUSY=1 cmd_start; else cmd_start; fi
 }
 
 # #2255: an agent reacts to a room post with an emoji (Discord-style). The

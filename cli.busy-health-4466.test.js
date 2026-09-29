@@ -373,13 +373,20 @@ test('#4466 a person stopping a BUSY board this command did not start leaves it 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
 
-test('#4466 a person RESTART of a busy board this command did not start refuses loudly (non-zero), never a silent no-op', () => withBoard('hang', async (port) => {
+test('#4466 a person RESTART of a busy board nothing tracks RECLAIMS it (the way out with auto-restart off); an agent\'s is refused', () => withBoard('hang', async (port) => {
+  // Our own silent board, no pidfile, and no watchdog to reclaim it (AGENT_WORKFORCE_LAUNCH: unsupervised).
+  // A person's `kosmos restart` is the recovery: the start after the stop takes the #3079 reclaim.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
-    const out = await runCli(['restart'], baseEnv(port, { KOSMOS_HOME: home }));
-    assert.notEqual(out.code, 0, 'a restart that restarted nothing must not exit 0: ' + out.stdout + out.stderr);
-    assert.match(out.stdout + out.stderr, /but is busy, and it was not started by this command, so it was left alone/);
-    assert.doesNotMatch(out.stdout, /already running|Bringing the board up/, 'stop refused, so start must not run after it');
+    const env = baseEnv(port, { KOSMOS_HOME: home, AGENT_WORKFORCE_LAUNCH: home, KOSMOS_BUSY_WAIT: '2' });
+    // CONTROL: an agent's restart of the same board is refused, and nothing is reclaimed.
+    const agent = await runCli(['restart'], { ...env, KOSMOS_AGENT_SESSION: 'grok-agent' });
+    assert.equal(agent.code, 1, agent.stdout + agent.stderr);
+    assert.match(agent.stdout, /an agent may not restart it/);
+    assert.doesNotMatch(agent.stdout, /Reclaiming it/);
+    const person = await runCli(['restart'], env);
+    assert.match(person.stdout, /not answering, and this command did not start it\. Restarting it, because you asked\./, person.stdout + person.stderr);
+    assert.match(person.stdout, /held by your own stale Kosmos .* Reclaiming it/, 'the start after the stop must reclaim: ' + person.stdout + person.stderr);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
 
