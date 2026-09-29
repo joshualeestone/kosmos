@@ -157,14 +157,18 @@ test('the model\'s answer is untrusted: wrong shapes are refused, fields are cle
     { person: 'Dee Fenn', title: 'Ops', reportsTo: 'Avery Quill', sure: false },
     42, null,
   ] });
-  assert.equal(r.rows.length, 4);
-  assert.equal(r.rows[1].person, 'Bo Linden; rm -rf ~', 'kept as inert one-line text');
-  assert.equal(r.rows[1].title, 'Bo Linden; rm -rf ~', 'a non-string title falls back to the name, never an object');
-  assert.equal(r.rows[1].reportsTo, 0);
-  assert.equal(r.rows[2].reportsTo, null);
-  assert.match(r.rows[2].why, /is not in the file/, 'a manager outside the list is never resolved');
-  assert.match(r.rows[3].why, /not sure/, 'an unsure line without a reason still says so');
+  // Bo's title is an object, not text: the row is left out and counted (never titled with his name).
+  assert.equal(r.rows.length, 3);
+  assert.ok(!r.rows.some((x) => /Bo Linden/.test(x.person) || typeof x.title !== 'string'), JSON.stringify(r.rows));
+  assert.match(r.problems.join(' '), /1 person has no title/);
+  assert.equal(r.rows[1].person, 'Cy Marsh');
+  assert.equal(r.rows[1].reportsTo, null);
+  assert.match(r.rows[1].why, /is not in the file/, 'a manager outside the list is never resolved');
+  assert.match(r.rows[2].why, /not sure/, 'an unsure line without a reason still says so');
   assert.equal(Object.keys(r.rows[0]).sort().join(','), 'person,reportsTo,title,why', 'no extra field passes through');
+  const inert = o.fromModel({ people: [{ person: 'Avery Quill', title: 'CEO', reportsTo: null, sure: true }, { person: 'Bo\nLinden; rm -rf ~', title: 'VP', reportsTo: 'Avery Quill', sure: true }] });
+  assert.equal(inert.rows[1].person, 'Bo Linden; rm -rf ~', 'kept as inert one-line text');
+  assert.equal(inert.rows[1].reportsTo, 0);
 });
 
 test('only pictures and PDFs are sent to the model; the rest are not', () => {
@@ -253,4 +257,49 @@ test('a character reference outside Unicode is dropped, not a failed sheet', () 
   const r = o.readLocal('ent.xlsx', zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', SHEET([['Name', 'Title'], ['Avery&#99999999999; Quill', 'CEO']])]]));
   assert.equal(r.rows.length, 1, JSON.stringify(r));
   assert.equal(r.rows[0].person, 'Avery Quill');
+});
+
+test('a person with no title is left out and counted, never titled with their own name (names are off by default)', () => {
+  const r = csv('Name,Title,Manager\nAvery Quill,,\nBo Linden,VP,Avery Quill\n');
+  assert.deepEqual(r.rows.map((x) => x.title), ['VP']);
+  assert.ok(!r.rows.some((x) => x.title === 'Avery Quill'));
+  assert.match(r.problems.join(' '), /1 person has no title in the file and was left out/);
+  const m = o.fromModel({ people: [{ person: 'Avery Quill', title: '', reportsTo: null, sure: true }, { person: 'Bo Linden', title: 'VP', reportsTo: null, sure: true }] });
+  assert.deepEqual(m.rows.map((x) => x.title), ['VP'], 'the model path too');
+});
+
+test('a far but legal column (XFD) on every row is not kept 16,384 cells wide', () => {
+  const rows = ['<row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Title</t></is></c></row>'];
+  for (let i = 2; i <= o.MAX_ROWS; i += 1) rows.push(`<row r="${i}"><c r="A${i}" t="inlineStr"><is><t>P${i}</t></is></c><c r="B${i}" t="inlineStr"><is><t>T</t></is></c><c r="XFD${i}" t="inlineStr"><is><t>x</t></is></c></row>`);
+  const buf = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', '<worksheet><sheetData>' + rows.join('') + '</sheetData></worksheet>']]);
+  const before = process.memoryUsage().heapUsed;
+  const r = o.readLocal('xfd.xlsx', buf);
+  const grew = (process.memoryUsage().heapUsed - before) / 1048576;
+  assert.equal(r.rows.length, o.MAX_ROWS - 1);
+  assert.ok(grew < 60, `heap grew ${Math.round(grew)} MB`);
+});
+
+test('a picture over the provider\'s 5 MB is refused in words, before anything is sent', async () => {
+  let sent = 0;
+  o.setModelRunner(async () => { sent += 1; return { ok: true, structured: { people: [] } }; });
+  try {
+    const r = await o.readWithModel('big.png', Buffer.alloc(o.MAX_IMAGE_BYTES + 1));
+    assert.match(r.problems[0], /larger than 5 MB/);
+    assert.equal(sent, 0);
+    const pdf = await o.readWithModel('big.pdf', Buffer.alloc(o.MAX_IMAGE_BYTES + 1));
+    assert.equal(sent, 1, 'a PDF is not held to the picture limit');
+    assert.ok(pdf);
+  } finally { o.setModelRunner(null); }
+});
+
+test('a plain .txt is not taken as a spreadsheet (the paste box is for lists)', () => {
+  assert.equal(o.readLocal('people.txt', Buffer.from('Marketing Lead\nEngineer\n')).unsupported, true);
+});
+
+test('the read runs on a named Claude account, never the ambient default (which fails under launchd, #3136)', () => {
+  const was = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = '/tmp/kosmos-test-account-4559';
+  try {
+    assert.equal(o.readAccount().dir, '/tmp/kosmos-test-account-4559');
+  } finally { if (was === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = was; }
 });

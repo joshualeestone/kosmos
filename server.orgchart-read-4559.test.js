@@ -21,6 +21,10 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* The consent names the Claude account a read would run on (orgchartfile.readAccount), so the sandbox has none:
+   the answer is then the provider alone, and this file never reads the real machine's accounts. */
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+delete process.env.CLAUDE_CONFIG_DIR;
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { start, server, boardAuthState } = require('./server');
