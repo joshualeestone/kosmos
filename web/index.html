@@ -7084,7 +7084,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the mirror wraps a word onto a line the textarea has not (the caret then sits where the textarea's text
    is, not where the visible text is). Two properties differed: letter-spacing (a form control does not
    inherit the body's -0.006em, the mirror did, so its words were narrower and fitted more on a line) and
-   word-break (break-word on the mirror only). Both are set, on both, to the textarea's own values. */
+   word-break (break-word on the mirror only). The mirror now takes the textarea's own values; the textarea
+   is listed too only to pin them there (a form control already resets these). */
 #pj-post, #pj-post-mirror .pj-mirror-in { letter-spacing: normal; word-spacing: normal; word-break: normal; }
 .pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
@@ -57674,16 +57675,16 @@ function pjMentionPaint() {
   if (!val || !input.offsetWidth) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
   input.classList.add('mention-live');
   inner.innerHTML = pjMentionHighlightHTML(val, pjMentionKeys(pjById(PJ_CURRENT)));
-  mirror.style.left = input.offsetLeft + 'px';
-  mirror.style.top = input.offsetTop + 'px';
-  /* #4585: the textarea's REAL width, not offsetWidth (whole pixels, so the mirror was up to 1px narrower
-     and could wrap a word the textarea did not), less any scrollbar the textarea is showing (a Mac set to
-     show scroll bars always gives it one once it scrolls; its text then wraps inside that narrower box). */
-  const inW = input.getBoundingClientRect().width;
-  const csIn = getComputedStyle(input);
-  const bordersIn = (parseFloat(csIn.borderLeftWidth) || 0) + (parseFloat(csIn.borderRightWidth) || 0);
-  const scrollbarIn = Math.max(0, input.offsetWidth - input.clientWidth - bordersIn);
-  mirror.style.width = Math.max(0, inW - scrollbarIn) + 'px';
+  /* #4585: the textarea's REAL box, not offsetLeft/offsetTop/offsetWidth (whole pixels: the mirror was up
+     to 1px narrower, and wrapped a word the textarea did not). Placed relative to the mirror's offset parent
+     (the composer box), inside its border. The textarea shows no scrollbar (.cinput hides it in both engines;
+     render-composer-caret-4585 asserts that), so its full width is its text's width. */
+  const inR = input.getBoundingClientRect();
+  const host = mirror.offsetParent;
+  const hostR = host ? host.getBoundingClientRect() : { left: 0, top: 0 };
+  mirror.style.left = (inR.left - hostR.left - (host ? host.clientLeft : 0)) + 'px';
+  mirror.style.top = (inR.top - hostR.top - (host ? host.clientTop : 0)) + 'px';
+  mirror.style.width = inR.width + 'px';
   mirror.style.height = input.offsetHeight + 'px';
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 }
@@ -57701,6 +57702,9 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
   if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 });
 window.addEventListener('resize', pjMentionPaint);
+/* #4585 review: the composer's width also changes with no window resize (the layout switch, a panel, a
+   page scrollbar arriving): the textarea rewraps at once, so the mirror must too. */
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => pjMentionPaint()).observe(document.getElementById('pj-post'));
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated
