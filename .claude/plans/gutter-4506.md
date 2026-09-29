@@ -24,6 +24,10 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
   the surface. Rejected: dropping the gutter (15px reflow behind a see-through wash on every dialog open).
 - `#boot-cover`: #4494's rule (no gutter, no scroll while up). Rejected: the canvas route, because the cover's ground
   is `--bg`, which the Plus section sets on the body where the root cannot read it (measured 250 vs 19,33,64).
+- Scope (iteration 3): the fix reaches the gutter only where it is reserved but EMPTY, i.e. a page that does not
+  scroll. On a real classic-scrollbar machine a page that scrolls shows the system's scrollbar track there, which no
+  page colour reaches (a scrollbar beside a dialog, as in any app). The harness scrollbar has no track, so its gutter
+  arms stand in for the non-scrolling case. Reasoned, not measured on real hardware.
 - Weakest premise: the harness sets `data-scrollbar-classic` itself (the product's measurement reads 0 under a custom
   scrollbar that cannot scroll while measuring). A real classic Mac sets it by measurement.
 - Known residual, not fixed here: navy Plus section. The gutter is white there even with no dialog (separate
@@ -66,3 +70,18 @@ Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15p
 - NIT, fixed: the README row lists the short-page arm.
 - NIT, fixed: new arms for a dialog shown inside a hidden section and for a machine without the classic-scrollbar mark,
   each with a control that the same dialog does change the canvas when it should.
+
+### Iteration 3 (opus)
+- WARNING, fixed by scoping: the harness's trackless scrollbar shows canvas on a scrolling page, which a real classic
+  scrollbar would not (its track is painted there). Claims in the check header, README row and plan now say the
+  gutter arms stand in for a page that does not scroll.
+- WARNING, fixed: the hidden-section control used `m.closest('[hidden]')`, which returns the modal itself (it carries
+  `hidden`), so it could not fail. Now `m.parentElement.closest('[hidden]')`, asserted to be `s-sec-plus` or
+  `panel-settings`.
+- CONVENTION, fixed: the header said the navy residual was "noted beside the rule", which my iteration-1 edit had made
+  false; it now points to #4542.
+- NIT, taken in part: surface token `plus-lost-modal` added; `scrollbar-classic` was refused by the surface-map test (no functional occurrence as a token), so not added.
+- NIT, recorded for #4542: the tour's `tipDimmedGround` reads `--k-bg` off the body and is the ready route for navy.
+- NIT, known: whichever of this PR and #4512 merges second re-measures the reason-grep counts.
+- Validation note: per-iteration validation (6g) was pre-empted twice by another agent's full suite holding the
+  shared test ports (the helper waits up to 20 minutes); the full validation runs as the closing gate (6j).

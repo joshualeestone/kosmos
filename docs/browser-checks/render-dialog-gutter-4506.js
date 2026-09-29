@@ -1,4 +1,4 @@
-// Browser-check-surface: rm-back boot-cover updconfirm
+// Browser-check-surface: rm-back boot-cover updconfirm plus-lost-modal
 'use strict';
 
 /**
@@ -14,8 +14,11 @@
  * Harness (#4494's): a tiny static server for web/index.html with a minimal board; every machine gets a real 15px
  * scrollbar (a ::-webkit-scrollbar width, --hide-scrollbars dropped, and a page tall enough to scroll). Pixels are
  * read from a screenshot decoded in the page (the render-room-msgbox-2806 pattern). Chromium only.
- * Not covered: the Kosmos+ navy Plus section, where the ground lives on the body and the root cannot read it (a
- * known residual, noted beside the rule).
+ * Not covered: the Kosmos+ navy Plus section, where the ground lives on the body and the root cannot read it (#4542).
+ * Scope of the gutter pixels: the harness scrollbar has a thumb and no track, so its gutter shows the canvas even on
+ * this long page. On a real classic-scrollbar machine a page that scrolls has the system's scrollbar track in the
+ * gutter, which no page colour reaches; the canvas shows there only on a page that does not scroll. So the gutter
+ * arms stand in for a page that does not scroll (reasoned, not measured on real hardware).
  *
  * Arms, each in light and dark:
  *   - control: the gutter really is 15px, and the page colour it shows would fail the match below (so a green is
@@ -160,8 +163,8 @@ const width = (page) => page.evaluate(() => {
       const bg = () => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
       const before = await bg();
       // A shown .rm-back inside a hidden section (the Plus dialog while Settings is not on screen) puts nothing up.
-      const inHidden = await page.evaluate(() => { const m = document.getElementById('plus-lost-modal'); const s = m && m.closest('[hidden]'); if (!m || !s) return null; m.hidden = false; return true; });
-      ok(t + ' control: the Plus dialog sits inside a hidden section here', inHidden === true);
+      const inHidden = await page.evaluate(() => { const m = document.getElementById('plus-lost-modal'); const s = m && m.parentElement && m.parentElement.closest('[hidden]'); if (!s) return null; m.hidden = false; return s.id; });
+      ok(t + ' control: the Plus dialog sits inside a hidden section here', inHidden === 's-sec-plus' || inHidden === 'panel-settings', JSON.stringify(inHidden));
       ok(t + ' a dialog shown inside a hidden section leaves the canvas as it was', (await bg()) === before, JSON.stringify({ before, after: await bg() }));
       await page.evaluate(() => { document.getElementById('plus-lost-modal').hidden = true; });
       // A machine without the classic-scrollbar mark has no gutter to fix, so a dialog leaves its canvas alone.
