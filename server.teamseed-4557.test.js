@@ -1,0 +1,147 @@
+'use strict';
+/**
+ * #4557, driven through the real routes: the seeded-team reads, and the specs they return made into real
+ * agents through the real POST /api/agents, in order, the way the page will make them.
+ *
+ * What this proves end to end, beyond engine/teamseed.test.js:
+ * - a report's `reportsTo` lands on its profile as the lead's machine name, even for a renamed lead
+ *   with a space in it, and the board's org chart can resolve it (the lead exists by that name);
+ * - the project id rides every spec, and /api/agents' own attach puts every member on the project;
+ * - the specs route is read-only: it creates nothing.
+ *
+ * 🛑 Every root the create path writes to is sandboxed, with DRY_RUN and fake bins, the same fixture
+ * discipline as server.team-route-1279.test.js. The catalogue is a fixture in the shape agreed with
+ * #4555 on the card, injected through teamseed.setCatalogue, so this does not depend on the seed.
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-teamseed-4557-'));
+const HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(os.tmpdir(), 'aw-teamseed4557-claude-' + process.pid + '.json');
+fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'default@example.com' } }));
+fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server } = require('./server');
+const create = require('./engine/create');
+const projects = require('./engine/projects');
+const teamseed = require('./engine/teamseed');
+
+const BODY = (who, slot) => 'You are **' + who + '**, the ' + slot + ' on this team.\n\n## Who you are\nA careful colleague.\n';
+const CATALOGUE = {
+  teams: () => [TEAM],
+  team: (k) => (k === TEAM.key ? TEAM : null),
+  memberInstructions: (teamKey, slot, names) => BODY(names[slot], slot),
+};
+const TEAM = {
+  key: 'marketing', kind: 'business', rank: 1, label: 'Marketing Team', blurb: 'One line', purpose: 'Grow it.',
+  project: { name: 'Marketing', goal: 'Grow it' },
+  members: [
+    { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { id: 'l', image: null } },
+    { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { id: 'c', image: null } },
+    { slot: 'social', role: 'social', title: 'Social Media Manager', name: 'Ana', reportsTo: 'lead', avatar: { id: 's', image: null } },
+  ],
+};
+
+let base;
+test.before(async () => {
+  create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' }));
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(() => {
+  try { server.closeAllConnections(); server.close(); } catch { /* going away */ }
+  create.setClaudeProbe(null);
+  teamseed.setCatalogue(null);
+  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+async function call(method, p, body) {
+  const res = await fetch(base + p, {
+    method, headers: { 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  let json = null; try { json = await res.json(); } catch { json = null; }
+  return { status: res.status, json };
+}
+
+test('not installed: all three routes answer 503 with a sentence, and nothing crashes', async () => {
+  teamseed.setCatalogue(false);
+  try {
+    for (const [m, p, b] of [['GET', '/api/teams/seeded'], ['GET', '/api/teams/seeded/marketing'], ['POST', '/api/teams/seeded/marketing/specs', { names: {} }]]) {
+      const r = await call(m, p, b);
+      assert.equal(r.status, 503, p);
+      assert.equal(r.json.error, teamseed.NOT_INSTALLED, p);
+    }
+  } finally { teamseed.setCatalogue(CATALOGUE); }
+});
+
+test('list and detail read the catalogue; an unknown team is a 404', async () => {
+  teamseed.setCatalogue(CATALOGUE);
+  const l = await call('GET', '/api/teams/seeded');
+  assert.equal(l.status, 200);
+  assert.deepEqual(l.json.teams, [{ key: 'marketing', label: 'Marketing Team', blurb: 'One line', kind: 'business', rank: 1, count: 3 }]);
+  const d = await call('GET', '/api/teams/seeded/marketing');
+  assert.equal(d.status, 200);
+  assert.deepEqual(d.json.members.map((m) => m.slot), ['lead', 'content', 'social']);
+  assert.equal((await call('GET', '/api/teams/seeded/nope')).status, 404);
+  assert.equal((await call('POST', '/api/teams/seeded/nope/specs', { names: {} })).status, 404);
+});
+
+test('specs refuses a bad name with a 400 and creates nothing', async () => {
+  teamseed.setCatalogue(CATALOGUE);
+  const before = create.createdCount();
+  const r = await call('POST', '/api/teams/seeded/marketing/specs', { names: { lead: 'Maya', content: 'Maya', social: 'Ana' } });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /same name/);
+  assert.equal(create.createdCount(), before);
+});
+
+test('the specs, made in order through the real POST /api/agents, give a team: reports to the lead, all on the project', async () => {
+  teamseed.setCatalogue(CATALOGUE);
+  const p = await call('POST', '/api/projects', { name: 'Marketing 4557' });
+  assert.ok(p.status === 200 || p.status === 201, 'project made: ' + p.status + ' ' + JSON.stringify(p.json));
+  const projectId = (p.json && (p.json.project ? p.json.project.id : p.json.id));
+  assert.ok(projectId, 'the project has an id: ' + JSON.stringify(p.json));
+
+  const before = create.createdCount();
+  const names = { lead: 'Maya Okafor', content: 'Leo Brand', social: 'Ana Reyes' };
+  const s = await call('POST', '/api/teams/seeded/marketing/specs', { names, project: projectId });
+  assert.equal(s.status, 200, JSON.stringify(s.json));
+  assert.equal(create.createdCount(), before, 'the specs route itself creates nothing');
+  assert.deepEqual(s.json.specs.map((x) => x.slot), ['lead', 'content', 'social']);
+
+  /* ⚠️ The profile write that stores reportsTo is skipped under DRY_RUN (create.js, `if (!DRY_RUN)`), and
+     running creation for real would start launchd jobs. create.test.js already proves createAgent stores
+     reportsTo. What only this test can prove is the JOIN: every report is handed, by the real route, the
+     machine name the lead ACTUALLY got. So createAgent is watched, not replaced. */
+  const handed = [];
+  const real = create.createAgent;
+  create.createAgent = (opts) => { handed.push({ name: opts.name, reportsTo: opts.reportsTo }); return real(opts); };
+  const made = [];
+  try {
+    for (const { spec } of s.json.specs) {
+      const r = await call('POST', '/api/agents', spec);
+      assert.equal(r.json && r.json.outcome, 'created', spec.name + ': ' + JSON.stringify(r.json));
+      made.push(r.json.name);
+    }
+  } finally { create.createAgent = real; }
+  assert.deepEqual(made, ['maya-okafor', 'leo-brand', 'ana-reyes']);
+  assert.equal(handed.length, 3, 'the route reached createAgent once per member: ' + JSON.stringify(handed));
+  assert.ok(!handed[0].reportsTo, 'the lead reports to no one');
+  for (const h of handed.slice(1)) assert.equal(h.reportsTo, made[0], h.name + ' is handed the lead\'s actual machine name');
+  const proj = projects.readAll().find((x) => x.id === projectId);
+  assert.deepEqual([...proj.agents].sort(), ['ana-reyes', 'leo-brand', 'maya-okafor']);
+});

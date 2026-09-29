@@ -23,33 +23,41 @@ the portraits exist}. April tests: unique names and slots, exactly one lead, and
 MIN_CHARS and MAX_BYTES.
 
 ## Slice 1 (this branch): engine + server, no UI
+**Changed at 09:25, before any code:** the first version of this plan added a `POST /api/team/seeded` that
+CREATED members. That is withdrawn. `POST /api/agents` (server.js ~6141), the single-agent route New Agent
+already uses, takes `name, role, label, instructions, reportsTo, projects`. It runs the whole birth:
+- the account liveness check
+- the project attach (which `/api/team` deliberately skips, see its comment at ~6434)
+- the created-count beacon
+- name checks
+A new create route would re-implement all of that or silently miss some of it. So the server BUILDS and the page
+creates through the existing route.
+
 - `engine/teamseed.js`:
-  - `memberSpec({team, slot, names, project}, catalogue)` returns ONE create spec:
-    `{ name: names[slot], role, label: title, instructions: memberInstructions(...), reportsTo: lead's name or
-    null, projects }`.
-  - It refuses with a named reason: an unknown team or slot, a missing or blank name for any slot, or two slots
-    with the same name.
-  - `summary(catalogue)` and `detail(key, catalogue)` feed the Team dropdown and the confirm screen.
-  - The catalogue is injected. The default is `require('./catalogue')`, loaded lazily, so this branch lands
-    before April's seed does and says so (not installed) instead of crashing.
-- server.js:
+  - `specs({team, names, project}, catalogue)` returns every member's create spec IN CREATION ORDER, lead
+    first: `{ slot, title, spec: { name, role, label, instructions, reportsTo, projects }, avatar: { image } }`.
+    `instructions` comes from `memberInstructions` (`{{NAME}}` filled). A report's `reportsTo` is the lead's
+    ACTUAL chosen name.
+  - It refuses with a named reason: an unknown team, a missing or blank name for any slot, or two slots with
+    the same name (case-insensitive).
+  - `list(catalogue)` feeds the Team dropdown; `detail(key, catalogue)` feeds the confirm screen.
+  - The catalogue is injected. The default is `require('./catalogue')`, loaded lazily; while April's seed is not
+    merged it answers "not installed" instead of crashing.
+- server.js, reads only, nothing created:
   - `GET /api/teams/seeded`: the dropdown list (key, label, blurb, kind, rank, member count).
-  - `GET /api/teams/seeded/<key>`: the members as the person will confirm them (slot, title, suggested name,
-    reports to, and whether a portrait ships).
-  - `POST /api/team/seeded` `{team, slot, names, project}` creates ONE member through `createTeam` (creator
-    'operator', purpose = the team's purpose). It uses the SAME auth as `/api/team`. That is the operator path
-    only: a seeded team is a person's click. An agent uses `/api/team` as today.
-  - When the member's `avatar.image` names a shipped file, the server sets it as the agent's avatar after a
-    successful create. A failed avatar never costs the agent; the answer says avatar: set / none / failed.
-- One member per request is deliberate. It is what makes per-agent progress and per-agent retry possible
-  without a job queue, and a retry cannot redo the others.
+  - `GET /api/teams/seeded/<key>`: the members for the confirm screen (slot, title, suggested name, reports to,
+    whether a portrait ships).
+  - `POST /api/teams/seeded/<key>/specs` `{names, project}`: the ordered specs. It is a POST only because it
+    carries a body; it writes nothing.
+- Avatars: when `avatar.image` names a shipped file, the page PUTs it to the existing
+  `/api/agent/<name>/avatar` after that agent is made. A failed avatar never costs the agent.
 
 ## Slice 2 (next branch): the create step in web/index.html
 - `openTeamCreate(key)`, called by Angel's Team dropdown (#4556).
 - Names are editable and prefilled with the suggestions. The project defaults to a new one named from the seed,
   or the person can pick an existing one or choose none.
 - ONE confirm: "Create 6 agents", saying they run on the person's AI plan.
-- Then a progress list, one row per agent: waiting, creating, made, or failed with the reason, with Retry on a
+- Then a progress list, one row per agent, each row one `POST /api/agents`: waiting, creating, made, or failed with the reason, with Retry on a
   failed row.
 - The lead goes first. The reports wait until the lead exists, because they report to it by name. A failed lead
   holds the reports with that reason, and retrying the lead releases them.
@@ -61,8 +69,9 @@ Once #4555's images exist, `avatar.image` is filled and slice 1's server path st
 change is expected.
 
 ## Rejected
-- **One POST for the whole team (today's `/api/team` shape):** no per-agent progress, and a retry would resend
-  everyone. createTeam's partial outcome is right for an agent's request, but not for a person watching six rows.
+- **One POST for the whole team (today's `/api/team` shape):** no per-agent progress, a retry would resend
+  everyone, and `/api/team` does not attach projects.
+- **A new seeded create route (this plan's first version):** it duplicates `/api/agents`' birth machinery.
 - **The client building instructions and posting to `/api/team`:** the catalogue lives in the engine, and
   duplicating memberInstructions in the page is the double-parse April's shape avoids.
 - **A server job with polling:** more machinery than six sequential requests need.
@@ -78,7 +87,6 @@ row's name be edited before retry.
 - engine/teamseed.test.js, with a fixture catalogue in the agreed shape: every refusal, the lead's reportsTo is
   null, the reports' reportsTo is the lead's ACTUAL name (renamed lead), and instructions are passed through
   verbatim.
-- server tests: the three routes; auth parity with /api/team (no board token on an enforcing board gives 403);
-  one member per POST; a catalogue that is not installed answers 503 with a plain reason, never a crash.
-- Real server smoke on a scratch board (no real agents on my board): create a fixture team, and prove the
-  reportsTo and project on the profiles.
+- server tests: the three read routes; a catalogue that is not installed answers 503 with a plain reason, never
+  a crash; the specs, POSTed to the real `/api/agents` in order on a sandboxed server, make a lead and reports
+  whose profiles carry reportsTo = the lead and the project membership.
