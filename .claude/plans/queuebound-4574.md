@@ -257,3 +257,21 @@ follows because this is code after convergence.
   elsewhere deletes the marker and counts the waiter as a running suite (the safe side, as before). Said so.
 - (N, taken) the ceiling's comment says live waiters at entry (the first count is taken before this run is marked);
   the EXIT trap reaps the stand-in waiters. Measured: plain and KOSMOS_NO_WAIT=1 both 0 failures.
+
+## Review iteration 19 (blind, opus)
+0 BLOCKER, 3 WARNING, all taken:
+- (W, SELF) the live-marker comment said an older reader elsewhere deletes the marker "as before this change": with
+  the re-mark on each pass, an older copy in another zone that keeps deleting a new waiter's marker makes it flap, a
+  THIRD source of false falls for the waiters behind (bounded by the ceiling). The comment and the #4574 note name it.
+- (W) the inheritance arm pinned only the two overrides: the stand-in node now also reports KOSMOS_NO_WAIT and
+  KOSMOS_WAIT_MAX_S. Control: dropping KOSMOS_NO_WAIT from the list reds it.
+- (W) RT2 is a real run-tests.sh to other agents' guards for a few seconds: commented.
+- (CONVENTION, taken) the ten names were written twice by hand: ONE list, KOSMOS_WAIT_CONTROL_VARS in cut-guard.sh
+  (now with KOSMOS_IGNORE_MACHINE_CLAIM, which also steers this run's wait), unset by run-tests.sh (pinned) and by the
+  test file (plus the other guards' overrides it exercises).
+- (N, taken) a half-written .tmp marker beside the real one counted the waiter twice (and the drop back as a fall):
+  filtered. My FIRST arm for it put a .tmp alone, which is already harmless (its pid maps to a marker that does not
+  exist), so it stayed green with the filter removed; the arm now uses the real shape (marker and .tmp at once), and
+  removing the filter reds it ("43979 43979"). Also: the -z "$want" override is commented, the two start-time helpers
+  are told apart, and the first notice says the bound counts from joining or the last departure.
+Measured: plain and KOSMOS_NO_WAIT=1 both 0 failures.
