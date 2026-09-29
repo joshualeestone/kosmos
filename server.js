@@ -6498,9 +6498,11 @@ const server = http.createServer(async (req, res) => {
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
      rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
-     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
-     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
-     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js) or, with no
+     Claude, by a key-connected OpenAI or Grok over plain HTTP, which declares no tools (engine/orgchartkeys.js,
+     #4560), and only when the request says `?consent=1&reader=<id>`: the first answer for one is
+     `{ needsConsent, provider, reader, uses, keeps }`, so the page can say who reads it, and what that provider
+     keeps, before anything leaves the Mac (Liu Kang's condition 1), and the send goes only to that reader. Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
      (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
      browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
@@ -6522,29 +6524,36 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (!orgchartfile.modelAvailable()) {
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
+          sendJson(res, 200, { unavailable: true, problems: [require('./engine/orgchartkeys').offReason() || orgchartfile.NO_MODEL] });
           return;
         }
         // #4560: a kind of file the reader here cannot take (a PDF with Grok, say) is said before the consent.
         const cannot = orgchartfile.readerProblem(name);
         if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
-        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        const reader = orgchartfile.currentReader();
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) }); return; }
+        // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
+        if (q.get('reader') !== orgchartfile.readerId(reader)) {
+          sendJson(res, 409, { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
+          return;
+        }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
-        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
-           so claude stops using their plan instead of running on to its timeout. */
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
+           (Claude's run, or the key provider's HTTP request), so it stops being paid for instead of running on. */
         const stop = new AbortController();
         res.on('close', () => { if (!res.writableEnded) stop.abort(); });
         if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
-        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal, reader });
         if (stop.signal.aborted) return;
         if (got.unavailable) {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
         }
-        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(reader), rows: got.rows, problems: got.problems });
       })
       .catch((err) => {
         /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and

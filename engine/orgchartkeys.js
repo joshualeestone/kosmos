@@ -20,6 +20,9 @@
 
 const MAX_ANSWER_BYTES = 4 << 20;   // a real answer is a few kilobytes
 const TIMEOUT_MS = 120 * 1000;      // as the Claude read (orgchartfile MODEL_TIMEOUT_MS)
+let timeoutMs = TIMEOUT_MS;
+/** Tests only: a shorter timeout; null restores the real one. */
+function setTimeoutMs(ms) { timeoutMs = Number.isFinite(ms) && ms > 0 ? ms : TIMEOUT_MS; }
 
 /* The strict form of orgchartfile's SCHEMA: strict JSON-schema modes need every property required and no extra
    ones, so `why` is required and may be null. fromModel reads both forms the same way. */
@@ -69,7 +72,7 @@ const PROVIDERS = {
     headers: (key) => ({ authorization: 'Bearer ' + key }),
     // OpenAI's vision guide: PNG, JPEG, WEBP and non-animated GIF; PDFs through input_file.
     reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'image/gif': 1, 'application/pdf': 1 },
-    body(prompt, name, media, buf) {
+    body(prompt, media, buf) {
       const file = media === 'application/pdf'
         ? { type: 'input_file', filename: 'chart.pdf', file_data: dataUrl(media, buf) }
         : { type: 'input_image', image_url: dataUrl(media, buf), detail: 'high' };
@@ -90,7 +93,7 @@ const PROVIDERS = {
     headers: (key) => ({ 'x-goog-api-key': key }),
     // Google's image guide lists PNG, JPEG, WEBP, HEIC and HEIF (not GIF, which its API spec lists: not relied on).
     reads: { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'application/pdf': 1 },
-    body(prompt, name, media, buf) {
+    body(prompt, media, buf) {
       return {
         model: this.model,
         store: false,
@@ -117,7 +120,7 @@ const PROVIDERS = {
     // xAI's docs: image input is jpg/jpeg or png; a PDF only by public URL or an uploaded file, and attaching one
     // turns on a document-search tool, so it is not read here.
     reads: { 'image/png': 1, 'image/jpeg': 1 },
-    body(prompt, name, media, buf) {
+    body(prompt, media, buf) {
       return {
         model: this.model,
         store: false,
@@ -129,6 +132,28 @@ const PROVIDERS = {
   },
 };
 const ORDER = ['openai', 'google', 'xai'];
+
+/* Which providers may read an org chart (Liu Kang's ruling m3688). Gemini is OFF in v1: Google's own terms say
+   "Do not submit sensitive, confidential, or personal information to the Unpaid Services", an org chart names real
+   employees, and a free key cannot be told from a paid one. Turning it on is this one line (and its request shape
+   is kept and tested), if a paid key can be told apart or Josh rules otherwise. */
+const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
+let enabled = { ...ENABLED_DEFAULT };
+/** Tests only: which providers are on; null restores the ruling. */
+function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
+const OFF_WHY = {
+  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. A CSV or Excel export works with any provider, and so does typing the list.',
+};
+
+/* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the
+   sources are on #4560: OpenAI's "your data" guide, Google's usage policies and Gemini API terms, xAI's security
+   FAQ). Shown on the consent line for the provider that will read the file, so the person knows before saying yes. */
+const KEEPS = {
+  openai: 'OpenAI keeps what you send for up to 30 days to check for abuse, even though Kosmos asks it not to store it. It does not train on it.',
+  google: 'Google keeps what you send for 55 days to check for misuse, even though Kosmos asks it not to store it, and its staff may read what it flags. On a free Gemini key, Google also uses it to improve its products, and people may read it.',
+  xai: 'xAI keeps what you send for 30 days in case of abuse, even though Kosmos asks it not to store it. It does not train on it.',
+};
+const keeps = (reader) => (reader && KEEPS[reader.provider]) || null;
 
 /* What a provider cannot read, said as what to do instead. */
 function cannotRead(provider, media) {
@@ -158,8 +183,16 @@ function setAccounts(fn) { accountsFn = typeof fn === 'function' ? fn : defaultA
 function chooseReader() {
   let list = [];
   try { list = accountsFn() || []; } catch { list = []; }
-  const r = list.find((a) => a && PROVIDERS[a.provider]);
+  const r = list.find((a) => a && PROVIDERS[a.provider] && enabled[a.provider]);
   return r ? { provider: r.provider, dir: r.dir, account: r.account || null } : null;
+}
+
+/* When nobody can read it but a switched-off provider IS connected (Gemini alone, say): why, in plain words. */
+function offReason() {
+  let list = [];
+  try { list = accountsFn() || []; } catch { list = []; }
+  const off = list.find((a) => a && PROVIDERS[a.provider] && !enabled[a.provider] && OFF_WHY[a.provider]);
+  return off ? OFF_WHY[off.provider] : null;
 }
 
 /* The consent line's words for a reader: the provider, and the account when it has a name. */
@@ -180,7 +213,8 @@ function setKeyFor(fn) { keyFor = typeof fn === 'function' ? fn : defaultKeyFor;
 /* A refusal as a sentence the person can act on. Built from the status and the provider's error code only. */
 function refusal(p, status, body) {
   const err = body && typeof body === 'object' ? (body.error || body) : {};
-  const code = String((err && (err.code || err.status || err.type)) || '').toLowerCase().slice(0, 60);
+  // The provider's own code (or Google's status); not the generic `type` (invalid_request_error), which reads as jargon.
+  const code = String((err && (err.code || err.status)) || '').toLowerCase().slice(0, 60);
   if (status === 401 || /invalid_api_key|unauthenticated|api_key_invalid/.test(code)) {
     return p.name + ' did not accept this key. Check it in Settings, AI Models, or use a CSV or Excel export.';
   }
@@ -200,44 +234,69 @@ function refusal(p, status, body) {
 async function read(reader, prompt, name, media, buf, signal) {
   const p = reader && PROVIDERS[reader.provider];
   if (!p) return { ok: false, because: 'no provider can read this file' };
+  if (!enabled[reader.provider]) return { ok: false, because: OFF_WHY[reader.provider] || p.name + ' does not read org charts in Kosmos.' };
   const cannot = cannotRead(reader.provider, media);
   if (cannot) return { ok: false, because: cannot };
   const key = keyFor(reader);
   if (!key) return { ok: false, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
+  /* The person's Stop and the timeout hold until the WHOLE answer is read, not only its headers: a provider that
+     stalls mid-answer is cut off, and the one-read-at-a-time lock is not held past the timeout. */
   const ctl = new AbortController();
   const stop = () => ctl.abort();
   if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const gone = () => (signal && signal.aborted ? 'the read was stopped' : 'reading the file took too long');
   let res;
+  let raw;
   try {
-    res = await fetch(p.url(), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...p.headers(key) },
-      body: JSON.stringify(p.body(prompt, name, media, buf)),
-      signal: ctl.signal,
-    });
-  } catch {
-    // The message of a network error can carry the URL; nothing of it is returned.
-    return { ok: false, because: signal && signal.aborted ? 'the read was stopped' : (ctl.signal.aborted ? 'reading the file took too long' : 'we could not reach ' + p.name) };
+    try {
+      res = await fetch(p.url(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...p.headers(key) },
+        body: JSON.stringify(p.body(prompt, media, buf)),
+        signal: ctl.signal,
+      });
+    } catch {
+      // The message of a network error can carry the URL; nothing of it is returned.
+      return { ok: false, because: ctl.signal.aborted ? gone() : 'we could not reach ' + p.name };
+    }
+    // Capped while it arrives, in bytes: a declared length over the cap is refused unread, and a body that grows past
+    // it is cut off, so a runaway answer never sits whole in memory.
+    const tooLarge = { ok: false, because: p.name + '\'s answer was too large to read' };
+    if (Number(res.headers.get('content-length')) > MAX_ANSWER_BYTES) { ctl.abort(); return tooLarge; }
+    const chunks = [];
+    let size = 0;
+    try {
+      if (res.body) {
+        const it = res.body.getReader();
+        for (;;) {
+          const { done, value } = await it.read();
+          if (done) break;
+          size += value.length;
+          if (size > MAX_ANSWER_BYTES) { ctl.abort(); return tooLarge; }
+          chunks.push(Buffer.from(value));
+        }
+      }
+    } catch {
+      return { ok: false, because: ctl.signal.aborted ? gone() : 'the answer from ' + p.name + ' was cut off' };
+    }
+    raw = Buffer.concat(chunks).toString('utf8');
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', stop);
   }
   let body = null;
-  try {
-    const raw = await res.text();
-    if (raw.length > MAX_ANSWER_BYTES) return { ok: false, because: p.name + '\'s answer was too large to read' };
-    body = JSON.parse(raw);
-  } catch { body = null; }
+  try { body = JSON.parse(raw); } catch { body = null; }
   if (!res.ok) return { ok: false, because: refusal(p, res.status, body) };
   if (!body || (body.status && body.status !== 'completed')) {
     return { ok: false, because: p.name + ' did not finish reading the chart' + (body && body.status ? ' (' + String(body.status).replace(/[^a-z_]/g, '') + ')' : '') + '. Try a clearer picture, or a CSV or Excel export.' };
   }
   const got = p.answer(body);
   if (got.refused) return { ok: false, because: p.name + ' declined to read this chart. Try a CSV or Excel export.' };
+  if (!got.text) return { ok: false, because: p.name + ' finished without the list we asked for. Try again, or use a CSV or Excel export.' };
   let structured;
   try { structured = JSON.parse(got.text); } catch { return { ok: false, because: p.name + ' did not answer with the list we asked for. Try again, or use a CSV or Excel export.' }; }
   return { ok: true, structured };
 }
 
-module.exports = { accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

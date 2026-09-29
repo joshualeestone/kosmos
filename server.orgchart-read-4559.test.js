@@ -61,7 +61,9 @@ function assertChart(rows, label) {
 }
 
 async function send(name, bytes, { headers = H, query = '' } = {}) {
-  const res = await fetch(base + '/api/orgchart/read' + query, {
+  // A consented send hands back the reader the consent named (#4560); these tests' reader is Claude.
+  const q = query && query.includes('consent=1') && !query.includes('reader=') ? query + '&reader=claude' : query;
+  const res = await fetch(base + '/api/orgchart/read' + q, {
     method: 'POST',
     headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(name), ...headers },
     body: bytes,
@@ -77,10 +79,14 @@ test.before(async () => {
   assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
   boardAuthState.on = true;
   boardAuthState.token = TOK;
+  // These tests model a computer with Claude (the model runner and availability are faked per test); #4560's test
+  // below switches to the real reader resolution.
+  orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
 });
 test.after(() => {
   orgchartfile.setModelRunner(null);
   orgchartfile.setModelAvailable(null);
+  orgchartfile.setReaderForTest(null);
   try { server.close(); } catch { /* ignore */ }
 });
 
@@ -118,14 +124,14 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   orgchartfile.setModelAvailable(() => true);
   orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN });
-  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)' });
+  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: null });
   assert.equal(sent.length, 0, 'the file went to the model before the person said yes');
 });
 
 test('#4559: the consent question needs no file: an empty body is answered with the provider', async () => {
   orgchartfile.setModelAvailable(() => true);
   const r = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });
-  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)' });
+  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: null });
 });
 
 test('#4559: with consent but not from the screen (the board token alone), the file is refused, not sent', async () => {
@@ -196,7 +202,7 @@ test('#4559: a read the page stops (the request closes) aborts the model call, s
     signal.addEventListener('abort', () => { clearTimeout(t); aborted = true; ok({ ok: false, because: 'the read was stopped' }); });
   }));
   const ac = new AbortController();
-  const pending = fetch(base + '/api/orgchart/read?consent=1', {
+  const pending = fetch(base + '/api/orgchart/read?consent=1&reader=claude', {
     method: 'POST', signal: ac.signal,
     headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': 'chart.png', ...SCREEN },
     body: fs.readFileSync(path.join(FIX, 'chart.png')),
@@ -254,15 +260,37 @@ test('#4559: a consented send with no file is refused before it reaches the mode
 test('#4560: with no Claude but a key-connected provider, the consent names that provider, and a kind it cannot read is refused before the consent', async () => {
   const keys = require('./engine/orgchartkeys');
   orgchartfile.setModelAvailable(null);   // the real check: this sandbox has no Claude account
+  orgchartfile.setReaderForTest(null);
   keys.setAccounts(() => [{ provider: 'xai', dir: '/nowhere', account: 'work' }]);
   try {
     const png = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
-    assert.deepEqual(png.json, { needsConsent: true, provider: 'xAI Grok (work)' });
+    assert.equal(png.json.needsConsent, true);
+    assert.equal(png.json.provider, 'xAI Grok (work)');
+    assert.equal(png.json.uses, 'billed to that key');
+    assert.match(png.json.keeps, /xAI keeps what you send for 30 days in case of abuse, even though Kosmos asks it not to store it/);
+    assert.match(png.json.reader, /^xai:[0-9a-f]{12}$/, 'an opaque id: no account path reaches the page');
+    // The consent named Grok; an OpenAI key added while the box was open must not receive the file.
+    const sent = [];
+    orgchartfile.setModelRunner(async (line, signal, file) => { sent.push(file.reader); return { ok: true, structured: { people: [] } }; });
+    keys.setAccounts(() => [{ provider: 'openai', dir: '/other', account: 'new' }, { provider: 'xai', dir: '/nowhere', account: 'work' }]);
+    const moved = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + png.json.reader });
+    assert.equal(moved.status, 409, JSON.stringify(moved.json));
+    assert.match(moved.json.error, /Who reads this file changed since you were asked/);
+    assert.equal(sent.length, 0, 'the file went to a provider the person did not agree to');
+    keys.setAccounts(() => [{ provider: 'xai', dir: '/nowhere', account: 'work' }]);
+    const ok = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + png.json.reader });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.equal(ok.json.provider, 'xAI Grok (work)');
+    assert.deepEqual(sent.map((r) => r && r.provider), ['xai'], 'the read went to exactly the reader that was agreed to');
+    orgchartfile.setModelRunner(null);
     const pdf = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });
     assert.equal(pdf.json.unavailable, true, JSON.stringify(pdf.json));
     assert.match(pdf.json.problems[0], /xAI Grok cannot read a PDF sent this way\. Export the chart as a PNG or JPG picture/);
     keys.setAccounts(() => []);
     const none = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
     assert.deepEqual(none.json, { unavailable: true, problems: [orgchartfile.NO_MODEL] }, 'CONTROL: with no key account and no Claude, nothing reads it');
-  } finally { keys.setAccounts(null); }
+    keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'work' }]);
+    const gem = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    assert.match(gem.json.problems[0], /Kosmos does not send an org chart to Gemini/, 'a Gemini-only person is told why (m3688)');
+  } finally { keys.setAccounts(null); orgchartfile.setModelRunner(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
 });

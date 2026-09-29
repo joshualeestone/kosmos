@@ -351,22 +351,31 @@ async function run() {
     // KEY PROVIDER (#4560): with a key-connected provider instead of Claude, the consent names that provider and
     // account, and a kind it cannot read (Grok and a PDF) is said at once, with no consent box.
     const pk = await page();
+    const okeys = require('../../engine/orgchartkeys');   // the engine's own sentences, not copies
+    const grokPdf = okeys.cannotRead('xai', 'application/pdf');
+    const grokKeeps = okeys.keeps({ provider: 'xai' });
+    let sentReader = null;
     await pk.route('**/api/orgchart/read*', (r) => {
+      const u = new URL(r.request().url());
       const n = decodeURIComponent(r.request().headers()['x-orgchart-name'] || '');
-      if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: ['xAI Grok cannot read a PDF sent this way. Export the chart as a PNG or JPG picture, or use a CSV or Excel export.'] } });
-      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Google Gemini (work)' } });
+      if (/\.pdf$/.test(n)) return r.fulfill({ status: 200, json: { unavailable: true, problems: [grokPdf] } });
+      if (u.searchParams.get('consent') === '1') { sentReader = u.searchParams.get('reader'); return r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } }); }
+      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to that key', keeps: grokKeeps } });
     });
     await openPanel(pk);
     if (await pk.$('#orgchart-file-btn')) {
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
       await pk.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 }).catch(() => {});
       const k1 = await readPreview(pk);
-      await pk.click('#orgchart-consent-no').catch(() => {});
+      await pk.click('#orgchart-consent-go').catch(() => {});
+      await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 }).catch(() => {});
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await pk.waitForTimeout(500);
       const k2 = await readPreview(pk);
-      check('KEY PROVIDER: the consent names the key provider and account; a kind it cannot read is said with no consent box',
-        /Google Gemini \(work\)/.test(k1.consent) && /cannot read a PDF sent this way/.test(k2.msg) && !k2.consent && !k2.shown, JSON.stringify([k1.consent, k2.msg, k2.consent]));
+      check('KEY PROVIDER: the consent names the key provider and account, says it is billed to that key, and says what the provider keeps',
+        /xAI Grok \(work\), billed to that key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
+      check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
+      check('KEY PROVIDER: a kind it cannot read (Grok and a PDF) is said with no consent box', k2.msg.includes(grokPdf) && !k2.consent, JSON.stringify([k2.msg, k2.consent]));
     } else check('KEY PROVIDER: the panel offers a file', false);
     await pk.close();
 

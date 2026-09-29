@@ -46523,6 +46523,7 @@ let ORGCHART_UNDO_BUSY = false;
    the names toggle re-derives from the file), a picture waiting for Read it, and the read in flight. */
 let ORGCHART_FILE_PEOPLE = null;
 let ORGCHART_FILE_PENDING = null;
+let ORGCHART_FILE_READER = null;   // #4560: who the consent box named; the send goes only to that reader
 let ORGCHART_READ_CTL = null;
 let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORGCHART_TEAM_DEFAULT at once
 
@@ -46780,7 +46781,7 @@ async function orgchartSendFile(file, consent, seq) {
   const ctl = consent ? new AbortController() : null;
   if (ctl) { ORGCHART_READ_CTL = ctl; stopBtn.hidden = false; }
   try {
-    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1' : ''), {
+    const res = await fetch('/api/orgchart/read' + (consent ? '?consent=1&reader=' + encodeURIComponent(ORGCHART_FILE_READER || '') : ''), {
       signal: ctl ? ctl.signal : undefined,
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': encodeURIComponent(file.name) },
@@ -46799,8 +46800,12 @@ async function orgchartSendFile(file, consent, seq) {
   if (!current() || !out) return;
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
+    ORGCHART_FILE_READER = out.reader || null;
+    /* #4560: how it is paid for (a plan, or per request to a key) and what that provider keeps even though Kosmos
+       asks it not to store the file (Liu Kang m3686), both from the board. */
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
-      + ', using your plan. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.';
+      + ', ' + (out.uses || 'using your plan') + '. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.'
+      + (out.keeps ? ' ' + out.keeps : '');
     document.getElementById('orgchart-consent').hidden = false;
     msg.textContent = ''; msg.hidden = true;
     document.getElementById('orgchart-consent-go').focus();

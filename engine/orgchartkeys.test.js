@@ -60,8 +60,11 @@ test.before(async () => {
   process.env.AGENT_WORKFORCE_ORGCHART_GEMINI_URL = base + '/google/v1beta/interactions';
   process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL = base + '/xai/v1/responses';
   keys.setKeyFor(() => KEY);
+  // Every provider's request shape is tested, Gemini's included for the day it is switched on; the ruling that
+  // keeps it off (m3688) has its own test below, with the real switch.
+  keys.setEnabled({ openai: true, google: true, xai: true });
 });
-test.after(() => { keys.setAccounts(null); keys.setKeyFor(null); o.setModelAvailable(null); server.close(); });
+test.after(() => { keys.setAccounts(null); keys.setKeyFor(null); keys.setEnabled(null); keys.setTimeoutMs(null); o.setModelAvailable(null); server.close(); });
 test.beforeEach(() => { seen = []; reply = null; });
 
 const only = (provider) => keys.setAccounts(() => [{ provider, dir: '/tmp/x', account: 'work' }]);
@@ -178,7 +181,7 @@ test('#4560: refusals are plain sentences; the key never appears in anything ret
         [500, 'upstream said ' + KEY, /could not read the chart \(500\)/],
         [502, { error: { code: 'bad_gateway', message: 'upstream saw ' + KEY } }, /could not read the chart \(502, bad_gateway\)/],
         [200, { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } }, /did not finish reading the chart \(incomplete\)/],
-        [200, { status: 'completed', output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }] }, provider === 'google' ? /did not answer with the list/ : /declined to read this chart/],
+        [200, { status: 'completed', output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }] }, provider === 'google' ? /finished without the list we asked for/ : /declined to read this chart/],
         [200, { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'not json ' + KEY }] }], steps: [{ type: 'model_output', content: [{ type: 'text', text: 'not json ' + KEY }] }] }, /did not answer with the list we asked for/],
       ];
       for (const [status, body, want] of cases) {
@@ -228,4 +231,64 @@ test('#4560: readApiKey reads each provider\'s stored key, and nothing for a sig
   assert.equal(gem.readApiKey(empty), null);
   assert.equal(grok.readApiKey(empty), null);
   assert.equal(oa.readApiKey(empty), null);
+});
+
+test('#4560 ruling m3688: Gemini is OFF for org charts; a Gemini-only person is told why; OpenAI and Grok are on', async () => {
+  keys.setEnabled(null);   // the ruling as shipped
+  try {
+    assert.deepEqual(keys.ENABLED_DEFAULT, { openai: true, google: false, xai: true });
+    keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'work' }]);
+    assert.equal(keys.chooseReader(), null, 'a Gemini key must not be chosen');
+    assert.equal(o.modelAvailable(), false);
+    assert.match(keys.offReason(), /Kosmos does not send an org chart to Gemini: Google's terms say not to send personal information on a free Gemini key/);
+    const r = await keys.read({ provider: 'google', dir: '/g' }, 'p', 'chart.png', 'image/png', PNG);
+    assert.equal(r.ok, false);
+    assert.equal(seen.length, 0, 'nothing may be sent to a switched-off provider');
+    keys.setAccounts(() => [{ provider: 'google', dir: '/g' }, { provider: 'xai', dir: '/x', account: null }]);
+    assert.equal(keys.chooseReader().provider, 'xai', 'Gemini is skipped for the next key provider');
+    keys.setAccounts(() => [{ provider: 'openai', dir: '/o' }]);
+    assert.equal(keys.offReason(), null, 'CONTROL: no switched-off provider, no reason');
+  } finally { keys.setEnabled({ openai: true, google: true, xai: true }); }
+});
+
+test('#4560: the retention line names what the reading provider keeps, from its docs (Liu Kang m3686)', () => {
+  assert.match(keys.keeps({ provider: 'openai' }), /OpenAI keeps what you send for up to 30 days to check for abuse, even though Kosmos asks it not to store it/);
+  assert.match(keys.keeps({ provider: 'xai' }), /xAI keeps what you send for 30 days in case of abuse/);
+  assert.match(keys.keeps({ provider: 'google' }), /55 days/);
+  assert.equal(keys.keeps(null), null);
+});
+
+test('#4560: the timeout, and a Stop, hold through the whole answer, not only its headers', { timeout: 15000 }, async () => {
+  only('openai');
+  // Headers now, the body never finishes: the answer trickles and stalls.
+  const stall = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"status":"compl'); }); });
+  await new Promise((ok) => stall.listen(0, '127.0.0.1', ok));
+  const saved = process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL;
+  process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = 'http://127.0.0.1:' + stall.address().port + '/v1/responses';
+  try {
+    keys.setTimeoutMs(600);
+    // Raced against 5 s, so a read that ignores its timeout FAILS here (cleanly) rather than hanging the test.
+    const hung = (p) => Promise.race([p, new Promise((ok) => setTimeout(() => ok('hung'), 5000))]);
+    const r = await hung(o.readWithModel('chart.png', PNG));
+    assert.notEqual(r, 'hung', 'the stalled body was not cut off by the timeout');
+    assert.match(r.problems[0], /reading the file took too long/);
+    keys.setTimeoutMs(60000);
+    const ctl = new AbortController();
+    const pending = o.readWithModel('chart.png', PNG, { signal: ctl.signal });
+    await new Promise((ok) => setTimeout(ok, 300));
+    ctl.abort();
+    const s = await hung(pending);
+    assert.notEqual(s, 'hung', 'a Stop during the body did not end the read');
+    assert.match(s.problems[0], /the read was stopped/);
+  } finally { keys.setTimeoutMs(null); process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = saved; stall.closeAllConnections(); stall.close(); }
+});
+
+test('#4560: an answer over the cap is refused as it arrives; a finished answer with no text says so', async () => {
+  only('xai');
+  reply = () => ({ status: 200, body: 'x'.repeat(keys.MAX_ANSWER_BYTES + 10) });
+  const big = await o.readWithModel('chart.png', PNG);
+  assert.match(big.problems[0], /answer was too large to read/);
+  reply = () => ({ status: 200, body: { status: 'completed', output: [{ type: 'reasoning' }] } });
+  const empty = await o.readWithModel('chart.png', PNG);
+  assert.match(empty.problems[0], /finished without the list we asked for/);
 });

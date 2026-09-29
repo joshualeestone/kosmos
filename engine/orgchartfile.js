@@ -573,8 +573,8 @@ function readAccount() {
   return list.find((a) => a.isDefault) || null;
 }
 /* Who the consent names: the provider, and the account when its address is known. */
-function providerLabel() {
-  const r = currentReader();
+function providerLabel(reader) {
+  const r = reader === undefined ? currentReader() : reader;
   if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
@@ -589,13 +589,30 @@ const claudeHere = () => {
 };
 /* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
    KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+let readerOverride = null;
+/** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
+function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
 function currentReader() {
+  if (readerOverride) return readerOverride();
   if (claudeHere()) return { kind: 'claude' };
   let r = null;
   try { r = require('./orgchartkeys').chooseReader(); } catch { r = null; }
   return r ? { kind: 'key', ...r } : null;
 }
 const readerHere = () => Boolean(currentReader());
+/* The reader as an opaque id the page hands back with its consent (Claude, or a provider and a hash of the account
+   folder, so no path reaches the page). A send whose reader no longer matches is refused: the person agreed to one
+   provider, and the file must not go to another because an account changed while the consent box was open. */
+function readerId(r) {
+  if (!r) return null;
+  if (r.kind === 'claude') return 'claude';
+  return r.provider + ':' + require('node:crypto').createHash('sha256').update(String(r.dir || '')).digest('hex').slice(0, 12);
+}
+/* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
+function consentFor(r) {
+  const keys = require('./orgchartkeys');
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to that key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
+}
 let availability = readerHere;
 function modelAvailable() { return availability(); }
 function setModelAvailable(fn) { availability = typeof fn === 'function' ? fn : readerHere; }
@@ -609,7 +626,7 @@ function readerProblem(name) {
 /* The runner: a key reader calls its provider's API directly; otherwise the Claude read (#4559). A test runner
    set with setModelRunner gets (line, signal, file) and replaces both. */
 function dispatchRunner(line, signal, file) {
-  const r = currentReader();
+  const r = file.reader || currentReader();   // the reader the person agreed to, when the route passes it
   if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);
   return defaultModelRunner(line, signal);
 }
@@ -664,11 +681,11 @@ async function readWithModel(name, bytes, opts = {}) {
   if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
   reading = true;
   let got;
-  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf }); } catch { got = { ok: false, because: 'the read failed' }; }
+  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf, reader: opts && opts.reader }); } catch { got = { ok: false, because: 'the read failed' }; }
   finally { reading = false; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }
 
 module.exports = {
-  readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
