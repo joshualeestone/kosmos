@@ -105,6 +105,19 @@ const BUBBLES = `(() => {
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage }))`;
+/* The left box's task rows: how many, how many still draw a card border, whether the number reads
+   a hash sign and the number (the word hidden, the hash drawn) and whether an assigned row's claim line is visible. */
+const TASK_ROWS = `(() => {
+  const cards = [...document.querySelectorAll('#pj-one-view .pjsplit .tkcard')];
+  const first = cards.find((c) => c.querySelector('.tkcard-who b'));
+  const claim = first && first.querySelector('.tksay, .tkunk');
+  const n = cards[0] && cards[0].querySelector('.tkcard-n');
+  return { rows: cards.length,
+    boxed: cards.filter((c) => parseFloat(getComputedStyle(c).borderTopWidth) > 0).length,
+    hashShown: !!n && getComputedStyle(n, '::before').content.startsWith('"#' + n.dataset.n + '"') && parseFloat(getComputedStyle(n, '::before').fontSize) > 10,
+    wordHidden: !!n && parseFloat(getComputedStyle(n).fontSize) === 0 && n.textContent.startsWith('Task ' + n.dataset.n),
+    claimShown: !!claim && getComputedStyle(claim).display !== 'none' && claim.getBoundingClientRect().height > 0 };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -115,6 +128,10 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
     const proj = projects.create({ name: 'Billing' });
     projects.addAgent(proj.id, 'ada', null);
     projects.addAgent(proj.id, 'bo', null);
+    const tasks = require('../../engine/tasks');
+    const t1 = tasks.create(proj.id, { sentence: 'Plan the launch week', who: 'ada' });
+    tasks.create(proj.id, { sentence: 'Book the venue', who: 'ada', parent: t1.number });
+    tasks.create(proj.id, { sentence: 'Order the paper' });
     server = await srv.start(0);
     const URL = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -167,6 +184,9 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       }
       const bub = await page.evaluate(BUBBLES);
       chk(bub.you === GREY_OF[theme] && bub.agent === 'rgba(0, 0, 0, 0)', `${tag} On: your message is grey, an agent's has no bubble`, JSON.stringify(bub));
+      const tk = await page.evaluate(TASK_ROWS);
+      chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
+        `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };

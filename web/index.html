@@ -9463,6 +9463,31 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb-cur { color: var(--k-ink); font-weight: 600; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjhead { flex: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-name { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* #4470: tasks in the new look's left box are the drawing's compact rows: "#4  Title  (dot) Ada  1/3",
+   no card box. The agent's claim ("says it is on this", or why we cannot tell) is KEPT as a small
+   second line under the title (the 2026-08-19 ruling: a claim state never renders as nothing),
+   where the drawing shows none. The avatar gives way to a dot: filled for an assigned agent,
+   hollow for "Nobody yet". Subtasks keep today's indent. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcards { gap: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 1px; align-items: baseline; border: 0; border-radius: 10px; background: none; box-shadow: none; padding: 7px 8px; margin: 0 -8px; width: auto; text-align: left; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub1 { margin-left: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub2 { margin-left: 28px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:hover { background: var(--nl-face); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard > * { grid-column: 2 / -1; margin: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { grid-column: 1; grid-row: 1; font-size: 0; letter-spacing: 0; text-transform: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n::before { content: "#" attr(data-n) / ""; font: 400 .875rem var(--font-ui); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part-of { grid-row: auto; grid-column: 1 / -1; font-size: .75rem; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b), :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b) > .tkcard-who-b { display: contents; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who .lav { display: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who-b > b,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b)) { grid-column: 3; grid-row: 1; display: inline-flex; align-items: center; gap: 6px; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who-b > b::before,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--nl-green); flex: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-4); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tksay,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkunk { grid-column: 2 / -1; grid-row: 2; font-size: .75rem; font-style: normal; color: var(--nl-ink-3); text-decoration: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tsk-chip { grid-column: 4; grid-row: 1; border: 0; background: none; padding: 0; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
 /* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
    end behind a dot. The state washes go ONLY because the word and dot now carry the state
    (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
@@ -49979,7 +50004,9 @@ function paintProjectTasks(p) {
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
       + partOf
-      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
+      /* #4470: data-n lets the new look DRAW the drawing's "#4" (as generated content with empty alt
+         text, so a screen reader still hears "Task 4"); the text itself is unchanged. */
+      + '<span class="tkcard-n" data-n="' + n + '">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this
