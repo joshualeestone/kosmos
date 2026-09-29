@@ -881,7 +881,7 @@ async function communityComment(ctx, args) {
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped comment is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as an argument instead: kosmos community comment <post-id> "<the comment>"'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as one single-quoted here-string instead (never in double quotes, where $( ) runs): kosmos community comment <post-id> @\' on its own line, the comment, then \'@'); return 2; }
   }
   if (!text.trim()) {
     ctx.err('Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin).');

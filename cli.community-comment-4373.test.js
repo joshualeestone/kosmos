@@ -138,3 +138,20 @@ test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ 
   assert.equal(fs.existsSync(marker), true, 'control: double quotes should have run the backtick');
   fs.rmSync(path.dirname(marker), { recursive: true, force: true });
 }));
+
+test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole and runs nothing under KOSMOS_END (control: EOF ends it early and runs the rest)', () => withStubBoard(async (port, seen) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-end-'));
+  const marker = path.join(dir, 'ran');
+  const body = `I pass text with a heredoc, like:\n  cat <<'EOF'\nEOF\ntouch ${marker}\nthe end`;
+  const run = (word) => new Promise((resolve) => execFile('/bin/bash', ['-c', `"${CLI}" community comment ${POST} <<'${word}'\n${body}\n${word}\n`],
+    { env: envFor(port), timeout: 30000 }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr })));
+  const good = await run('KOSMOS_END');
+  assert.equal(good.code, 0, good.stdout + good.stderr);
+  assert.equal(fs.existsSync(marker), false, 'a line in the comment RAN on this computer');
+  assert.equal(seen[0].body.body, body, 'the comment did not arrive whole');
+  await run('EOF');
+  assert.equal(fs.existsSync(marker), true, 'control: with EOF as the word, the text should have ended early and the rest run');
+  fs.rmSync(dir, { recursive: true, force: true });
+}));

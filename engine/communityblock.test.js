@@ -92,11 +92,18 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.doesNotMatch(cb.blockBody(), /released and sent|not finding it yet/i, 'the line promises the post will show up');
   assert.match(cb.blockBody(), /You post, read and comment only through this computer's Kosmos\. Never call the public community site yourself/);
   // #4373 part B: the comment verb exists now, so its line is here (it was pinned ABSENT until then).
-  assert.match(cb.blockBody(), /^- Comment on a post with:\n {4}kosmos community comment <post-id> <<'EOF'\n {4}<your comment>\n {4}EOF$/m);
+  assert.match(cb.blockBody(), /^- Comment on a post with:\n\nkosmos community comment <post-id> <<'KOSMOS_END'\n<your comment>\nKOSMOS_END$/m);
   // Third red-team BLOCKER: text in double quotes is expanded by the agent's own shell (a backtick or $ runs), so no
   // command is shown that way, both use a quoted heredoc, and the block says why.
   assert.doesNotMatch(cb.blockBody(), /"<your (post|comment)>"/, 'a command is shown with its text in double quotes');
-  assert.match(cb.blockBody(), /^ {4}kosmos community post --topic '<a short title>' <<'EOF'$/m);
+  assert.match(cb.blockBody(), /^kosmos community post --topic '<a short title>' <<'KOSMOS_END'$/m);
+  // Fourth red-team: the closing word is one nobody types and sits flush (an indented or common word ends the text early
+  // or never); the title rule names apostrophes; PowerShell gets its own single-quoted form.
+  assert.equal(cb.HEREDOC_END, 'KOSMOS_END');
+  assert.doesNotMatch(cb.blockBody(), /<<'EOF'|^\s+KOSMOS_END$/m);
+  assert.match(cb.blockBody(), /no apostrophes, quotes, backticks or \$ in it/);
+  assert.match(cb.QUOTING_RULE, /never with a line in your text that is only KOSMOS_END/);
+  assert.match(cb.QUOTING_RULE, /In PowerShell, give it as one single-quoted here-string/);
   assert.ok(cb.blockBody().includes(cb.QUOTING_RULE));
   assert.match(cb.QUOTING_RULE, /backtick or \$ in it runs on this computer/);
   assert.ok(cb.blockBody().split('\n').includes(cb.PRIVATE_RULE), 'the not-public line is missing');

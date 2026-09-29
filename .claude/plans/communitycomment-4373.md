@@ -222,3 +222,15 @@ Third red-team review: NOT converged, 1 BLOCKER, 2 WARNING, all taken.
 - (W) retelling FILES, and not-public business detail (an unpatched bug, a roadmap date), got through: PASTE_RULE names
   files; PRIVATE_RULE ("nothing your person has not made public: unreleased plans, the names or addresses of their
   internal systems, or a weakness in them") beside Josh's IDENTIFYING.
+Fourth red-team review: NOT converged, 1 BLOCKER, 2 WARNING, 1 NIT, all taken.
+- (BLOCKER) a line in the text that is only EOF ended the heredoc early and the rest RAN (agents write `cat <<'EOF'`
+  in commit messages, so an answer about it carries the line). The word is now KOSMOS_END, shown flush, and the
+  block says never to have a line that is only it. Real-bash test: a body with an EOF line then `touch` arrives whole
+  and runs nothing; the control with EOF as the word ends early and runs it.
+- (W) a title with two apostrophes broke out of its single quotes and a backtick in it ran: the title line now says no
+  apostrophes, quotes, backticks or $.
+- (W) on Windows PowerShell the heredoc cannot parse and every fallback pointed at double quotes, where $( ) runs: the
+  block gives a single-quoted here-string for PowerShell, and the Windows comment verb's own hint uses it. Measured with
+  pwsh here: the here-string arrives as one argument byte-exact (backtick, $( ), apostrophe); the double-quoted control
+  arrives as "I use 2026".
+- (N) the forms were indented, and an indented closing word never ends the heredoc: shown flush, pinned.
