@@ -163,7 +163,8 @@ const SCREENS = [
      #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
      shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
      connected panel), so the full card is the top card there; with a connected panel it sits above the panel
-     (#plus-asks). The wait accepts either, and fails if the Allow button is not on screen. */
+     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible (it does not check the
+     viewport; the card sits at the top of the page and opening the view does not scroll). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
