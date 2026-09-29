@@ -674,24 +674,24 @@ qsleep() { local n p; n=$(( $(cat "$W/sleeps" 2>/dev/null || echo 0) + 1 )); ech
   [ "${QLEAVE:-0}" -gt 0 ] && [ $((n % QLEAVE)) -eq 0 ] || return 0
   for p in $(cat "$W/ahead"); do [ -e "$W/markers/suitewait.$p" ] && { rm -f "$W/markers/suitewait.$p"; return 0; }; done; }
 q_clear; q_ahead
-out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 # 10 calls: 8 refusals, the clear one, and the #4498 second ask after leaving the queue; 240 s on a 60 s bound.
 { [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 10 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
   && pass "#4574 a queue that keeps moving is waited through past the bound (240 s on a 60 s bound), then the run starts" \
   || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
-out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "counts from the last time a waiter ahead left the queue" && [ ! -e "$W/markers/suitewait.$$" ]; } \
   && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says how the bound is counted" \
   || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 # The wall-clock arm: 100 s pass per sleep but only 30 s is counted asleep, so only the clock can reach a 60 s bound.
-out="$(QSTEP=100 QLEAVE=1 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+out="$(QSTEP=100 QLEAVE=1 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 6 ]; } \
   && pass "#4574 the wall-clock arm restarts too: three waiters leaving 100 s apart keep a 60 s bound from firing" \
   || fail "#4574 the wall clock gave up on a moving queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
-out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 2 ]; } \
   && pass "#4574 CONTROL: with nobody leaving, the wall clock alone ends the wait at the bound (one 100 s sleep)" \
   || fail "#4574 the wall-clock arm did not fire (rc=$rc, calls=$(cat "$W/calls"), $out)"
@@ -735,6 +735,35 @@ out="$(WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=qflip kosmos_wait_un
   && pass "#4574 a waiter behind this run coming and going does not restart its bound" \
   || fail "#4574 churn behind this run restarted its bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear
+# The ceiling: a queue that is still moving (a waiter ahead leaves every 60 s) is still ended at the ceiling, so ending a
+# queued wait never rests on the restart heuristic. Control: the same queue with a high ceiling starts (the arm above).
+q_clear; q_ahead
+out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=120 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "ceiling" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 the queue's ceiling ends a wait even while the queue keeps moving" \
+  || fail "#4574 a moving queue outlived the ceiling (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# The start time a marker records does not depend on the reader's zone or locale, and a marker written the older way
+# (the writer's own zone and locale) still reads as live.
+sleep 300 & zp=$!
+for j in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$zp")" in sleep*) break ;; esac; sleep 0.1; done
+printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo LC_ALL=C _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
+( export TZ=America/Chicago; _kosmos_suite_waiter_live "$zp" ) && pass "#4574 a marker written in one time zone is live to a reader in another" \
+  || fail "#4574 a reader in another time zone called a live waiter stale"
+printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
+_kosmos_suite_waiter_live "$zp" && pass "#4574 a marker written the older way (local start time) is still live" \
+  || fail "#4574 an older-format marker was called stale"
+printf '100 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/suitewait.$zp"
+{ ! _kosmos_suite_waiter_live "$zp" && [ ! -e "$W/markers/suitewait.$zp" ]; } && pass "#4574 CONTROL: a start time that matches neither form is still stale" \
+  || fail "#4574 a wrong start time was accepted"
+kill "$zp" 2>/dev/null; wait "$zp" 2>/dev/null
+# A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
+rm -f "$W/calls"
+printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
+out="$(WPASS_AFTER=0 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4574 a dead run's marker under this run's pid is cleared on entry" \
+  || fail "#4574 a recycled-pid marker survived entry (rc=$rc, $out)"
+rm -f "$W/calls" "$W/markers/suitewait.$$"
 # A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
 out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \

@@ -520,7 +520,8 @@ kosmos_refuse_if_suite_live() {
 # harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
 # poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
 # so churn behind it cannot restart its bound. The cost: behind a HUNG suite each waiter in turn spends one bound at
-# the front before giving up.
+# the front before giving up, so a hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S, default four bounds: 3 hours) ends any
+# queued wait whatever the heuristic says.
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
@@ -535,15 +536,19 @@ _kosmos_suite_waiter_live() {
   # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
   # unsafe side. A start time cannot repeat on a recycled pid.
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
+  local began; began="$(sed -n '3p' "$f" 2>/dev/null)"
+  # #4574: the start time is written in UTC and the C locale, so two readers in different time zones or locales agree.
+  # A marker written the older way (the writer's local zone and locale) still matches when read in that same zone.
   if [ -z "$stored" ] || [ "$stored" != "$live" ] \
-     || [ "$(sed -n '3p' "$f" 2>/dev/null)" != "$(_kosmos_pid_started "$pid")" ]; then
+     || { [ "$began" != "$(_kosmos_pid_started "$pid")" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
 }
 # A process's start time as ps prints it (the same on macOS and Linux procps); empty when ps cannot say, which
 # then matches nothing recorded, so the marker is treated as stale (counted as a live suite: the safe side).
-_kosmos_pid_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
+_kosmos_pid_started() { TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
+_kosmos_pid_started_local() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
 
 # Drops `pid command` lines that are a waiter or descend from one: a waiter's check forks $( ) subshells several
 # levels deep, each showing `bash tools/run-tests.sh` (review 1). The walk is bounded, like
@@ -627,6 +632,7 @@ kosmos_wait_until_clear() {
   # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
   local dflt=1200; [ "$queue" = 1 ] && dflt=2700
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
+  local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}"
   local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
   start="$(_kosmos_wait_now)"; bstart="$start"
   # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
@@ -634,6 +640,8 @@ kosmos_wait_until_clear() {
   [ "$queue" = 1 ] && { _kosmos_suite_waiter_live "$$" || true; }
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
+  # #4574: a hard ceiling on a queued wait (default four bounds), so ending the wait never rests on the restart heuristic.
+  case "$ceil" in ''|*[!0-9]*) ceil=$((max * 4)) ;; esac
   while :; do
     # #4574: a queued run whose own marker vanished (a failed ps reads it as stale and removes it) writes it again with its
     # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
@@ -667,10 +675,14 @@ kosmos_wait_until_clear() {
     fi
     # The bound is reached by the time slept or the wall clock, whichever gets there first, so slow checks cannot
     # stretch it (review 1).
-    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
+    local over=0
+    if [ "$queue" = 1 ] && { [ "$waited" -ge "$ceil" ] || [ $(( $(_kosmos_wait_now) - start )) -ge "$ceil" ]; }; then over=1; fi
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$over" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
-      if [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
+      if [ "$waited" -gt 0 ] && [ "$over" = 1 ]; then
+        echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
+      elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
         echo "gave up after waiting ${waited}s (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
@@ -681,7 +693,7 @@ kosmos_wait_until_clear() {
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2
       if [ "$queue" = 1 ]; then
-        echo "waiting for it: asking again every ${every}s, and giving up if the queue does not move for ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from the last time a waiter ahead left the queue, and ${ceil}s ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       else
         echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
       fi
