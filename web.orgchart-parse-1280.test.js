@@ -146,3 +146,11 @@ test('#4559: the page and the engine agree on which files go to the model', () =
   const { forModel } = require('./engine/orgchartfile');
   for (const e of exts) assert.equal(page.test('x.' + e), forModel('x.' + e), '.' + e + ' is treated differently by the page and the engine');
 });
+
+test('#4559: the page refuses a file over the same size the board reads', () => {
+  const m = /const ORGCHART_MAX_BYTES = ([^;]+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MAX_BYTES is gone from the page');
+  const page = Function('return (' + m[1] + ')')();
+  assert.ok(Number.isInteger(page) && page > 0, 'CONTROL: read as a number: ' + page);
+  assert.equal(page, require('./engine/orgchartfile').MAX_BYTES);
+});

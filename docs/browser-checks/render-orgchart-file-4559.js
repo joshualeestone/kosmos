@@ -1,4 +1,4 @@
-// Browser-check-surface: orgchartpick orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -238,6 +238,31 @@ async function run() {
       check('ORPHAN: and the result says so', /1 agent now reports to you, because their manager was not created\./.test(t), t);
     } else check('ORPHAN: the panel offers a file', false);
     await p5.close();
+
+    // AFTER CREATE + TOO BIG: toggling names after a create leaves the result (and its Undo) alone; a file over the
+    // board's limit is refused in the page, in words, before any upload.
+    const pa = await page();
+    await pa.route('**/api/team', (r) => { const body = JSON.parse(r.request().postData() || '{}'); r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } }); });
+    let reads = 0;
+    await pa.route('**/api/orgchart/read*', (r) => { reads += 1; r.fulfill({ status: 200, json: { source: 'file', rows: PICTURE_ROWS.map((x) => ({ ...x, why: null })), problems: [] } }); });
+    await openPanel(pa);
+    if (await pa.$('#orgchart-file-btn')) {
+      await pa.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pa.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pa.click('#orgchart-create');
+      await pa.waitForFunction(() => /Created 4 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pa.click('#orgchart-usenames');
+      await pa.waitForTimeout(300);
+      const ac = await pa.evaluate(() => ({ count: document.getElementById('orgchart-count').textContent, create: document.getElementById('orgchart-create').disabled, undo: !document.getElementById('orgchart-undo').hidden }));
+      check('AFTER CREATE: toggling names leaves the result, keeps Create disabled and keeps Undo', /Created 4 agents/.test(ac.count) && ac.create && ac.undo, JSON.stringify(ac));
+      await pa.click('#orgchart-usenames');
+      const before = reads;
+      await pa.setInputFiles('#orgchart-file', { name: 'huge.csv', mimeType: 'text/csv', buffer: Buffer.alloc(10 * 1024 * 1024 + 1, 0x41) });
+      await pa.waitForTimeout(300);
+      const big = await readPreview(pa);
+      check('TOO BIG: a file over the limit is refused in the page, before any upload', reads === before && /larger than 10 MB/.test(big.msg), JSON.stringify([reads - before, big.msg]));
+    } else check('AFTER CREATE: the panel offers a file', false);
+    await pa.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.

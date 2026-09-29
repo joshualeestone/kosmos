@@ -6502,7 +6502,9 @@ const server = http.createServer(async (req, res) => {
      only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
      so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
      is stored. Board-token gated like every /api route, and the consent send also wants the screen
-     (isViaScreen), so an agent cannot spend the person's plan on a file. */
+     (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
+     browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
+     parse is synchronous; its worst cases are bounded by engine/orgchartfile.test.js, not here. */
   if (pathname === '/api/orgchart/read' && req.method === 'POST') {
     readBody(req, orgchartfile.MAX_BYTES + 1)
       .then(async (bytes) => {

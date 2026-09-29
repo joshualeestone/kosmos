@@ -487,6 +487,7 @@ function defaultModelRunner(line, signal) {
         }
         if (!result) {
           if (signal && signal.aborted) { resolve({ ok: false, because: 'the read was stopped' }); return; }
+          if (err && err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { resolve({ ok: false, because: 'Claude\'s answer was too large to read' }); return; }
           resolve({ ok: false, because: err && err.killed ? 'reading the file took too long' : 'Claude did not answer' });
           return;
         }
@@ -545,7 +546,8 @@ function fromModel(structured) {
     clean.push({
       person, title,
       manager: typeof p.reportsTo === 'string' ? plain(p.reportsTo, MAX_PERSON) : '',
-      unsure: p.sure === false ? (plain(typeof p.why === 'string' ? p.why : '', MAX_WHY) || 'the model was not sure of this line') : null,
+      // Fails closed: only an explicit sure: true is taken as sure (the answer is untrusted, the schema a request).
+      unsure: p.sure !== true ? (plain(typeof p.why === 'string' ? p.why : '', MAX_WHY) || 'the model was not sure of this line') : null,
     });
   }
   if (!clean.length) return { rows: [], problems: [untitled ? untitledSentence(untitled) : 'No people were found in that file.'] };
