@@ -364,7 +364,7 @@ test('#4649 an own-account code joins as a self link, with nothing signed and no
   assert.equal(link.edge_id, undefined, 'a self link has no edge');
   assert.equal(require('./engine/fedseal').roomState(j.json.id), null, 'an own room starts with no seal record');
   const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
-  assert.match(room, /shared between your own computers/);
+  assert.match(room, /shared with your other computers\. Messages in this room are not sealed end to end/);
   assert.doesNotMatch(room, /older Kosmos/, 'the unsealed-owner note is not for an own room');
 
   // The same project cannot be joined twice on one computer.
@@ -396,5 +396,17 @@ test('#4649 own-code: the screen gets a code for its own project that another co
   assert.equal((await post('/api/federation/own-code', { project: 'no-such-project' }, SCREEN)).status, 404);
   const v = await post('/api/federation/verify', { code: 'CODE-ABC' }, SCREEN);
   const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
-  assert.equal((await post('/api/federation/own-code', { project: j.json.id }, SCREEN)).status, 409, 'a guest cannot share someone else\'s project');
+  const g = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  assert.equal(g.status, 409, 'a guest cannot share someone else\'s project');
+  assert.equal(g.json.reason, 'guest');
+  // An owner project whose room is sealed for invited people: its other computers could neither
+  // read nor post there, so no code is made (#4658).
+  const s = await post('/api/projects', { name: 'Sealed Room' }, SCREEN);
+  const sid = (s.json.project && s.json.project.id) || s.json.id;
+  federation.recordLink(sid, { role: 'owner', ref: 'ref-sealed-4649' });
+  require('./engine/fedseal').stashInvite('ref-sealed-4649', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
+  const sealed = await post('/api/federation/own-code', { project: sid }, SCREEN);
+  assert.equal(sealed.status, 409, JSON.stringify(sealed.json));
+  assert.equal(sealed.json.reason, 'sealed');
+  assert.match(sealed.json.error, /sealed for the people you invited/);
 });

@@ -59784,9 +59784,13 @@ async function pjVerifyCode() {
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
     // Who is on the other end: the owner's Kosmos+ name, set by Kosmos+ itself, so
     // unlike the name and description above the inviter cannot write it.
-    document.getElementById('pj-join-owner').textContent = body.owner_handle
-      ? body.owner_handle + '.kosmosplus.com'
-      : 'A Kosmos+ account with no name yet';
+    // kosmos#4649: an own-account code is shared by this person's other computer, which has no
+    // Kosmos+ address of its own to show.
+    document.getElementById('pj-join-owner').textContent = body.own === true
+      ? 'Your other computer'
+      : body.owner_handle
+        ? body.owner_handle + '.kosmosplus.com'
+        : 'A Kosmos+ account with no name yet';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
     // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
     // directly (a fresh verify is always the empty state) so this success path stays self-contained

@@ -145,7 +145,7 @@ function reasonFor(sentence) {
 
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const DESC_MAX = 1000;
-// A project name is a ref (refOk's 200), and an owner handle is a Kosmos+ name
+// A project name is bounded by nameOk (200), and an owner handle is a Kosmos+ name
 // (3 to 32 characters at the coordinator), kept with room to spare.
 const NAME_MAX = 200;
 const HANDLE_MAX = 64;
@@ -156,6 +156,11 @@ const HANDLE_MAX = 64;
 function refOk(v) {
   return typeof v === 'string' && v.length > 0 && Buffer.byteLength(v, 'utf8') <= 128;
 }
+/* A project NAME keeps the bound it had before refs were capped in bytes: a legal
+   project name of 43 CJK characters is over 128 bytes and must still be invitable. */
+function nameOk(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= NAME_MAX;
+}
 
 /* kosmos#4649: a code that lets ANOTHER computer of the same account join this project's
    shared room. It carries only the project's ref and name, and needs no secret: a seat in
@@ -165,7 +170,19 @@ const OWN_PREFIX = 'kosmos-own:';
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
+/* Why no own code can be made for this project, or null when one can: 'guest' for a
+   project joined from someone else, 'sealed' for an owner project that has handed out a
+   sealing invite (its room is sealed, and a computer joined by own code has no seal
+   state, so it could neither read nor post there; #4658). */
+function ownCodeRefusal(projectId) {
+  const link = linkFor(projectId);
+  if (!link) return null;
+  if (link.role !== 'owner' && link.role !== 'self') return 'guest';
+  if (link.role === 'owner' && refOk(link.ref) && fedseal.isSealedRef(link.ref)) return 'sealed';
+  return null;
+}
 function ownCode(projectId, projectName) {
+  if (ownCodeRefusal(projectId)) return null;
   const link = linkFor(projectId);
   let ref = link && (link.role === 'owner' || link.role === 'self') && refOk(link.ref) ? link.ref : null;
   if (!ref) {
@@ -194,7 +211,7 @@ function parseOwnCode(text) {
 /** Mint an invite for a project the person is creating or owns. */
 async function invite(remote, body) {
   const kind = body && body.invited_kind;
-  if (!refOk(body && body.project_ref) || !refOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
+  if (!refOk(body && body.project_ref) || !nameOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
     return { status: 400, body: { error: 'we could not read that request' } };
   }
   // The same bound a project's own description has here (projects.js), so nothing
@@ -295,7 +312,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
-  ownCode, parseOwnCode, OWN_PREFIX,
+  ownCode, ownCodeRefusal, parseOwnCode, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,

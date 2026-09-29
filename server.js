@@ -15989,8 +15989,10 @@ const server = http.createServer(async (req, res) => {
         let proj = null;
         try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
-        const code = federation.ownCode(proj.id, proj.name);
-        if (!code) { sendJson(res, 409, { error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+        const refusal = federation.ownCodeRefusal(proj.id);
+        if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+        const code = refusal ? null : federation.ownCode(proj.id, proj.name);
+        if (!code) { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
         fedseats.ensure(proj.id).catch(() => {});
         sendJson(res, 200, { code });
       })
@@ -16040,7 +16042,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (snap.own) {
           try {
-            messages.roomNote(made.id, 'This project is shared between your own computers: what anyone posts here reaches your other computers too. It is not sealed end to end, because only your computers are in it.');
+            messages.roomNote(made.id, 'This project is shared with your other computers. Messages in this room are not sealed end to end.');
           } catch { /* the note is furniture; the room exists regardless */ }
         } else if (!snap.seal_s) {
           try {

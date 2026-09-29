@@ -1,4 +1,4 @@
-// Browser-check-surface: pjs-own-field pjs-own-add pjs-own-code pjs-own-copy pjs-own-msg pjs-own-row
+// Browser-check-surface: pjs-own-field pjs-own-add pjs-own-code pjs-own-copy pjs-own-msg pjs-own-row pj-join-owner
 'use strict';
 /**
  * kosmos#4649 (weekend goal #4647): "Add your other computer" in a project's settings.
@@ -10,6 +10,8 @@
  *    THIS project's room (the engine parses it back to the project's owner link), and the link is
  *    marked shared with the person's other computers;
  *  - a code shown for one project never shows in another project's settings;
+ *  - on the joining computer, Verify shows the code as shared by "Your other computer", never as
+ *    a Kosmos+ address (an own code's owner_handle is not a name to append .kosmosplus.com to);
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  *   HEADED=0 node docs/browser-checks/render-owncode-4649.js
@@ -93,6 +95,15 @@ function chk(ok, label, extra) {
           await open(b.id);
           const other = await page.evaluate(() => ({ code: document.getElementById('pjs-own-code').value, row: !document.getElementById('pjs-own-row').hidden }));
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
+          // The joining side: an own code for a room NOT on this board (this board's own code would
+          // be refused as already here), verified through the real /api/federation/verify.
+          const foreign = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-laptop-' + engineName + width, name: 'From the laptop' }), 'utf8').toString('base64url');
+          const owner = await page.evaluate(async (c) => {
+            document.getElementById('pj-join-code').value = c;
+            await pjVerifyCode();
+            return { owner: document.getElementById('pj-join-owner').textContent, err: document.getElementById('pj-join-err').textContent };
+          }, foreign);
+          chk(owner.owner === 'Your other computer', `${E} Verify of an own code says it is shared by your other computer, with no .kosmosplus.com`, JSON.stringify(owner));
           const wide = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
           chk(!wide, `${E} no sideways scroll`);
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));

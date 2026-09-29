@@ -51,3 +51,24 @@ test('the seat arguments: --own-project for an own room, --edge otherwise, never
   assert.ok(!edge.includes('--own-project'));
   assert.equal(own[0], 'fed-room');
 });
+
+test('an owner project that handed out a sealing invite gets no own code (its room is sealed; #4658)', () => {
+  federation.recordLink('proj-s', { role: 'owner', ref: 'ref-s' });
+  require('./fedseal').stashInvite('ref-s', { s: 'A'.repeat(43), code: 'CODE1', invite: 'inv-1' });
+  assert.equal(federation.ownCodeRefusal('proj-s'), 'sealed');
+  assert.equal(federation.ownCode('proj-s', 'Sealed'), null);
+  assert.notEqual(federation.linkFor('proj-s').selfShared, true, 'a refused project is not marked shared');
+  assert.equal(federation.ownCodeRefusal('proj-m'), 'guest');
+  assert.equal(federation.ownCodeRefusal('proj-new'), null);
+});
+
+test('an invite takes a project name over 128 bytes (the byte bound is for refs only)', async () => {
+  const calls = [];
+  const stub = { macRequest: async (method, route, body) => { calls.push(body); return { ok: true, data: { code: 'CODE2', expires_at: 1, invite_id: 'inv-2' } }; } };
+  const name = '中'.repeat(60);   // 60 characters, 180 bytes: a legal project name
+  const out = await federation.invite(stub, { project_ref: 'ref-cjk', project_name: name, invited_kind: 'person' });
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.equal(calls[0].project_name, name);
+  const refTooLong = await federation.invite(stub, { project_ref: '中'.repeat(43), project_name: 'n', invited_kind: 'person' });
+  assert.equal(refTooLong.status, 400, 'a ref over 128 bytes is still refused');
+});
