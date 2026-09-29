@@ -55,6 +55,9 @@ function lift(names, tail) {
   return new Function(consts + src + '\n' + tail)();
 }
 const page = lift(['orgTreeOf', 'orgPlace'], 'return { orgTreeOf, orgPlace, ORG_PAD, ORG_MIN_ARC };');
+/* ORG_LANE_SLOT lives inside orgPlace (so the tests that lift orgPlace need no new constant); read it from there. */
+const LANE_SLOT = Number((SCRIPT.match(/const\s+ORG_LANE_SLOT\s*=\s*([\d.]+)\s*;/) || [])[1]);
+assert.ok(LANE_SLOT > 0, 'ORG_LANE_SLOT is no longer declared in the page');
 
 /* Cards from the real producer (fixture-discipline refuses hand-built ones), with a per-tree name prefix. */
 let TREE = 0;
@@ -116,7 +119,7 @@ test('deep 100-agent trees: the median natural size over 60 seeds, and the large
   assert.ok(sizes[59] <= 5300, 'the largest deep tree is ' + sizes[59] + 'px, over 5300 (#4434 alone: 8113)');
 });
 
-test('a two-ring team: every line to the outer ring clears every other face by half ORG_MIN_ARC (#4472)', () => {
+test('a two-ring team: every line to the outer ring clears every other face by ORG_LANE_SLOT (#4472)', () => {
   /* The first version alternated faces by slot and a line to the outer ring, which starts at the manager and not
      the hub, ran slantwise through an inner face: 0.2px from its centre in a lead with 18 reports. */
   let checked = 0;
@@ -129,7 +132,7 @@ test('a two-ring team: every line to the outer ring clears every other face by h
         if (other === name || !q.parent) continue;
         const d = segDist(q, hubLead, p);
         checked += 1;
-        assert.ok(d >= page.ORG_MIN_ARC / 2 - 1e-6, 'lead ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
+        assert.ok(d >= LANE_SLOT - 1e-6, 'lead ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
       }
     }
   }
@@ -157,7 +160,7 @@ test('several leads, and a CEO over several managers: even and odd teams both ta
   }
 });
 
-test('a two-ring team below the first ring: its outer lines clear every other face by half ORG_MIN_ARC (#4472)', () => {
+test('a two-ring team below the first ring: its outer lines clear every other face by ORG_LANE_SLOT (#4472)', () => {
   let checked = 0;
   for (const [count, n] of [[3, 20], [4, 20], [4, 21], [6, 12]]) {
     const { pos } = paint(ceo(count, n));
@@ -168,7 +171,7 @@ test('a two-ring team below the first ring: its outer lines clear every other fa
         if (other === name || other === p.parent) continue;
         const d = segDist(q, from, p);
         checked += 1;
-        assert.ok(d >= page.ORG_MIN_ARC / 2 - 1e-6, count + ' x ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
+        assert.ok(d >= LANE_SLOT - 1e-6, count + ' x ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
       }
     }
   }

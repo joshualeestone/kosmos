@@ -30196,6 +30196,8 @@ function orgPlace(nodes) {
     leaves.set(name, w);
     return w;
   };
+  /* #4472's constants live here, not beside ORG_R0 at the top: the node tests lift orgPlace with only the top-level
+     constants they name, so a new top-level one would break every test that lifts it. */
   /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
      sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
   const ORG_LANE = ORG_MIN_ARC;
@@ -30286,7 +30288,8 @@ function orgPlace(nodes) {
         const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
         /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
            no longer always centred on the manager. One or two reports keep a centred window (#352: a lone report
-           straight out, a pair either side). */
+           straight out, a pair either side of it by angle; a crowded pair of leaves may take two rings, one face
+           a ring further out than the other, still either side by angle). */
         const left = ks.length > 2 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
         const right = ks.length > 2 ? Math.min(ps.hi - ps.ang, cap) : left;
         const half = (left + right) / 2;
@@ -30294,20 +30297,23 @@ function orgPlace(nodes) {
         /* #4472: a team with no managers in it (every report a leaf) that would crowd one ring takes two
            staggered ones, alternating, the way the flat layout's first ring spills. Its lines all start at the
            manager, so they cannot cross each other, and no other line enters its window (the team has no
-           reports below it), so the second ring cannot cause a crossing. Slots stay ORG_LANE_SLOT apart, so a
-           line to the outer ring passes midway between two inner faces rather than through one. A team with
-           a manager in it keeps one ring: an outer line there could sweep across that manager's own window. */
+           reports below it), so the second ring cannot cause a crossing. A team with a manager in it keeps one
+           ring AS A PRECAUTION, not a measured need: an outer line there runs into that manager's window, beside
+           the lines to its reports, and the argument above no longer covers it. Review it3 lifted the guard and
+           found no crossing in 300 random trees, with the deep median 4% smaller (2810 to 2688px); a constructed
+           counter-example was not attempted, so the guard stays until one is (or a proof replaces it). */
         const oneRing = (2 * half) / ks.length;
         const laned = ks.length > 1 && !ks.some((k) => (kids.get(k.agent.sessionName) || []).length)
           && 2 * r * Math.sin(oneRing / 2) < ORG_MIN_ARC;
         if (laned) {
           /* Every face at an even half-step across the window, inner faces on the even steps and outer faces on the
              odd ones. An odd step is the midpoint of its two neighbours, so each outer face goes on the line from
-             the manager through that midpoint, and its line passes midway between two inner faces however slantwise
-             it runs (a line starts at the manager, not the hub). The last odd step of an even team has one inner
-             neighbour and sits half a step past it, still inside the window. clear() still measures each such line against
-             its own team's faces. An outer face whose line would leave the manager's slice (outside it, a line could enter
-             a neighbour's slice) is brought back to the slice's edge instead. */
+             the manager through that midpoint: the line crosses the inner ring halfway between two inner faces. It
+             runs slantwise (it starts at the manager, not the hub), so it can still pass nearer one of them than the
+             other, which is why clear() measures each such line against its own team's faces. The last odd step of
+             an even team has one inner neighbour and sits half a step past it, still inside the window. An outer
+             face whose line would leave the manager's slice (outside it, a line could enter a neighbour's slice) is
+             brought back to the slice's edge instead. */
           const h = (2 * half) / ks.length;
           const start = ps.ang - left;
           const mx = Math.cos(ps.ang) * ps.r; const my = Math.sin(ps.ang) * ps.r;
@@ -30384,9 +30390,12 @@ function orgPlace(nodes) {
        away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
     /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
        added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
-       its own, and a line runs steadily outward (the cap), so it can only come near a face whose radius lies
-       within its ends' radii, give or take. The checks below skip the rest, which keeps a 1000-agent chart from
-       testing every pair on every try. */
+       its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within its ends' radii
+       give or take ORG_LINE_CLEAR. That holds because below the first ring the cap makes every line run steadily
+       outward, and a first-ring manager's lines (no tangent cap, ~85 degrees) dip below the manager's radius by
+       only a few pixels (measured at most 4.6px), less than ORG_LINE_CLEAR, while no face sits inside ORG_R0.
+       The checks below skip the distance for the rest (every pair is still visited), which took a 1000-agent
+       chart from 97ms to 18ms. */
     const faceOf = (name, s) => ({ name, r: s.r, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
     const lineOf = (f, parent) => {
       const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
