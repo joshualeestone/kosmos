@@ -86,6 +86,12 @@ const HEAD_PLACE = `(() => {
   return { inMid: !!row && !!row.closest('.pjmidhead'), aboveCols: !!row && row.parentElement.id === 'pj-one-view',
     rootShown: vis(root), nameInDom: !!name && name.textContent.trim().length > 0, nameShown: vis(name) };
 })()`;
+/* The current top tab's underline colour and the text colour of a current and a non-current tab. */
+const TABS = `(() => {
+  const on = document.querySelector('.apphead .tab.on');
+  const off = document.querySelector('.apphead .tab:not(.on)');
+  return { onUnderline: on ? getComputedStyle(on).borderBottomColor : 'absent', onColor: on ? getComputedStyle(on).color : '', offColor: off ? getComputedStyle(off).color : '' };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -136,6 +142,10 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
       const stOn = await page.evaluate(MEMBER_WORD);
       chk(stOn.shown && stOn.text.length > 0, `${tag} On: a member row shows its state word`, JSON.stringify(stOn));
+      if (width >= 1088) {   // a phone width shows the tabs as a menu, with its own current-row style
+        const tabs = await page.evaluate(TABS);
+        chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor, `${tag} On: the current tab is marked by ink, not an underline`, JSON.stringify(tabs));
+      }
       const hdOn = await page.evaluate(HEAD_PLACE);
       chk(hdOn.inMid && hdOn.rootShown && hdOn.nameInDom, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers`, JSON.stringify(hdOn));
       const GREY = { light: 'rgb(245, 245, 247)', dark: 'rgb(44, 44, 46)' };
@@ -171,6 +181,10 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
+      if (width >= 1088) {
+        const tabsOff = await page.evaluate(TABS);
+        chk(tabsOff.onUnderline !== 'rgba(0, 0, 0, 0)' && tabsOff.onUnderline !== 'absent', `${tag} Off: today's gold underline marks the current tab`, JSON.stringify(tabsOff));
+      }
       chk(!back.wide, `${tag} no sideways scroll`);
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       await ctx.close();

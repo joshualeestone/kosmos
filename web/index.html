@@ -9411,6 +9411,15 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --nl-green: #30d158; --nl-gold: #e3b341; --nl-amber: #ffb340;
   }
 }
+/* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
+   ink and the rest in the drawing's grey (#6e6e73 on white is 5.1:1, #98989d on black 7.4:1), no
+   gold underline; the workspace name loses its outline (its 32px height stays, #2350) and shows
+   a grey ground on hover so it still reads as a control. */
+:root[data-look="new"] .apphead .tab { color: var(--nl-ink-3); font-weight: 500; }
+:root[data-look="new"] .apphead .tab:hover, :root[data-look="new"] .apphead .tab.on { color: var(--k-ink); }
+:root[data-look="new"] .apphead .tab.on { border-bottom-color: transparent; }
+:root[data-look="new"] .worldsw-btn { border-color: transparent; font-size: .9375rem; font-weight: 500; }
+:root[data-look="new"] .worldsw-btn:hover { background: var(--nl-grey); }
 /* #4470: the project page in the new look (tab layout only; the consolidated layout keeps
    today's grid). Two columns: one grey box on the left holding Members, Tasks and Files
    (placeLook moves Tasks in), divided by hairlines, and the conversation on the white
