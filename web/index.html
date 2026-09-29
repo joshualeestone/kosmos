@@ -47020,9 +47020,12 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       + ((err && err.message) ? err.message : 'network error') + '). Try again.';
     return;
   }
-  if (gen !== ORGCHART_GEN) { ORGCHART_CREATING = false; previewBtn.disabled = false; return; }   // superseded during the fetch
+  /* The person left the panel during the fetch: nothing below writes to the screen, but a team that WAS created still
+     gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
+  const superseded = gen !== ORGCHART_GEN;
   if (!result) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
+    if (superseded) return;
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
@@ -47037,6 +47040,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
+    if (superseded) return;
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = result.error ? String(result.error) : 'Kosmos refused the request.';
