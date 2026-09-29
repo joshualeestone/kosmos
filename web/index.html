@@ -65660,7 +65660,10 @@ function asbCloseShow(on) {
 function asbCloseWire() {
   const bub = document.getElementById('asb'), x = document.getElementById('asb-close');
   let timer = 0, leave = 0;
-  const enter = () => { clearTimeout(leave); if (!x.classList.contains('on')) { clearTimeout(timer); timer = setTimeout(() => asbCloseShow(true), ASB_CLOSE_HOLD_MS); } };
+  // Touch has no hover to hold (the plan: Settings > Help there), so a tap starts nothing. The timer shows the X only
+  // if the pointer is still ON the bubble when it fires (the chat can open and fold back in between).
+  const enter = (e) => { if (e && e.pointerType === 'touch') return; clearTimeout(leave);
+    if (!x.classList.contains('on')) { clearTimeout(timer); timer = setTimeout(() => { if (bub.matches(':hover')) asbCloseShow(true); }, ASB_CLOSE_HOLD_MS); } };
   const out = () => { clearTimeout(timer); clearTimeout(leave); leave = setTimeout(() => { if (!x.matches(':focus-visible') && !bub.matches(':focus-visible')) asbCloseShow(false); }, 250); };   // only KEYBOARD focus keeps it (a fold focuses the bubble by script)
   bub.addEventListener('pointerenter', enter);
   bub.addEventListener('pointerleave', out);
