@@ -29278,6 +29278,7 @@ let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
 let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_POS_TREE = null; // #4434: whether ORG_POS came from a tree layout (null: nothing painted yet)
+let ORG_FLAT_GLIDE = false; // #4434: the next orgLiveStart is a tree that just turned flat (paintOrg sets it)
 let ORG_VIEW_W = 0;      // the chart box's width at the last paint (#718: width changes, a scrolled chart's centre)
 let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width (#718; see the scroll listener)
 /* #718: true while a drag is really under way: the node has moved (a tap is not a
@@ -29526,9 +29527,17 @@ const ORG_SQUEEZE_MIN = 0.7;
 /* The square a fleet of outer radius maxR draws at when nothing has to fit: one
    derivation, read by orgFit and by paintOrg's .orgtight test. */
 function orgNatural(maxR) { return Math.round((maxR + ORG_PAD) * 2); }
-/* #4434: whether positions kept from the last paint may seed this one: not when a tree turns flat (see
-   paintOrg). A flat fleet turning into a tree keeps them: the tree glides from them to its placement. */
-function orgKeepPositions(wasTree, tree) { return wasTree !== true || tree; }
+/* #4434: how far kept x positions move when a TREE's canvas changes size at the same width (an agent added,
+   removed or re-parented grows or shrinks its rings). The canvas moves on screen by half the difference: a
+   narrow one is centred in its box (margin: 0 auto) and a wide one's scroll is carried by the same half
+   (paintOrg). Shifting the kept x positions by that half keeps every face where it was on screen, and the
+   glide then takes it to its new place (review it13: without it every face jumped sideways in one paint, up to
+   726px). Vertically the canvas does not move, so y is left alone. 0 for a width change (carried in
+   proportion) and for a flat fleet (as before #4434). */
+function orgSameWidthShift(widthChanged, sizeWas, size, tree) {
+  if (widthChanged || !tree || !(sizeWas > 0) || size === sizeWas) return 0;
+  return (size - sizeWas) / 2;
+}
 /* #4434: the kMin orgFit takes for a placement: a tree is never squeezed below the scale that keeps its
    closest two faces 46px apart. A flat fleet has no floor (0), as before. */
 function orgFloorOf(placed) {
@@ -29610,19 +29619,22 @@ function paintOrg() {
   // does not move ORG_SIZE either: the next real paint compares against the last one.
   const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
   const tree = [...placed.values()].some((sp) => Number.isFinite(sp.lo));
-  /* #4434: positions from a TREE layout mean nothing to a flat one: a tree's canvas can be many times a flat
-     one's for the same people, and a flat fleet has no repair at rest (review it8: the last manager removed
-     left faces resting on top of each other). A tree turning flat starts from the flat placement; a flat fleet
-     turning into a tree keeps its positions and glides from them (orgLiveStart). A tree whose own canvas
-     changes size keeps them too, in the old frame, and glides from there at most ORG_GLIDE_MAX a frame: a glide
-     never clamps to the box (review it11: rescaling them zoomed the chart in one paint). */
-  if (!orgKeepPositions(ORG_POS_TREE, tree)) ORG_POS.clear();
+  /* #4434: positions are kept whatever the layout's kind, and a tree glides from them to its placement at most
+     ORG_GLIDE_MAX a frame (a glide never clamps to the box, review it11). A tree that just turned FLAT (its last
+     manager removed) glides into the flat placement too, and only then does the flat physics take over
+     (orgLiveStart): handed the tree's far larger canvas as it is, the flat physics clamped faces to the new edge
+     and they rested on top of each other (review it8), and dropping the positions instead snapped the chart
+     (review it13). */
+  const turnedFlat = ORG_POS_TREE === true && !tree;
   ORG_POS_TREE = tree;
   const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
   if (f !== 1) for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; }
+  const dxKeep = orgSameWidthShift(widthChanged, ORG_SIZE, size, tree || turnedFlat);
+  if (dxKeep) for (const p of ORG_POS.values()) p.x += dxKeep;
+  ORG_FLAT_GLIDE = turnedFlat;
   const sizeWas = ORG_SIZE;
   if (viewW > 0) ORG_SIZE = size;
   // #718: wider than its box even at the floor: the box scrolls (.orgscroll) and
@@ -29913,6 +29925,30 @@ function orgLiveStart(map, placed, cx, cy, size) {
     orgLiveRun();
     return;
   }
+  /* #4434: a tree that just turned flat (paintOrg) glides from where its faces were to the flat placement, then
+     the flat physics takes over from there as a first load does (orgLiveRun). For the glide each node is given
+     its flat placement as a temporary home; orgLiveRun drops it when the glide ends. Under reduced motion it is
+     placed there and settled at once. */
+  if (ORG_FLAT_GLIDE) {
+    ORG_FLAT_GLIDE = false;
+    for (const [key, spot] of placed) {
+      const n = nodes.get(key);
+      if (n) n.home = { dx: Math.cos(spot.ang) * spot.r, dy: Math.sin(spot.ang) * spot.r };
+    }
+    ORG_LIVE.flatGlide = true;
+    ORG_LIVE.alpha = 0.02;
+    if (still) {
+      orgHomeStep([...nodes.values()], hub, 1);
+      for (const n of nodes.values()) n.home = null;
+      ORG_LIVE.flatGlide = false;
+      orgLiveSettle();
+      return;
+    }
+    ORG_LIVE.homing = true;
+    orgLiveSync();
+    orgLiveRun();
+    return;
+  }
   if (still) {
     /* #1738: reduced motion means do NOT ANIMATE, not do not LAY OUT. The old
        path skipped the relaxation entirely, leaving a reduced-motion user with
@@ -30021,6 +30057,13 @@ function orgLiveRun() {
       orgHomeStep([...L.nodes.values()], L.hub, 1);
       orgLiveSync();
       L.homing = false; L.raf = 0;
+      if (L.flatGlide) {
+        // #4434: a tree that turned flat is now at the flat placement: the flat physics runs from here.
+        L.flatGlide = false;
+        for (const n of L.nodes.values()) n.home = null;
+        L.alpha = 1;
+        L.raf = requestAnimationFrame(tickOnce);
+      }
       return;
     }
     /* A press during the glide stops it (the physics takes the drag); the release resumes it (see release). */
