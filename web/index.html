@@ -2314,7 +2314,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   0%, 100% { transform: translateY(0); opacity: .45; }
   50%      { transform: translateY(-4px); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .act i { animation: none; } }
+/* #4591 (Josh 2026-09-29 11:47, Mac app: "his animate green dots are not animating"). With Reduce Motion on,
+   the dots used to stop dead (animation: none), three level full-green dots that read as frozen, which is
+   what his screenshot shows. Reduce Motion asks for no movement, and a fade is not movement: so there they
+   still fade in turn, slower, with no translate, and Working keeps looking live. */
+@keyframes work-fade {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
