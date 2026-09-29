@@ -99,23 +99,78 @@ test('an idle agent with an open task gets exactly one nudge naming it; one with
     assert.deepEqual(first.res.results.map((r) => r.session + ':' + r.act), [w.key.hastask + ':nudge'], 'the agent with nothing must leave no result at all');
     assert.match(first.calls[0].text, new RegExp('task #' + n + ' "write the release notes"'));
     assert.match(first.calls[0].text, /kosmos report blocked --on <what> --owner <who>/);
-    // The same stall, the next interval: no second nudge.
-    const again = pass(w, { book, hb: first.hb });
+    // The same stall, the next interval (a real next Prompter step): no second nudge.
+    const nextHb = heartbeat.step(first.hb.next, w.cards, true);
+    assert.equal(nextHb.next.get(w.key.hastask).open, true, 'fixture: the Prompter must keep the stall open');
+    const again = pass(w, { book, hb: nextHb });
     assert.equal(again.calls.length, 0, 'nudged twice in one stall');
   } finally { w.restore(); }
 });
 
-test('control: without the agent nudge the Prompter tick types nothing (the person-only behaviour)', () => {
-  const w = world([{ name: 'ctlonly' }]);
+/* prompterTick with every dependency injected; returns what was written and delivered. */
+function tickWith(w, o = {}) {
+  const calls = [];
+  const writes = [];
+  const out = nudge.prompterTick({
+    setting: o.setting || { on: true, intervalMinutes: 15 },
+    roster: o.roster === undefined ? w.cards : o.roster,
+    outcome: o.outcome || stalled(w.cards),
+    readProjects: o.readProjects || (() => projects.readAll()),
+    shouldWrite: require('./prompternudge').shouldWrite,
+    write: (list) => { writes.push(list.map((x) => x.session)); },
+    allowed: o.allowed || (() => true), env: o.env || {},
+    readLimit: o.readLimit || (() => ({ on: false, perHour: 20 })), limitDefaults: { on: true, perHour: 20 },
+    book: new Map(), sent: [], now: Date.now() + INTERVAL + 1000,
+    deliver: (session) => { calls.push(session); return { state: DELIVERY.PLACED }; }, DELIVERY,
+  });
+  return { calls, writes, out };
+}
+
+test('prompterTick: the Prompter on, live execution allowed: the list shows the real stall and the agent is nudged', () => {
+  const w = world([{ name: 'tkwork' }, { name: 'tkidle' }]);
   try {
-    taskOn(w, w.key.ctlonly, 'a task');
-    const hb = stalled(w.cards);
-    assert.equal(hb.toAsk.length, 1, 'fixture: the Prompter must have a stall to report');
-    // heartbeat.step and prompternudge.write are the whole of the tick before #4544: neither takes a
-    // deliver, so the only way an agent is typed into is agentnudge. The brake turns it off.
-    assert.equal(nudge.nudgeEnabled(true, { AGENT_WORKFORCE_AGENT_NUDGE_OFF: '1' }), false);
-    assert.equal(nudge.nudgeEnabled(false, {}), false, 'must be inert before the live-execution opt-in');
-    assert.equal(nudge.nudgeEnabled(true, {}), true);
+    taskOn(w, w.key.tkwork, 'a task');
+    const r = tickWith(w);
+    assert.deepEqual(r.writes, [[w.key.tkwork]], 'the person\'s list must hold only the stall with open work');
+    assert.deepEqual(r.calls, [w.key.tkwork]);
+  } finally { w.restore(); }
+});
+
+test('prompterTick gates: nothing is typed when off, unreadable, before live execution, or under the brake', () => {
+  const w = world([{ name: 'gate' }]);
+  try {
+    taskOn(w, w.key.gate, 'a task');
+    const cases = {
+      'Prompter off': { setting: { on: false, intervalMinutes: 15 } },
+      'roster read failure': { roster: null },
+      'live execution not allowed': { allowed: () => false },
+      'live execution check throws': { allowed: () => { throw new Error('x'); } },
+      'the brake': { env: { AGENT_WORKFORCE_AGENT_NUDGE_OFF: '1' } },
+      'projects unreadable': { readProjects: () => { throw Object.assign(new Error('damaged'), { code: 'UNREADABLE' }); } },
+    };
+    for (const [label, o] of Object.entries(cases)) assert.deepEqual(tickWith(w, o).calls, [], label + ' typed into an agent');
+    // The person's list on those paths: the roster failure writes nothing (keeps the last list), and
+    // unreadable projects write the WHOLE list rather than hide a real stall.
+    assert.deepEqual(tickWith(w, cases['roster read failure']).writes, []);
+    assert.deepEqual(tickWith(w, cases['projects unreadable']).writes, [[w.key.gate]]);
+    // Control: with none of those, the same world IS nudged, so each refusal above is the gate's doing.
+    assert.deepEqual(tickWith(w).calls, [w.key.gate]);
+  } finally { w.restore(); }
+});
+
+test('prompterTick: an unreadable Agent Communication setting keeps the cap on (the default)', () => {
+  const w = world([{ name: 'lima' }, { name: 'limb' }]);
+  try {
+    for (const k of Object.values(w.key)) taskOn(w, k, 'a task');
+    const capped = tickWith(w, { readLimit: () => { throw new Error('unreadable'); } });
+    assert.equal(capped.calls.length, 2, 'fixture: the default cap is 20, so both go');
+    const r = nudge.prompterTick({
+      setting: { on: true, intervalMinutes: 15 }, roster: w.cards, outcome: stalled(w.cards),
+      readProjects: () => projects.readAll(), shouldWrite: () => false, write: () => {}, allowed: () => true, env: {},
+      readLimit: () => { throw new Error('unreadable'); }, limitDefaults: { on: true, perHour: 1 },
+      book: new Map(), sent: [], now: Date.now() + INTERVAL + 1000, deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    });
+    assert.equal(r.nudged.length, 1, 'a failed limit read must fall back to the default, which caps');
   } finally { w.restore(); }
 });
 
@@ -130,10 +185,13 @@ test('a new stall after the agent worked again gets a new nudge (the episode end
     const worked = heartbeat.step(first.hb.next, w.cards.map((c) => c.sessionName === w.key.backagain ? { ...c, state: 'working', stateConfidence: 'high' } : c), true);
     nudge.sweepOnce({ toAsk: worked.toAsk, next: worked.next, roster: w.cards, projects: projects.readAll(), book, sent: [], now: Date.now() + INTERVAL + 1000, intervalMs: INTERVAL, limit: { on: false }, deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY });
     assert.equal(book.has(w.key.backagain), false, 'the book kept a closed episode');
-    // It stopped again (working -> idle is the Prompter's edge): one fresh nudge.
+    // It stopped again (working -> idle is the Prompter's edge): not on that tick, which is the moment
+    // it finished a turn, but at the next one.
     const stoppedAgain = heartbeat.step(worked.next, w.cards, true);
-    const second = pass(w, { book, hb: stoppedAgain });
-    assert.equal(second.calls.length, 1, 'a fresh stall after work was not nudged');
+    assert.equal(stoppedAgain.toAsk.find((x) => x.session === w.key.backagain).from, 'working', 'fixture: this must be the edge');
+    assert.equal(pass(w, { book, hb: stoppedAgain }).calls.length, 0, 'nudged on the tick it went idle');
+    const nextTick = heartbeat.step(stoppedAgain.next, w.cards, true);
+    assert.equal(pass(w, { book, hb: nextTick }).calls.length, 1, 'a fresh stall after work was not nudged an interval later');
   } finally { w.restore(); }
 });
 
@@ -146,14 +204,16 @@ test('a part given within the last interval is not nudged; past the interval it 
   } finally { w.restore(); }
 });
 
-test('a card that is not idle (needs_you, working, unknown) is never typed into', () => {
-  for (const paneState of ['needs_you', 'working']) {
+test('a card that is not idle is never typed into (every other state the classifier gives)', () => {
+  for (const paneState of ['needs_you', 'working', 'stopped', 'unknown', 'rate_limited', 'auth_failed', 'connection_lost']) {
     const w = world([{ name: 'st' + paneState.replace('_', ''), paneState }]);
     try {
       const k = Object.values(w.key)[0];
+      assert.equal(w.cards.find((c) => c.sessionName === k).state, paneState, 'fixture: the card must read ' + paneState);
       taskOn(w, k, 'a task');
       // Force it into toAsk regardless of the Prompter, so the card rule alone is what refuses.
-      const hb = { toAsk: [{ session: k, from: 'working', to: 'idle' }], next: new Map([[k, { open: true }]]) };
+      // from 'idle', so the edge rule (which waits a tick after 'working') does not refuse it first.
+      const hb = { toAsk: [{ session: k, from: 'idle', to: paneState }], next: new Map([[k, { open: true }]]) };
       assert.equal(pass(w, { hb }).calls.length, 0, paneState + ' card was typed into');
     } finally { w.restore(); }
   }
@@ -225,4 +285,47 @@ test('openParts agrees with the Assigner\'s hasOpenWork: open, closed, built, an
     assert.equal(seen[w.key.agrclosed][0], false);
     assert.equal(seen[w.key.agrbuilt][0], false, 'a task this agent marked built still counted');
   } finally { w.restore(); }
+});
+
+test('the person\'s check-in keeps only stalls holding an open task (withOpenWork); control: both arms occur', () => {
+  const w = world([{ name: 'listtask' }, { name: 'listidle' }]);
+  try {
+    taskOn(w, w.key.listtask, 'a task');
+    const hb = stalled(w.cards);
+    assert.deepEqual(hb.toAsk.map((x) => x.session).sort(), [w.key.listidle, w.key.listtask].sort(), 'fixture: both agents must be in the Prompter\'s toAsk');
+    const shown = nudge.withOpenWork(hb.toAsk, projects.readAll());
+    assert.deepEqual(shown.map((x) => x.session), [w.key.listtask]);
+    // Each entry keeps the shape prompternudge.write takes ({ session, from, to }).
+    assert.deepEqual(Object.keys(shown[0]).sort(), ['from', 'session', 'to']);
+  } finally { w.restore(); }
+});
+
+test('work created on the agent (a task made with who) within the interval is not nudged; control past it', () => {
+  const w = world([{ name: 'madewith' }]);
+  try {
+    const t = tasks.create(w.pid, { sentence: 'made with an owner', who: w.key.madewith, made: { via: 'screen' } });
+    assert.ok(t && t.number, 'fixture: create refused');
+    assert.equal(nudge.openParts(w.key.madewith, projects.readAll())[0].givenAt != null, true, 'fixture: the part must carry a time it was given');
+    assert.equal(pass(w, { now: Date.now() }).calls.length, 0, 'nudged an agent whose task was just created on it');
+    assert.equal(pass(w).calls.length, 1, 'control: past the interval it is nudged');
+  } finally { w.restore(); }
+});
+
+test('a task in a project where the agent is switched off is not nudged; control switched on', () => {
+  const w = world([{ name: 'swoff' }]);
+  try {
+    taskOn(w, w.key.swoff, 'a task');
+    assert.equal(pass(w).calls.length, 1, 'control: switched on, it is nudged');
+    projects.setSwarmOn(w.pid, w.key.swoff, false);
+    assert.equal(projects.isSwarmOff(projects.readAll().find((p) => p.id === w.pid), w.key.swoff), true, 'fixture: the switch did not take');
+    assert.equal(pass(w).calls.length, 0, 'nudged about a project it is switched off in');
+  } finally { w.restore(); }
+});
+
+test('the words are one safe line: control characters and quotes out, cut on a character boundary', () => {
+  const text = nudge.nudgeText({ n: 7, project: 'Proj\u0007ect', sentence: 'line one\nline "two"\u0000' + '\u{1F600}'.repeat(200) });
+  assert.doesNotMatch(text, /[\u0000-\u001f\u007f-\u009f]/, 'a control character reached the typed line');
+  assert.equal((text.match(/"/g) || []).length, 2, 'only the two quotes around the sentence');
+  assert.doesNotMatch(text, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, 'a surrogate pair was split');
+  assert.match(text, /^Kosmos here, from the Prompter: /);
 });

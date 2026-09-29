@@ -18134,25 +18134,21 @@ function start(port = PORT) {
              (roster is null by choice, and [] correctly clears the store). Skip
              only the on-but-unreadable case -- policy single-sourced + unit-tested
              in engine/prompternudge.js shouldWrite(). */
-          if (prompternudge.shouldWrite(setting.on, roster)) {
-            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
-          }
-          /* #4544: the AGENT's half. An agent in this tick's toAsk that reads idle and still holds an
-             open task is sent one short nudge per stall (engine/agentnudge.js decides who, when and
-             the words). Inert before the live-execution opt-in and under the operator brake
-             AGENT_WORKFORCE_AGENT_NUDGE_OFF=1. The person's check-in above is unchanged. */
-          if (setting.on && Array.isArray(roster) && agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed() === true)) {
-            let limit = { ...limits.DEFAULTS };
-            try { limit = limits.read(); } catch { /* keep the default, which is on */ }
-            agentnudge.sweepOnce({
-              toAsk: outcome.toAsk, next: outcome.next, roster, projects: projects.readAll(),
-              book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
-              intervalMs: setting.intervalMinutes * 60 * 1000, limit,
-              deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
-              DELIVERY: chat.DELIVERY,
-              log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
-            });
-          }
+          /* #4544: the person's list (real stalls only, Josh) and the AGENT's nudge (an idle agent that
+             still holds an open task is sent one short nudge per stall). engine/agentnudge.js prompterTick
+             is the whole of it, gates included, so they are tested there. Inert before the live-execution
+             opt-in and under the brake AGENT_WORKFORCE_AGENT_NUDGE_OFF=1. */
+          agentnudge.prompterTick({
+            setting, roster, outcome,
+            readProjects: () => projects.readAll(),
+            shouldWrite: prompternudge.shouldWrite, write: (list) => prompternudge.write(list),
+            allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+            readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+            book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+          });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);

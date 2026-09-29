@@ -15,19 +15,30 @@
  *  - the Prompter holds an open stall episode for it this tick (heartbeat.step's toAsk). That
  *    already leaves out needs_you (a permission prompt, which needs the person), blocked (the agent
  *    reported it is waiting) and rate_limited;
- *  - its card reads idle, is ours, and is not a switched-off swarm. Only idle: unknown,
+ *  - it did not go idle on this very tick (an episode the Prompter opened on a working-to-idle edge
+ *    is nudged one interval later, so an agent that just finished a turn is not nudged at once);
+ *  - its card reads idle, is ours, and is not a switched-off swarm (the Assigner's idleCard). Only idle: unknown,
  *    auth_failed, connection_lost and stopped cannot act on typed text, and they keep reaching the
  *    person through the check-in;
- *  - it holds an open part of a task in a live project (openParts, the Assigner's hasOpenWork rule).
- *    An agent with none is the Assigner's lane, so the two never both poke one agent;
- *  - none of its open parts was given to it within the last interval, so an agent that was just
- *    told about its work is not told again.
+ *  - it holds an open part of a task in a live project where it is not switched off (openParts, the
+ *    Assigner's hasOpenWork rule). An agent with none is the Assigner's lane, so the two never both
+ *    poke one agent;
+ *  - none of its open parts was given to it within the last interval (moved, or created on it), so
+ *    an agent that was just told about its work is not told again.
  *
  * How often: one nudge per stall episode. The book entry is dropped when the Prompter's record
  * says the episode closed (the agent worked again, or reported blocked). A delivery that reached
  * nothing is retried on later ticks, up to MAX_TRIES. While Agent Communication's limit is on, nudges
  * across the board are capped at its per-hour number in any hour (a nudge is Kosmos to agent, so
  * there is no pair to charge).
+ *
+ * Known limit: the Prompter samples once an interval, so an agent that works for less than an
+ * interval after its nudge and goes idle again is never seen working; its episode stays open and it
+ * is not nudged again. One nudge per stall is the card's rule, and a timer that re-armed it would
+ * also re-nudge an agent that answered in plain words that it is waiting.
+ *
+ * #4544 (Josh): the person's check-in lists only these real stalls (withOpenWork), and prompterTick
+ * is the whole of what the Prompter's tick does after heartbeat.step, so its gates are tested here.
  *
  * The planner is pure; the reads and the delivery are injected, so tests drive it without a pane.
  */
@@ -50,41 +61,52 @@ function openParts(session, projects) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       const prog = tasks.progressOf(t);
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
+      if (require('./projects').isSwarmOff(p, session)) continue;
       for (const x of prog.parts) {
         if (x.who !== session || x.closedAt) continue;
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', movedAt: x.movedAt || null });
+        /* When the part came to this agent: moved to it, or created on it (a part added with a who,
+           or a task created with one, carries no movedAt). */
+        const givenAt = x.movedAt || x.createdAt || t.createdAt || null;
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt });
       }
     }
   }
   return out;
 }
 
+/* Words people and agents wrote, made safe to type as one line: control characters and double quotes
+   out (chat.deliver refuses a control character, which would spend every try), whitespace flattened,
+   cut on a character boundary. */
+function plainWords(v, cap) {
+  const s = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f"]/g, ' ').replace(/\s+/g, ' ').trim();
+  const chars = Array.from(s);
+  return chars.length > cap ? chars.slice(0, cap - 3).join('') + '...' : s;
+}
+
 function nudgeText(part) {
-  const s = String(part.sentence || '').replace(/\s+/g, ' ').trim();
-  const words = s.length > SENTENCE_CAP ? s.slice(0, SENTENCE_CAP - 3) + '...' : s;
+  const words = plainWords(part.sentence, SENTENCE_CAP);
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + part.project + '. Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
     + 'say so with: kosmos report blocked --on <what> --owner <who>';
 }
 
-/* A card the nudge may type into: ours, idle by the board's reading, not a paused swarm. The same
-   test the Assigner's idleCard makes. */
+/* A card the nudge may type into: the Assigner's own idleCard (ours, idle, not a paused swarm). */
 function nudgeableCard(a) {
-  return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle'
-    && !(a.swarm && a.swarm.active === false));
+  return require('./assigner').idleCard(a);
 }
 
 /*
  * One agent's decision. card: its roster card; parts: openParts(); entry: its book entry;
- * now: epoch ms; intervalMs: the Prompter's interval.
+ * now: epoch ms; intervalMs: the Prompter's interval; ask: its toAsk entry ({ session, from, to }).
  * Returns { act: 'none' | 'nudge', because, part? }.
  */
-function plan(card, parts, entry, now, intervalMs) {
+function plan(card, parts, entry, now, intervalMs, ask) {
   if (entry && entry.nudgedAt != null) return { act: 'none', because: 'already nudged in this stall' };
   if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
   if (!nudgeableCard(card)) return { act: 'none', because: 'not an idle card of ours' };
+  if (ask && ask.from === 'working') return { act: 'none', because: 'went idle this interval; asked at the next one' };
   if (!Array.isArray(parts) || !parts.length) return { act: 'none', because: 'no open task in a live project (the Assigner\'s lane)' };
-  const fresh = parts.some((x) => { const at = Date.parse(x.movedAt); return Number.isFinite(at) && now - at < intervalMs; });
+  const fresh = parts.some((x) => { const at = Date.parse(x.givenAt); return Number.isFinite(at) && now - at < intervalMs; });
   if (fresh) return { act: 'none', because: 'was given work within the last interval' };
   return { act: 'nudge', because: 'idle past the interval with open work', part: parts[0] };
 }
@@ -118,11 +140,11 @@ function sweepOnce(o) {
       const session = ask && ask.session;
       const card = session && cards.get(session);
       if (!card) continue;
-      const display = card.name || session;
+      const display = plainWords(card.name || session, 80);
       // One agent's failure is recorded and the pass goes on to the next agent.
       try {
         const entry = book.get(session);
-        const p = plan(card, openParts(session, o.projects), entry, now, intervalMs);
+        const p = plan(card, openParts(session, o.projects), entry, now, intervalMs, ask);
         if (p.act !== 'nudge') continue;
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
@@ -145,9 +167,52 @@ function sweepOnce(o) {
   return { results };
 }
 
+/* #4544 (Josh): the person's check-in lists only real stalls, the agents in toAsk that still hold an
+   open task in a live project (openParts, the nudge's own rule), not every idle agent. */
+function withOpenWork(toAsk, projects) {
+  return (Array.isArray(toAsk) ? toAsk : []).filter((n) => n && typeof n.session === 'string' && openParts(n.session, projects).length > 0);
+}
+
+/*
+ * Everything the Prompter's tick does after heartbeat.step (server.js calls only this). o = {
+ *   setting ({ on, intervalMinutes }), roster (the board's, null on a read failure), outcome (heartbeat.step's),
+ *   readProjects(), shouldWrite(on, roster), write(list) (prompternudge's), allowed() (live execution),
+ *   env, readLimit(), limitDefaults, book, sent, now, deliver, DELIVERY, log }.
+ * The person's list: written when shouldWrite says so, filtered to real stalls; if the projects cannot be
+ * read it is written whole (too many check-ins, never real ones hidden). The agent's nudge: only with the
+ * Prompter on, live execution allowed and the brake off; an unreadable roster or projects nudges nobody
+ * (sweepOnce refuses the roster, and no projects means no open parts).
+ * Returns { written: list | null, nudged: sweepOnce's results | null }. Never throws.
+ */
+function prompterTick(o) {
+  const out = { written: null, nudged: null };
+  try {
+    const setting = (o && o.setting) || { on: false };
+    const toAsk = (o.outcome && Array.isArray(o.outcome.toAsk)) ? o.outcome.toAsk : [];
+    let records = null;
+    try { const r = o.readProjects(); records = Array.isArray(r) ? r : null; } catch { records = null; }
+    if (o.shouldWrite(setting.on, o.roster)) {
+      const shown = records ? withOpenWork(toAsk, records) : toAsk;
+      try { o.write(shown); out.written = shown; } catch { /* best-effort */ }
+    }
+    let allowed = false;
+    try { allowed = o.allowed() === true; } catch { allowed = false; }
+    if (setting.on === true && nudgeEnabled(allowed, o.env)) {
+      let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };
+      try { const l = o.readLimit(); if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
+      out.nudged = sweepOnce({
+        toAsk, next: o.outcome.next, roster: o.roster, projects: records, book: o.book, sent: o.sent,
+        now: Number.isFinite(o.now) ? o.now : Date.now(), intervalMs: Number(setting.intervalMinutes) * 60 * 1000, limit,
+        deliver: o.deliver, DELIVERY: o.DELIVERY, log: o.log,
+      }).results;
+    }
+  } catch { /* never throws into the tick */ }
+  return out;
+}
+
 /* THE one "does the agent nudge run" rule: live execution allowed and the operator brake off. */
 function nudgeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_AGENT_NUDGE_OFF !== '1';
 }
 
-module.exports = { plan, openParts, nudgeText, nudgeableCard, sweepOnce, nudgeEnabled, MAX_TRIES, HOUR_MS };
+module.exports = { plan, openParts, withOpenWork, prompterTick, plainWords, nudgeText, nudgeableCard, sweepOnce, nudgeEnabled, MAX_TRIES, HOUR_MS };

@@ -137,3 +137,40 @@ test('the Settings copy no longer promises an undeliverable nudge (#3508 restore
   assert.match(PAGE, /shows a check-in/,
     'the Prompter hint does not mention the in-app check-in it now delivers');
 });
+
+/* #4544 (Josh): each name links to its agent. The render is called, not grepped, and the click
+   handler is extracted from the page and called with fake events. */
+test('#4544: each check-in name is a link to that agent (the ?tab=detail&agent= deep link), escaped', async () => {
+  const box = fakeBox();
+  const paint = makePaint(fakeDoc(box), okFetch({ ok: true, at: 'now', nudges: [{ session: 'amara-singh', from: 'working', to: 'idle' }, { session: 'a&b', from: null, to: 'idle' }] }));
+  await paint();
+  assert.match(box.innerHTML, /<a class="hb-nudge-go" href="\?tab=detail&amp;agent=amara-singh" data-hb-agent="amara-singh"><b>amara-singh<\/b><\/a>/);
+  assert.match(box.innerHTML, /href="\?tab=detail&amp;agent=a%26b" data-hb-agent="a&amp;b"/, 'the session must be URL-encoded in the link and escaped in the attribute');
+});
+
+function makeOpen(last, opened) {
+  const factory = new Function('LAST', 'openDetail', `${extractSource('prompterNudgeOpen')}; return prompterNudgeOpen;`);
+  return factory(last, (s) => opened.push(s));
+}
+function clickOn(session, extra = {}) {
+  let prevented = false;
+  const link = { getAttribute: (k) => (k === 'data-hb-agent' ? session : null) };
+  return { e: { button: 0, target: { closest: (sel) => (sel === 'a[data-hb-agent]' ? link : null) }, preventDefault: () => { prevented = true; }, ...extra }, prevented: () => prevented };
+}
+
+test('#4544: a plain click on a name opens that agent in place; control: the link is left alone otherwise', () => {
+  const opened = [];
+  const open = makeOpen([{ sessionName: 'amara-singh' }], opened);
+  const plain = clickOn('amara-singh');
+  assert.equal(open(plain.e), true);
+  assert.equal(plain.prevented(), true, 'a plain click must not also follow the link');
+  assert.deepEqual(opened, ['amara-singh']);
+  // A new-tab click, and an agent this page does not have, go to the link (nothing prevented).
+  for (const [label, c] of [['cmd-click', clickOn('amara-singh', { metaKey: true })], ['middle click', clickOn('amara-singh', { button: 1 })], ['not on this board', clickOn('gone-agent')]]) {
+    assert.equal(open(c.e), false, label + ' was taken over');
+    assert.equal(c.prevented(), false, label + ' prevented the link');
+  }
+  assert.deepEqual(opened, ['amara-singh'], 'only the plain click opened anything');
+  // A click outside any name does nothing.
+  assert.equal(open({ button: 0, target: { closest: () => null }, preventDefault: () => { throw new Error('prevented'); } }), false);
+});

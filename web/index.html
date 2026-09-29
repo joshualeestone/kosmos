@@ -3294,6 +3294,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
 .hb-nudge:first-of-type { border-top: 0; }
 .hb-nudge b { font-size: .9375rem; }
+/* #4544: the name links to the agent; it reads as the name, underlined on hover and focus. */
+.hb-nudge-go { color: inherit; text-decoration: none; }
+.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration: underline; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -22313,9 +22316,12 @@ async function paintPrompterNudges() {
   }
   const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
   if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  /* #4544 (Josh): each name is a link to that agent. A real link (the ?tab=detail&agent= deep link
+     a push tap uses), so it is keyboard-reachable and opens in a new tab; a plain click opens it in
+     place (prompterNudgeOpen). */
   const rows = nudges.map((n) =>
     '<div class="hb-nudge" role="listitem">' +
-      '<b>' + esc(n.session) + '</b> ' +
+      '<a class="hb-nudge-go" href="?tab=detail&amp;agent=' + encodeURIComponent(n.session) + '" data-hb-agent="' + esc(n.session) + '"><b>' + esc(n.session) + '</b></a> ' +
       '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
     '</div>').join('');
   const html =
@@ -22324,6 +22330,20 @@ async function paintPrompterNudges() {
   if (box.innerHTML !== html) box.innerHTML = html;
   box.hidden = false;
 }
+/* #4544: a plain click on a check-in's name opens that agent in place, the openDetail path the room's
+   names use. A modified click (new tab or window), or an agent this page does not have on its board,
+   is left to the link. Returns true when it opened the agent itself. */
+function prompterNudgeOpen(e) {
+  const t = e && e.target && e.target.closest ? e.target.closest('a[data-hb-agent]') : null;
+  if (!t) return false;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const session = t.getAttribute('data-hb-agent');
+  if (!session || !(Array.isArray(LAST) && LAST.some((a) => a && a.sessionName === session))) return false;
+  e.preventDefault();
+  openDetail(session);
+  return true;
+}
+{ const hbBox = document.getElementById('hb-nudges'); if (hbBox) hbBox.addEventListener('click', prompterNudgeOpen); }
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a
