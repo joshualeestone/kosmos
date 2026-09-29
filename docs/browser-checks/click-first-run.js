@@ -101,6 +101,14 @@ async function mockGatesUncheckable(page) {
   }
 }
 
+/* #4563: under CI load the overlay can come up after networkidle plus a fixed
+   wait (837ms measured), so a step that acts on it at once (an instant read, an
+   Escape) races it. Every caller here expects the overlay, so wait for it,
+   bounded; a timeout is swallowed and the caller's own assertion then fails. */
+async function waitOverlay(page) {
+  await page.waitForSelector('#firstrun', { state: 'visible', timeout: 10000 }).catch(() => {});
+}
+
 async function fresh(browser, opts = {}) {
   fs.rmSync(FLAG, { force: true });
   fs.rmSync(YOU, { force: true });
@@ -112,6 +120,7 @@ async function fresh(browser, opts = {}) {
   if (opts.route) await page.route(...opts.route);
   await page.goto(`${BASE}/${opts.query || ''}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
+  await waitOverlay(page);
   return { ctx, page };
 }
 
@@ -221,10 +230,6 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   console.log('\n1. A machine that has never been through it opens ON first run, at Welcome');
   {
     const { ctx, page } = await fresh(browser);
-    // #4563: the overlay can come up after networkidle + fresh()'s 500ms under
-    // CI load (837ms measured), so wait for it, bounded. An overlay that never
-    // shows still fails here.
-    await page.waitForSelector('#firstrun', { state: 'visible', timeout: 10000 }).catch(() => {});
     ok(await page.isVisible('#firstrun'), 'the overlay is up with no ?first-run flag at all');
     ok((await activeHead(page)) === 'Welcome to Kosmos', 'on step 1, the Welcome screen');
     // install-flow-9screen: the step crumb + progress segments are GONE (Josh's
@@ -540,6 +545,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/first-run/complete', () => {});
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
+    await waitOverlay(page);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(10000);            // past the 8s abort
     ok(await page.locator('#fr-forgot').isVisible(), 'a hung POST turned into a message, not a trap');

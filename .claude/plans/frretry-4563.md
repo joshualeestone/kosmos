@@ -22,3 +22,17 @@ The overlay wait is REASONED to keep catching a never-shown overlay (the wait ti
 - origin/main 7584512d1 and main+voice d5950584b: two runs against one board, attempt 1 rc 0, attempt 2 rc 1 (the two FAILs).
 - 6b21f3999: attempt 1 rc 0, attempt 2 rc 0. you.json is cleared afterwards.
 - Mutation (old YOU path): attempt 1 rc 1 on the new guard; attempt 2 rc 1 with the two original FAILs plus the guard.
+
+## Deviation: validation order
+6.0's baseline full validation was not run before review 1: the Mac's suite slot has been held by other agents' runs
+for 40+ minutes, and the change is one check file I had already run alone (both arms, plus a mutation). The full
+validation runs through the queue as the closing gate, before the proof.
+
+## Review iteration 1 (blind, opus)
+0 BLOCKER, 1 WARNING, taken:
+- (W) section 3 presses Escape straight after fresh(), and section 10 after a fixed 400 ms, so the same late-overlay
+  race reds them "Escape closed it" for a load reason. The wait is now one helper, waitOverlay(), called by fresh()
+  (every fresh() caller expects the overlay) and by section 10. Sections 2 and 5 assert NO overlay and do not use fresh().
+- (N) the never-shown-overlay premise was reasoned: measured below.
+- (N) tools/test-install.sh seeds data/you.json at the pre-#1848 path; nothing breaks (it is fingerprint content), noted
+  on #4563 as a follow-up rather than changed here.
