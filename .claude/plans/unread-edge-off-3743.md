@@ -31,3 +31,11 @@ Pure origin/main: 11 arms failed (the MARKING arms: U1 x3, U1b, U2, U3, U4, U6, 
 ## Weakest premise
 That the on-branch still passes: the arms are verbatim, but only a run with the switch on proves it (a
 perturbation below).
+
+## Review round 1 (opus, 18:49)
+- While off, edgeChk only re-read the DOM, missing the arrival moment U8, U12 and U13 exist for: each now passes
+  its own arrival snapshot (offOk) and the off branch requires it false as well.
+- U2's off arm could never fail: the cleanup removed every marker on the page. It now removes only the one U17
+  set by hand, after asserting it is the only marked element (its own arm).
+- NITs taken: a comment on why a missing switch reads as on, and that U15h's control means something only while
+  on. Left: several off arms re-read the same state as the arm before them (they cover nothing new; harmless).

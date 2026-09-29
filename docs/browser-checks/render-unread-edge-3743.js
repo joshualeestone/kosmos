@@ -63,13 +63,17 @@ function chk(ok, label, extra) {
          MARKING arms below run as written when it is on; while it is off each asserts, after driving the same
          scenario, that nothing where it looked is marked or outlined, and that it found bubbles to look at. The
          DRAWING arms (data-unread set by hand) run either way: they cover the style for when it comes back. */
+      /* A renamed or missing switch reads as ON on purpose: the original arms then run and fail loudly, where
+         defaulting to off would pass silently. U15h's control below is only meaningful while the edge is on. */
       const EDGE_ON = await page.evaluate(() => typeof UNREAD_EDGE_ON === 'undefined' || UNREAD_EDGE_ON === true);
       const WHERE = { dm: '#d-dmthread .msg:not(.you) .msg-bd', room: '#pj-room .msg:not(.you) .msg-bd', guide: '#asp-th .asp-m.him[data-mid]' };
-      const edgeChk = async (onOk, label, extra, where) => {
+      /* `offOk`: what the arm itself measured at the moment that matters (a message arriving), for the arms whose
+         moment is before this call; the DOM is re-read here too. */
+      const edgeChk = async (onOk, label, extra, where, offOk = true) => {
         if (EDGE_ON) { chk(onOk, label, extra); return; }
         const seen = await page.evaluate((sel) => [...document.querySelectorAll(sel)].map((b) => ({
           marked: b.hasAttribute('data-unread'), filter: getComputedStyle(b).filter })), WHERE[where]);
-        const ok = seen.length > 0 && seen.every((b) => !b.marked && b.filter === 'none');
+        const ok = offOk === true && seen.length > 0 && seen.every((b) => !b.marked && b.filter === 'none');
         chk(ok, 'edge OFF (#4418), ' + where + ': nothing marked or outlined where ' + label.split(' ')[0] + ' looked', JSON.stringify({ bubbles: seen.length, marked: seen.filter((b) => b.marked).length }));
       };
       const t0 = Date.parse('2026-09-25T09:00:00Z');
@@ -207,7 +211,17 @@ function chk(ok, label, extra) {
         return { prop: cs.transitionProperty, dur: cs.transitionDuration, maskDelay: af.transitionDelay, maskProp: af.transitionProperty }; });
       chk(tr.prop === 'filter, outline-color' && tr.dur === '1.2s, 0.3s' && tr.maskProp === 'visibility' && tr.maskDelay === '1.2s', 'U2 the outline fades over 1.2s, and the tail\'s ground mask comes back only once the fade has ended', JSON.stringify(tr));
       // Edge off: the drawing arms above set data-unread by hand and the page (switched off) never reads them away.
-      if (!EDGE_ON) await page.evaluate(() => document.querySelectorAll('[data-unread]').forEach((b) => b.removeAttribute('data-unread')));
+      if (!EDGE_ON) {
+        // Only the marker U17 set by hand (on the fourth DM bubble), and only if it is the one marked element: a
+        // bubble the switched-off page marked itself must stay for the arms below to catch.
+        const cleared = await page.evaluate(() => {
+          const marked = [...document.querySelectorAll('[data-unread]')];
+          const hand = document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')[3];
+          if (marked.length === 1 && marked[0] === hand) { hand.removeAttribute('data-unread'); return true; }
+          return marked.length;
+        });
+        chk(cleared === true, 'edge OFF (#4418): the only marked bubble before U2 is the one U17 marked by hand', String(cleared));
+      }
       await page.waitForTimeout(2600);
       const u2 = await dmState();
       await edgeChk(u2.length === 4 && u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)), 'dm');
@@ -264,7 +278,7 @@ function chk(ok, label, extra) {
       await page.evaluate(() => { const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop(); b.scrollIntoView({ block: 'start' }); });
       await page.waitForTimeout(2600);
       const tallAfter = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
-      await edgeChk(tall.h > 2 * tall.vh && tall.unread && !tallAfter, 'U8 a message taller than twice the window arrives with the edge and loses it once read', JSON.stringify({ ...tall, after: tallAfter }), 'dm');
+      await edgeChk(tall.h > 2 * tall.vh && tall.unread && !tallAfter, 'U8 a message taller than twice the window arrives with the edge and loses it once read', JSON.stringify({ ...tall, after: tallAfter }), 'dm', !tall.unread && !tallAfter);
 
       // U12: the moment on screen is continuous: leaving the window inside it starts it again on the way back.
       const add = (t, text) => page.evaluate(([at, tx]) => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at, text: tx }]) }; return paintTalk('april', 'April'); }, [t, text]);
@@ -278,7 +292,7 @@ function chk(ok, label, extra) {
       const u12a = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
       await page.waitForTimeout(1300);
       const u12b = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
-      await edgeChk(u12a === true && u12b === false, 'U12 leaving the window inside the moment starts it again: still edged 0.5s after coming back, gone after 1.2s', JSON.stringify({ u12a, u12b }), 'dm');
+      await edgeChk(u12a === true && u12b === false, 'U12 leaving the window inside the moment starts it again: still edged 0.5s after coming back, gone after 1.2s', JSON.stringify({ u12a, u12b }), 'dm', !u12a && !u12b);
 
       // U13: a message far taller than the window, read by scrolling down it a little at a time, still loses its edge.
       await add('2026-09-25T09:14:00Z', Array.from({ length: 1200 }, (_, i) => 'A very long report, line ' + (i + 1) + '.').join('\n'));
@@ -298,7 +312,7 @@ function chk(ok, label, extra) {
       for (let i = 0; i < 6; i++) { await page.evaluate(() => { window.__sc.scrollTop += 60; }); await page.waitForTimeout(120); }
       await page.waitForTimeout(1600);
       const u13 = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
-      await edgeChk(huge.scroller && huge.h > 20 * huge.box && huge.onScreen <= 20 && before13 && u13 === false, 'U13 a message over twenty thread-heights tall, read down a little at a time, loses its edge', JSON.stringify({ ...huge, before13, stillUnread: u13 }), 'dm');
+      await edgeChk(huge.scroller && huge.h > 20 * huge.box && huge.onScreen <= 20 && before13 && u13 === false, 'U13 a message over twenty thread-heights tall, read down a little at a time, loses its edge', JSON.stringify({ ...huge, before13, stillUnread: u13 }), 'dm', !before13 && u13 === false);
 
       // U14: the edge in the dark looks: a darker, opaque gold, forced dark and Kosmos+ navy.
       const edgeIn = (setup) => page.evaluate((how) => {
