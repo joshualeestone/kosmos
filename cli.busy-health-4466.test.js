@@ -63,9 +63,10 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.url.startsWith('/api/health')) {
-      if (health === '404') { res.writeHead(404); res.end('not found'); return; }
+      if (health === '404' || health === 'page500') { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return;
     }
+    if (health === 'page500') { res.writeHead(503); res.end('busy'); return; }   // an older board failing under load
     res.writeHead(200, { 'content-type': 'text/html' }); res.end(PAGE);
   };
   // A busy board is slow at EVERYTHING it serves, the page included (the event loop is shared).
@@ -324,3 +325,25 @@ test('#4466 part 6: `kosmos open` from an agent on a down board goes through the
     assert.match(out.stdout, /an agent may not start it again yet/);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+test('#4466 part 6: an agent RESTART that recovers a down board clears the stop marker (the watchdog is not left off)', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    // No runtime in this KOSMOS_HOME, and AGENT_WORKFORCE_LAUNCH makes it unsupervised, so the start that
+    // follows the stop fails harmlessly; what is measured is the marker cmd_stop writes and cmd_start clears.
+    const out = await runCli(['restart'], baseEnv(port, { KOSMOS_HOME: home, AGENT_WORKFORCE_LAUNCH: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    // cmd_stop ran (it says so and, on a down board, writes the marker), then cmd_start ran (it stops at this
+    // sandbox's missing runtime, AFTER clearing the marker first thing).
+    assert.match(out.stdout, /Kosmos is not running\./, 'cmd_stop must have run: ' + out.stdout + out.stderr);
+    assert.match(out.stderr, /the runtime is missing/, 'cmd_start must have run after it: ' + out.stdout + out.stderr);
+    assert.equal(fs.existsSync(path.join(home, 'board.stopped')), false, 'a restart must not leave the deliberate-stop marker behind');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('#4466 an OLDER board of ours answering its page with a 5xx under load is busy, not a stranger', () => withBoard('page500', async (port) => {
+  const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3' }));
+  assert.equal(out.code, 4, out.stdout + out.stderr);
+  assert.match(out.stdout, /running at .* but is busy/);
+  assert.doesNotMatch(out.stdout, /another app/);
+}));

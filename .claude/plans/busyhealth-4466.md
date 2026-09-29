@@ -81,6 +81,12 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 ## Weakest premises
 - **The `/api/health` answer is only as fast as the event loop.** A board pinned at 100% still answers
   it slowly; the fix is that slow now reads busy and is retried, not that it is fast. #4468 is the speed.
+- **The agent guard is a DETERRENT, not enforcement.** An agent that passes `--force` or clears its
+  environment gets through. It exists to stop an agent that follows the CLI's own advice (the 140-restart
+  case); nothing a process running as the same user does can be stopped by that same user's CLI.
+- **The watchdog's `kosmos status` can now take up to 20 s** on a busy board. It is a launchd job with
+  StartInterval 30, and launchd never starts a second instance of a job while one runs, so ticks cannot
+  stack on a busy board.
 - **Agent detection is by environment.** An agent run by some other harness, with none of the three
   markers, is treated as a person. Every Kosmos-launched agent has at least the claim.
 - **300 s busy grace** is a judgement: long enough that a busy board is not restarted by the watchdog,

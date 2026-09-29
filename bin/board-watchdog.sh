@@ -159,7 +159,7 @@ DOWN_SINCE="$(num "$DOWN_SINCE_RAW")"
 
 # still within grace: a legit start may be mid-boot
 # #4466: a busy board (status exit 4) gets BUSY_GRACE, not GRACE.
-[ "$STATUS_RC" -eq 4 ] && [ "$BUSY_GRACE" -gt "$GRACE" ] && GRACE="$BUSY_GRACE"
+if [ "$STATUS_RC" -eq 4 ] && [ "$BUSY_GRACE" -gt "$GRACE" ]; then GRACE="$BUSY_GRACE"; fi
 [ "$((NOW - DOWN_SINCE))" -lt "$GRACE" ] && exit 0
 
 # --- crash-loop guard -------------------------------------------------------

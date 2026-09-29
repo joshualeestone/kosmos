@@ -306,7 +306,9 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
          *) HEALTH_STATE=stranger ;;
        esac ;;
     7) HEALTH_STATE=down ;;
-    28|52|56) _health_no_answer ;;
+    # 22 is an HTTP error for `/`: an older board of ours failing under load, or a stranger's web server.
+    # The same ownership check as a timeout decides which.
+    22|28|52|56) _health_no_answer ;;
     *) HEALTH_STATE=stranger ;;
   esac
 }
@@ -1000,6 +1002,7 @@ cmd_stop() {
     # "not running" while the recorded process is alive on its original
     # port. Killing it silently made two adjacent commands contradict each
     # other, with the destructive one lying. Say which board this is.
+    # Only a board that does not answer AND is not our own busy one gets the "different port" wording.
     if ! healthy --once && [ "$HEALTH_STATE" != busy ]; then
       say "Stopping a Kosmos board that is not answering on port $PORT (it was likely started with a different port)."
     else
