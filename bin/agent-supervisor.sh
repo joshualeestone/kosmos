@@ -48,20 +48,21 @@
 
 set -u
 
-# #4497: the same installed script is the tiny pane entrypoint. The supervisor
-# writes one launch token to an owner-only file and puts only this file's path on
-# tmux argv. The child reads and unlinks it before exec, so the agent receives
-# KOSMOS_AGENT_TOKEN in its environment while `ps` never sees the token value.
+# #4497/#4507: the same installed script is the tiny pane entrypoint. The
+# supervisor writes launch secrets as NAME=value lines in an owner-only file and
+# puts only this file's path on tmux argv. The child reads and unlinks it before
+# exec, so the provider receives secrets in its environment while `ps` never
+# sees a secret value.
 if [ "${1:-}" = --pane-entry ]; then
-  _token_file="${2:?a launch-token file is required}"
+  _secret_file="${2:?a launch-secret file is required}"
   shift 2
-  _pane_token="$(head -1 "$_token_file" 2>/dev/null || true)"
-  rm -f -- "$_token_file" 2>/dev/null || true
-  case "$_pane_token" in
-    ''|*[!0-9a-f]*) unset KOSMOS_AGENT_TOKEN ;;
-    *) export KOSMOS_AGENT_TOKEN="$_pane_token" ;;
-  esac
-  unset _pane_token _token_file
+  while IFS= read -r _secret_line || [ -n "$_secret_line" ]; do
+    _secret_name="${_secret_line%%=*}"
+    case "$_secret_name" in ''|*[!A-Z0-9_]*|[0-9]*) continue ;; esac
+    export "$_secret_line"
+  done < "$_secret_file" 2>/dev/null
+  rm -f -- "$_secret_file" 2>/dev/null || true
+  unset _secret_line _secret_name _secret_file
   exec "$@"
 fi
 
@@ -254,8 +255,9 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
-  TOKEN_ENTRY=()
-  TOKEN_FILE=""
+  SECRET_ENV=()
+  SECRET_ENTRY=()
+  SECRET_FILE=""
   _LAUNCH_TOKEN=""
     # ── #570: the sender token, minted HERE because this is the launch ──────
     #
@@ -395,43 +397,82 @@ if [ -z "$adopt" ]; then
       ''|*[!0-9a-f]*) KOSMOS_AGENT_TOKEN="" ;;
     esac
     if [ -n "$KOSMOS_AGENT_TOKEN" ]; then
-      # Never put this value in tmux's `-e NAME=value`: tmux is a separate
-      # process, so another macOS account can read that command line with ps.
-      # The per-run file is 0600 inside a 0700 directory. The pane entrypoint
-      # above consumes and removes it before starting any provider.
-      _launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"
-      _old_umask="$(umask)"
-      umask 077
-      if mkdir -p "$_launch_secret_dir" 2>/dev/null && chmod 700 "$_launch_secret_dir" 2>/dev/null; then
-        TOKEN_FILE="$(mktemp "$_launch_secret_dir/agent-token.XXXXXX" 2>/dev/null || true)"
-      fi
-      if [ -n "$TOKEN_FILE" ] && printf '%s\n' "$KOSMOS_AGENT_TOKEN" > "$TOKEN_FILE" 2>/dev/null \
-        && chmod 600 "$TOKEN_FILE" 2>/dev/null; then
-        TOKEN_ENTRY=("$_app/bin/agent-supervisor.sh" --pane-entry "$TOKEN_FILE")
-        # Kept only in this shell for Antigravity's one launch-time status
-        # report. It is inherited as environment by that helper, never placed
-        # in an argv entry.
-        _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
-      else
-        [ -n "$TOKEN_FILE" ] && rm -f -- "$TOKEN_FILE" 2>/dev/null || true
-        TOKEN_FILE=""
-      fi
-      umask "$_old_umask"
-      unset _old_umask _launch_secret_dir
+      SECRET_ENV+=("KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
+      # Kept only in this shell for Antigravity's one launch-time status report.
+      _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
     fi
     KOSMOS_AGENT_TOKEN=""
 
-  cleanup_launch_token() {
-    [ -n "${TOKEN_FILE:-}" ] && rm -f -- "$TOKEN_FILE" 2>/dev/null || true
+  add_launch_secret() {
+    case "${1:-}" in
+      ''|*[!A-Z0-9_]*|[0-9]*)
+        say "$SESSION: a launch secret was not handed to the agent (invalid variable name)"
+        return 0
+        ;;
+    esac
+    # One assignment per line. Refuse a malformed inherited value rather than
+    # letting it invent another variable in the child environment.
+    case "${2:-}" in
+      '') return 0 ;;
+      *$'\n'*|*$'\r'*)
+        say "$SESSION: $1 was not handed to the agent (value has a line break)"
+        return 0
+        ;;
+    esac
+    SECRET_ENV+=("$1=$2")
   }
-  trap cleanup_launch_token EXIT
+
+  remove_launch_secret() {
+    _secret_kept=()
+    for _secret_item in ${SECRET_ENV[@]+"${SECRET_ENV[@]}"}; do
+      case "$_secret_item" in "$1="*) ;; *) _secret_kept+=("$_secret_item") ;; esac
+    done
+    SECRET_ENV=(${_secret_kept[@]+"${_secret_kept[@]}"})
+    unset _secret_kept _secret_item
+  }
+
+  prepare_secret_entry() {
+    [ "${#SECRET_ENV[@]}" -gt 0 ] || return 0
+    _supervisor_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+    _supervisor_self="${_supervisor_dir:+$_supervisor_dir/$(basename "$0")}" # absolute path to this installed script
+    if [ -z "$_supervisor_self" ] || [ ! -r "$_supervisor_self" ]; then
+      for _secret_item in ${SECRET_ENV[@]+"${SECRET_ENV[@]}"}; do
+        say "$SESSION: ${_secret_item%%=*} was not handed to the agent (the launch entrypoint is unavailable)"
+      done
+      return 0
+    fi
+    _launch_secret_dir="${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets"
+    _old_umask="$(umask)"
+    umask 077
+    if mkdir -p "$_launch_secret_dir" 2>/dev/null && chmod 700 "$_launch_secret_dir" 2>/dev/null; then
+      SECRET_FILE="$(mktemp "$_launch_secret_dir/agent-secrets.XXXXXX" 2>/dev/null || true)"
+    fi
+    if [ -n "$SECRET_FILE" ] && printf '%s\n' "${SECRET_ENV[@]}" > "$SECRET_FILE" 2>/dev/null \
+      && chmod 600 "$SECRET_FILE" 2>/dev/null; then
+      SECRET_ENTRY=(/bin/bash "$_supervisor_self" --pane-entry "$SECRET_FILE")
+    else
+      [ -n "$SECRET_FILE" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
+      SECRET_FILE=""
+      for _secret_item in ${SECRET_ENV[@]+"${SECRET_ENV[@]}"}; do
+        say "$SESSION: ${_secret_item%%=*} was not handed to the agent (the private handoff could not be built)"
+      done
+    fi
+    umask "$_old_umask"
+    unset _old_umask _launch_secret_dir _supervisor_dir _supervisor_self _secret_item
+  }
+
+  cleanup_launch_secrets() {
+    [ -n "${SECRET_FILE:-}" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
+  }
+  trap cleanup_launch_secrets EXIT
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
   launch_pane() {
+    prepare_secret_entry
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-      ${TOKEN_ENTRY[@]+"${TOKEN_ENTRY[@]}"} "$@"
+      ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} "$@"
   }
 
   # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
@@ -525,9 +566,18 @@ if [ -z "$adopt" ]; then
       case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
     fi
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
-      PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
+      _value="$(eval "printf '%s' \"\$$_var\"")"
+      case "$_var" in
+        CLOUDFLARE_API_TOKEN|GH_TOKEN) add_launch_secret "$_var" "$_value" ;;
+        *) PANE_ENV+=(-e "$_var=$_value") ;;
+      esac
+      unset _value
     fi
   done
+  # These two may have been exported above or inherited by this supervisor.
+  # Only the private handoff may give them to a provider. If that handoff cannot
+  # be built, the provider still starts but inherits no held credential.
+  unset CLOUDFLARE_API_TOKEN GH_TOKEN
   # The token doors (#529, engine/tokendoors.js) keep each token the person
   # pasted as ONE file under secrets/env/, named for the variable agents read
   # (DISCORD_BOT_TOKEN, BRAVE_API_KEY, ...). Every such file rides into the
@@ -548,7 +598,7 @@ if [ -z "$adopt" ]; then
         *[!A-Z0-9_]*|[0-9]*) continue ;;
       esac
       if [ "$IS_SETUP_GUIDE" = 1 ] && [ "$_name" != "$_guide_key" ]; then continue; fi
-      PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
+      add_launch_secret "$_name" "$(head -1 "$_f")"
     done
   fi
   # #1704: hand the pane its Kosmos EXPLICITLY, always -- the world id and its
@@ -723,7 +773,7 @@ if [ -z "$adopt" ]; then
     # the generic door already delivers the default GEMINI_API_KEY the same way.
     if [ -n "${GEMINI_CLI_HOME:-}" ] && [ -r "${GEMINI_CLI_HOME}/.kosmos-gemini-apikey" ]; then
       _gkey="$(head -1 "${GEMINI_CLI_HOME}/.kosmos-gemini-apikey" 2>/dev/null || true)"
-      [ -n "$_gkey" ] && PANE_ENV+=(-e "GEMINI_API_KEY=$_gkey")
+      [ -n "$_gkey" ] && add_launch_secret GEMINI_API_KEY "$_gkey"
       unset _gkey
     fi
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
@@ -767,7 +817,7 @@ if [ -z "$adopt" ]; then
     # a missing file falls back to the generic secrets/env door (default-account path).
     if [ -n "${GROK_HOME:-}" ] && [ -r "${GROK_HOME}/.kosmos-grok-apikey" ]; then
       _xkey="$(head -1 "${GROK_HOME}/.kosmos-grok-apikey" 2>/dev/null || true)"
-      [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
+      [ -n "$_xkey" ] && add_launch_secret XAI_API_KEY "$_xkey"
       unset _xkey
     fi
     # #3391: a SUBSCRIPTION account must reach grok with NO XAI_API_KEY at all, or grok
@@ -832,6 +882,7 @@ if [ -z "$adopt" ]; then
         fi
       done
       PANE_ENV=(${_kept[@]+"${_kept[@]}"})
+      remove_launch_secret XAI_API_KEY
       unset _kept _i _n
       _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
     fi
@@ -877,7 +928,8 @@ if [ -z "$adopt" ]; then
     _AGY_ARGS=(--dangerously-skip-permissions)
     [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
     # #4417: -P -F prints the new pane's id, taken at creation rather than looked up by session name afterwards.
-    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${TOKEN_ENTRY[@]+"${TOKEN_ENTRY[@]}"} \
+    prepare_secret_entry
+    _AGY_PANE="$("$TMUX_BIN" new-session -d -s "$SESSION" -P -F '#{pane_id}' -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} ${SECRET_ENTRY[@]+"${SECRET_ENTRY[@]}"} \
       "$CLAUDE" "${_AGY_ARGS[@]}")" || exit 1
     unset _AGY_ARGS
   elif [ "$RUNNER" = muse ]; then
