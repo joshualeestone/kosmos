@@ -43,3 +43,13 @@ validation runs through the queue as the closing gate, before the proof.
   5 of main, so it is not attributable either way. REASONED, not measured: waitOverlay returns at once when the overlay is
   already up (the usual case) and otherwise starts the walk LATER than before, so it cannot make the walker read an
   earlier frame. The likely mechanism is advanceToAnchor reading one transitional frame and clicking what it saw.
+
+## Review iteration 2 (blind, sonnet)
+0 BLOCKER, 1 WARNING, taken:
+- (W, SELF: my own iteration's comment) "so a drift reds instead of hiding" claimed more than the guard covers: it
+  checks section 1's walk only. The sentence is cut to what the assertion checks ("Section 1 asserts its walk wrote
+  this path").
+- (N) section 9 has no waitOverlay: it walks with advanceToAnchor, whose first step waits up to 6 s for a usable
+  control, so it does not act on the overlay blind. Left.
+- (N) a never-shown overlay now costs up to 10 s per fresh() before its section fails: accepted, a failing run only.
+- (N) the test-install.sh follow-up: posted on #4563 (comment 5892666725).

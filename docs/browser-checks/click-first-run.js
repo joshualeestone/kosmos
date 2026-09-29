@@ -36,8 +36,8 @@ const FLAG = process.argv[2];   // the sandboxed first-run.json
 // flag is cleared. It sits BESIDE the flag: since #1848 engine/you.js writes
 // through store.ROOT, the same directory as first-run.json. #4563: this used to
 // be the flag's grandparent, so fresh() deleted a file that never existed and a
-// run_one retry always opened About-you already answered; section 1 now asserts
-// the walk wrote THIS path, so a drift reds instead of hiding.
+// run_one retry always opened About-you already answered. Section 1 asserts its
+// walk wrote this path.
 const YOU = path.join(path.dirname(FLAG), 'you.json');
 
 const fails = [];
