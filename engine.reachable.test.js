@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  isCodexHookEvidence: 'test-only by design (#4589): pins a Codex card\'s evidence to the hooks dialog\'s rows; NO production code keys on it, because the delivery floor reads the screen fresh (its comment in engine/status.js says so)',
   setRunner: 'test seam: injects the tmux runner',
   _setNofollowForTest: 'test seam (#1777 item 3): engine/instructions.js drops O_NOFOLLOW to simulate win32, so a Mac can see the refuseSymlinkTarget hand check doing the work on the CLAUDE.md.previous backup. With the kernel flag present, deleting that check is silent.',
   setChannel: 'test seam (#570 7c-4): engine/chat.js\'s twin of setRunner for Windows agents, injecting the supervisor-channel sayer so a suite never reaches a real agent pipe. Clearing it re-arms dry-run, the same interlock as setRunner.',
