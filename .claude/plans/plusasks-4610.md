@@ -69,3 +69,6 @@ Named, not changed (NITs): the grant reads remote.json's device_id and does not 
 if that write failed; no test drives setupComplete / cancelledAfter / abandonChangedIdentity against the grant reset
 (the epoch test uses resetForTests); stopChild does not wait for the old tunnel to exit, so for up to ~5s a dying
 tunnel could rewrite the old snapshot; the browser check sets the sign-in state by hand rather than driving it.
+
+## Found while building #4637 on this branch
+render-waiting-phone-718 (gated) still pinned #3829's placement rule, which this card reverses: it failed here and would have failed the cut. Re-pinned to #4610's rule; fails on main's page, passes here. The other ask checks (render-plus-panel-3829, render-dm-chatfirst-718, render-talk-fill-2622, render-plus-asks-signin-4610) pass on this branch.
