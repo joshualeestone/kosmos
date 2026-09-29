@@ -46318,8 +46318,10 @@ function paintSeededTeam() {
   const sel = document.getElementById('team-seeded');
   const t = (SEEDED_TEAMS || []).find((x) => x.key === sel.value) || null;
   const n = t ? (Array.isArray(t.members) ? t.members.length : (Number.isFinite(Number(t.count)) ? Number(t.count) : null)) : null;   // #4555's shape carries members
+  /* Review round 5: #4555's blurbs end without a full stop; the role screen adds one the same way. */
+  const blurb = t && t.blurb ? (/[.!?]$/.test(t.blurb.trim()) ? t.blurb.trim() : t.blurb.trim() + '.') : '';
   document.getElementById('team-seeded-desc').textContent =
-    t ? (t.blurb || '') + (n ? (t.blurb ? ' ' : '') + n + ' agents.' : '') : '';
+    t ? blurb + (n ? (blurb ? ' ' : '') + n + ' agents.' : '') : '';
   document.getElementById('team-seeded-go').disabled = !t;
 }
 async function loadSeededTeams() {
@@ -46349,7 +46351,9 @@ async function loadSeededTeams() {
     } catch { SEEDED_TEAMS = null; }
   }
   if (gen !== SEEDED_GEN) return;
-  const none = !SEEDED_TEAMS || !SEEDED_TEAMS.length;
+  /* Review round 5: a catalogue with no way to create a team yet (#4557's openTeamCreate) is still "coming soon":
+     a Create that cannot create is the do-nothing control Mona ruled out. */
+  const none = !SEEDED_TEAMS || !SEEDED_TEAMS.length || typeof window.openTeamCreate !== 'function';
   /* Mona's review: with no teams, no control that can do nothing. The note says it once, and Upload an org chart is
      the screen's main (gold) action; the dropdown and Create come back once #4555 seeds teams. */
   document.getElementById('team-seeded-pick').hidden = none;
@@ -46389,6 +46393,10 @@ document.querySelectorAll('#cstep-kind .nak-btn').forEach((b) => {
 });
 document.getElementById('create-path-back').addEventListener('click', () => {
   resetTeamStep();
+  /* Review round 5: an import still being read must not move the person on to "Set up your agent" after they went
+     back to the choice (the panel stays open now, unlike All agents). The import's own generation check bails. */
+  IMPORT_GEN += 1;
+  const imp = document.getElementById('import-load'); if (imp) imp.disabled = false;
   const from = CREATE_PATH;
   CREATE_PATH = null;
   cstep('kind');
@@ -46404,10 +46412,10 @@ function roleByKey(key) {
 let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
 async function loadRoles(initialMode) {
   const gen = ++ROLES_GEN;
-  // #1652: the create form opens on 'pm' by default; the ONLY caller that passes
-  // a mode is the first-run "look in my Documents/Downloads" link, which passes
-  // 'import' so the panel opens straight on import (and populateFoundImports runs
-  // the on-demand scan). Threaded through here rather than a separate pickMode
+  // #1652 / #4556: the mode the role screen opens on. The callers: openCreate ('pm', or 'import' for the first-run
+  // "look in my Documents/Downloads" link, so the panel opens straight on import and populateFoundImports runs the
+  // on-demand scan), chooseCreatePath ('pm' for Single, 'list' for Swarm), and the ?tab=create boot (no mode, so
+  // 'pm'). Any other value is 'pm'. Threaded through here rather than a separate pickMode
   // after openCreate, because loadRoles' async pickMode default would otherwise
   // override that later call and land the panel back on 'pm'.
   const mode = initialMode === 'import' || initialMode === 'list' ? initialMode : 'pm';

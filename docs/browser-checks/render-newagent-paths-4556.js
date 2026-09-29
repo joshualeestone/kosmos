@@ -51,6 +51,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
 let SEEDED = null;   // null: 404, as before #4555
 let ROLES_DELAY_ONCE = 0;   // K8: hold the next /api/roles this many ms
+let IMPORT_DELAY = 0;       // K3b: hold /api/agent-import this many ms
 let NO_OWN = false;          // K9: serve no define-your-own role
 const ROLES = {
   roles: [
@@ -77,6 +78,11 @@ const server = http.createServer((req, res) => {
   if (u === '/api/teams/seeded') {
     if (!SEEDED) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{}'); }
     return json(res, SEEDED);
+  }
+  if (u === '/api/agent-import') {
+    const answer = () => json(res, { ok: true, name: 'Imported', role: 'own', instructions: 'Do the thing.', fields: {} });
+    if (IMPORT_DELAY) { setTimeout(answer, IMPORT_DELAY); return; }
+    return answer();
   }
   if (u.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{}'); }
   if (u === '/' || u === '/index.html') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(HTML); }
@@ -156,6 +162,22 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.evaluate(() => openCreate());
       await page.click('#cstep-kind [data-path="single"]');
       await page.click('#create-path-back');
+      // K3b (review round 5): Back while an import is still being read keeps the person on the choice.
+      IMPORT_DELAY = 600;
+      await page.evaluate(() => openCreate());
+      await page.click('#cstep-kind [data-path="single"]');
+      await page.waitForSelector('#pick-import:not([hidden])', { timeout: 5000 }).catch(() => {});
+      await page.click('#pick-import');
+      await page.fill('#import-text', 'name: Imported\n\nDo the thing.');
+      await page.click('#import-load');
+      await page.click('#create-path-back');
+      await page.waitForTimeout(1000);
+      IMPORT_DELAY = 0;
+      ok(t + ' K3b Back during an import keeps the three-way choice (a late answer does not move the person on)',
+        await page.evaluate(() => !document.getElementById('cstep-kind').hidden && document.getElementById('cstep-name').hidden));
+      await page.evaluate(() => openCreate());
+      await page.click('#cstep-kind [data-path="single"]');
+      await page.click('#create-path-back');
       ok(t + ' K3 Back returns to the three-way choice', await page.evaluate(() => !document.getElementById('cstep-kind').hidden && document.getElementById('cstep-role').hidden && document.getElementById('create-path-back').hidden));
 
       // K4: Swarm.
@@ -205,7 +227,13 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         msg: document.getElementById('team-seeded-msg').textContent, cached: SEEDED_TEAMS }));
       ok(t + ' K5b an empty catalogue reads as coming soon and is not kept', !k5b.pick && k5b.msg === 'Ready-made teams are coming soon.' && k5b.cached === null, JSON.stringify(k5b));
       SEEDED = [{ key: 'solo', label: 'Solo team', blurb: 'One lead.', kind: 'business', rank: 1, members: ['a'] }];
-      await page.evaluate(() => openCreate());   // no cache reset: the empty answer must not have been kept
+      // Round 5 CONTROL: teams exist but nothing can create one yet (#4557): still coming soon, no dropdown.
+      await page.evaluate(() => { delete window.openTeamCreate; SEEDED_TEAMS = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(300);
+      ok(t + ' K5b teams without a way to create one still read as coming soon (no Create that cannot create)',
+        await page.evaluate(() => document.getElementById('team-seeded-pick').hidden && document.getElementById('team-seeded-msg').textContent === 'Ready-made teams are coming soon.'));
+      await page.evaluate(() => { SEEDED_TEAMS = null; window.openTeamCreate = () => {}; openCreate(); });   // the empty answer was not kept either
       await page.click('#cstep-kind [data-path="team"]');
       await page.waitForFunction(() => !document.getElementById('team-seeded-pick').hidden, null, { timeout: 3000 }).catch(() => {});
       ok(t + ' K5b the next visit asks again and shows the teams that now exist', await page.evaluate(() => !document.getElementById('team-seeded-pick').hidden
@@ -213,7 +241,7 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
 
       // K6: Team with a catalogue; Create hands the key to openTeamCreate.
       // #4555's shape: members, not a count (the count is derived from them).
-      SEEDED = [{ key: 'marketing', label: 'Marketing team', blurb: 'A CMO and four reports.', kind: 'business', rank: 1, members: ['cmo', 'a', 'b', 'c', 'd'] },
+      SEEDED = [{ key: 'marketing', label: 'Marketing team', blurb: 'A CMO and four reports', kind: 'business', rank: 1, members: ['cmo', 'a', 'b', 'c', 'd'] },
         { key: 'home', label: 'Home and personal life', blurb: 'Your household.', kind: 'personal', rank: 2, members: ['a', 'b', 'c', 'd'] }];
       await page.evaluate(() => { SEEDED_TEAMS = null; window.__opened = null; window.openTeamCreate = (k) => { window.__opened = k; }; openCreate(); });
       await page.click('#cstep-kind [data-path="team"]');
