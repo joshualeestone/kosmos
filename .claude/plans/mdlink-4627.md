@@ -22,3 +22,6 @@ Accepted, written in the rule comment: an address is cut at its first `)` (as a 
 ## Blind review round 2 (Sonnet, separate reviewer): nothing above NIT. Converged.
 Accepted: an image `![alt](url)` now shows `!alt (url)` with the url linked, not only `!alt` (visible and honest; images are not rendered in this surface); punctuation written inside the parentheses stays in the href; the unheld code-bearing address can take emphasis (cosmetic). The only other `[label](url)` handling found, engine/feedback-triage.js, is the server's feedback surface, not agent dialogue.
 Next: full validation, then PR.
+
+## Agent doctrine (Mona Lisa, 16:0x)
+engine/defaults.js (lines ~245-248) tells agents a [label](address) link "shows only the label", which this card makes untrue. Left out of this branch on purpose: Mona Lisa's #4631 bumps DOCTRINE_VERSION to 19, and whichever of #4631 and this lands SECOND makes the one-sentence doctrine edit as v20 (Mona owns it), so neither PR waits on the other.
