@@ -110,9 +110,11 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
   }
 });
 
-test('#4474: when no role fits, the PM and the guide write one from the default text, after the same confirmation', () => {
+test('#4474: when no role fits, the PM writes one from the default text, after the same confirmation; the guide does not', () => {
   const roles = require('./roles');
-  for (const [key, who] of [['pm', 'the operator'], ['setup', 'them']]) {
+  // The guide is sandboxed away from secrets; a role it wrote would steer an unsandboxed agent (the server refuses it).
+  assert.doesNotMatch(roles.instructionsFor('setup', 'X').replace(/\s+/g, ' '), /role-draft|--new-role/, 'the guide was taught to write roles');
+  for (const [key, who] of [['pm', 'the operator']]) {
     const flat = roles.instructionsFor(key, 'X').replace(/\s+/g, ' ');
     assert.match(flat, /If no role on that list fits, write one, in a file named for it: run `kosmos agent role-draft > role-<short-name>\.md`/, `${key} is not told to start from the default text, in a file per role`);
     assert.match(flat, new RegExp('then tell ' + who + ' the role\'s name and what it does, and only after they say yes run'), `${key} is not told to confirm before it makes an agent with a new role`);

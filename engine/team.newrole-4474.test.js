@@ -8,9 +8,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const team = require('./team');
 
-function build(members, fromAgent = true) {
+function build(members, fromAgent = true, fromGuide = false) {
   const got = [];
-  const out = team.createTeam({ creator: 'pm1', purpose: 'the work needs it', members, fromAgent }, {
+  const out = team.createTeam({ creator: 'pm1', purpose: 'the work needs it', members, fromAgent, fromGuide }, {
     createAgent: (o) => { got.push(o); return { outcome: 'created', name: String(o.name).toLowerCase(), shownAs: o.name }; },
     readAgentId: () => null,
     env: {},
@@ -105,4 +105,44 @@ test('#4474: text with NUL in it (a UTF-16 file read as UTF-8) is refused before
   const { out, got } = build([{ name: 'Wu', role: 'own', label: 'Writer', instructions: 'Y\u0000o\u0000u\u0000 are a writer who writes.' }]);
   assert.equal(got.length, 0, 'text that is not text reached create');
   assert.match(out.refused[0].because, /not text, as a file saved in UTF-16 does/);
+});
+
+test('#4474: the setup guide makes no made-up role (no label, no text); it can still make one from the list', () => {
+  const { out, got } = build([
+    { name: 'Gia', role: 'own', label: 'Writer', instructions: 'You are **{{NAME}}**, a writer who writes.' },
+    { name: 'Gio', role: 'own', label: 'Writer' },
+    { name: 'Ok', role: 'pm' },
+  ], true, true);
+  assert.deepEqual(got.map((o) => o.name), ['Ok'], 'a role the guide wrote reached create');
+  assert.match(out.refused[0].because, /setup guide makes agents from the roles on the list/);
+  assert.match(out.refused[1].because, /setup guide makes agents from the roles on the list/);
+});
+
+test('#4474: an agent\'s member reaches create with only the fields it may send: no runner binary, folder or flag', () => {
+  const { got } = build([{ name: 'Rex', role: 'pm', provider: 'anthropic', model: 'x', projects: ['p1'], kind: 'agent',
+    claudeBin: '/tmp/evil', codexBin: '/tmp/evil', tmuxBin: '/tmp/evil', configDir: '/tmp/x', accountDir: '/tmp/x', runner: 'r', pickedByPerson: true, platform: 'win32' }]);
+  const keys = Object.keys(got[0]).sort();
+  assert.deepEqual(keys, ['createdBy', 'kind', 'model', 'name', 'projects', 'provider', 'purpose', 'role'], 'a launch-level field reached create: ' + keys.join(','));
+});
+
+test('#4474: the shared working rules stay as Kosmos wrote them; served whole, or deleted whole, is fine', () => {
+  const defaults = require('./defaults');
+  const block = defaults.block().trim();
+  const base = 'You are **{{NAME}}**, a writer.\n\nWrite the grant applications.\n\n';
+  const { out, got } = build([
+    { name: 'Ed', role: 'own', label: 'Writer', instructions: base + block.replace(/\n### [^\n]*\n[\s\S]*$/, '\n(edited away)\n') },
+    { name: 'Wh', role: 'own', label: 'Writer', instructions: base + block + '\n' },
+    { name: 'No', role: 'own', label: 'Writer', instructions: base },
+  ]);
+  assert.deepEqual(got.map((o) => o.name), ['Wh', 'No'], 'edited shared rules reached create');
+  assert.match(out.refused[0].because, /shared working rules .* stay as Kosmos wrote them/);
+});
+
+test('#4474: an identity line ending in a period or a dash is recognised, and its name corrected', () => {
+  const { got } = build([
+    { name: 'Ann', role: 'own', label: 'Editor', instructions: 'You are **Bob**. You edit everything twice.' },
+    { name: 'Cy', role: 'own', label: 'Editor', instructions: 'You are **Bob** - the editor, who edits twice.' },
+  ]);
+  assert.equal(got[0].instructions, 'You are **Ann**. You edit everything twice.');
+  assert.equal(got[1].instructions, 'You are **Cy** - the editor, who edits twice.');
 });

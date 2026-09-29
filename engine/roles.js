@@ -35,9 +35,11 @@ const HANDS_OFF_LINES = [
   '  walk them through it instead.',
 ];
 /* #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
-   when no role on the list fits, the guide and the PM write one, starting from the default text, and make the
-   agent from it after the same one-line confirmation. `who` is whom they confirm with. The same file makes more
-   agents with that role; Kosmos keeps no list of made-up roles. */
+   when no role on the list fits, the PM writes one, starting from the default text, and makes the agent from it
+   after the same one-line confirmation. `who` is whom it confirms with. The same file makes more agents with that
+   role; Kosmos keeps no list of made-up roles. Not the setup guide: it is sandboxed away from the person's secrets,
+   and a role it wrote would give an unsandboxed agent instructions the guide may not act on (the server refuses
+   it, team.vetAgentMember); it walks the person through New agent instead. */
 const NEW_ROLE_LINES_FOR = (who) => [
   '  If no role on that list fits, write one, in a file named for it: run',
   '  `kosmos agent role-draft > role-<short-name>.md`, make it say what this agent',
@@ -50,9 +52,7 @@ const NEW_ROLE_LINES_FOR = (who) => [
    for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
    Manager (PM_MAKES_AGENTS below, #1279) are the roles that name the verb. */
 const SETUP_MAKES_AGENTS = true;
-/* #4474: the guide's make-agents lines as every guide was born with them before the new-role lines were added.
-   An existing guide still carries them, so setup-assistant.refreshGuideRole adds the new-role lines after them. */
-const MAKE_AGENTS_LINES_BEFORE_4474 = [
+const MAKE_AGENTS_LINES = [
   '- You can make agents for them. When they ask for one, say in one line what',
   '  you will make and ask them to confirm, for example: I will make a Project',
   '  Manager called "PM". Go? Only after they say yes, run',
@@ -61,7 +61,6 @@ const MAKE_AGENTS_LINES_BEFORE_4474 = [
   '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
   '  through New agent.',
 ];
-const MAKE_AGENTS_LINES = [...MAKE_AGENTS_LINES_BEFORE_4474, ...NEW_ROLE_LINES_FOR('them')];
 /* #1279: a Project Manager builds the team the work needs ("PM, build me a team"). Same verb and the
    same one-line confirmation as the guide. The confirmation is the PM's instruction, not a server
    check: the server records the PM as the creator and caps active agents per creator (default 25),
@@ -1516,4 +1515,4 @@ function instructionsFor(key, name) {
 }
 
 module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
-  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, PM_MAKES_AGENTS, PM_MAKE_AGENTS_LINES, MAKE_AGENTS_LINES_BEFORE_4474, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, PM_MAKES_AGENTS, PM_MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

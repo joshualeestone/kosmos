@@ -718,7 +718,7 @@ async function agentRoleDraft(ctx) {
   if (!r.reached) return ctx.unreachable('get the role text');
   const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
   if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
-  ctx.out(text.replace(/\n$/, ''));
+  ctx.out(text.replace(/\n+$/, ''));
   return 0;
 }
 

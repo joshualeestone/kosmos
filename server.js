@@ -6337,8 +6337,9 @@ const server = http.createServer(async (req, res) => {
    *     are global per engine/policy.js; createdBy is the prerequisite for ever
    *     enforcing "a created agent cannot exceed its creator"). Both are future
    *     decisions, named on #1279, not smuggled in here.
-   *   - #4474: an AGENT's members are vetted (team.vetAgentMember): never the setup
-   *     role, and a made-up role only as `own` with its label and text.
+   *   - #4474: an AGENT's members are vetted (team.vetAgentMember): only the fields
+   *     an agent may send, never the setup role, a made-up role only as `own` with its
+   *     label and text, and none at all from the setup guide.
    */
   if (pathname === '/api/team' && req.method === 'POST') {
     readBody(req)
@@ -6403,14 +6404,6 @@ const server = http.createServer(async (req, res) => {
         /* #3769: the purpose an agent gives for the agents it makes is its words, and the setup guide makes
            agents (#3734): masked here, before it is echoed, recorded on the team or given to the members. */
         if (callerKind === 'agent' && typeof body.purpose === 'string') body.purpose = guideMasked(effectiveCreator, body.purpose);
-        /* #4474: a role an agent writes (its label and text) is its words too, masked the same way. */
-        if (callerKind === 'agent' && members) {
-          for (const m of members) {
-            if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
-            if (typeof m.label === 'string') m.label = guideMasked(effectiveCreator, m.label);
-            if (typeof m.instructions === 'string') m.instructions = guideMasked(effectiveCreator, m.instructions);
-          }
-        }
 
         /* #3734: a member that names no provider, account or model runs where the agent that asked runs: its
            provider and, on a non-default account, that account. The setup guide making an agent for a new
@@ -6572,6 +6565,7 @@ const server = http.createServer(async (req, res) => {
           purpose: body.purpose,
           members: overCap ? members : liveMembers,
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
+          fromGuide: callerKind === 'agent' && isSetupGuide(effectiveCreator),   // and the guide writes no roles
         };
         let result;
         if (callerKind === 'agent') {

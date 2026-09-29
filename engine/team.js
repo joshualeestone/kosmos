@@ -37,10 +37,11 @@
  *     for ever enforcing it; the enforcement is the separate card.
  *   - It does not add a role to Kosmos's list. Each member's role is handed to
  *     create.createAgent, which refuses an unknown role with its own sentence,
- *     captured per-member below. #4474: an AGENT may give a made-up role, but
- *     only as the `own` role with its label and text (vetAgentMember below), the
- *     same one-agent shape the person's "Describe it yourself" makes; nothing is
- *     saved as a new role, and the agent reuses its role by reusing its file.
+ *     captured per-member below. #4474: an AGENT (not the setup guide) may give a
+ *     made-up role, but only as the `own` role with its label and text
+ *     (vetAgentMember below), the same one-agent shape the person's "Describe it
+ *     yourself" makes; nothing is saved as a new role, and the agent reuses its
+ *     role by reusing its file.
  *   - It does not verify the creator is a live roster agent. The creator string
  *     is recorded as provenance; verifying it belongs to a real agent is the
  *     authoring surface's job (the chat request -> createTeam seam), not this
@@ -50,6 +51,7 @@
 const create = require('./create');
 const store = require('./store');
 const instructions = require('./instructions');
+const defaults = require('./defaults');
 
 /* Read a created agent's id the SAME way create.createAgent does (#170): from
    the profile, the single mint point. createAgent's RETURN carries no id -- the
@@ -112,18 +114,26 @@ function resolveCap(deps, env) {
 /**
  * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
  * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
- *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769);
- *     an agent asking for it would mint a second, hidden guide.
+ *   - Only the fields an agent's request has any use for (AGENT_MEMBER_KEYS): never a runner binary, a config
+ *     folder or a launch flag, which would let an agent choose what the new agent's launch job runs (and let the
+ *     sandboxed setup guide step outside its sandbox, #3769). Other fields are dropped.
+ *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769).
+ *   - The setup guide makes agents only from the roles on the list (fromGuide): a role it wrote would hand an
+ *     unsandboxed agent instructions the guide itself may not act on. The person writes their own in New agent.
  *   - A role's own label or text are not replaced under a built-in role's key: a made-up role is the `own` role
  *     with a label and text, so no agent reads as a Bookkeeper while carrying other instructions.
- *   - In made-up text, {{NAME}} becomes the member's name (the page does the same for "Describe it yourself"),
- *     and text that does not open with the identity line gets one, "You are **<name>**, <label>.", the line
- *     every role's text starts with (the board's fallback for the agent's name, status.readIdentity).
- * The shared working rules are appended by create (defaults.appendTo) to any text, so a made-up role cannot drop
- * them. Returns { member } (a copy, possibly with its text completed) or { because }.
+ *   - The shared working rules stay as Kosmos wrote them: create appends them when their heading is missing, and
+ *     text that keeps the heading must keep the rules under it word for word (defaults.block).
+ *   - In made-up text, {{NAME}} becomes the member's name, and text that does not open with the identity line
+ *     gets one, "You are **<name>**, <label>.", the line every role's text starts with (the board's fallback for
+ *     the agent's name, status.readIdentity).
+ * Returns { member } (a copy with only the allowed fields, possibly with its text completed) or { because }.
  */
-const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*,/;
-function vetAgentMember(member) {
+const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind'];
+const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*(?=[,.:;\s-])/;
+const RULES_HEADING = 'How you work, whatever the job';
+function vetAgentMember(member, opts) {
+  const fromGuide = !!(opts && opts.fromGuide === true);
   /* The role exactly as create reads it (create.js: String(opts.role || '').trim()), never a second reading: a
      role sent as ["setup"] is not the string 'setup' here, but create coerces it to 'setup' and would make the
      guide. One derivation, so the two cannot disagree (the repo's two-derivations rule, #1228). */
@@ -132,15 +142,19 @@ function vetAgentMember(member) {
     return { because: 'the setup guide is Kosmos\'s own and only Kosmos makes it; pick another role, or write a new one with --new-role' };
   }
   const madeUp = member.label !== undefined || member.instructions !== undefined;
+  if (madeUp && fromGuide) {
+    return { because: 'the setup guide makes agents from the roles on the list; for a role of their own, walk the person through New agent, then Describe it yourself' };
+  }
   if (madeUp && role !== 'own') {
     return { because: 'a role\'s own label and text are not replaced; to make an agent with a role of your own, use role own with a label and text (kosmos agent create "<name>" --new-role "<label>" --from <file>)' };
   }
+  const out = {};
+  for (const k of AGENT_MEMBER_KEYS) if (member[k] !== undefined) out[k] = member[k];
   /* The label is flattened on every path (with or without text), so it can break neither the identity line nor
      the card: a newline, or a ** run (a single * a person meant, as in "C* specialist", is kept). */
   const label = typeof member.label === 'string' ? member.label.replace(/\*\*+/g, '').replace(/\s+/g, ' ').trim() : '';
-  const out = {};
   if (typeof member.label === 'string') out.label = label;
-  if (typeof member.instructions !== 'string') return { member: Object.assign({}, member, out) };
+  if (typeof member.instructions !== 'string') return { member: out };
   /* NUL is never text: a file saved as UTF-16 and read as UTF-8 has one between every letter, and would pass
      every length check (the Windows CLI decodes by BOM; this is the backstop for any caller). */
   if (member.instructions.includes('\u0000')) {
@@ -151,6 +165,9 @@ function vetAgentMember(member) {
      label's flattening too. */
   const name = String(member.name === undefined || member.name === null ? '' : member.name).trim();
   let text = member.instructions.split('{{NAME}}').join(name);
+  if (text.includes(RULES_HEADING) && !text.includes(defaults.block().trim())) {
+    return { because: 'the shared working rules (under "' + RULES_HEADING + '") stay as Kosmos wrote them; leave that section as kosmos agent role-draft gives it, or delete the whole section and Kosmos adds it back' };
+  }
   /* Only text create would take on its own gets the line: padding blank or too-short text with it would carry
      it past create's own "say what this agent is for" minimum (instructions.MIN_CHARS), and an agent would be
      made whose whole brief is its name. */
@@ -159,12 +176,12 @@ function vetAgentMember(member) {
   if (said && name && said[2].trim() !== name) {
     /* Written for another name ("You are **Bob**," for Ann): the agent's own brief would contradict its name.
        A replacer FUNCTION, so a name carrying $&, $' or $1 is written as typed, never expanded. */
-    text = text.replace(IDENTITY_LINE, (_, lead) => lead + 'You are **' + name + '**,');
+    text = text.replace(IDENTITY_LINE, (_, lead) => lead + 'You are **' + name + '**');
   } else if (!said && enough && name && label) {
     text = 'You are **' + name + '**, ' + label + '.\n\n' + text.replace(/^\s+/, '');
   }
   out.instructions = text;
-  return { member: Object.assign({}, member, out) };
+  return { member: out };
 }
 
 /**
@@ -182,6 +199,7 @@ function vetAgentMember(member) {
  *   cap on the request would let a model raise its own bound.
  * @param {boolean} [opts.fromAgent]  #4474: the request came from an agent's token, so each member is vetted
  *   (vetAgentMember) before create; a member it refuses lands in refused[] like any other.
+ * @param {boolean} [opts.fromGuide]  #4474: that agent is the setup guide, which makes agents only from the list.
  * @param {object} [deps]  { createAgent, readAgentId, cap, env } -- the TRUSTED
  *   channel, injectable for tests; defaults to create.createAgent, the profile-id
  *   reader, and process.env. `deps.cap` is the operator/seam cap override (never
@@ -229,7 +247,7 @@ function createTeam(opts, deps) {
       continue;
     }
     if (opts.fromAgent === true) {
-      const vet = vetAgentMember(member);
+      const vet = vetAgentMember(member, { fromGuide: opts.fromGuide === true });
       if (vet.because) {
         refused.push({ name: String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null, because: vet.because });
         continue;
