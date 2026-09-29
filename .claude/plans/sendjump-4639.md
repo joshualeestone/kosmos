@@ -21,7 +21,9 @@ A browser check per surface proves each of those, and goes red with the send's j
   who was already at the floor.
 - `docs/browser-checks/render-dm-sendjump-4639.js` (new, hermetic file:// harness, real paintTalk / sendTalk): J1
   control (really scrolled back), J2 agent message arriving does not move them, J3 own send lands at the bottom
-  with the row in view, J4 the next agent message keeps them there. Listed in `gated.txt` and the README.
+  with the row in view, J4 the next agent message keeps them there, J5 with a search filtering the thread their
+  send does not move them, J6 someone who scrolls up while a slow send is in flight is not pulled back when it
+  lands. Listed in `gated.txt` and the README.
 - `docs/browser-checks/render-room-scroll.js` arm 4b (`sendJumpArms`), run in the tab view and again in the
   consolidated view: the same four for the room on a sandboxed board (a post arriving by the poll, own post typed
   into `#pj-post` and clicked), plus a fifth: someone who scrolls up while a slow send (POST held 2.5s) is in
@@ -35,7 +37,8 @@ A browser check per surface proves each of those, and goes red with the send's j
 - The Terminal tab's send (`sendTerm`): the DM thread is in a hidden section while that tab is open, and
   `pinToBottom` arms nothing on a hidden box; coming back to Talk already lands on the newest row.
 - Phone-width runs of the checks: the same boxes are the scrollers at phone width (overflow-y on `#d-dmthread`
-  and `#pj-room`), and the code has no width branch. Not measured.
+  and `#pj-room`), and the code has no width branch. Not measured. In a very short window the fill-state CSS can
+  make `#d-talk-box` the scroller instead; the existing no-jump rule shares that premise.
 - A flag read by `setThread` / `paintRoom` ("jump on next paint"): more state across polls; pinning at the send
   and letting the existing floor measurement carry it needs no new state.
 
@@ -44,7 +47,8 @@ A browser check per surface proves each of those, and goes red with the send's j
   send lands at the bottom" and "next post keeps them there" go red (3532px above the floor); with the jump moved
   back to after the server answers, the slow-send arm goes red in both views; with the filter guard removed, the
   filtered arm goes red in both views.
-- DM check: 5/5 pass; with the DM call removed, J3 and J4 go red (1715px above the floor).
+- DM check: 7/7 pass. With the DM call removed, J3 and J4 go red (1715px above the floor); with `TALK_QUERY`
+  dropped from the call, J5 goes red; with the jump moved after the send lands (the `finally` repaint), J6 goes red.
 - Wiring tests (tools.browser-checks-wired, pr-select, indexed, reason-grep, selectors, home-3675): 58/58.
 
 ## Weakest premise
