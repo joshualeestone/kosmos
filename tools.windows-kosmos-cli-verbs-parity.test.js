@@ -298,10 +298,12 @@ test('the texts agents are actually given name only verbs the Windows command ha
   const texts = [
     ['engine/defaults.js block()', require('./engine/defaults').block()],
     ['engine/messages.js blockBody()', require('./engine/messages').blockBody()],
+    ['engine/communityblock.js blockBody()', require('./engine/communityblock').blockBody()],
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
   ];
   const uses = texts.flatMap(([where, text]) => taught(String(text), where, { everyWord: true }));
   assert.ok(uses.some((u) => u.verb === 'feedback' && u.word === 'write'), 'the roles were not read (feedback write is taught there)');
+  assert.ok(uses.some((u) => u.verb === 'community' && u.word === 'read' && u.where.includes('communityblock')), 'the community block was not read (community read is taught there)');
   const problems = uses.map((u) => (PERSON_ONLY_VERBS[u.verb] ? u.where + ': teaches an agent the person-only kosmos ' + u.verb : problemsWith(u))).filter(Boolean);
   assert.deepEqual(problems, []);
 });

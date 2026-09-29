@@ -118,6 +118,7 @@ render-msg-counter-3403
 render-muse-signin-3939
 render-nav-badges-3216
 render-needsyou-dealarm-2808
+render-newlook-4470
 render-no-conflict-3729
 render-no-left-bars-3692
 render-observed-consumers-1959

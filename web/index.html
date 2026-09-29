@@ -9441,6 +9441,169 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    white-on-white in dark (dead markup today; pinned while adjacent). */
 .fr-body p.fr-next { font: var(--text-callout) var(--font-ui); color: var(--k-ink-2);
                      margin-top: var(--space-7); font-style: italic; }
+/* #4470: THE NEW LOOK'S TOKENS, from Josh's drawings (Files/kosmos-project-two-col-v9 light,
+   -v7-dark dark). They apply only under html[data-look="new"], which only the hidden switch
+   sets. White page, one grey (#f5f5f7) for every box, Apple's ink ramp. The --nl-* tokens are
+   the drawings' own names for what the app has no token for yet; the pages that adopt the
+   look read them as each one is rebuilt. The dark set sits in the scheme block below it, so
+   tools/sync-forced-theme.js derives the forced-dark copy like every other dark rule. */
+:root[data-look="new"] {
+  --k-bg: #ffffff; --bg: #ffffff;
+  --k-surface: #f5f5f7; --bg-elevated: #f5f5f7; --bg-sunken: #f5f5f7;
+  --k-ink: #1d1d1f; --label: #1d1d1f;
+  --k-ink-2: #424245; --label-2: #424245;
+  --k-rule: #e8e8ed;
+  --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2;
+  --nl-green: #2e9a5a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-look="new"] {
+    --k-bg: #000000; --bg: #000000;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e;
+    --k-ink: #f5f5f7; --label: #f5f5f7;
+    --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
+    --k-rule: #3a3a3c;
+    --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
+    --nl-green: #30d158;
+  }
+}
+/* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
+   ink and the rest in the drawing's grey (#6e6e73 on white is 5.1:1, #98989d on black 7.3:1), no
+   gold underline (the current tab is also a weight heavier, so colour is not its only cue;
+   aria-selected carries it for a screen reader); the workspace name loses its outline (its 32px height stays, #2350) and shows
+   a grey ground on hover so it still reads as a control. */
+:root[data-look="new"] .apphead .tab { color: var(--nl-ink-3); font-weight: 500; }
+:root[data-look="new"] .apphead .tab:hover, :root[data-look="new"] .apphead .tab.on { color: var(--k-ink); }
+:root[data-look="new"] .apphead .tab.on { border-bottom-color: transparent; font-weight: 600; }
+:root[data-look="new"] .worldsw-btn { border-color: transparent; font-size: .9375rem; font-weight: 500; }
+:root[data-look="new"] .worldsw-btn:hover { background: var(--nl-grey); }
+/* #4470: the project page in the new look (tab layout only; the consolidated layout keeps
+   today's grid). Two columns: one grey box on the left holding Members, Tasks and Files
+   (placeLook moves Tasks in), divided by hairlines, and the conversation on the white
+   page with no box around it. The rule under the header goes too, on every page of the tab layout. */
+:root[data-look="new"] body:not(.consolidated) > .apphead { border-bottom-color: transparent; }
+@media (min-width: 68rem) {
+  :root[data-look="new"] body:not(.consolidated) .pj3 { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
+}
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjsplit { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; gap: 0; }
+/* The moved Tasks aside first, then the cards: web.column-widths-1189 finds today's un-box rule
+   by its opening selector text (the card selector followed by a comma), so this rule opens with
+   the aside instead and cannot read as a second one. */
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcol,
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > .pjcard { border: 0; border-radius: 0; background: none; padding: 0; }
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjsplit > :not([hidden]) ~ :not([hidden]) { border-top: 1px solid var(--k-rule); margin-top: 22px; padding-top: 22px; }
+:root[data-look="new"] body:not(.consolidated) .pj3 > .pjcol.pjmid { border: 0; background: none; padding: 0; }
+:root[data-look="new"] body:not(.consolidated) .pjmid .thread { background: none; }
+:root[data-look="new"] body:not(.consolidated) .pjmid .thread .att { background: var(--nl-grey); }
+/* The room's messages as drawn: your own in the one grey, an agent's with no bubble (its avatar,
+   name and time already say who). Set as FILLS on this page's bubbles, not by redefining the two
+   bubble tokens, so no other surface changes and the tokens' one-per-theme tests still hold. Both
+   are opaque (the tail wing inherits the fill, #3267); "no bubble" is the page's own ground. The
+   tail's mask (::after) is painted in the thread's ground, which here is the page, not the surface.
+   An outside sender keeps its dashed edge (#3311). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg.you .msg-bd { background-color: var(--nl-grey); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .msg .msg-bd::after { background: var(--k-bg); }
+/* The composer: a grey pill on the page ground in both themes (the drawing's #f5f5f7 / #2c2c2e),
+   no black strip around it. Scoped through #pj-one-view so it outranks the dark composer rules
+   AND their generated forced-dark twins, which sit later in the sheet at the same weight. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox { margin-left: 0; margin-right: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470: the header in the new look: the back chevron as a round button, then "Projects /
+   <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
+   visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
+.pj-crumb-rootwrap { display: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pj-crumbrow { margin: 0; gap: 0; flex: 1 1 auto; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 14px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: none; font-size: 1.625rem; line-height: 1.2; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root { font: inherit; color: var(--nl-ink-3); padding: 0; text-decoration: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-root:hover { color: var(--k-ink); text-decoration: underline; text-underline-offset: 4px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pj-crumb-rootwrap > .pj-crumb-sep { color: var(--nl-ink-4); margin: 0 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb { font-size: 1.625rem; line-height: 1.2; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb .pj-crumb-sep { color: var(--nl-ink-4); opacity: 1; margin: 0 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pj-crumb-cur { color: var(--k-ink); font-weight: 600; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjhead { flex: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-name { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* #4470: tasks in the new look's left box are the drawing's compact rows: "#4  Title  (dot) Ada  1/3",
+   no card box. The agent's claim ("says it is on this", or why we cannot tell) is KEPT as a small
+   second line under the title (the 2026-08-19 ruling: a claim state never renders as nothing),
+   where the drawing shows none. The avatar gives way to a dot: filled for an assigned agent,
+   hollow for "Nobody yet". Subtasks keep today's indent. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcards { gap: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; row-gap: 1px; align-items: baseline; border: 0; border-radius: 10px; background: none; box-shadow: none; padding: 7px 36px 7px 8px; margin: 0 -8px; width: auto; text-align: left; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub1 { margin-left: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.sub2 { margin-left: 28px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:hover { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard > * { grid-column: 2 / -1; margin: 0; }
+/* The number as drawn, "#4": the "Task 4 (done)" text stays in the markup and is clipped like .vh (never a
+   zero font size, which some screen readers skip), so a screen reader reads it; the "#4" is drawn from the
+   button's own data-task. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard::before { grid-column: 1; grid-row: 1; content: "#" attr(data-task); content: "#" attr(data-task) / ""; font: 400 .875rem var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed::before { content: "#" attr(data-task) " (done)"; content: "#" attr(data-task) " (done)" / ""; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed .tkcard-t { color: var(--label-2); }
+/* A subtask whose parent is not shown says "Part of #N" FIRST in the markup, so it takes the top row
+   and the row below it moves down one, keeping reading order and visual order the same (#1017). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of)::before,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) > :is(.tkcard-t, .tsk-chip),
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) .tkcard-who-b > b,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) .tkcard-who:not(:has(b)) { grid-row: 2; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard:has(> .tkcard-part-of) :is(.tksay, .tkunk) { grid-row: 3; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part-of { grid-row: 1; grid-column: 1 / -1; font-size: .75rem; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b), :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:has(b) > .tkcard-who-b { display: contents; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who .lav { display: none; }
+/* A task split into parts (.tkcard-parts, one line per part, then "N of M assigned") keeps that list
+   under the title, each part with the same dot: filled for a part someone holds, hollow for one nobody
+   does (.tkcard-part.none), never the avatar. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-parts,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-status { grid-column: 2 / -1; font-size: .8125rem; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part .lav { display: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part b { display: inline-flex; align-items: center; gap: 6px; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part b::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--nl-green); flex: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-part.none b::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who > .tkcard-who-b > b,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b)) { grid-column: 3; grid-row: 1; display: inline-flex; align-items: center; gap: 6px; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who > .tkcard-who-b > b::before,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--nl-green); flex: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tksay,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkunk { grid-column: 2 / -1; grid-row: 2; font-size: .75rem; font-style: normal; color: var(--nl-ink-3); text-decoration: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tsk-chip { grid-column: 4; grid-row: 1; border: 0; background: none; padding: 0; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470: the left box's section headings as drawn: sentence case in the drawing's grey, no
+   letter-spacing ("Members", "Tasks", "Files"). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470: member rows in the new look are plain rows on the grey box, with the state word at the
+   end behind a dot. The state washes go ONLY because the word and dot now carry the state
+   (red dot and "Issue" for needs-you, beside the avatar's warning mark). */
+.pj-member-st { display: none; }
+/* A child combinator on purpose: the #2804 guard in server.test.js reads an unqualified member-row
+   rule that mentions the stroke as stripping it, and this one only rounds the hover ground. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents > .pj-member { background: none; padding: 6px 8px; margin: 0 -8px; border-radius: 10px; }
+/* The stroke goes only on members the board can see; an unseen one keeps its dashed presence
+   border (#2804), which is the only thing on the row saying we cannot see that agent. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(.unseen) { border-color: transparent; }
+/* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
+   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working { animation: none; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st { display: block; margin-left: auto; flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-size: .8125rem; color: var(--nl-ink-3); white-space: nowrap; }
+/* The remove minus (hover/focus only) has its own 28px lane at the row's end, reserved always, so it
+   never covers the state word and nothing shifts when it appears. Task rows have no minus; their
+   36px right padding (below) only lines their end up with this one, so both columns share a right edge. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member { position: relative; }
+/* Not on a swarm member's row: its On/Off toggle sits at the row's end, and an overlaid minus would
+   cover "Off" (a click meant for Off would open the remove confirm). There the minus stays in flow. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents > .pj-member:not(:has(.swmini)) { padding-right: 36px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(:has(.swmini)) .pj-minus { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); margin: 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:has(.swmini) .swmini { margin-left: 8px; }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st::before { content: ""; display: inline-block; vertical-align: 1px; margin-right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--nl-ink-4); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="working"]::before { background: var(--nl-green); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="attn"]::before { background: var(--danger); }
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-st[data-st="idle"]::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -9621,6 +9784,16 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
                                              --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
+
+:root[data-theme="dark"][data-look="new"] {
+    --k-bg: #000000; --bg: #000000;
+    --k-surface: #2c2c2e; --bg-elevated: #2c2c2e; --bg-sunken: #2c2c2e;
+    --k-ink: #f5f5f7; --label: #f5f5f7;
+    --k-ink-2: #c7c7cc; --label-2: #c7c7cc;
+    --k-rule: #3a3a3c;
+    --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
+    --nl-green: #30d158;
+  }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
 :root[data-theme="dark"] .s7-app {background:linear-gradient(160deg,#4a4a4e,#333336)}
@@ -10159,6 +10332,14 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     var t = localStorage.getItem('kosmos-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
+})();
+/* #4470: the new look, behind a hidden switch in Settings > Advanced. Here for the same
+   no-flash reason as the theme above. No stored value means no attribute, and with no
+   attribute nothing in the new look's rules can match, so the app is today's app. */
+(function () {
+  try {
+    if (localStorage.getItem('kosmos-look') === 'new') document.documentElement.setAttribute('data-look', 'new');
+  } catch (e) { /* no storage: today's look */ }
 })();
 /* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
    scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
@@ -14295,6 +14476,9 @@ window.kosmosMeasureScrollbarWidth();
              paintOneProject via pjAncestry, the same chain the cards use. -->
         <div class="pj-crumbrow">
           <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <!-- #4470: the new look's "Projects /" root, as the drawing has it. display:none unless the
+               new look is on; the back chevron already goes to the list in today's look. -->
+          <span class="pj-crumb-rootwrap"><button class="linkish pj-crumb-root" id="pj-crumb-root" type="button">Projects</button><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="vh">, </span></span>
           <p class="pj-crumb" id="pj-crumb"></p>
         </div>
         <div class="pjtitle-row">
@@ -16848,6 +17032,16 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" id="eng-toggle" role="switch" aria-label="Show agents' windows on project pages" hidden><i></i></button>
       </div>
       <p class="dhint" id="eng-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
+    <!-- #4470: Josh asked for the new look behind a HIDDEN switch, built page by page. It only
+         changes how this window looks, on this computer; nothing is sent anywhere. -->
+    <section class="dbox">
+      <h3 class="dlab">New look</h3>
+      <div class="setrow" id="look-row">
+        <div><b>Try the new look</b>
+          <p class="dhint" style="margin:2px 0 0;">Still being built, a page at a time. Turn it off to go back.</p></div>
+        <button class="toggle" id="look-toggle" role="switch" aria-label="Try the new look" aria-checked="false"><i></i></button>
+      </div>
     </section>
 
   <div class="dremove">
@@ -21632,6 +21826,8 @@ function showTab(tab) {
   // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
   // DOM move and the consolidated CSS stay in lockstep.
   placeAppSettings(cons);
+  // #4470: the new look's project page puts Tasks in the left box; same chokepoint and flag.
+  placeLook(cons);
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
@@ -28771,6 +28967,51 @@ function openCommunityDelete(r, li) {
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
    /api/notify-setting) was deleted here too. */
 document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
+/* #4470: the new-look switch. Reads the attribute the head script set, so the switch always
+   shows what the page is actually in. Look only: no server call. */
+function lookPaint() {
+  paintSwitch('look-toggle', document.documentElement.getAttribute('data-look') === 'new');
+}
+/* #4470: the new look's project page is two columns, with Members, Tasks and Files in one
+   left box. Tasks sits after the conversation in the markup, so a CSS-only move would have a
+   keyboard reach it after the conversation while the eye reads it second: the #1017 defect.
+   So it is MOVED, like placeAppSettings: into the left box before Files when the new look is
+   on in the tab layout, and back to the end of .pj3 (where the markup puts it) otherwise,
+   including in the consolidated layout, whose grid places it by position.
+   The same for the back-and-crumb row: today it sits in a row above the columns (#3103, placed
+   by placeProjectHead); the new look's drawing has it as the conversation's own header, so it
+   moves to the front of .pjmidhead, and back above .pj3 otherwise. */
+function placeLook(cons) {
+  const want = document.documentElement.getAttribute('data-look') === 'new' && !cons;
+  const split = document.querySelector('#pj-one-view .pj3 > .pjsplit');
+  if (!split) return;
+  const pj3 = split.parentElement;
+  const files = split.querySelector(':scope > .pjcard-files');
+  const tasks = pj3.querySelector(':scope > aside.pjcol:not(.pjsplit)') || split.querySelector(':scope > aside.pjcol');
+  if (tasks && files) {
+    if (want && tasks.parentElement !== split) split.insertBefore(tasks, files);
+    else if (!want && tasks.parentElement !== pj3) pj3.appendChild(tasks);
+  }
+  const oneView = document.getElementById('pj-one-view');
+  const crumb = oneView && oneView.querySelector('.pj-crumbrow');
+  const mid = oneView && oneView.querySelector('.pjmidhead');
+  if (crumb && mid) {
+    /* FIRST in the header, not merely inside it: placeProjectHead (an async layout paint) puts .pjhead
+       first, which would leave the crumb second after a reload. */
+    if (want && mid.firstElementChild !== crumb) mid.insertBefore(crumb, mid.firstChild);
+    else if (!want && crumb.parentElement === mid) oneView.insertBefore(crumb, pj3);
+  }
+}
+function lookToggleClick() {
+  const on = document.documentElement.getAttribute('data-look') !== 'new';
+  if (on) document.documentElement.setAttribute('data-look', 'new');
+  else document.documentElement.removeAttribute('data-look');
+  try { if (on) localStorage.setItem('kosmos-look', 'new'); else localStorage.removeItem('kosmos-look'); } catch { /* the page still changes; it just will not be remembered */ }
+  placeLook(document.body.classList.contains('consolidated'));
+  lookPaint();
+}
+document.getElementById('look-toggle').addEventListener('click', lookToggleClick);
+lookPaint();
 
 /* The one place the project page's viewport and one-to-one box visibility is
    decided: both the raw screen (.pj-viewport) and the whole #pj-thread box --
@@ -40167,7 +40408,16 @@ function placeProjectHead() {
   const oneView = document.querySelector('#pj-one-view');
   const crumb = oneView && oneView.querySelector('.pj-crumbrow');
   const pj3 = oneView && oneView.querySelector('.pj3');
-  if (crumb && pj3 && crumb.parentElement !== oneView) oneView.insertBefore(crumb, pj3);
+  /* #4470: not when the new look holds the row in the conversation header; moving it out and back in
+     here would drop keyboard focus from the back button or a crumb link. */
+  const lookHolds = typeof placeLook === 'function'   // lifted alone by tests (web.layout-picker): no look there
+    && document.documentElement.getAttribute('data-look') === 'new' && !document.body.classList.contains('consolidated');
+  if (crumb && pj3 && crumb.parentElement !== oneView && !(lookHolds && crumb.parentElement === oneView.querySelector('.pjmidhead'))) oneView.insertBefore(crumb, pj3);
+  /* #4470: the new look puts the crumb row in the conversation header. applyLayout calls this
+     from an async paint that can land AFTER the boot showTab's placeLook, so re-apply it here
+     or a reload with the look on leaves the crumb above the columns. Guarded because tests lift
+     this function and run it alone (web.layout-picker); in the page placeLook is always defined. */
+  if (typeof placeLook === 'function') placeLook(document.body.classList.contains('consolidated'));
 }
 /* #3103 (Josh, 6.68): placeSubProjects removed with the sub-projects section it
    positioned. The #2848 consolidated-vs-tab relocation it did no longer applies. */
@@ -49030,6 +49280,11 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        membership can use the signal. */
     + (hideState ? '' : pjMemberHasIt(m))
     + '</span>'
+    /* #4470: the new look's drawing puts the state WORD at the row's end (Working, Issue, Idle),
+       from the same stateCopyOf/cardStOf the rest of the app uses. Always in the markup, and
+       display:none unless the new look is on, so today's room column still prints no status
+       text (#3212, Josh 6.72) and a toggle needs no repaint. */
+    + (hideState && present ? '<span class="pj-member-st" data-st="' + esc(cardStOf(liveM).st) + '" title="' + esc(stateCopyOf(liveM).label) + '">' + esc(stateCopyOf(liveM).label) + '</span>' : '')
     /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
        on hover or keyboard focus wherever it is drawn. Project settings
        asks for it too now, the same button and the same confirm modal,
@@ -52514,6 +52769,10 @@ function paintSettingsFacts(p) {
 document.getElementById('pj-back').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }
+  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
+});
+/* #4470: the new look's "Projects" crumb root returns to the list from any depth. */
+document.getElementById('pj-crumb-root').addEventListener('click', () => {
   PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
 });
 /* #3125 (Josh, 6.68): ancestor breadcrumb crumbs jump straight to that project.
@@ -64186,7 +64445,8 @@ const TIPS = [
       { at: ['#panel-projects .pj3 .pjcard-members'], title: 'Members', body: 'Members are the agents on it. Add more any time.' },
       { at: ['#panel-projects .pj3 > .pjmid'], title: 'Conversation', body: 'Conversation is where you talk to all of them at once.' },
       { at: ['#panel-projects .pj3 .pjcard-files'], title: 'Files', body: 'Files collects everything they make.' },
-      { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
+      /* #4470: with the new look on, placeLook has moved Tasks into the left box. */
+      { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)', '#panel-projects .pj3 > .pjsplit > aside.pjcol'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
     ],
     show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated') },
   /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then five small tips, one on

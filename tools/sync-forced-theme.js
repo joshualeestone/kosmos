@@ -54,7 +54,9 @@ function prefixed(sel, prefix) {
     const s = one.trim();
     if (!s) return s;
     if (s.startsWith(prefix)) return s;              // already done: idempotent
-    if (s === ':root' || s.startsWith(':root ')) return prefix + s.slice(':root'.length);
+    // A compound on the root (`:root[data-look="new"]`, `:root:has(...)`) names the SAME element,
+    // so the prefix joins it; a space there would make it a descendant that never matches.
+    if (s === ':root' || /^:root[\s[:.]/.test(s)) return prefix + s.slice(':root'.length);
     return prefix + ' ' + s;
   }).join(', ');
 }
