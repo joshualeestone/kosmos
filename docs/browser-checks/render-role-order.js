@@ -60,6 +60,7 @@ const LIVE = `(el) => {
     page.on('pageerror', (e) => errors.push(String(e.message)));
 
     await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+    await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads here
     await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
 
     /* --- one group, by name, across a non-radio sibling ------------------ */
@@ -72,7 +73,7 @@ const LIVE = `(el) => {
         /* The document order of the things that have to be in this order:
            the three original + the menu + the #1652 import option + the #1280
            org-chart option, last. */
-        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import, #pick-orgchart'))
+        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import'))
           .map((n) => n.id),
         /* Every radio is inside the fieldset, and so is the menu. */
         allInFieldset: ins.every((i) => i.closest('fieldset.pickradios')),
@@ -85,8 +86,8 @@ const LIVE = `(el) => {
     });
 
     check(`[${engine}] five radios share one name`, shape.count === 5, shape.values.join(', '));
-    check(`[${engine}] Josh's order, with the menu between the second and third, import fourth and org-chart last`,
-      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import > pick-orgchart',
+    check(`[${engine}] Josh's order, with the menu between the second and third, import last (the org chart moved to the Team screen, #4556)`,
+      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import',
       shape.order.join(' > '));
     check(`[${engine}] the menu is INSIDE the group, which is the whole point`,
       shape.allInFieldset && shape.menuInFieldset);
