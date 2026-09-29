@@ -311,3 +311,21 @@ test('#4560: a consented send with no reader behind it is refused; a page from b
     assert.equal(sent.length, 1, 'only the Claude send reached the runner');
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
 });
+
+test('#4560: the Claude reader id pins the account the consent named; another default account is refused', async () => {
+  const sent = [];
+  orgchartfile.setModelAvailable(() => true);
+  orgchartfile.setModelRunner(async (line, signal, file) => { sent.push(file.reader); return { ok: true, structured: { people: [] } }; });
+  const post = (q) => fetch(base + '/api/orgchart/read' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': 'chart.png', ...SCREEN }, body: fs.readFileSync(path.join(FIX, 'chart.png')) });
+  try {
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: '/Users/x/.claude' }));
+    const ask = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    assert.match(ask.json.reader, /^claude:[0-9a-f]{12}$/, 'the account is in the id');
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: '/Users/x/.claude-other' }));
+    assert.equal((await post('?consent=1&reader=' + ask.json.reader)).status, 409, 'another Claude account must not receive it');
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: '/Users/x/.claude' }));
+    assert.equal((await post('?consent=1&reader=' + ask.json.reader)).status, 200);
+    assert.equal((await post('?consent=1')).status, 200, 'a page from before #4560 (no id) still reads with Claude');
+    assert.equal(sent.length, 2);
+  } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
+});

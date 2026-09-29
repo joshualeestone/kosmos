@@ -6538,7 +6538,7 @@ const server = http.createServer(async (req, res) => {
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
         /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
            id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
-        const handed = q.has('reader') ? q.get('reader') : (orgchartfile.readerId(reader) === 'claude' ? 'claude' : null);
+        const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
           sendJson(res, 409, { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
           return;

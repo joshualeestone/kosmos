@@ -161,6 +161,8 @@ const ORDER = ['openai', 'google', 'xai'];
    "Do not submit sensitive, confidential, or personal information to the Unpaid Services", an org chart names real
    employees, and a free key cannot be told from a paid one. Turning it on is this one line (and its request shape
    is kept and tested), if a paid key can be told apart or Josh rules otherwise. */
+// Turning Gemini on also means revisiting its request: it has no output cap yet, and its answer shape is checked only
+// against the docs and the stub (see PROVIDERS.google).
 const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
 let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */

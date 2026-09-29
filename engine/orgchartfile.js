@@ -595,7 +595,12 @@ function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn :
 function currentReader() {
   lastWhy = null;   // every derivation starts clean, so a reason never outlives the look it came from
   if (readerOverride) return readerOverride();
-  if (claudeHere()) return { kind: 'claude' };
+  if (claudeHere()) {
+    // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
+    let acct = null;
+    try { acct = readAccount(); } catch { acct = null; }
+    return { kind: 'claude', dir: acct ? acct.dir : null };
+  }
   let got = { reader: null, offWhy: null };
   try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
   // No reader: the reason (a switched-off provider) travels on a null-shaped answer the caller can read, from the
@@ -612,8 +617,10 @@ const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
    provider, and the file must not go to another because an account changed while the consent box was open. */
 function readerId(r) {
   if (!r) return null;
-  if (r.kind === 'claude') return 'claude';
-  return r.provider + ':' + require('node:crypto').createHash('sha256').update(String(r.dir || '')).digest('hex').slice(0, 12);
+  const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
+  // Claude with its account folder hashed, like a key account's: another default account is another reader.
+  if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
+  return r.provider + ':' + hash(r.dir);
 }
 /* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
 function consentFor(r) {
