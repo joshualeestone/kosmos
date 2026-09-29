@@ -30671,6 +30671,18 @@ function orgPlace(nodes) {
   /* #4472: how much further out a big team's second ring sits. Its faces sit on slanted lines, which carry them
      sideways toward an inner neighbour, so the flat spill's 58 left them ~60px apart; measured best of 58-70. */
   const ORG_LANE = ORG_MIN_ARC;
+  /* #4499: a team first tries a WIDE window, this many quarter-turns either side of its manager (a first-ring
+     manager's own figure), kept only if an exact test finds no crossing, no line over the hub and every clearance
+     met; otherwise the capped window below. Measured best of 0.95-1.2 and 0.95-1.9 (deep median 2749 -> 1931). */
+  const ORG_WIDE = 0.95;
+  const ORG_WIDE_FIRST = 1.45;
+  /* #4499: in a wide window each report's share is its leaf count to this power: strictly by leaf count crowds the
+     light reports; flatter than 0.8 starves the branches (measured 0.4-1.0). */
+  const ORG_SHARE_POWER = 0.85;
+  /* #4499: the least slice a first-ring agent gets (radians) when the circle has room, so a spilled one can find
+     an angle whose hub line clears its neighbours by ORG_LINE_CLEAR (0.15 or more starved a big branch: 17,908px). */
+  const ORG_ROOT_FLOOR = 0.11;
+  const ORG_HUB_CLEAR = 74;   // #4434: no report's line nearer the hub's centre than its radius plus a face's (52 + 22)
   /* #4472: the least distance from a line to the CENTRE of a face that is not one of its ends (#4472's rule; a face
      is 44px across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face). */
   const ORG_LINE_CLEAR = 12;
@@ -30718,30 +30730,68 @@ function orgPlace(nodes) {
   };
   // The first ring: slices by leaf count, the first one centred at the top as before.
   const roots = kids.get('') || [];
-  const total = roots.reduce((sum, n) => sum + weigh(n), 0) || 1;
-  let at = -Math.PI / 2 - (TAU * weigh(roots[0])) / total / 2;
+  /* #4499: slices by leaf count, but none under ORG_ROOT_FLOOR when the circle has room (water-filling: whoever the
+     leaf-count share would give less gets the floor, the rest is shared by leaf count among the others). */
+  const rootSpans = (() => {
+    const ws = roots.map(weigh);
+    if (!ws.length) return [];
+    /* The floors together never take more than half the circle: with ~80 first-ring agents a full floor each
+       would not fit, and an even split instead gave a branch of 101 people 4.3 degrees (one tree: 222,670px). */
+    const floor = Math.min(ORG_ROOT_FLOOR, TAU / (2 * ws.length));
+    const fixed = ws.map(() => false);
+    for (;;) {
+      const rest = TAU - floor * fixed.filter(Boolean).length;
+      const w = ws.reduce((sum, x, i) => sum + (fixed[i] ? 0 : x), 0);
+      let changed = false;
+      ws.forEach((x, i) => { if (!fixed[i] && (rest * x) / w < floor) { fixed[i] = true; changed = true; } });
+      if (!changed) return ws.map((x, i) => (fixed[i] ? floor : (rest * x) / w));
+    }
+  })();
+  let at = -Math.PI / 2 - (roots.length ? rootSpans[0] : 0) / 2;
   const lanes = [];   // per lane, the angles already on it
-  for (const n of roots) {
-    const span = (TAU * weigh(n)) / total;
+  roots.forEach((n, ri) => {
+    const span = rootSpans[ri];
     const ang = at + span / 2;
     /* A crowded first ring still spills to a further lane. Its lines come straight from the hub, so a
        lane cannot cause a crossing; it only keeps two faces from touching. */
-    let lane = 0;
-    while (lanes[lane] && tightest(lanes[lane].concat(ang), ORG_R0 + lane * 58) < ORG_MIN_ARC) lane += 1;
+    /* #4499: and ORG_LINE_CLEAR on the first ring too. A spilled agent's hub line passes the faces on the lanes inside
+       it, and an inner one sits under the hub lines of those further out (measured on #4473: 5.5px). Try the lanes
+       from the inside and, on each, angles from the slice's centre outward (a radial line anywhere in its own slice
+       cannot cross anything), and take the first that clears both ways; if none does, the old rule. */
+    const clearAt = (a, rr) => [...placed.values()].every((f) => {
+      const d = Math.atan2(Math.sin(a - f.ang), Math.cos(a - f.ang));
+      return Math.cos(d) <= 0 || Math.min(f.r, rr) * Math.abs(Math.sin(d)) >= ORG_LINE_CLEAR || Math.abs(f.r - rr) < 1e-9;
+    });
+    const spare = span / 2 - Math.min(span / 2, ORG_LINE_CLEAR / ORG_R0);
+    const offsets = [0];
+    for (let k = 1; k <= 40; k += 1) offsets.push((k / 40) * spare, (-k / 40) * spare);
+    /* A lane is already clear, so only the new angle against it needs checking. */
+    const fits = (L, a) => !(lanes[L] || []).some((b) => {
+      const d = Math.abs(a - b) % TAU;
+      return 2 * (ORG_R0 + L * 58) * Math.sin(Math.min(d, TAU - d) / 2) < ORG_MIN_ARC;
+    });
+    let lane = -1;
+    let ang2 = ang;
+    for (let L = 0; L <= lanes.length && lane < 0; L += 1) {
+      for (const off of offsets) {
+        if (fits(L, ang + off) && clearAt(ang + off, ORG_R0 + L * 58)) { lane = L; ang2 = ang + off; break; }
+      }
+    }
+    if (lane < 0) { lane = 0; while (!fits(lane, ang)) lane += 1; }
     if (!lanes[lane]) lanes[lane] = [];
-    lanes[lane].push(ang);
+    lanes[lane].push(ang2);
     const r = ORG_R0 + lane * 58;
-    placed.set(n.agent.sessionName, { ang, r, node: n, lo: at, hi: at + span });
+    placed.set(n.agent.sessionName, { ang: ang2, r, node: n, lo: at, hi: at + span });
     maxR = Math.max(maxR, r);
     at += span;
-  }
+  });
   // The rings beyond, a generation at a time: each manager's reports inside its window, at the team's own radius.
   let prev = roots;
   while (true) {
     const ring = [];
     for (const p of prev) for (const k of (kids.get(p.agent.sessionName) || [])) ring.push({ n: k, p });
     if (!ring.length) break;
-    const lay = (r, team) => {
+    const lay = (r, team, wide) => {
       const out = new Map();
       for (const p of team) {
         const ks = kids.get(p.agent.sessionName) || [];
@@ -30755,7 +30805,8 @@ function orgPlace(nodes) {
         /* 0.9 is a safety margin inside the exact tangent. 1.0 is still correct (0 crossings in 4,500 trees
            with a rounding-aware count, review it4), so no test can pin the margin itself; removing the cap is
            pinned by the deep tree randomTree(892, 85, 0.1) in the tests. */
-        const cap = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
+        const capped = ps.node.parent ? Math.acos(ps.r / r) * 0.9 : (Math.PI / 2) * 0.95;
+        const cap = wide ? (Math.PI / 2) * (ps.node.parent ? ORG_WIDE : ORG_WIDE_FIRST) : capped;
         /* #4472: the window may reach the cap on either side, as far as the manager's own slice allows, so it is
            no longer always centred on the manager. A lone report keeps a centred window (#352: straight out). A pair
            is still either side of the manager when its slice is even on both sides (#352), but may lean into the
@@ -30764,7 +30815,8 @@ function orgPlace(nodes) {
         const left = ks.length > 1 ? Math.min(ps.ang - ps.lo, cap) : Math.min(ps.ang - ps.lo, ps.hi - ps.ang, cap);
         const right = ks.length > 1 ? Math.min(ps.hi - ps.ang, cap) : left;
         const half = (left + right) / 2;
-        const w = ks.reduce((sum, k) => sum + weigh(k), 0);
+        const share = (k) => (wide ? Math.pow(weigh(k), ORG_SHARE_POWER) : weigh(k));
+        const w = ks.reduce((sum, k) => sum + share(k), 0);
         /* #4472: a team with no managers in it (every report a leaf) that would crowd one ring takes two
            staggered ones, alternating, the way the flat layout's first ring spills. Its lines all start at the
            manager, so they cannot cross each other, and no other line enters its window (the team has no
@@ -30820,7 +30872,7 @@ function orgPlace(nodes) {
         }
         let from = ps.ang - left;
         ks.forEach((k, i) => {
-          const span = (2 * half * weigh(k)) / w;
+          const span = (2 * half * share(k)) / w;
           /* #4472: the first and last report's slice runs on to the edge of the manager's slice: room the window
              did not use, which their own reports may then spread into. The slices still split the manager's
              slice without overlapping, and each report still sits inside its own, so nothing can cross. */
@@ -30870,17 +30922,16 @@ function orgPlace(nodes) {
        away from the hub, so a team at a different radius from its neighbour cannot cause a crossing. */
     /* Every face and every line (hub or manager to report) placed so far, kept as lists that each placed team is
        added to, with their radii: a face can only be ORG_MIN_ARC from a face whose radius is within ORG_MIN_ARC of
-       its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within its ends' radii
-       give or take ORG_LINE_CLEAR. That holds below the first ring, where the cap makes every line run steadily
-       outward. A first-ring manager's lines have no tangent cap (~85 degrees) and dip below the manager's radius
-       (review it5 measured 12.9px, more than ORG_LINE_CLEAR), so a line from the first ring (or the hub) is
-       never skipped: its band starts at 0. The checks below skip the distance for the rest (every pair is still
-       visited), which took a 1000-agent chart from 97ms to 18ms. */
-    const faceOf = (name, s) => ({ name, r: s.r, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
+       its own, and a line can only come within ORG_LINE_CLEAR of a face whose radius lies within the line's band,
+       give or take ORG_LINE_CLEAR. A line's band runs from its true nearest approach to the hub (a wide or first-ring
+       line dips inside both its ends; #4472 review it5 measured 12.9px) to its farther end. The checks below skip
+       the distance outside that band. */
+    const faceOf = (name, s) => ({ name, r: s.r, ang: s.ang, xy: [Math.cos(s.ang) * s.r, Math.sin(s.ang) * s.r] });
     const lineOf = (f, parent) => {
       const a = parent ? faceOf(parent, placed.get(parent)) : { r: 0, xy: [0, 0] };
-      const firstRing = !parent || !placed.get(parent).node.parent;
-      return { a: a.xy, b: f.xy, ends: [f.name, parent], lo: firstRing ? 0 : Math.min(a.r, f.r), hi: Math.max(a.r, f.r) };
+      const g = { a: a.xy, b: f.xy, ends: [f.name, parent], hi: Math.max(a.r, f.r), angA: parent ? a.ang : f.ang, angB: f.ang };
+      g.lo = segDist([0, 0], g);   // its true nearest approach to the hub: a wide line can dip inside both its ends
+      return g;
     };
     const segDist = (q, g) => {
       const dx = g.b[0] - g.a[0]; const dy = g.b[1] - g.a[1];
@@ -30891,12 +30942,44 @@ function orgPlace(nodes) {
        runs steadily outward exactly when r_P cos(d) >= r_M (d = P's angle from M). The unpulled P lies on the extension
        of M through the midpoint Q, a line that already satisfies it; the pull keeps r_P and only shrinks d, so cos(d),
        and the inequality, only grow. */
+    /* A PROPER crossing, as web.org-sectors-4434.test.js counts one: interior to both segments; sharing an end counts
+       only when the two are collinear and point the same way, and a side counts only when clear of rounding. */
+    const orient = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const same = (u, v) => Math.abs(u[0] - v[0]) < 1e-6 && Math.abs(u[1] - v[1]) < 1e-6;
+    const crosses = (s1, s2) => {
+      if (same(s1.a, s2.a) || same(s1.a, s2.b) || same(s1.b, s2.a) || same(s1.b, s2.b)) {
+        const sh = same(s1.a, s2.a) || same(s1.a, s2.b) ? s1.a : s1.b;
+        const so = same(sh, s1.a) ? s1.b : s1.a; const to = same(sh, s2.a) ? s2.b : s2.a;
+        if (Math.abs(orient(sh, so, to)) > 1e-6) return false;
+        return (so[0] - sh[0]) * (to[0] - sh[0]) + (so[1] - sh[1]) * (to[1] - sh[1]) > 0;
+      }
+      const side = (v, g) => { const e = 1e-9 * ((g.b[0] - g.a[0]) ** 2 + (g.b[1] - g.a[1]) ** 2); return v > e ? 1 : (v < -e ? -1 : 0); };
+      return side(orient(s2.a, s2.b, s1.a), s2) * side(orient(s2.a, s2.b, s1.b), s2) < 0
+        && side(orient(s1.a, s1.b, s2.a), s1) * side(orient(s1.a, s1.b, s2.b), s1) < 0;
+    };
     const near = (f, g) => f.r > g.lo - ORG_LINE_CLEAR && f.r < g.hi + ORG_LINE_CLEAR;
     const faces = [...placed].map(([name, s]) => faceOf(name, s));
     const lines = faces.map((f) => lineOf(f, placed.get(f.name).node.parent));
     for (const p of prev) {
       if (!(kids.get(p.agent.sessionName) || []).length) continue;
       const ps = placed.get(p.agent.sessionName);
+      /* #4499: only what can reach this team. Its faces and lines all lie inside the manager's slice, so a face or a
+         line whose angle stays clear of the slice by more than the spacing and the clearance cannot matter. Every
+         check below reads these, once per team rather than once per try (1000 agents: 84ms -> 21ms). */
+      const mid = (ps.lo + ps.hi) / 2;
+      const halfW = (ps.hi - ps.lo) / 2;
+      const rel = (a) => { const d = a - mid; return d - TAU * Math.round(d / TAU); };
+      const reach = (r) => Math.asin(Math.min(1, (ORG_MIN_ARC + ORG_LINE_CLEAR) / Math.max(r, 1)));
+      const teamFaces = faces.filter((f) => {
+        const x = Math.abs(rel(f.ang));
+        return x <= halfW || (x <= halfW + Math.PI / 2 && x <= halfW + reach(f.r));
+      });
+      const teamLines = lines.filter((g) => {
+        const x = rel(g.angA); const y = rel(g.angB);
+        if (Math.min(x, y) <= halfW && Math.max(x, y) >= -halfW) return true;
+        const m = reach(g.lo);
+        return Math.min(x, y) <= halfW + m && Math.max(x, y) >= -halfW - m;
+      });
       const apart = (spots, strict) => {
         if (!clear(spots)) return false;
         /* Room for what comes after: a report's slice, at the depth its branch's leaves will reach (its height in
@@ -30914,20 +30997,27 @@ function orgPlace(nodes) {
         }
         const mine = [...spots].map(([name, s]) => faceOf(name, s));
         for (const f of mine) {
-          for (const o of faces) {
+          for (const o of teamFaces) {
             if (Math.abs(o.r - f.r) < ORG_MIN_ARC && Math.hypot(f.xy[0] - o.xy[0], f.xy[1] - o.xy[1]) < ORG_MIN_ARC) return false;
           }
         }
         /* No line passes nearer than ORG_LINE_CLEAR to a face that is not one of its ends: this team's lines past
            every face, and every line already drawn past this team's faces. Teams at different radii made this a
            real case (measured: a line 9.8px from an unrelated face's centre). */
-        if (!strict) return true;
         const mineLines = mine.map((f) => lineOf(f, p.agent.sessionName));
+        /* #4499: no new line crosses any line already drawn, tested exactly. A wide window drops the tangent cap,
+           which is what made every line run away from the hub (enough to rule crossings out, but more than needed):
+           a line that dips inward can only meet lines already drawn from its manager's ancestors, and this finds
+           them. A capped team is tested too, though by the sector argument it cannot fail (counted: never, in the
+           7,319-tree sweep), so a wrong argument would cost only size, never a crossing. */
+        for (const g of mineLines) for (const h of teamLines) if (h.hi >= g.lo && h.lo <= g.hi && crosses(g, h)) return false;
+        if (spots.wide) for (const g of mineLines) if (g.lo < ORG_HUB_CLEAR) return false;
+        if (!strict) return true;
         for (const g of mineLines) {
-          for (const f of faces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+          for (const f of teamFaces) if (near(f, g) && !g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
           for (const f of mine) if (!g.ends.includes(f.name) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         }
-        for (const g of lines) for (const f of mine) if (near(f, g) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
+        for (const g of teamLines) for (const f of mine) if (near(f, g) && segDist(f.xy, g) < ORG_LINE_CLEAR) return false;
         return true;
       };
       /* Grows by at least 8px and at least 3% a try, so even one manager with hundreds of direct reports finds
@@ -30937,12 +31027,20 @@ function orgPlace(nodes) {
          radius clears it (one team grew to 46,656,912px unbounded), and chasing clearance far out made single
          trees much bigger than #4473 (review it1: a 1000-agent tree 2.4x). Past the reach, the team keeps the
          spacing radius, as #4473 places it. */
+      /* #4499: at each radius the wide window first, kept only when it passes every check including the clearance;
+         else the capped one. */
+      const layBest = (r, ok) => {
+        const w = lay(r, [p], true);
+        w.wide = true;
+        if (ok(w) && apart(w, true)) return w;
+        return lay(r, [p], false);
+      };
       const grow = (from, ok, limit) => {
         let r = from;
-        let spots = lay(r, [p]);
+        let spots = layBest(r, ok);
         for (let tries = 0; tries < 400 && r <= limit && !ok(spots); tries += 1) {
           r = Math.max(r + 8, r * 1.03);
-          spots = lay(r, [p]);
+          spots = layBest(r, ok);
         }
         return { r, spots, ok: r <= limit && ok(spots) };
       };
