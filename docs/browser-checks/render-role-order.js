@@ -85,7 +85,7 @@ const LIVE = `(el) => {
       };
     });
 
-    check(`[${engine}] five radios share one name`, shape.count === 5, shape.values.join(', '));
+    check(`[${engine}] four radios share one name (the org chart moved to the Team screen, #4556)`, shape.count === 4 && shape.values.join(',') === 'pm,list,own,import', shape.values.join(', '));
     check(`[${engine}] Josh's order, with the menu between the second and third, import last (the org chart moved to the Team screen, #4556)`,
       shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import',
       shape.order.join(' > '));
