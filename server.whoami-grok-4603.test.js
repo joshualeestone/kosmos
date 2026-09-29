@@ -70,7 +70,8 @@ test('#4603 a Grok agent\'s model comes from its card (its session file), not "w
   const after = whoamiFor(withSession, [], NO_LIVE());
   assert.equal(after.model && after.model.id, 'grok-4.6', JSON.stringify(after.model));
   assert.equal(after.source.model, 'session');
-  assert.match(sentenceForWhoami(after.account, after.model, after.resolvedRunner), /This is a Grok agent, .*its model is /);
+  assert.equal(after.model.name, 'Grok 4.6');
+  assert.match(sentenceForWhoami(after.account, after.model, after.resolvedRunner), /This is a Grok agent, .*its model is Grok 4\.6\./);
 });
 
 test('#4603 CONTROL: a Claude agent never takes the card model over its transcript path', (t) => {
@@ -136,7 +137,10 @@ test('#4603 CONTROL through the route: a Claude agent\'s answer is the same with
   const board = fleet.install([fleet.agent('clem', { state: 'idle' })]);
   const grokKey = path.join(process.env.AGENT_WORKFORCE_GROK_HOME, '.kosmos-grok-apikey');
   const gemKey = path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME, '.kosmos-gemini-apikey');
-  t.after(() => { board.restore(); for (const f of [grokKey, gemKey]) { try { fs.unlinkSync(f); } catch { /* */ } } });
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('clem')); } catch { /* */ } for (const f of [grokKey, gemKey]) { try { fs.unlinkSync(f); } catch { /* */ } } });
+  /* A default-account Claude launch job, so accountForAgent reaches its default arm, the one a keyed default row
+     could wrongly match. No Claude account rows exist in this sandbox, so the right answer is no account. */
+  job('clem', 'claude', '/opt/homebrew/bin/claude');
   const tok = sendertoken.mint('clem');
   assert.ok(tok.ok, tok.because);
   const ask = async () => (await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json());
@@ -146,6 +150,7 @@ test('#4603 CONTROL through the route: a Claude agent\'s answer is the same with
   const after = await ask();
   assert.equal(after.because, before.because, 'a Claude agent\'s answer changed when keyed accounts appeared');
   assert.deepEqual(after.account, before.account);
+  assert.equal(after.account, null, 'a Claude agent was matched to a keyed (xAI or Google) default account');
 });
 
 test('#4603 a Codex agent whose live read answers with no model also takes its card model', (t) => {
@@ -172,5 +177,16 @@ test('#4603 through the route: the model Grok Build wrote to its session file re
   assert.ok(tok.ok, tok.because);
   const got = await (await fetch(base + '/api/whoami', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok.token }, body: '{}' })).json();
   assert.equal(got.model && got.model.id, 'grok-4.6', JSON.stringify(got));
-  assert.match(got.because, /This is a Grok agent, .*its model is /, got.because);
+  assert.match(got.because, /This is a Grok agent, .*its model is Grok 4\.6\./, got.because);
+});
+
+test('#4603 for a non-Claude agent the card model (its session file) outranks the launch argument', (t) => {
+  const board = fleet.install([fleet.agent('cody3', { state: 'idle', runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything' })]);
+  t.after(() => { board.restore(); try { fs.unlinkSync(create.plistPath('cody3')); } catch { /* */ } });
+  job('cody3', 'codex', '/opt/homebrew/bin/codex');
+  const real = board.agents.find((a) => a.name === 'cody3');
+  const out = whoamiFor(Object.assign({}, real, { model: 'gpt-5.6-sol' }), [], { ok: true, runner: 'codex', account: null, model: 'gpt-5-codex', configDir: null });
+  assert.equal(out.model && out.model.id, 'gpt-5.6-sol', 'the launch argument beat the session file after a /model switch: ' + JSON.stringify(out.model));
+  const noCard = whoamiFor(real, [], { ok: true, runner: 'codex', account: null, model: 'gpt-5-codex', configDir: null });
+  assert.equal(noCard.model && noCard.model.id, 'gpt-5-codex', 'CONTROL: with no card model the launch argument still answers');
 });

@@ -11,7 +11,8 @@ the session is Grok 4.6 on a connected xAI subscription."
 
 ## Done
 - runnerDisplayName: Grok, Gemini.
-- whoamiFor model: after the transcript (Claude only) and the live read, a non-Claude agent takes card.model, source
+- whoamiFor model: after the transcript (Claude only), and ABOVE the live launch argument (the session file follows a
+  mid-session /model switch; the launch argument does not), a non-Claude agent takes card.model, source
   'session', only when card.runner equals the resolved runner (after a provider switch the job names the new runner
   while the card still describes the old pane and its model). Confidence `structured` (a purpose-written session file).
   This also changes Codex: a Codex agent whose live read failed, or answered without a model (the common case, since
@@ -19,7 +20,8 @@ the session is Grok 4.6 on a connected xAI subscription."
 - The route's account list adds grokaccounts and geminiaccounts rows. accountForAgent's default (dir-less) arm matches a
   keyed row only for an agent of that provider; its dir-match arm is ungated, so a Claude or Codex answer is unchanged
   because the account folders differ (~/.claude*, ~/.codex*, ~/.grok*, ~/.gemini*), not by code. A route-level control
-  pins a Claude agent's answer with both keyed accounts on disk.
+  pins a default-account Claude agent (with a launch job, so the default arm is reached) with both keyed accounts on disk;
+  it fails when the default arm's keyed-row gate is removed.
 - keyTail carried in all three account constructions (parity test) and a sentence rung below name, email and label:
   "the API key ending in ABCD". accountForAgent is also /api/status's, so board cards gain `keyTail: null` (unread).
 
@@ -29,10 +31,13 @@ the session is Grok 4.6 on a connected xAI subscription."
   while whoami names it. Not changed here: widening /api/status touches every card render; a follow-up if wanted.
 - OpenAI rows are NOT added to the list: Codex answers are pinned by many tests and were not asked about.
 
+## Limits
+- A paneless card has no runner, so a paneless Grok/Gemini/Antigravity agent still gets "we cannot tell which model".
+
 ## Weakest premise
 card.model is from the Grok session file, which follows a mid-session /model switch only when Grok Build rewrites
 summary.json; if it lags, whoami says the older model, as the board does.
 
 ## Tests
-server.whoami-grok-4603.test.js (10), including a Grok model read end to end from a real summary.json through the route.
+server.whoami-grok-4603.test.js (11), including a Grok model read end to end from a real summary.json through the route.
 Mutations: dropping the runner-agreement guard, the Gemini lister, or the card-model rung each fail tests. server.test.js 344/344.

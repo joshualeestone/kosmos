@@ -1430,8 +1430,7 @@ function whoamiFor(card, known, live) {
        this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
     /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
-       not a claim, it is a DEFAULT. `status.js` normalises the pane's
-       `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
+       not a claim, it is a DEFAULT: `status.js` reads an absent `@kosmos_runner` as claude, so an
        agent whose marker was never recorded is indistinguishable from one
        recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
        in as many words: "could not record $SESSION's runner -- the board will
@@ -1690,16 +1689,16 @@ function whoamiFor(card, known, live) {
          the fallback and not the default is the wrong way round. */
       return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
     }
+    /* #4603: the card's own model for a non-Claude agent, only when the card's runner is the resolved runner, and
+       above the launch argument below, as the transcript is for Claude (server.whoami-grok-4603.test.js pins the provider-switch case). */
+    if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
+      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.STRUCTURED }, from: 'session' };
+    }
     if (seen && seen.model) {
       /* ⚠️ NOT `structured`. That tier means "read from a file written for this
          purpose"; this is a process command line, and mislabelling provenance
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
-    }
-    /* #4603: the card's own model for a non-Claude agent, only when the card's runner is the resolved runner
-       (server.whoami-grok-4603.test.js pins the provider-switch case). */
-    if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
-      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.STRUCTURED }, from: 'session' };
     }
     /* 📌 `record` when NEITHER answered: `source` means "who answered" everywhere else, and here nobody did. */
     return { value: null, from: 'record' };
@@ -1732,16 +1731,7 @@ function whoamiFor(card, known, live) {
    screen is Codex, so the two agree here and the map exists so a third runner
    cannot be spelled two ways in two places. */
 function runnerDisplayName(runner) {
-  /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
-     agent"), and that is left as-is deliberately rather than "fixed" with a
-     capitalise. `agentUnder` returns only `claude` or `codex`, and this is
-     reached only for a non-claude one.
-     ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
-     the change that weakened it is on this branch: `resolvedRunner` also takes
-     the plist's ninth argument VERBATIM, so an unexpected value can reach here
-     from a HAND-EDITED job. Not from the tmux marker, which `status.js` clamps
-     to codex-or-claude before a card ever carries it. Still not a product path, and a raw name is the honest
-     rendering of one. Whoever adds a third
+  /* 📌 AN UNMAPPED RUNNER RENDERS AS ITS RAW NAME, deliberately rather than "fixed" with a capitalise. Whoever adds a
      runner adds its real product name here, which is the point of the map; a
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
@@ -1765,9 +1755,9 @@ function sentenceForWhoami(account, model, runner) {
   const acct = account && account.name ? account.name
     : account && account.email ? account.email
       : account && account.label ? account.label
-      : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
-        : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
-          : null;
+        : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
+          : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+            : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
