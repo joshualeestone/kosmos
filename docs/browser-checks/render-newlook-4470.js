@@ -10,9 +10,15 @@
  *  - turning it on repaints at once (white page in light, black in dark) and the switch reads On,
  *  - a reload keeps it (the head script applies it before paint), and turning it off and
  *    reloading gives today's page back,
- *  - the project page: with the look on, Tasks moves into the left box between Members and
- *    Files (so the keyboard meets it second, where the eye does) and the page is two columns;
- *    with it off, Tasks is back at the end of the page's markup, as today,
+ *  - the project page with the look on: Tasks moved into the left box between Members and Files and
+ *    the crumb row moved FIRST into the conversation header (so the keyboard meets them where the eye
+ *    does), after a fresh open, a direct URL load and a live toggle; two columns when wide; plain member
+ *    rows (a working one too) with a state word the remove minus never covers; compact task rows ("#n",
+ *    the claim line kept, parts with hollow/filled dots, "Part of" on top) sharing the members' right
+ *    edge; sentence-case headings; bubbles and composer greys (also in chosen Dark on a light machine);
+ *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
+ *  - with it off: every placement back where today has it, no state word, today's underline,
+ *  - the Agents page's inks clearing 4.5:1 on the new grounds,
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -217,7 +223,19 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         /* Hovering a member row to read its state keeps the word: only the remove minus hides it. */
         await page.hover('#pj-one-agents .pj-member .pj-member-b b');
         const hoverWord = await page.evaluate(`getComputedStyle(document.querySelector('#pj-one-agents .pj-member .pj-member-st')).visibility`);
-        chk(hoverWord === 'visible', `${tag} On: hovering a member row keeps its state word showing`, hoverWord);
+        const lane = await page.evaluate(`(() => {
+          const row = document.querySelector('#pj-one-agents .pj-member');
+          const w = row.querySelector('.pj-member-st').getBoundingClientRect();
+          const m = row.querySelector('.pj-minus'); const r = m ? m.getBoundingClientRect() : null;
+          /* each row's CONTENT edge (its box less its right padding): the lane the minus sits in is outside it */
+          const edge = (el) => el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight);
+          const card = document.querySelector('#pj-one-view .pjsplit .tkcard');
+          return { minusShown: !!m && getComputedStyle(m).opacity === '1', overlap: !!r && r.left < w.right && r.right > w.left,
+            wordRight: Math.round(w.right), memberEdge: Math.round(edge(row)), taskRight: card ? Math.round(edge(card)) : null };
+        })()`);
+        chk(hoverWord === 'visible' && lane.minusShown && !lane.overlap, `${tag} On: hovering a member row shows the remove minus beside its state word, never on it`, JSON.stringify({ hoverWord, ...lane }));
+        chk(lane.taskRight !== null && Math.abs(lane.memberEdge - lane.taskRight) <= 1 && Math.abs(lane.wordRight - lane.memberEdge) <= 1,
+          `${tag} On: member states end at the row's edge, and member and task rows share one right edge`, JSON.stringify(lane));
       }
       await page.mouse.move(0, 0);
       const rows = await page.evaluate(ROW_GROUNDS);
@@ -330,5 +348,5 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 20 ? 1 : 0);
+  process.exit(fail.length || ran < 90 ? 1 : 0);   // a full run makes about 100; a skipped pass must fail
 })();
