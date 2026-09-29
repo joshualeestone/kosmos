@@ -279,9 +279,15 @@ function kosmosRestart(cli) {
      bleed the three deletes above prevent for the data roots. */
   delete env[worlds.PRE_WORLD_ROOTS_ENV_VAR];
   delete env[launchidentity.WORLD_ENV_VAR];
+  /* #4466: this restart is the board's own (a person pressed Restart, or a Kosmos switch), never an
+     agent's. `kosmos` refuses an AGENT's stop/restart of a board that answers, and a board started
+     from an agent's pane inherits that pane's markers, so they are removed and --force says so. */
+  delete env.KOSMOS_AGENT_SESSION;
+  delete env.KOSMOS_AGENT_TOKEN;
+  delete env.TMUX_PANE;
   let child;
   try {
-    child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });
+    child = spawner(cli, ['restart', '--force'], { detached: true, stdio: 'ignore', env });
   } catch (e) {
     // A SYNCHRONOUS spawn throw is rare (e.g. bad options); the real failures are async.
     return { ok: false, because: `could not start the board restart: ${String((e && e.message) || e)}` };

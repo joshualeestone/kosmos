@@ -23,7 +23,8 @@ new_home() {
 H="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
   status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; exit 1 ;;   # 4: #4466 busy
-  start)  echo "start" >> "$H/.stub-start-calls"; : > "$H/.stub-healthy"; exit 0 ;;
+  # #4466: like the real CLI, a start on a BUSY (our own, not answering) board is a no-op "already running".
+  start)  echo "start" >> "$H/.stub-start-calls"; [ -f "$H/.stub-busy" ] || : > "$H/.stub-healthy"; exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -97,10 +98,19 @@ H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nf
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 [ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy 60 s: no restart (busy grace)" || bad "busy 60 s: restarted a busy board ($(starts "$H") starts, $(kicks "$H") kicks)"
 rm -rf "$H"
-# 6c. #4466: BUSY past BUSY_GRACE -> treated as wedged and recovered (#2955 still holds).
+# 6c. #4466: BUSY past BUSY_GRACE -> the first attempt is a plain `kosmos start`, which on a busy board
+#     is a no-op (the stub mirrors the real CLI), so it only counts a failure...
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
-[ "$(starts "$H")" = 1 ] && ok "busy 400 s: recovered as wedged" || bad "busy 400 s: never recovered ($(starts "$H"))"
+[ "$(starts "$H")" = 1 ] && [ "$(kicks "$H")" = 0 ] && grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" \
+  && ok "busy 400 s, first attempt: kosmos start (a no-op on a busy board), fail_count 1" \
+  || bad "busy 400 s, first attempt: $(starts "$H") starts, $(kicks "$H") kicks, $(grep fail_count "$H/logs/board-watchdog.state")"
+[ ! -f "$H/.stub-healthy" ] && ok "busy 400 s, first attempt: the board is still not recovered (the honest state)" || bad "busy: the stub start healed a busy board"
+rm -rf "$H"
+# 6d. ...and the RECOVERY of a wedged board is the next escalation: kickstart -k of the board job.
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=1\n' "$(( $(now) - 800 ))" > "$H/logs/board-watchdog.state"
+KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
+[ "$(kicks "$H")" -ge 1 ] && [ -f "$H/.stub-healthy" ] && ok "busy 800 s after a failed start: kickstart -k recovers the wedged board" || bad "busy wedged board never escalated ($(kicks "$H") kicks)"
 rm -rf "$H"
 
 # 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate

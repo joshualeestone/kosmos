@@ -1274,7 +1274,10 @@ uninstall() {
   # the folder under a running server leaves it serving ghosts.
   if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
     info "stopping the board"
-    "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+    # #4466: --force on every board start/stop/restart in this installer. `kosmos` refuses an AGENT's
+    # stop/restart of a board that answers, and an install or update run from an agent's pane is not
+    # the agent restarting the board. An older kosmos ignores the extra word.
+    "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
     # A refused stop (a board this command did not start) is NAMED rather
     # than glossed: the files still come off, but an orphan process would
     # keep the port and answer errors from a deleted tree, so the user
@@ -2660,7 +2663,7 @@ mkdir -p "$KOSMOS_HOME" "$BIN_DIR" || die "Could not create $KOSMOS_HOME. Check 
 # cannot speak.
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   info "pausing Kosmos for the update"
-  "$KOSMOS_HOME/bin/kosmos" stop >/dev/null 2>&1 || true
+  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.
@@ -3711,7 +3714,7 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
 fi
 
 step "Starting Kosmos."
-KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 ok
 
 # ---- and start it again at every login --------------------------------------
@@ -3979,7 +3982,7 @@ if [ "$_board_ok" = yes ]; then
         # board-run guard still prevents a double-bind, so this only ever improves on
         # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
         # under the sandbox above, so this path is verified on a real box, not here.)
-        "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
+        "$KOSMOS_HOME/bin/kosmos" restart --force >/dev/null 2>&1 || true
       fi
     fi
   else

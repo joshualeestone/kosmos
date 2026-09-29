@@ -38,6 +38,24 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
    `ctx.unreachable` asking "Is it running at <url>?" on a timeout; a timeout now says busy.
 8. Follow-up for the single-core load: #4468.
 
+## Review round 1 changes
+- **Busy only when the listener is OUR board.** A no-answer (curl 28, 52 or 56) is `busy` only if lsof
+  says the port's listener is a Kosmos server run by this user; a non-Kosmos process or another account's
+  board is `stranger`, so start/status keep their stranger and reclaim paths (#2988, #3079). Any other curl
+  failure (a non-HTTP answer) is `stranger`. When lsof cannot say, it stays busy (a wrong "busy" costs a
+  wait; a wrong "stranger" could cost a restart).
+- **An agent's stop of a board that does not answer is a no-op**, so it never writes the deliberate-stop
+  marker that switches off the watchdog.
+- **A person's stop of a busy board this command did not start** leaves it alone (it used to fall through
+  to "not running" and write the marker).
+- **Internal callers are never agents:** `engine/boardrestart.js` (the Restart button and a Kosmos switch)
+  spawns `kosmos restart --force` and drops the agent markers from the child's env; every board
+  start/stop/restart in `install/setup.sh` passes `--force`; an unsupervised board started from an agent's
+  pane is launched with the agent markers removed from its env.
+- **Watchdog on a busy board:** its first attempt, `kosmos start`, is a no-op on a busy board (already
+  running), so recovering a truly wedged board is the next escalation, `kickstart -k`, one throttle later.
+  Test arms 6c/6d assert exactly that.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

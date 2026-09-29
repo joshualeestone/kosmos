@@ -217,7 +217,7 @@ test('selfRestart via kosmos spawns a DETACHED `kosmos restart`, unref\'d, and N
   assert.equal(stopped, false, 'the kosmos path must never issue launchctl stop (would target an exited login job)');
   assert.ok(spawned, 'spawned a child');
   assert.equal(spawned.cmd, '/home/bin/kosmos');
-  assert.deepEqual(spawned.args, ['restart']);
+  assert.deepEqual(spawned.args, ['restart', '--force']);   // #4466: the board's own restart is never an agent's
   assert.equal(spawned.opts.detached, true, 'detached so it outlives the board it stops');
   assert.equal(spawned.opts.stdio, 'ignore');
   assert.equal(unrefd, true, 'unref\'d so it never holds a handle');

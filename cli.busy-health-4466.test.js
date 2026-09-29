@@ -18,12 +18,11 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const http = require('node:http');
 const net = require('node:net');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const PAGE = '<title>Kosmos</title>Agent Workforce';
@@ -46,34 +45,52 @@ function bash(script, env, timeout = 40000) {
   });
 }
 
-/** A stub board. `health`: 'ok' (the new route), 'slow' (answers after delayMs), 'hang' (never
- *  answers), '404' (an older board), 'stranger' (not ours anywhere). */
+/* The stub board runs as its OWN process at a path like a real board's (".../kosmos.../server.js"):
+   the CLI calls a listener that does not answer "busy" only when lsof says it is a Kosmos server run
+   by this user, so an in-process stub (this test's own node) would read as a stranger. */
+const STUB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-stub-4466-'));
+const STUB = path.join(STUB_DIR, 'server.js');
+fs.writeFileSync(STUB, `'use strict';
+const http = require('node:http');
+const [health, delayMs] = [process.argv[2], Number(process.argv[3])];
+const PAGE = ${JSON.stringify(PAGE)};
+const server = http.createServer((req, res) => {
+  const reply = () => {
+    if (health === 'stranger') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('hello from another app'); return; }
+    if (req.method === 'POST' && req.url.startsWith('/api/post')) {
+      req.resume();
+      req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"placed"}}'); });
+      return;
+    }
+    if (req.url.startsWith('/api/health')) {
+      if (health === '404') { res.writeHead(404); res.end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end(PAGE);
+  };
+  // A busy board is slow at EVERYTHING it serves, the page included (the event loop is shared).
+  if (health === 'hang' && req.method === 'GET') return;
+  if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
+  reply();
+});
+server.listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port) + '\\n'));
+`);
+test.after(() => fs.rmSync(STUB_DIR, { recursive: true, force: true }));
+
+/** A stub board in its own process. `health`: 'ok' (the new route), 'slow' (answers after delayMs),
+ *  'hang' (never answers), '404' (an older board), 'stranger' (not ours anywhere). */
 async function withBoard(health, fn, delayMs = 5000) {
-  const held = [];
-  const server = http.createServer((req, res) => {
-    const reply = () => {
-      if (health === 'stranger') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('hello from another app'); return; }
-      if (req.method === 'POST' && req.url.startsWith('/api/post')) {
-        req.resume();
-        req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"placed"}}'); });
-        return;
-      }
-      if (req.url.startsWith('/api/health')) {
-        if (health === '404') { res.writeHead(404); res.end('not found'); return; }
-        res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return;
-      }
-      res.writeHead(200, { 'content-type': 'text/html' }); res.end(PAGE);
-    };
-    // A busy board is slow at EVERYTHING it serves, the page included (the event loop is shared).
-    if (health === 'hang' && req.method === 'GET') { held.push(res); return; }
-    if (health === 'slow' && req.method === 'GET') { setTimeout(reply, delayMs); return; }
-    reply();
-  });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  try { return await fn(server.address().port); } finally {
-    for (const r of held) { try { r.destroy(); } catch { /* gone */ } }
-    server.closeAllConnections?.();
-    await new Promise((r) => server.close(r));
+  const child = spawn(process.execPath, [STUB, health, String(delayMs)], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    const port = await new Promise((resolve, reject) => {
+      let buf = '';
+      child.stdout.on('data', (d) => { buf += d; if (buf.includes('\n')) resolve(Number(buf.trim())); });
+      child.on('exit', (c) => reject(new Error('the stub board exited before listening: ' + c)));
+    });
+    return await fn(port);
+  } finally {
+    child.kill('SIGKILL');
+    await new Promise((r) => (child.exitCode !== null || child.signalCode ? r() : child.on('exit', r)));
   }
 }
 async function closedPort() {
@@ -128,7 +145,9 @@ test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy
   assert.equal(status.code, 1);
   assert.match(status.stdout, /Kosmos is not running\. Start it with: kosmos start/);
   assert.doesNotMatch(status.stderr, /busy/);
-  assert.ok(status.ms < 3000, `a refused connection must not wait (took ${status.ms} ms)`);
+  // Loose on purpose (a loaded box is slow to spawn bash): a refused connection misread as busy would
+  // wait the whole 20 s busy window, so anything well under that is the signal.
+  assert.ok(status.ms < 10000, `a refused connection must not wait out the busy window (took ${status.ms} ms)`);
   const post = await runCli(['post', 'proj', 'hello'], baseEnv(port, { TMUX_PANE: '%42' }));
   assert.notEqual(post.code, 0);
   assert.match(post.stdout, /Kosmos is not running, so nothing can be posted\. Start it with: kosmos start/);
@@ -228,3 +247,44 @@ test('#4466 part 6: a pane whose session carries the @kosmos_agent claim is an a
     assert.match(unclaimed.stdout, /went/, 'CONTROL: an unclaimed pane (a person in tmux) goes ahead');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+test('#4466 a SILENT listener that is not Kosmos (takes the connection, never answers) is a stranger, not busy', async () => {
+  // In this test's own process, so lsof names a node that is not a Kosmos server.
+  const sockets = [];
+  const silent = net.createServer((sock) => { sockets.push(sock); });
+  await new Promise((r) => silent.listen(0, '127.0.0.1', r));
+  try {
+    const out = await runCli(['status'], baseEnv(silent.address().port));
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /another app is using port/);
+    assert.doesNotMatch(out.stdout + out.stderr, /busy/, 'a stranger that never answers must not be called our busy board');
+  } finally {
+    for (const s of sockets) s.destroy();
+    await new Promise((r) => silent.close(r));
+  }
+});
+
+test('#4466 part 6: an agent stop on a board that does not answer writes NO stop marker (the watchdog stays on)', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const agent = await runCli(['stop'], baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.equal(agent.code, 0, agent.stdout + agent.stderr);
+    assert.match(agent.stdout, /nothing for an agent to stop/);
+    assert.equal(fs.existsSync(path.join(home, 'board.stopped')), false, 'an agent stop must not switch off recovery');
+    // CONTROL: the same stop from a person still records the intent (#2955), so the arm above is the guard.
+    const person = await runCli(['stop'], baseEnv(port, { KOSMOS_HOME: home }));
+    assert.equal(fs.existsSync(path.join(home, 'board.stopped')), true, 'CONTROL: a person stop writes the marker: ' + person.stdout);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('#4466 a person stopping a BUSY board this command did not start leaves it alone and writes no marker', () => withBoard('hang', async (port) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const out = await runCli(['stop'], baseEnv(port, { KOSMOS_HOME: home }));
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /running at .* but is busy, and it was not started by this command/);
+    assert.doesNotMatch(out.stdout, /Kosmos is not running/);
+    assert.equal(fs.existsSync(path.join(home, 'board.stopped')), false, 'a busy board is running: no stop marker');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+}));
