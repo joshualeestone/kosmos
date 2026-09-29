@@ -89,7 +89,72 @@ test('#4409: sending, typing or leaving while listening drops anything still com
   assert.match(cancel, /postMessage\(\{ op: 'cancel' \}\)/);
   assert.match(PAGE, /if \(!ev \|\| !VOICE\.btn\) return;   \/\/ a late word after a cancel goes nowhere/);
   assert.match(PAGE, /voiceCancel\(\);   \/\/ typing \(or Enter to send\) takes the box back/);
-  assert.match(PAGE, /window\.addEventListener\('hashchange', \(\) => voiceCancel\(\)\);/, 'words for one agent could land in the next agent\'s box');
+  // hashchange covers a hand-typed address only; opening another agent fires no event (history.replaceState), so the
+  // guard that matters is the view check below, which the next test EXECUTES.
+  assert.match(PAGE, /window\.addEventListener\('hashchange', \(\) => voiceCancel\(\)\);/);
+});
+
+/* The page's own functions, run against stubs: the view check in voiceOnEvent is what keeps one agent's words out of
+   the next agent's box, so it is driven, not grepped. */
+function voiceHarness() {
+  const posted = [];
+  const mkBtn = () => ({ attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] || null; }, title: '' });
+  const mkBox = (id) => ({ id, value: '', maxLength: 0, isConnected: true, shown: true, getClientRects() { return this.shown ? [1] : []; }, setSelectionRange() {}, dispatchEvent() {} });
+  // eslint-disable-next-line no-new-func
+  const make = new Function('window', 'document', 'posted',
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; let VOICE_WATCH = 1; const SPEAK = { btn: null, text: \'\', where: \'\', seq: 0 };\n'
+    + PAGE.slice(PAGE.indexOf('const VOICE = {'), PAGE.indexOf(';', PAGE.indexOf('const VOICE = {')) + 1) + '\n'
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceCancel', 'voiceOnEvent', 'speakStop', 'speakPaint', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    + '\nreturn { VOICE, SPEAK, voiceWhere, voiceOnEvent, speakFollow, viewKey, set(agent, room) { CURRENT = agent ? { sessionName: agent } : null; PJ_CURRENT = room; } };');
+  const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
+  const doc = { hidden: false, getElementById: () => null, querySelectorAll: () => [] };
+  return { h: make(win, doc, posted), posted, mkBtn, mkBox, doc };
+}
+
+test('#4409 review 1: a word heard after switching to another agent goes nowhere and stops the mic', () => {
+  const { h, posted, mkBtn, mkBox } = voiceHarness();
+  const box = mkBox('d-say');
+  h.set('april', null);
+  box.value = 'Please check';
+  Object.assign(h.VOICE, { btn: mkBtn(), box, before: 'Please check', after: '', where: h.voiceWhere(box) });
+  h.voiceOnEvent({ kind: 'partial', text: 'the build' });
+  assert.equal(box.value, 'Please check the build', 'control: the same agent gets the words');
+  h.set('casey', null);   // opened Casey: no hashchange, the same #d-say box
+  box.value = 'Casey draft';
+  h.voiceOnEvent({ kind: 'final', text: 'the build now' });
+  assert.equal(box.value, 'Casey draft', 'April\'s words landed in Casey\'s box');
+  assert.equal(h.VOICE.btn, null, 'still listening after the switch');
+  assert.deepEqual(posted.at(-1), { op: 'cancel' }, 'the mic was not told to stop');
+});
+
+test('#4409 review 1: closing the Guide (its box hidden) or a hidden page also stops the words', () => {
+  const { h, mkBtn, mkBox, doc } = voiceHarness();
+  const box = mkBox('asp-say');
+  Object.assign(h.VOICE, { btn: mkBtn(), box, before: '', after: '', where: h.voiceWhere(box) });
+  box.shown = false;
+  h.voiceOnEvent({ kind: 'partial', text: 'hello' });
+  assert.equal(box.value, '', 'words landed in a closed Guide');
+  const box2 = mkBox('d-say');
+  Object.assign(h.VOICE, { btn: mkBtn(), box: box2, before: '', after: '', where: h.voiceWhere(box2) });
+  doc.hidden = true;
+  h.voiceOnEvent({ kind: 'partial', text: 'hello' });
+  assert.equal(box2.value, '', 'words landed while the window was hidden');
+});
+
+test('#4409 review 1: read-aloud follows its message through a repaint, and stops when the view moves', () => {
+  const { h, mkBtn, doc } = voiceHarness();
+  const row = { isConnected: true, getClientRects: () => [1], querySelector: () => null, cloneNode() { return { querySelectorAll: () => [], textContent: 'Hello there.' }; } };
+  const oldBtn = Object.assign(mkBtn(), { isConnected: false, closest: () => row });
+  const newBtn = Object.assign(mkBtn(), { isConnected: true, closest: () => row });
+  doc.querySelectorAll = () => [newBtn];
+  h.set('april', null);
+  Object.assign(h.SPEAK, { btn: oldBtn, text: 'Hello there.', where: h.viewKey() });
+  h.speakFollow();
+  assert.equal(h.SPEAK.btn, newBtn, 'the repainted button lost the reading');
+  assert.equal(newBtn.attrs['aria-pressed'], 'true', 'the repainted button says it is not reading');
+  h.set('casey', null);
+  h.speakFollow();
+  assert.equal(h.SPEAK.btn, null, 'reading went on after switching agent');
 });
 
 test('#4409: read aloud uses on-device voices only, and only an agent\'s message offers it', () => {
@@ -118,6 +183,13 @@ test('#4409: the native recognizer is on-device only, and only the board\'s own 
   assert.match(bridge, /refuse\("no-on-device"\)/);
   assert.doesNotMatch(bridge, /requiresOnDeviceRecognition = false/);
   assert.match(bridge, /weak var owner: AppDelegate\?\n    weak var webView: WKWebView\?/, 'the handler holds the app or the view strongly (a cycle)');
+  // Review 1, read from source (a mic cannot run here): each names the failure it guards.
+  assert.match(bridge, /private var recognizer: SFSpeechRecognizer\?/, 'the recognizer is released while its task runs');
+  assert.match(bridge, /self\.recognizer = recognizer/, 'the recognizer is never held');
+  assert.match(bridge, /DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 5, execute: wait\)/, 'a stop with no final answer leaves "Stop listening" for good');
+  assert.match(SWIFT, /voice\?\.hostCancel\(\)   \/\/ #4409: a hidden window never leaves the mic on/, 'closing the window leaves the mic on');
+  assert.match(SWIFT, /func windowDidMiniaturize\(_ notification: Notification\) \{\n        voice\?\.hostCancel\(\)/, 'minimising leaves the mic on');
+  assert.match(SWIFT, /delegate\.voice = voice/, 'the app has no handle on the bridge, so hostCancel is never reached');
 });
 
 test('#4409: the signature carries the microphone entitlement and the bundle carries both usage strings', () => {

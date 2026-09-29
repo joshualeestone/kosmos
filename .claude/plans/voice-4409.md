@@ -24,6 +24,17 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   the signature at build) and install/setup.sh's Info.plist carries NSMicrophoneUsageDescription and
   NSSpeechRecognitionUsageDescription. The bridge refuses rather than crashing when either is missing.
 
+- Review iteration 1: (BLOCKER) opening another agent or room fires no hashchange (history.replaceState) and #d-say /
+  #pj-post are shared boxes, so a word heard after a switch landed in the next agent's box and was parked as their
+  draft. Dictation is now bound to the view it started in (voiceWhere: box, agent, room, box on screen, page not
+  hidden); a word arriving after any change cancels instead, and a 500 ms watch stops the mic when nothing is heard.
+  The window closing or minimising cancels natively (hostCancel). The recognizer is held for the task's life; a stop
+  with no final answer ends after 5 s. Read-aloud is keyed on the message's words and view, follows its message
+  through a repaint, and stops on a switch or when the message leaves the screen. Paste or drop takes the box back.
+  A browser whose voice list loads late waits for it once. Driven by web.voice-4409.test.js (switch, closed Guide,
+  hidden page, repaint); removing the view check or the repaint hand-off reds them. The native changes are read from
+  source and typecheck at the floor target; they need a person at a Mac to be seen working (same as the mic itself).
+- DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
   on-device recognition, so it costs the same and gives up the guarantee.

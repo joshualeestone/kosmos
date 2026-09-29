@@ -1041,6 +1041,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
     private var engine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    /// #4409 (review 1): held for the life of the task. A recognizer released while its task runs is a commonly
+    /// reported way for the task to never call back; nothing else here owned it.
+    private var recognizer: SFSpeechRecognizer?
     /// Which start the callbacks belong to. A callback from an older start is dropped, so a stop
     /// followed by a quick start can never be finished by the first one's late answer.
     private var session = 0
@@ -1142,6 +1145,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         }
         engine = eng
         request = req
+        self.recognizer = recognizer
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal == true
@@ -1165,19 +1169,37 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         guard let req = request else { session += 1; stopAudio(); emit(["kind": "stopped"]); return }
         stopAudio()
         req.endAudio()
+        // #4409 (review 1): the final answer normally follows at once; if it never comes, the button must not say
+        // "Stop listening" for good. Bounded, then finished with whatever the page already has.
+        let mine = session
+        let wait = DispatchWorkItem { [weak self] in
+            guard let self, mine == self.session, self.request != nil else { return }
+            self.task?.cancel()
+            self.finish(nil)
+        }
+        limit = wait
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: wait)
+    }
+
+    /// #4409 (review 1): the app itself ends listening when the person can no longer see it: the window closed
+    /// (stay-running mode only hides it, so the page gets no pagehide) or minimised. No-op when not listening.
+    func hostCancel() {
+        guard engine != nil || request != nil || task != nil else { return }
+        logLine("voice: cancelled, window hidden")
+        cancel()
     }
 
     /// Stop and throw away anything still coming (the person pressed Send).
     private func cancel() {
         session += 1
         stopAudio()
-        task?.cancel(); task = nil; request = nil
+        task?.cancel(); task = nil; request = nil; recognizer = nil
         emit(["kind": "stopped"])
     }
 
     private func finish(_ error: NSError?) {
         stopAudio()
-        task = nil; request = nil
+        task = nil; request = nil; recognizer = nil
         session += 1
         if let error {
             let reason = Self.endReason(domain: error.domain, code: error.code)
@@ -1202,6 +1224,8 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
+    /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
+    var voice: VoiceBridge?
     private var isActuallyQuitting = false
     // #965: whether the most recent navigation ended in a delegate failure.
     // Read by reloadBoard() to decide between a plain page reload and a full
@@ -1874,6 +1898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         config.userContentController.add(voice, name: "kosmosVoice")
         let web = WKWebView(frame: frame, configuration: config)
         voice.webView = web
+        delegate.voice = voice
         web.navigationDelegate = delegate
         // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
         // On macOS a WKWebView does not open a file picker itself: it ASKS the
@@ -3319,8 +3344,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // way, but the point of hiding rather than closing is that re-showing
         // the window later doesn't need to reload or re-authenticate anything.
         logLine("windowShouldClose: hiding (stay-running mode)")
+        voice?.hostCancel()   // #4409: a hidden window never leaves the mic on
         window.orderOut(nil)
         return false
+    }
+
+    // #4409: minimised is out of sight too.
+    func windowDidMiniaturize(_ notification: Notification) {
+        voice?.hostCancel()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {

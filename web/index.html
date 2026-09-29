@@ -54491,7 +54491,26 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', where: '' };
+/* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
+   hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
+   so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
+   Enter: the #967/#2660 cross-agent class. Dictation and read-aloud are both bound to the view they started in. */
+function viewKey() {
+  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName) || '';
+  const room = (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT != null) ? String(PJ_CURRENT) : '';
+  return agent + '|' + room;
+}
+function shownNow(el) {
+  return !!(el && el.isConnected && typeof el.getClientRects === 'function' && el.getClientRects().length > 0);
+}
+/* The box, the conversation, and whether the box is on screen: a closed Guide hides asp-say, and a hidden window
+   hides the page. Any change means the words no longer belong where they would land. */
+function voiceWhere(box) {
+  if (!box) return '';
+  const hidden = typeof document !== 'undefined' && document.hidden === true;
+  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden');
+}
 const VOICE_SAYS = {
   'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
   'speech-denied': 'Kosmos is not allowed to use speech recognition. You can turn it on in System Settings, Privacy & Security, Speech Recognition.',
@@ -54539,26 +54558,30 @@ function voiceToggle(btn) {
   const v = box.value;
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1) });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), where: voiceWhere(box) });
   voiceSay(btn, '');
   voicePaint(btn, 'asking');
   h.postMessage({ op: 'start' });
+  voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
 function voiceCancel() {
   if (!VOICE.btn) return;
   const btn = VOICE.btn;
-  VOICE.btn = null; VOICE.box = null;
+  VOICE.btn = null; VOICE.box = null; VOICE.where = '';
   voicePaint(btn, 'off');
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'cancel' });
 }
-window.kosmosVoiceEvent = function (ev) {
+function voiceOnEvent(ev) {
   if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
   const btn = VOICE.btn;
   if (ev.kind === 'listening') { voicePaint(btn, 'on'); return; }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
+    /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
+       conversation that is gone, so they go nowhere and the mic stops. What is already in the box stays. */
+    if (voiceWhere(box) !== VOICE.where) { voiceCancel(); return; }
     const out = voiceSplice(VOICE.before, ev.text, VOICE.after, box.maxLength);
     box.value = out.text;
     try { box.setSelectionRange(out.caret, out.caret); } catch { /* not focused */ }
@@ -54566,8 +54589,21 @@ window.kosmosVoiceEvent = function (ev) {
     return;
   }
   if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
-  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; voicePaint(btn, 'off'); }
-};
+  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; voicePaint(btn, 'off'); }
+}
+window.kosmosVoiceEvent = voiceOnEvent;
+/* While listening or reading aloud, look twice a second: a switch with nothing heard since must still stop the mic
+   (else it listens into a hidden box until the 300 s cap), and read-aloud must follow its message through a repaint
+   or stop when the message leaves the screen. Runs only while one of them is on. */
+let VOICE_WATCH = 0;
+function voiceSpeakWatch() {
+  if (VOICE_WATCH) return;
+  VOICE_WATCH = setInterval(() => {
+    if (VOICE.btn && VOICE.box && voiceWhere(VOICE.box) !== VOICE.where) voiceCancel();
+    if (SPEAK.btn) speakFollow();
+    if (!VOICE.btn && !SPEAK.btn) { clearInterval(VOICE_WATCH); VOICE_WATCH = 0; }
+  }, 500);
+}
 document.addEventListener('click', (e) => {
   const mic = e.target.closest && e.target.closest('.micbtn');
   if (mic) { e.preventDefault(); voiceToggle(mic); return; }
@@ -54580,13 +54616,17 @@ document.addEventListener('keydown', (e) => {
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
   voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
 }, true);
+/* A paste or a drop changes the box with no key pressed; the next heard word would overwrite it from the stale
+   before/after, so it takes the box back too. */
+for (const t of ['paste', 'drop']) document.addEventListener(t, (e) => { if (VOICE.btn && e.target === VOICE.box) voiceCancel(); }, true);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { voiceCancel(); if (SPEAK.btn) speakStop(); } });
 window.addEventListener('pagehide', () => voiceCancel());
 window.addEventListener('hashchange', () => voiceCancel());
 window.addEventListener('popstate', () => voiceCancel());
 try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
-const SPEAK = { btn: null };
+const SPEAK = { btn: null, text: '', where: '', seq: 0 };
 function speakCan() {
   try { return !!(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function'); } catch { return false; }
 }
@@ -54648,27 +54688,54 @@ function speakPaint(btn, on) {
 }
 function speakStop() {
   const was = SPEAK.btn;
-  SPEAK.btn = null;
+  SPEAK.btn = null; SPEAK.text = ''; SPEAK.where = '';
   speakPaint(was, false);
   try { window.speechSynthesis.cancel(); } catch { /* nothing to stop */ }
 }
+/* #4409 (review 1): a reaction or a thread rebuild replaces the row's buttons (innerHTML), so the one that started
+   reading is gone and the new one says "not reading" while the voice goes on, and pressing it restarts from the top.
+   Reading is keyed on the message's WORDS and the view, not the element: the watch hands the pressed state to the
+   repainted button, and stops when the message is no longer on screen or the view moved. */
+function speakFollow() {
+  if (!SPEAK.btn) return;
+  if (viewKey() !== SPEAK.where) { speakStop(); return; }
+  const rowOf = (b) => b && b.closest && b.closest('.msg, .asp-m');
+  if (SPEAK.btn.isConnected && shownNow(rowOf(SPEAK.btn))) return;
+  const next = Array.from(document.querySelectorAll('.rxn-speak, .asp-speak'))
+    .find((b) => shownNow(rowOf(b)) && speechTextOfRow(rowOf(b)) === SPEAK.text);
+  if (!next) { speakStop(); return; }
+  SPEAK.btn = next;
+  speakPaint(next, true);
+}
 function speakRow(btn) {
   if (!speakCan() || !btn) return;
-  if (SPEAK.btn === btn) { speakStop(); return; }   // the second press stops it
-  speakStop();
   const row = btn.closest('.msg, .asp-m');
   const text = speechTextOfRow(row);
+  if (SPEAK.btn === btn || (SPEAK.btn && text && text === SPEAK.text && viewKey() === SPEAK.where)) { speakStop(); return; }   // the second press stops it, on a repainted button too
+  speakStop();
   if (!text) return;
   const voice = speakVoice();
-  if (!voice) { btn.title = 'No voice on this computer can read this aloud'; btn.setAttribute('aria-label', btn.title); return; }
-  SPEAK.btn = btn;
+  if (!voice) {
+    /* A browser can answer getVoices() with nothing before its list loads (Chrome fills it later): wait for the list
+       once rather than saying "no voice" for good. */
+    const vs = window.speechSynthesis;
+    if (!btn.hasAttribute('data-voice-wait') && (vs.getVoices() || []).length === 0 && typeof vs.addEventListener === 'function') {
+      btn.setAttribute('data-voice-wait', '');
+      vs.addEventListener('voiceschanged', () => { btn.removeAttribute('data-voice-wait'); if (speakVoice()) speakRow(btn); }, { once: true });
+      return;
+    }
+    btn.title = 'No voice on this computer can read this aloud'; btn.setAttribute('aria-label', btn.title); return;
+  }
+  SPEAK.btn = btn; SPEAK.text = text; SPEAK.where = viewKey();
+  const mine = ++SPEAK.seq;
   speakPaint(btn, true);
+  voiceSpeakWatch();
   const parts = speechChunks(text, 220);
   parts.forEach((part, i) => {
     const u = new SpeechSynthesisUtterance(part);
     u.voice = voice; u.lang = voice.lang;
     if (i === parts.length - 1) {
-      const done = () => { if (SPEAK.btn === btn) { SPEAK.btn = null; speakPaint(btn, false); } };
+      const done = () => { if (SPEAK.seq === mine && SPEAK.btn) speakStop(); };   // the button may have been repainted since
       u.onend = done; u.onerror = done;
     }
     window.speechSynthesis.speak(u);
