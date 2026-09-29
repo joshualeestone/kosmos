@@ -188,4 +188,5 @@ test('probeOnline: ANY HTTP answer is online (even a 404), a refused connection 
 
 test.after(() => {
   for (const d of [SANDBOX, STATE]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  fake.cleanup();   // the fake tunnel's own temp dir (the #4273 leak guard caught it on Mortals)
 });
