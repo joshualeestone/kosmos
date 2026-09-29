@@ -1314,7 +1314,10 @@ test('the startup script names its session exactly, not by prefix', () => {
         `${cmd} resolves its target by PREFIX, so it can act on another session: ${line.trim()}`);
     } else if (PLAIN.includes(cmd)) {
       checked += 1;
-      assert.match(line, /-t "\$SESSION"/,
+      /* #4530: or the session's ID ("$_sid", from session_id_exact). Measured on tmux 3.5a (the one Kosmos ships) and 3.7c: an id
+         target names exactly one session, set-option and show-options accept it, and it fails
+         cleanly once that session is gone, where the plain name falls back to a prefix match. */
+      assert.match(line, /-t "\$(SESSION|_sid)"/,
         `${cmd} rejects the "=name" form outright ("no such session: =name"), so `
         + `this line would fail at runtime: ${line.trim()}`);
     }
@@ -4750,7 +4753,7 @@ test('#3568: the supervisor launches agy with its documented auto-approve flag, 
   assert.match(script, /elif \[ "\$RUNNER" = antigravity \]; then/);
   assert.match(script, /_AGY_ARGS=\(--dangerously-skip-permissions\)/);
   assert.match(script, /\[ -n "\$\{MODEL:-\}" \] && _AGY_ARGS\+=\(--model "\$MODEL"\)/);
-  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}"\)" \|\| exit 1/);   // #4417: inside the pane-id capture
+  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}"\)" \|\| (?:exit 1|\{ RUN_STARTED=0; exit 1; \})/);   // #4417: inside the pane-id capture
 });
 
 /* #3939 slice 3c-3a: Meta Muse agents, behind the Muse switch (musestatus.enabled) and Mac only. */
