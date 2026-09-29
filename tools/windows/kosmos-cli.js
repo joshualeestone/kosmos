@@ -904,7 +904,7 @@ async function communityRead(ctx, args) {
    service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
 async function verbConnections(ctx) {
   const r = await ctx.call('GET', '/api/connections/held', undefined, { agent: false });
-  if (!r.reached) { ctx.err('We could not reach Kosmos to read what is connected. Is it running at ' + ctx.url + '?'); return 1; }
+  if (!r.reached) return ctx.unreachable('read what is connected');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
   const services = r.json && Array.isArray(r.json.services) ? r.json.services : null;
   if (r.status >= 400 || !services) { ctx.err('Kosmos gave an answer we could not read about what is connected.'); return 1; }
@@ -1057,8 +1057,17 @@ async function main(argv, io) {
   /* One request. Resolves { reached:true, status, json, text } or
      { reached:false, timedOut } -- a timeout is told apart from "unreachable",
      because after a timeout the board may already have acted. */
+  /* #4466: whether the LAST request ran out of time rather than being refused. A board busy with many
+     agents answers slowly; telling an agent "we could not reach Kosmos, is it running?" then reads as
+     "it is down", and on the Mac the same reading sent agents to restart a healthy board. */
+  // Read only by ctx.unreachable, which every verb calls straight after the failing call, before any
+  // other request: the invariant this relies on.
+  let lastTimedOut = false;
+  let lastWasRead = false;   // a GET changes nothing, so its timeout needs no "it may have happened"
   async function call(method, route, body, opts) {
     const c = opts || {};
+    lastTimedOut = false;
+    lastWasRead = String(method).toUpperCase() === 'GET';
     try {
       const res = await doFetch(url + route, {
         method,
@@ -1072,6 +1081,7 @@ async function main(argv, io) {
       return { reached: true, status: res.status, json, text };
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
+      lastTimedOut = timedOut;
       return { reached: false, timedOut };
     }
   }
@@ -1092,7 +1102,15 @@ async function main(argv, io) {
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
-    unreachable: (what) => { err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?'); return 1; },
+    unreachable: (what) => {
+      /* #4466: busy is not down. A timeout means Kosmos took the connection and did not answer in
+         time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
+      /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
+         board may already have acted, so a retry could make a duplicate. */
+      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
+      else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
+      return 1;
+    },
     url,
     agentToken: () => hook.agentToken(env),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,

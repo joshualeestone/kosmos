@@ -235,8 +235,18 @@ const SCREENS = [
   } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
-    await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
+    // #4550: Instructions is inside Profile now, below the profile block; the shot is of it.
+    await page.evaluate(() => document.getElementById('d-sec-instr').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(200);
+  } },
+  // #4550: AI Settings (Runs on, Memory and Fresh start, the terminal, Remove).
+  { name: 'agent-ai-settings', owner: 'Mona Lisa', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="model"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-term', { state: 'visible', timeout: 5000 });
+    await page.mouse.move(1, 1);
   } },
   // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {

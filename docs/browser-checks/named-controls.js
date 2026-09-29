@@ -54,8 +54,10 @@ const SURFACES = [
      'model' ("AI Settings") pill and skills under 'instr' (Instructions), both revealed
      together, so the 'model' and 'instr' surfaces already sweep their controls. #3500: 'remove'
      likewise folds under 'term' (Advanced) and has no pill of its own, so the 'term' surface
-     sweeps the remove controls too -- it is not iterated here. */
-  ...['talk', 'model', 'instr', 'profile', 'term'].map((sec) => [
+     sweeps the remove controls too -- it is not iterated here.
+     #4550: THREE pills. Profile sweeps profile + instr + skills, AI Settings ('model') sweeps model +
+     memory + term + remove. */
+  ...['talk', 'model', 'profile'].map((sec) => [
     'agent panel: ' + sec, async (pg) => {
       await pg.locator('.acard .namego').first().click();
       await pg.waitForTimeout(900);
@@ -84,7 +86,7 @@ const SURFACES = [
   ['removal dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1400);
-    await pg.click('#d-nav button[data-go="term"]');   // #3500: Remove folded under the Advanced pill (term reveals d-sec-term + d-sec-remove)
+    await pg.click('#d-nav button[data-go="model"]');   // #4550: Remove (with the Terminal) folds under AI Settings (model reveals model, memory, term, remove)
     await pg.click('#d-remove-start');
   }],
   /* First run is six panes behind one overlay, and each is a surface a person
