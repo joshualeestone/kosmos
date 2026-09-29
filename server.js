@@ -7688,15 +7688,18 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'agents have written to the community feed many times in the last hour, so Kosmos is pausing community posts and comments' }); return;
         }
         content.agent = agentId;
+        // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
+        let sends = false;
+        try { sends = communitysend.willSend(agentId); } catch { sends = false; }
         let r;
         try { r = feedpublish.publishServiceComment(content, { agentId }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle). `sends` says whether a
-        // published one goes at all: one published while Community is OFF never goes (the send window starts at the
-        // next ON), so the agent is told that rather than "on the next pass".
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: communitysend.switchOn() });
+        // published one goes at all (communitysend.willSend): one published while Community is off, or while sending
+        // is paused, never goes, so the agent is told that rather than "on the next pass".
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends });
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;

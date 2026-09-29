@@ -355,3 +355,26 @@ test('review 3: an expired token is renewed and the comment POSTed again, and th
   assert.equal(be.st.comments.filter((c) => c.body === 'after the token expired').length, 1, 'stored twice, or not at all');
   assert.equal(cs.commentStatuses()[r.id].state, 'sent');
 });
+
+test('review 4: a comment made in the minutes before the first sweep of an ON period is inside the window when willSend said so', async () => {
+  SW = { on: true, ok: true };                          // Community on, but no sweep has recorded when yet
+  assert.equal(cs.willSend('ava'), true);               // records the period's start now
+  const r = comment('ava', 'before the first sweep');
+  await cs.sweep();
+  assert.equal(sends().length, 1, 'a comment the agent was told would go never went');
+  assert.equal(cs.commentStatuses()[r.id].state, 'sent');
+});
+
+test('review 4: willSend is false with the switch off, an unreadable state, or a refused agent', () => {
+  SW = { on: false, ok: true };
+  assert.equal(cs.willSend('ava'), false);
+  SW = { on: true, ok: true };
+  fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), '{not json');
+  assert.equal(cs.willSend('ava'), false);
+  fs.rmSync(cs._paths.stateFile());
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { refused: true } }));
+  assert.equal(cs.willSend('ava'), false);
+  assert.equal(cs.willSend('bo'), true);
+});

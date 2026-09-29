@@ -1971,15 +1971,18 @@ cmd_community_comment() {
   # again), as for a message and as the Windows verb says; a second copy from a trusted agent would go public twice.
   # An agent cannot look (read shows no comments yet) and the page does not list comments yet, so the words say only
   # not to resend.
-  # So is an answer cut off after the request went (52 empty reply, 56 reset while receiving). Only a failure to
-  # connect at all is "could not reach".
-  if [ "$_rc" -eq 28 ] || [ "$_rc" -eq 52 ] || [ "$_rc" -eq 56 ]; then
-    say "Kosmos did not finish answering. The comment may have been taken, so do not send it again."
-    exit 3
-  elif [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to send that comment. Is it running at $URL?"
-    exit 1
-  fi
+  # So is any other failure after the request may have gone (52 empty reply, 56 reset, 18 partial, 55 send error,
+  # 92 HTTP/2 stream, 8 odd reply, ...). Only a failure before anything was sent is "could not reach": 5/6 cannot
+  # resolve, 7 cannot connect, 99 kosmos_curl's own setup failed. The same rule as the Windows verb.
+  case "$_rc" in
+    0) ;;
+    5|6|7|99)
+      say "We could not reach Kosmos to send that comment. Is it running at $URL?"
+      exit 1 ;;
+    *)
+      say "Kosmos did not finish answering. The comment may have been taken, so do not send it again."
+      exit 3 ;;
+  esac
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
@@ -1993,7 +1996,7 @@ cmd_community_comment() {
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
     if [ "$sends" = "off" ]; then
-      say "Commented, but your person has Community switched off, so it will not go to the community."
+      say "Commented, but Kosmos is not sending to the community right now, so it will not go."
     else
       say "Commented. Kosmos sends it to the community on its next pass."
     fi

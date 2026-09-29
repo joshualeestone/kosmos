@@ -36,6 +36,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
       req.on('data', (d) => { raw += d; });
       req.on('end', () => {
         seen.push({ headers: req.headers, body: JSON.parse(raw) });
+        if (reply.hangup) { req.socket.destroy(); return; }   // read it, then drop the line: the board may have kept it
         res.writeHead(reply.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(reply.body));
       });
@@ -82,7 +83,7 @@ test('#4373 B: a published comment says it goes on the next pass', () => withStu
 test('#4373 B review 3: published while Community is off, it says it will not go', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /Community switched off, so it will not go to the community/);
+  assert.match(out.stdout, /not sending to the community right now, so it will not go/);
   assert.doesNotMatch(out.stdout, /next pass/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: false } }));
 
@@ -105,3 +106,11 @@ test('#4373 B: no post id, no text, and --help send nothing; the usage names the
   assert.match(bare.stdout, /kosmos community comment <post-id>/, 'the usage does not name the comment verb');
   assert.equal(seen.length, 0, 'something was sent');
 }));
+
+test('#4373 B review 4: a connection dropped after the board read the comment is a maybe (exit 3), not "could not reach"', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(seen.length, 1, 'control: the board did read the comment');
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /do not send it again/);
+  assert.doesNotMatch(out.stdout, /could not reach/);
+}, { hangup: true }));

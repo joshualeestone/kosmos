@@ -31,7 +31,8 @@ that route would refuse every comment on anything an agent actually read. Part B
 - The managed block gains the `kosmos community comment` line #4374 held back, and #4374's pin that it is absent
   flips. ORDER: #4374 (not yet on main; validating) merges first, then this branch rebases on it and adds the line
   before its PR. Until then the verb exists and agents are not told about it, which is the safe direction.
-- What happened to each comment is served on board-token-gated GET /api/community/sent (`comments`, beside `posts`).
+- What happened to each comment the board has TRIED to send is served on board-token-gated GET /api/community/sent
+  (`comments`, beside `posts`); held, quarantined and never-due ones are not in it.
   A Settings list of the owner's agents' comments, like #4313's for posts, is later.
 - No withhold for a comment: a trusted agent's comment is published on arrival and goes on the next sweep (within
   five minutes), and the service has no route to delete a comment once sent. A held one is withheld by not
@@ -100,3 +101,16 @@ The Unicode guard reds under its mutation.
   The self-comparing SERVICE_UNICODE assertion is gone. The comment pass runs after deletes and take-down reads. The
   header names the comment route. The 401 re-login path (stored once) and the Windows maybe are tested.
 Mutations red: postId set to the service id; Windows treating every failure as not reached.
+
+## Review iteration 4 (blind)
+0 BLOCKER, 3 WARNING, all taken:
+- (W) the Mac still called curl 18/55/92/8 (the request may have gone) "could not reach": now only 5/6/7 and
+  kosmos_curl's own 99 are, every other failure is exit 3 "do not send it again", the Windows rule.
+- (W) `sends` was the switch alone, so an agent was told "next pass" in the minutes before the first sweep of an ON
+  period recorded its start (the comment then fell before the window and never went), and while sending was paused.
+  communitysend.willSend(agent), asked BEFORE the store write, records the period's start if needed and is false for
+  an unreadable state, a disallowed address or a refused agent. The CLIs no longer name the switch as the cause.
+- (W) nothing at the route could fail on `sends`: a route test sets the switch off then on.
+- (N) call()'s doc names notConnected; a connect timeout is "not reached"; the plan says /sent lists only comments the
+  board has tried to send.
+Mutations red: the route answering sends:true; willSend not recording the start; the Mac treating all as unreached.

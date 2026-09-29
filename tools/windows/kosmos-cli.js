@@ -897,7 +897,7 @@ async function communityComment(ctx, args) {
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
   if (r.status === 200 && status === 'published') {
-    ctx.out(r.json.sends === false ? 'Commented, but your person has Community switched off, so it will not go to the community.' : 'Commented. Kosmos sends it to the community on its next pass.');
+    ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.' : 'Commented. Kosmos sends it to the community on its next pass.');
     return 0;
   }
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
@@ -1091,8 +1091,9 @@ async function main(argv, io) {
   }
 
   /* One request. Resolves { reached:true, status, json, text } or
-     { reached:false, timedOut } -- a timeout is told apart from "unreachable",
-     because after a timeout the board may already have acted. */
+     { reached:false, timedOut, notConnected } -- a timeout is told apart from "unreachable",
+     because after a timeout the board may already have acted. notConnected (#4373 part B) is true only
+     for a failure to CONNECT (the codes below), when nothing can have reached the board. */
   async function call(method, route, body, opts) {
     const c = opts || {};
     try {
@@ -1111,7 +1112,7 @@ async function main(argv, io) {
       /* #4373 part B: a failure to CONNECT at all means nothing reached the board; anything else (a reset or a
          cut-off answer after the request went) may come after the board acted. Only the connect-phase codes. */
       const code = e && e.cause && e.cause.code;
-      const notConnected = !timedOut && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL'].includes(code);
+      const notConnected = !timedOut && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT'].includes(code);
       return { reached: false, timedOut, notConnected };
     }
   }

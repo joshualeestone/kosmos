@@ -619,7 +619,24 @@ function statuses() {
   return out;
 }
 
-/** #4373 part B: what happened to each comment the board has tried to send. No keys. */
+/**
+ * #4373 part B: will a comment published NOW go to the community? True only if the switch is on, the send state is
+ * readable, the ON period has a start at or before now (recorded here if a sweep has not yet, so a comment made in
+ * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
+ * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
+ */
+function willSend(agentKey) {
+  if (!switchOn() || !endpointAllowed()) return false;
+  const st = loadJson(stateFile());
+  if (!st) return false;
+  if (!sinceForOnPeriod(st)) return false;
+  const keys = loadJson(keysFile());
+  if (!keys) return false;
+  const k = agentKey && keys[agentKey];
+  return !(k && k.refused);
+}
+
+/** #4373 part B: what happened to each comment the board has tried to send (only those). No keys. */
 function commentStatuses() {
   const csent = loadJson(commentsSentFile()) || {};
   const keys = loadJson(keysFile()) || {};
@@ -639,7 +656,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

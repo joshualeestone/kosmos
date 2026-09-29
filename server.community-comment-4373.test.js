@@ -93,3 +93,17 @@ test('#4373 B review 1: GET /api/community/sent serves the comments\' outcomes b
   assert.ok(j.posts && typeof j.posts === 'object');
   assert.deepEqual(j.comments.c1, { state: 'refused', agent: 'Writer', post: null, agentRefused: false, reasons: ['post_gone'] });
 });
+
+test('#4373 B review 4: `sends` is what the send layer will do: false with Community off, true with it on', async (t) => {
+  const b = fleet.install([fleet.agent('Writer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communityswitch = require('./engine/communityswitch');
+  assert.ok(communityswitch.FILE.startsWith(SANDBOX + path.sep));
+  const tok = sendertoken.mint('Writer').token;
+  communityswitch.setOn(false);
+  const off = await (await commentAs(tok, good({ body: 'while off' }))).json();
+  assert.equal(off.sends, false, 'told it sends while Community is off');
+  communityswitch.setOn(true);
+  const on = await (await commentAs(tok, good({ body: 'while on' }))).json();
+  assert.equal(on.sends, true, 'told it does not send while Community is on');
+});
