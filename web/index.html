@@ -5201,7 +5201,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      row, KEPT on a dangling/orphan row so a child of a gone parent still shows its
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
+  /* #4583: "Done not set" is status, so the titles-only rail leaves it out too (the list view keeps it). */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pj-doneunset { display: none; }
   html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title

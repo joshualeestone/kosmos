@@ -1038,7 +1038,8 @@ async function withThread(spec, answers, fn) {
       // brief-pending room note does not fire and pollute the many tests that use withThread
       // to assert on an otherwise-empty room. The note's own behavior is covered directly by
       // the dedicated #2707 tests, which create brief-LESS projects on purpose.
-      description: 'A briefed test project.',
+      // #4583: and a done, for the same reason: a goal with no done posts the done note.
+      description: 'A briefed test project.', done: 'The test says so.',
     })).project;
     calls = armChat(answers);
     return await fn({ board, calls, project: made });
@@ -2817,7 +2818,7 @@ test('#3745: a room post can reply to another post in the same room, and only th
     assert.equal(after.length, rows.length, 'a reply to nothing was posted');
     // A post in ANOTHER room is refused the same way: never posted pointing across rooms.
     const dir2 = folder('other-room');
-    const other = JSON.parse((await post('/api/projects', { name: 'Other room', folder: dir2, agents: ['zeta'], description: 'A briefed test project.' })).body).project;
+    const other = JSON.parse((await post('/api/projects', { name: 'Other room', folder: dir2, agents: ['zeta'], description: 'A briefed test project.', done: 'The test says so.' })).body).project;
     assert.equal((await post(`/api/project/${other.id}/room`, { text: 'over here' })).status, 200);
     const otherId = JSON.parse((await req(`/api/project/${other.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
     const across = await post(`/api/project/${project.id}/room`, { text: 'across rooms', reply_to: otherId });

@@ -16,3 +16,8 @@ Card: joshualeestone/kosmos#4583 (#4580 items 3 and 4). Started by Ice Cream Kit
 - server.projects.test.js #4583 (4): done note once and agents-only; done given means no note and the brief carries it; over-long done refused, nothing created; create and join warnings, a non-coordinator join does not re-warn and is never refused.
 - docs/browser-checks/render-project-done-4583.js (12), gated: form box, POST shape, row badge and its control, warning shown only after an add, Dismiss, dropped when resolved and not revived.
 - Mutations (all restored, cmp-verified): 6 engine, 4 server, 3 web; each fails. The check fails against main's page.
+
+## Neighbours (found before review)
+- The titles-only rail (#3105) grew to 52.8px per row with the badge; the rail now hides "Done not set" like the status pill (render-project-rows back to 26px). The list view keeps it.
+- Room tests built on the generic "briefed" fixture now also set a done, for the same reason #2707 gave it a description (a goal with no done posts the done note).
+- web.project-notice-3923: its harness stubs pjCoordNotice and asserts the rail puts the warning first.
