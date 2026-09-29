@@ -1799,6 +1799,9 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swcard[aria-checked="true"] .swcheck { visibility: visible; }
 .swline { grid-column: 1 / -1; font: var(--text-callout) var(--font-ui); color: var(--k-ink-2); }
 .swline[hidden], .swconfirm[hidden], #d-swarm-tolimit[hidden] { display: none; }
+/* #4433 (Mona's review): under the cards at the left, where the Paused card is read, not centred on its own. Not
+   inside the card: a card is a radio, and a button inside a radio is not reachable as itself by a screen reader. */
+#d-swarm-tolimit { justify-self: start; margin-top: -4px; }
 .swlimit { color: var(--k-ink); }
 .swconfirm { border: 1.5px solid var(--danger); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--danger) 6%, var(--k-surface)); }
 .swconfirm-q { margin: 0 0 8px; font-weight: 600; color: var(--k-ink); }
@@ -33566,6 +33569,7 @@ function detailGo(section, opts) {
      which is the case the helper's first arm exists for. */
   if (section === 'files' && CURRENT && arriving) paintAgentFilesAll(CURRENT.sessionName);   // #3757
   if (section === 'swarm' && CURRENT && arriving) {   // #4433: the view reads today's row as it opens
+    if (typeof swarmMsgClear === 'function') swarmMsgClear();
     const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
     if (fresh) swarmPagePaint(fresh, { force: true });
   }
@@ -45189,7 +45193,7 @@ function swarmPagePaint(a, { force = false } = {}) {
     } else {
       capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
       capR.value = String(Math.max(1, Math.round(cap / 1000000)));
-      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+      document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US') + ' tokens';   // #4433: the unit, as Today says it
       capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
     }
   }
@@ -45247,10 +45251,11 @@ document.addEventListener('change', async (e) => {
 });
 /* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
 document.body.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'd-swarm-cap' || e.target.id === 'd-swarm-max')) swarmMsgClear();   // #4433: the person moved on
   if (e.target && e.target.id === 'd-swarm-cap') {
     const pct = e.target.dataset.mode === 'pct';
     const t = pct ? e.target.value + '%' : (Number(e.target.value) * 1000000).toLocaleString('en-US');
-    document.getElementById('d-swarm-cap-v').textContent = t;
+    document.getElementById('d-swarm-cap-v').textContent = pct ? t : t + ' tokens';
     e.target.setAttribute('aria-valuetext', pct ? t + ' of your weekly allowance' : t + ' tokens a day');
   }
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
@@ -45290,10 +45295,15 @@ function swarmCardFocus() {
   const c = document.querySelector('#d-swarm-states .swcard[aria-checked="true"]');
   if (c && !document.getElementById('d-sec-swarm').hidden) c.focus();
 }
+/* #4433 (Mona's review): a refusal on the message line explains the one change it refused, and says so until the
+   person's next move in the view (a slider moved, the stop question opened, the view opened again). Left longer, it
+   read as "something is still broken" beside settings that were fine. A change the board answers writes its own. */
+function swarmMsgClear() { const m = document.getElementById('d-swarm-msg'); if (m) m.textContent = ''; }
 function swarmConfirmShow(show) {
   const box = document.getElementById('d-swarm-confirm');
   if (!box) return;
   box.hidden = !show;
+  if (show) swarmMsgClear();
   /* The safe answer takes focus, never Stop now: a held or doubled Enter on the Stopped card would otherwise
      land on Stop now and confirm a stop that cannot be undone (review round 1). */
   if (show) document.getElementById('d-swarm-keep').focus();

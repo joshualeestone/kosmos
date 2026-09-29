@@ -99,3 +99,14 @@ That removing Stop now from the phone chat header costs nothing important. A per
 - render-agent-files-3614 was RED. It counted every nav label and icon, including the Swarm Settings box that is hidden for an ordinary agent.
   - Fixed: it counts the boxes a person sees (`button:not([hidden])`).
   - Control: the box shown for every agent (mutant) makes it red (6 labels, a 24px icon).
+
+## Mona Lisa's design review (20:40 CDT, on #4433): approved with one must-fix; PR #4452 HELD until done
+- **MUST-FIX** In the stop-ask shot, "That is not a number of helpers we can use." stood under a valid slider.
+  - Found: a refusal on the message line was never cleared until another change was answered (here, a refused 9 from S26, earlier in the same run). The product had the same flaw.
+  - Fixed: `swarmMsgClear` runs on the person's next move in the view (a slider moved, the stop question opened, the view opened again).
+  - Pinned: S44 asserts no error line in the stop-ask state. The mutant where the line never clears reproduces Mona's exact sentence.
+- **QUESTION** Can Active really be picked from a limit pause? YES: engine/swarm.js applyPatch sets limitOverrideDay, so it stays Active for the rest of today. It stays available, as the spec allows. New arm in S8: picking Active from the limit pause sends active:true and the card holds.
+- **NIT** "Change today's limit" was centred and detached. Now left-aligned under the cards. Not inside the Paused card: the card is a radio, and a button inside a radio is not reachable as itself by a screen reader.
+- **NIT** The limit had no unit. It now reads "6,000,000 tokens" (the check's four token-mode pins updated).
+- **NIT** No phone shot of the view itself. Added: swarm-settings-4433-phone-view-dark.png, where the cards stack.
+- swarm-ui-3564: 115 pass. Web tests 113/113, section test 1/1.

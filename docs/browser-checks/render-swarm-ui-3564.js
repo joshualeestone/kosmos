@@ -638,9 +638,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // S13b: a limit that is not a whole million shows exactly, and the slider says its value in words.
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 2500000 };
     await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
-    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '2,500,000', null, 8000)
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '2,500,000 tokens', null, 8000)
       && await page.evaluate(() => document.getElementById('d-swarm-cap').getAttribute('aria-valuetext') === '2,500,000 tokens a day'),
-      'S13b a 2,500,000 limit shows as 2,500,000, and the slider is spoken in tokens', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+      'S13b a 2,500,000 limit shows as 2,500,000 tokens, and the slider is spoken in tokens', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000 };
     // S34 (#3946): on a calibrated account the swarm's page shows its limit as a % of the weekly allowance, with
     // Josh's subtext, and a change sends the % (the engine turns it into tokens). S13 above is the tokens control.
@@ -660,13 +660,13 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S34b a token limit worth 3% shows as about 3%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     // S34c: worth more than the slider's 20%, it stays in tokens rather than claiming 20%.
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 50000000 };
-    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '50,000,000'
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '50,000,000 tokens'
       && document.getElementById('d-swarm-cap').dataset.mode === 'tok' && document.getElementById('d-swarm-cap-sub').hidden, null, 8000),
       'S34c a token limit worth 50% stays in tokens, with no allowance words', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     // S34d: the account becomes calibrated while the person holds the token slider: the mode does not change under
     // them, so their token choice is not sent as a %. CONTROL: once they let go, it does change.
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, allowanceCalibrated: false, tokensPerPoint: null };
-    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);
+    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000 tokens', null, 8000);
     await page.focus('#d-swarm-cap');
     crewSwarm = { ...crewSwarm, allowanceCalibrated: true, tokensPerPoint: 1000000 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.allowanceCalibrated === true, null, 15000), 'S34d precondition: the page has the calibrated row');
@@ -677,7 +677,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S34d CONTROL: let go, it becomes about 6%', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000, dailyAllowancePct: null, allowanceCalibrated: false, tokensPerPoint: null };
     await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
-    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000', null, 8000);
+    await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '6,000,000 tokens', null, 8000);
     // S17: today's tokens could not be read in full (metered false): the page says so, with no bar, rather than a
     // low number that reads as plenty left. CONTROL: metered true shows the number again.
     crewSwarm = { ...crewSwarm, metered: false, tokensToday: 1200, helperTokenRatio: 2.3 };
@@ -762,6 +762,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       focus: document.activeElement && document.activeElement.id, active: cardChecked('active') }));
     chk(s44.shown && s44.q === 'Stop now? Unfinished work is dropped.' && s44.focus === 'd-swarm-keep' && s44.active && sent.length === before44,
       'S44 picking Stopped asks first, focuses Keep it running (the safe answer), and sends nothing yet', JSON.stringify({ s44, sent: sent.slice(before44) }));
+    /* Mona's review (#4433): the stop question never stands beside an unrelated error line. S26 refused a change
+       earlier in this run, so a message that outlived the person's next move would be here. */
+    chk(await page.evaluate(() => document.getElementById('d-swarm-msg').textContent === ''), 'S44 the stop question shows no leftover error line',
+      await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-stop-ask.png') });
     await page.click('#d-swarm-keep');
     await page.waitForTimeout(300);
@@ -869,6 +873,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     const d8 = await pausedDescription();
     chk(d8 !== null && /today's limit and resumes tomorrow/.test(d8), 'S8 the Paused card\'s spoken description includes the limit line', JSON.stringify(d8));
     chk(await stopAsks(), 'S8 from a limit pause, picking Stopped still asks: it is a real change (a stop does not resume tomorrow)');
+    /* Mona's question: from a limit pause, can Active really be picked? Yes: the engine overrides the limit for the
+       rest of today (engine/swarm.js applyPatch sets limitOverrideDay), so the pick is sent and holds. */
+    const beforeActive = sent.length;
+    await page.click('#d-swarm-states .swcard[data-st="active"]');
+    for (let i = 0; i < 20 && sent.length === beforeActive; i++) await page.waitForTimeout(100);
+    chk(sent.slice(beforeActive).some((q) => q.method === 'PUT' && q.body.active === true) && await waitFor(page, () => cardChecked('active'), null, 8000),
+      'S8 from a limit pause, Active can be picked: it is sent and the card holds', JSON.stringify(sent.slice(beforeActive)));
+    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };
+    await waitFor(page, () => SWARM_BUSY === null && cardChecked('paused') && !document.getElementById('d-swarm-tolimit').hidden, null, 15000);
     await page.click('#d-swarm-tolimit');
     chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-swarm-cap'), 'S8 Change today\'s limit takes the person to the limit');
     // S24: the same pause with the lead still working (its interrupt failed): Stop now stays, the only interrupt.
@@ -947,6 +960,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-phone-dark.png') });
+      /* The view itself at phone width (Mona's review): the cards stack. */
+      await page.evaluate(() => { const s = document.getElementById('d-sec-swarm'); if (s) s.scrollIntoView({ block: 'start' }); });
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-phone-view-dark.png') });
       await page.emulateMedia({ colorScheme: 'light' });
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, 'swarm-settings-phone.png') });
