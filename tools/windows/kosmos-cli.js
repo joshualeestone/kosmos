@@ -913,8 +913,13 @@ async function main(argv, io) {
   /* One request. Resolves { reached:true, status, json, text } or
      { reached:false, timedOut } -- a timeout is told apart from "unreachable",
      because after a timeout the board may already have acted. */
+  /* #4466: whether the LAST request ran out of time rather than being refused. A board busy with many
+     agents answers slowly; telling an agent "we could not reach Kosmos, is it running?" then reads as
+     "it is down", and on the Mac the same reading sent agents to restart a healthy board. */
+  let lastTimedOut = false;
   async function call(method, route, body, opts) {
     const c = opts || {};
+    lastTimedOut = false;
     try {
       const res = await doFetch(url + route, {
         method,
@@ -928,6 +933,7 @@ async function main(argv, io) {
       return { reached: true, status: res.status, json, text };
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
+      lastTimedOut = timedOut;
       return { reached: false, timedOut };
     }
   }
@@ -945,7 +951,13 @@ async function main(argv, io) {
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
-    unreachable: (what) => { err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?'); return 1; },
+    unreachable: (what) => {
+      /* #4466: busy is not down. A timeout means Kosmos took the connection and did not answer in
+         time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
+      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '. Wait a minute and try again; it does not need a restart.');
+      else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
+      return 1;
+    },
     url,
     agentToken: () => hook.agentToken(env),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
