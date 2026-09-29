@@ -43,6 +43,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const path = require('node:path');
 
 /* H1. Every module the helper and the resumers call is required here, at load, before any step
@@ -450,12 +451,57 @@ function writeGuard(j, journalAt) {
   };
 }
 
+/* ─── #4381: a computer that connects to agents on another computer never has its board started ─── */
+
+/**
+ * The first-run choice (#4356; its Windows half #4381) is one word per computer and account in
+ * %LOCALAPPDATA%\Kosmos\mode, written only by Kosmos.exe (tools/windows/KosmosLauncher.cs
+ * ComputerModeFolderName and ComputerModeFileName, pinned equal by tools.windows-computer-mode-4381.test.js).
+ * The same folder rule as the launcher's LocalAppDataFolder: the LOCALAPPDATA variable, else the
+ * account's own AppData\Local.
+ */
+const COMPUTER_MODE_FOLDER_NAME = 'Kosmos';
+const COMPUTER_MODE_FILE_NAME = 'mode';
+function computerModePath(env, home) {
+  const e = env || {};
+  return path.win32.join(e.LOCALAPPDATA || path.win32.join(home || os.homedir(), 'AppData', 'Local'), COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME);
+}
+
+/**
+ * May an update start the board on a computer whose mode file holds these bytes (null: no file)? The
+ * launcher's reading, byte for byte (and the Mac's): strict UTF-8, every trailing \n dropped and nothing
+ * else (so a \r\n ending reads as unreadable), a byte order mark kept (so it never reads as a word).
+ * Only NO FILE, `run` or `both` start a board; `connect` and anything unreadable do not, as the Mac
+ * installer's rule (install/setup.sh).
+ */
+function boardMayStartForModeBytes(bytes) {
+  if (bytes === null || bytes === undefined) return true;
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return false; }
+  text = text.replace(/\n+$/, '');
+  return text === 'run' || text === 'both';
+}
+
+/** The file on this computer, read now. A missing file (or folder) is no file; any other failure to read
+    it is not, and starts nothing: a choice that is there but cannot be read must not bring a board back. */
+function boardMayStart(env, home) {
+  let bytes;
+  try { bytes = fs.readFileSync(computerModePath(env, home)); } catch (e) {
+    return Boolean(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR'));
+  }
+  return boardMayStartForModeBytes(bytes);
+}
+
+const CONNECT_NOT_STARTED = 'this computer connects to Kosmos on another computer (its first-run choice), so its board is not started';
+
 /** The seams, each with its production default. A suite passes a scheduler (win32board.setRunner),
     a prober and a clock; nothing here reads a real board unless it runs for real. */
 function depsFrom(over, budget) {
   const o = over || {};
   const deps = {
     board: o.board || win32board,
+    /* #4381: read at each start, not once: the person can switch to connect while an update is staged. */
+    mayStartBoard: o.mayStartBoard || (() => boardMayStart(process.env, os.homedir())),
     probe: o.probe || win32handoff.probeBoard,
     portFree: o.portFree || portFree,
     pidGone: o.pidGone || ((pid) => !win32orphan.pidAlive(pid)),
@@ -612,6 +658,12 @@ function restartBoardAfterExit(ctx, exit, released) {
   }
   if (released !== 'released') {
     ctx.log('the board was left stopped because the update lock could not be released; it will come back at the next sign-in or when Kosmos.exe is opened', { evenIfWritesStopped: true });
+    return;
+  }
+  /* #4381: never on a computer that connects elsewhere. Its logon task is switched off, and the board
+     stays down until the person chooses "Run agents on this computer". */
+  if (!ctx.deps.mayStartBoard()) {
+    ctx.log(`the board was left stopped: ${CONNECT_NOT_STARTED}`, { evenIfWritesStopped: true });
     return;
   }
   try {
@@ -824,6 +876,17 @@ function answersAs(answer, identity) {
 async function startAndConfirm(ctx, identity, step) {
   const { j, deps, log } = ctx;
   const L = deps.limits;
+  /* 🛑 #4381: H7, H8 and the resumers' starts all come through here, and on a computer that connects to
+     agents elsewhere none of them starts a board. With no board there is nothing to confirm, so the
+     step stands as done without one: H7's swap stays (the Mac installer's update of a connect Mac also
+     starts nothing), and H8's reversal stays reversed. The board is started, and so first run by this
+     build, only when the person chooses "Run agents on this computer". Weakest part, named: a new
+     build that would not boot is not caught here; it is caught then, by the launcher's own start. */
+  if (!deps.mayStartBoard()) {
+    record(ctx, { step, state: 'not-started', because: 'connect' });
+    log(`${step}: ${CONNECT_NOT_STARTED}`);
+    return { ok: true, run: 0, notStarted: true };
+  }
   let last = 'no board answered';
   for (let run = 1; run <= L.confirmRuns; run += 1) {
     deps.hooks.before(step + '-run', { run });
@@ -1851,4 +1914,5 @@ module.exports = {
   stagedIsYoung, presenceOf, answersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
   OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
+  computerModePath, boardMayStartForModeBytes, boardMayStart, COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME,
 };

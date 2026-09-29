@@ -43,7 +43,7 @@ function slice(start, end) {
   return SOURCE.slice(at, to);
 }
 function method(signature) { return slice(signature, '\n    }\n'); }
-const SECTION = slice('// ---- a board that listens but does not answer (#4543)', 'static void RunSchtasks(');
+const SECTION = slice('// ---- a board that listens but does not answer (#4543)', 'static int RunSchtasks(');
 
 /* ---- the source ------------------------------------------------------------ */
 
@@ -51,11 +51,12 @@ test('#4543: Main replaces a stuck board after the installer duties and before t
   const main = method('static int Main(string[] args)');
   const duties = main.indexOf('if (endedByInstallerDuties.HasValue) return endedByInstallerDuties.Value;');
   const ask = main.indexOf('ReplaceBoardIfStuck(port, portIsTheTasks ? BoardTaskName : null, StuckAfterMs);');
-  const window = main.indexOf('if (File.Exists(opener))');
+  const window = main.indexOf('if (File.Exists(opener)');
   const board = main.indexOf('p = Process.Start(s);');
   assert.ok(duties > 0 && ask > duties, 'the stuck check runs before the installer duties, which may hand this launch to another copy');
   assert.ok(window > ask && board > ask, 'the window or the board starts before a stuck board is replaced, so it opens onto the stuck one');
-  assert.match(main.slice(duties, ask), /if \(showMessageBoxes\)\n\s+\{\n\s+bool portIsTheTasks = string\.IsNullOrEmpty\(Environment\.GetEnvironmentVariable\("PORT"\)\);\n\s+$/,
+  /* #4381: and never on a computer that connects to agents elsewhere (its task is switched off on purpose). */
+  assert.match(main.slice(duties, ask), /if \(showMessageBoxes && !connects\)\n\s+\{\n\s+bool portIsTheTasks = string\.IsNullOrEmpty\(Environment\.GetEnvironmentVariable\("PORT"\)\);\n\s+$/,
     'the replacement is not limited to a person at a desktop, or a launch that set PORT can end the logon task that serves another port');
 });
 
