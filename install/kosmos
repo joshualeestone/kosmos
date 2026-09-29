@@ -674,7 +674,7 @@ $_print
 EOF
 }
 
-# #4466 part 6: AN AGENT CANNOT RESTART-LOOP THE BOARD. Ben's new Grok agent started and stopped his
+# #4466 part 6: AN AGENT CANNOT RESTART-LOOP THE BOARD. An external tester's new Grok agent started and stopped their
 # board 140 times in an hour, following this file's own "Start it with: kosmos start" advice on a board
 # that was only busy. So when an AGENT runs start, stop or restart:
 #   - the board answers (up or busy): stop and restart are REFUSED, start says it is already running;

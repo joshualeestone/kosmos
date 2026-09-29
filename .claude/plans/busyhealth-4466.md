@@ -3,7 +3,7 @@
 Card: #4466 (Splinter's priority, 2026-09-28 22:02 CDT, part 6 added 22:07). Owner: Baron Draxum.
 
 ## The failure
-On Ben's ~25-agent board the board process sat at ~80% of one core. `install/kosmos` `healthy()` did a
+On an external tester's ~25-agent board the board process sat at ~80% of one core. `install/kosmos` `healthy()` did a
 full GET of the app page (a few hundred KB) with `curl -m 2`, so every verb that checks health first
 said "Kosmos is not running. Start it with: kosmos start" to a board that was only slow. Agents took
 the CLI's own advice; a new Grok agent started and stopped the board 140 times in an hour, turning
@@ -53,7 +53,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   markers, is treated as a person. Every Kosmos-launched agent has at least the claim.
 - **300 s busy grace** is a judgement: long enough that a busy board is not restarted by the watchdog,
   short enough that a wedged one is recovered in minutes.
-- The live `/api/report` path and Ben's real board are not measured here; this is measured on stub boards
+- The live `/api/report` path and the tester's real board are not measured here; this is measured on stub boards
   and the real server's route.
 
 ## Tests

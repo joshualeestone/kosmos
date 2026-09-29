@@ -2,9 +2,9 @@
 /**
  * #4466: a BUSY board is not a DOWN board, and an agent cannot restart-loop it.
  *
- * On Ben's 25-agent board the CLI's health check (a full GET of the app page, capped at 2 s) timed
+ * On an external tester's 25-agent board the CLI's health check (a full GET of the app page, capped at 2 s) timed
  * out, so every verb said "Kosmos is not running. Start it with: kosmos start"; his agents took the
- * advice, and a new Grok agent restarted the board 140 times in an hour, turning 2-10 s waits into
+ * advice, and a new Grok agent of theirs restarted the board 140 times in an hour, turning 2-10 s waits into
  * minute-long blackouts. These arms drive the REAL install/kosmos against stub boards:
  *   - slow (health answers after 5 s): status and post WAIT, say "busy", and SUCCEED;
  *   - stopped (connection refused): "not running" and the start advice, AT ONCE;

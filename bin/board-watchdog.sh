@@ -70,7 +70,7 @@ MAX_FAILS="$(numdef "${KOSMOS_WATCHDOG_MAX_FAILS:-}" 5)"
 COOLDOWN="$(numdef "${KOSMOS_WATCHDOG_COOLDOWN:-}" 3600)"
 # #4466: `kosmos status` exits 4 when the board holds its port but did not answer within its busy wait
 # (20 s). That is usually a board BUSY with many agents, and restarting it is what turned slow answers
-# into minute-long blackouts on Ben's 25-agent board. It can also be a wedged board (#2955), which
+# into minute-long blackouts on an external tester's 25-agent board. It can also be a wedged board (#2955), which
 # still needs recovering. So a busy reading counts toward the same down streak, but with this much
 # longer grace before the first restart: a board that has not answered once in five minutes is wedged.
 BUSY_GRACE="$(numdef "${KOSMOS_WATCHDOG_BUSY_GRACE:-}" 300)"
