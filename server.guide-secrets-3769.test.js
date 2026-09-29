@@ -205,7 +205,7 @@ test('#3769 the guide\'s room posts and messages to other agents are masked (mes
   assert.equal(messages.filteredText(GUIDE, `use ${KEY}`), `use ${MASK}`, 'the board did not install the guide mask on messages');
   assert.equal(messages.filteredText(OTHER, `use ${KEY}`), `use ${KEY}`, 'CONTROL: another agent\'s message was changed');
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
-  for (const fn of ['function send(', 'function sendPost(']) {
+  for (const fn of ['function sendWithDelivery(', 'function sendPostWithDelivery(']) {
     const at = src.indexOf(fn);
     const from = src.indexOf('sender.card.sessionName;', at);
     const filtered = src.indexOf('text = filteredText(from, text);', from);

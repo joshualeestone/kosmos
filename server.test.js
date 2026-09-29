@@ -297,6 +297,7 @@ test('#4468: status answers while a 25-recipient room post keeps its paste-to-En
   const chat = require('./engine/chat');
   const messages = require('./engine/messages');
   const projects = require('./engine/projects');
+  const logBefore = fs.existsSync(messages.LOG) ? fs.readFileSync(messages.LOG) : null;
   // The sender is not fanned back to itself, so 26 members make 25 recipients.
   const specs = Array.from({ length: 26 }, (_, i) => fleet.agent(`load${i}`, {
     state: 'idle', pane: `0.${i}`,
@@ -305,6 +306,8 @@ test('#4468: status answers while a 25-recipient room post keeps its paste-to-En
   t.after(() => {
     chat.resetForTests();
     messages.resetForTests();
+    if (logBefore === null) fs.rmSync(messages.LOG, { force: true });
+    else fs.writeFileSync(messages.LOG, logBefore);
     made.restore();
   });
 
