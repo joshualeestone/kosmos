@@ -107,14 +107,16 @@ function chk(ok, label, extra) {
     // and others do): a served board opens its Getting started project by itself and takes the chart off screen.
     // Timers are stubbed so only the watcher can repaint.
     const ctx3 = await browser.newContext();
-    const g3 = [];
-    for (let h = 920; h <= 940; h += 4) {
+    const g3 = [], g3b = [];
+    // G3b runs the same sweep with the pane's gutter NOT reserved (scrollbar-gutter overridden to auto), which is what
+    // an engine without scrollbar-gutter (Safari before 18.2) does: the loop must be stopped by the chart's own guard.
+    for (const noGutter of [false, true]) for (let h = 920; h <= 940; h += 4) {
       const p3 = await ctx3.newPage();
       await p3.setViewportSize({ width: 1280, height: h });
       p3.on('pageerror', (e) => errs.push(e.message));
       await p3.addInitScript(() => { window.setInterval = () => 0; });
       await p3.goto('file://' + path.join(__dirname, '..', '..', 'web', 'index.html'));
-      g3.push(await p3.evaluate(async () => {
+      (noGutter ? g3b : g3).push(await p3.evaluate(async (noGutter) => {
         const st = document.createElement('style');
         st.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #999; }';
         document.head.appendChild(st);
@@ -127,17 +129,20 @@ function chk(ok, label, extra) {
         showTab('projects');
         openConsolidatedAgents();
         document.querySelector('#panel-cons-agents [data-conslay="org"]').click();
+        if (noGutter) document.getElementById('panel-cons-agents').style.scrollbarGutter = 'auto';
         await new Promise((r) => setTimeout(r, 500));
         let n = 0; const orig = window.paintOrg; window.paintOrg = function () { n++; return orig.apply(this, arguments); };
         const widths = new Set(), t0 = performance.now();
         while (performance.now() - t0 < 1000) { widths.add(document.getElementById('orgview').clientWidth); await new Promise((r) => requestAnimationFrame(r)); }
         const pa = document.getElementById('panel-cons-agents');
-        return { h: innerHeight, paints: n, widths: [...widths], fitted: ORG_VIEW_W === document.getElementById('orgview').clientWidth, cons: document.body.classList.contains('consolidated'), pane: pa ? (pa.hidden ? 'hidden' : pa.clientWidth) : 'none' };
-      }));
+        return { h: innerHeight, paints: n, widths: [...widths], fitted: ORG_VIEW_W === document.getElementById('orgview').clientWidth, cons: document.body.classList.contains('consolidated'), pane: pa ? (pa.hidden ? 'hidden' : pa.clientWidth) : 'none', gutter: pa ? pa.offsetWidth - pa.clientWidth : -1, scrolls: pa ? pa.scrollHeight > pa.clientHeight : null };
+      }, noGutter));
       await p3.close();
     }
-    chk(g3.every((x) => x.cons && x.fitted), 'G3 precondition: the consolidated Agents view, with the chart fitted to its box at every height', JSON.stringify(g3));
+    chk(g3.every((x) => x.cons && x.fitted && x.gutter === 15), 'G3 precondition: the consolidated Agents view, the pane reserving a real 15px gutter, and the chart fitted to its box at every height', JSON.stringify(g3));
     chk(g3.every((x) => x.paints <= 1 && x.widths.length === 1), 'G3 the org chart settles: no repaint loop, one width, at every height in the band', JSON.stringify(g3));
+    chk(g3b.some((x) => x.scrolls) && g3b.some((x) => !x.scrolls), 'G3b precondition: with no reserved gutter the band really straddles the pane starting to scroll', JSON.stringify(g3b));
+    chk(g3b.every((x) => x.paints <= 2), 'G3b with no reserved gutter (Safari before 18.2) the chart\'s own guard stops the loop: at most 2 repaints a second', JSON.stringify(g3b));
     await ctx3.close();
 
     // G2: the @mention mirror in a project room.

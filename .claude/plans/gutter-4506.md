@@ -162,3 +162,16 @@ Weakest premises, added:
   a room lifts the boot cover itself). It proves the watcher follows the composer's width, not that a particular
   overlay reaches a room.
 - browser-checks-reason-grep's site counts were measured against this branch's base; re-measure after the next merge.
+
+## Org repaint loop (18:00 CDT onward, blind review after the CI loop)
+- Found (opus): in the consolidated Agents view #panel-cons-agents scrolls on its own and reserved no gutter; with a
+  big fleet the chart's height follows its width, so the pane's scrollbar coming and going fed the org width watcher
+  every frame (97 to 143 repaints/s at 924 to 936 tall, 60 agents, 1280 wide). Fixed: scrollbar-gutter: stable on
+  the pane. G3 (file:// pages, one per height: a served board opens Getting started and a resize routes to it).
+- Found (sonnet): Safari before 18.2 ignores scrollbar-gutter (the Mac floor is WebKit 13.5), so the loop could come
+  back there, in either layout. Fixed in the watcher itself: flips back to the width painted one step before (within
+  a scrollbar's width, within 500ms) are counted; one is a real return (G1), the second is skipped. G3b overrides
+  the pane gutter to auto: 35 to 141 repaints/s without the guard, 0 with it.
+- Cost, stated: on a classic-scrollbar machine the consolidated Agents pane always reserves 15px, so a card grid that
+  does not scroll shows a 15px strip at the right and can drop a column 15px sooner. Cosmetic; no check measures it.
+- Not measured: a real Safari before 18.2 (G3b models it by overriding the property; the guard is engine-independent).

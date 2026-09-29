@@ -31257,6 +31257,14 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
    Registered by name, not as an arrow: web.consolidated-breakpoint.test.js finds
    the layout resize handler as the only arrow-form resize listener. */
 let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being dragged
+/* #4506: a width change can FEED BACK. When the chart's height follows its width, a repaint can add or remove a
+   scrollbar on the box it sits in, which moves the width by the scrollbar's size, which repaints, which removes or
+   adds the scrollbar again: a repaint every frame. scrollbar-gutter: stable on the panes stops that where it is
+   supported; Safari before 18.2 ignores it. So flips are counted: a repaint back to the width painted one step before,
+   by no more than a scrollbar's width and within half a second of that paint, is a flip. ONE flip back is a real
+   return (an overlay dropped the gutter and lifted); a second in a row is the loop, and is skipped, so the chart keeps
+   the width it has. render-gutter-return-4506 G1 (the return) and G3b (the loop). */
+let ORG_FLIP_FROM = 0, ORG_FLIP_AT = 0, ORG_FLIPS = 0;
 function orgResizeRepaint() {
   if (ORG_RESIZE_RAF) return;
   ORG_RESIZE_RAF = requestAnimationFrame(() => {
@@ -31269,6 +31277,11 @@ function orgResizeRepaint() {
     // Against the width the chart was last PAINTED at, which every paint records:
     // a width remembered only here goes stale while the chart is hidden.
     if (wrap.clientWidth === ORG_VIEW_W) return;
+    const now = performance.now();
+    const flip = wrap.clientWidth === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 20 && now - ORG_FLIP_AT < 500;
+    ORG_FLIPS = flip ? ORG_FLIPS + 1 : 0;
+    if (ORG_FLIPS >= 2) return;
+    ORG_FLIP_FROM = ORG_VIEW_W; ORG_FLIP_AT = now;
     paintOrg();
   });
 }
