@@ -1,0 +1,43 @@
+# codexhooks-4589: never type into Codex's "hooks need review" dialog
+
+Card: joshualeestone/kosmos#4589 (Josh, #admin, 2026-09-29 11:42; priority).
+
+## Reproduced (2026-09-29, this Mac, Codex 0.149.1)
+Scratch folder with a project `.codex/hooks.json` (one Stop, one SubagentStop hook, command `true`), Codex in a
+detached tmux pane. Screen 1 (MENU): "Hooks need review" / "› 1. Review hooks" / "2. Trust all and continue" /
+"3. Continue without trusting (hooks won't run)" / "Press enter to confirm or esc to go back". Typing a message
+plus Enter, as Kosmos does, lands on screen 2 (TABLE): "⚠ 2 hooks need review before they can run." / the
+per-event table / "Press t to trust all; enter to review hooks; esc to close" (the card's words). The message
+was gone entirely. Esc returns to an empty prompt. Nothing was trusted. Both screens saved (path sanitised) in
+test-support/codex-screens/.
+
+## Done
+- engine/status.js `codexHookReview(text)`: both screens, only when the screen's own footer is the last
+  non-blank row (trailing padding dropped first: the MENU draws at the top of a 46-row capture, so a raw
+  "last 25 rows" read is all blank). `CODEX_HOOK_DIALOG_SENTENCE`, `isCodexHookEvidence`.
+- classify, Codex branch: the dialog first -> needs_you, because "it is waiting on a Codex hook approval",
+  evidence = the dialog's row. Before: both screens read "unknown" (measured on main).
+- engine/chat.js deliverWithGap: for a Codex agent, a FRESH capture before typing; either screen -> could_not
+  with the sentence, nothing typed. Covers every sender (person chat, msg, posts, task lines, sweeps, the
+  membership line after create). A bare option number the MENU offers goes through (the person answering it
+  from the card). The snapshot refuses only when the fresh read fails.
+
+## Decided
+- Refuse-and-keep, not queue-and-send-later: the page records a refused person message in the conversation
+  with its reason and keeps the composer text when it is the only copy; kosmos msg keeps a piped copy; the
+  person sends again after answering. chat.js is a deliberate no-queue design, and a message delivered
+  minutes later by itself can land in a different context.
+- Fresh read per send to Codex agents only (one capture): the dialog draws at startup, exactly when the first
+  message arrives, so the snapshot is the stale read. Claude agents pay nothing (pinned).
+- Not done here: a Kosmos-owned CODEX_HOME (3a). It removes the cause but needs its own sign-in and would stop
+  sharing the person's Codex login and settings; a product decision with a migration, better as its own card.
+  Never `--dangerously-bypass-hook-trust` (3b).
+- The weekly-limit line Codex shows is left to the #4588 class.
+
+## Weakest premise
+That the person re-sending is acceptable as "the held message arrives whole". The words are kept, visible and
+one press away; they are not sent by themselves.
+
+## Tests
+engine/chat.codex-hooks-4589.test.js (8). On main's engine, the same delivery to either real screen reports
+"placed" with Enter typed and the card reads "unknown" (control script, measured).

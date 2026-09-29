@@ -1227,6 +1227,31 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       at, paneState: null, paneNote: null,
     };
   }
+  /* #4589: NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
+     it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
+     table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here, so
+     the refusal covers the person's chat, kosmos msg, room posts, task lines and the sweeps alike.
+     🔑 A FRESH READ, NOT THE SNAPSHOT, for a Codex agent: the dialog draws at startup, which is exactly when
+     the first message arrives, so the roster snapshot is the stale read here (the #1629 floor above takes
+     the snapshot for Claude's dialog and names that gap). One capture per send, to Codex agents only.
+     The snapshot counts only when that read fails: then a dialog it already names is not let through, and
+     when the read succeeds and shows no dialog, the person has just answered it and is not refused for a
+     snapshot one poll old. A Windows Codex agent has no tmux pane, so its read fails and only the snapshot
+     can refuse (cards carry no `command` to tell the two apart, and none is needed). A bare option number that the MENU offers goes through: that is the person
+     answering it from the card's buttons, which is their call to make. Trusting hooks is never done here. */
+  if (allowed.card && allowed.card.runner === 'codex') {
+    const seen = allowed.card.state === status.STATE.NEEDS_YOU && status.isCodexHookEvidence(allowed.card.stateEvidence);
+    const view = viewport(sessionName, roster);
+    const hooks = view && view.text ? status.codexHookReview(view.text) : null;
+    if (hooks || (seen && !(view && view.text))) {
+      const answer = /^\s*(\d)\s*$/.exec(String(raw));
+      const offered = hooks && hooks.screen === 'menu' && answer
+        && new RegExp('^\\s*(?:›\\s*)?' + answer[1] + '\\.\\s', 'm').test(view.text);
+      if (!offered) {
+        return { state: DELIVERY.COULD_NOT, because: status.CODEX_HOOK_DIALOG_SENTENCE, at, paneState: null, paneNote: null };
+      }
+    }
+  }
   /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
      tasks, the sweeps), so this is the one place that makes "paused" true. Only the
      commands that look after an agent without setting it to work go in

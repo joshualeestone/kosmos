@@ -1562,6 +1562,54 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
+/* #4589 (Josh, 2026-09-29 11:42): CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex 0.149.1 stops at startup
+   when a hook it has not been told to trust is enabled (the desktop app's bundled plugins, in the shared
+   ~/.codex, bring four), and Kosmos typed the person's first message into it: the text vanished and
+   Enter opened the review table. Captured off a live pane on this Mac with one project hook
+   (test-support/codex-screens/, both screens), in the order a typed message meets them:
+     MENU:   "Hooks need review" / "› 1. Review hooks" / "2. Trust all and continue" /
+             "3. Continue without trusting (hooks won't run)" / "Press enter to confirm or esc to go back"
+     TABLE:  "⚠ N hooks need review before they can run." / the per-event table /
+             "Press t to trust all; enter to review hooks; esc to close"  (the words on the card)
+   🔑 THE DIALOG IS THE LAST THING ON THE SCREEN, and that is what separates it from the same words in an
+   agent's tool output: each screen's own footer must be the last non-blank row. The MENU draws at the
+   TOP of the pane with the rest blank, so trailing blank rows are dropped first (a fixed "last 25 rows"
+   of the raw capture holds nothing but blanks there). Returns { screen: 'menu'|'table', evidence } or null. */
+const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
+const CODEX_HOOK_MENU_FOOTER = /^\s*Press enter to confirm or esc to go back\s*$/;
+const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
+const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\.\s*$/;
+const CODEX_HOOK_ROWS = 30;
+function codexHookReview(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return null;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  const last = tail[tail.length - 1];
+  if (CODEX_HOOK_MENU_FOOTER.test(last)) {
+    const title = tail.slice(0, -1).reverse().find((r) => CODEX_HOOK_MENU_TITLE.test(r));
+    return title ? { screen: 'menu', evidence: title.trim() } : null;
+  }
+  if (CODEX_HOOK_TABLE_FOOTER.test(last)) {
+    const warning = tail.slice(0, -1).reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    return { screen: 'table', evidence: (warning || last).trim().replace(/^⚠\s*/, '') };
+  }
+  return null;
+}
+/* The one sentence for it (the deliver refusal, the typed routes' 409, the card), about the AGENT: what it
+   is stopped on, that typing cannot answer it, and what to do. Trusting hooks is the person's call, so the
+   sentence never recommends an answer. Plain characters: rendered through textContent and as JSON. */
+const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
+  + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
+  + 'so nothing was typed. Choose in its terminal, or with the buttons on its card when they show: trust the hooks, '
+  + 'or continue without them. Then send this again.';
+/* True when a card's evidence is this dialog's, as isTrustDialogEvidence is for Claude's: only the Codex hook
+   branch of classify writes these rows as needs_you evidence. */
+function isCodexHookEvidence(evidence) {
+  return typeof evidence === 'string'
+    && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence));
+}
+
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
@@ -3665,6 +3713,13 @@ function classify(pane, paneText) {
   if ((pane.runner === 'codex' || isCodexCommand(pane.command)) && !require('./win32roster').isWin32Pane(pane)) {
     if (paneText === null) {
       return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+    }
+    /* #4589: the hook-review dialog first, so the card names it rather than "asking you something" (the
+       menu also matches the generic markers) or "unknown" (the table matches nothing: no composer, no
+       numbered option). Its evidence is what the delivery floor keys on. */
+    const hooks = codexHookReview(paneText);
+    if (hooks) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
@@ -7987,6 +8042,9 @@ module.exports = {
   consentPrompt,
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
+  codexHookReview, // #4589
+  isCodexHookEvidence,
+  CODEX_HOOK_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
   readableModelId, // #4416
