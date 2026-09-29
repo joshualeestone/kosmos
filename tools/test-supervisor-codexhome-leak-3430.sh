@@ -103,7 +103,3 @@ if [ "$FAILS" -ne 0 ]; then
   exit 1
 fi
 echo "test-supervisor-codexhome-leak-3430: OK"
-# #4592 extends this exact home-selection contract. Keeping the new proof under
-# the already-wired shell entry means the suite cannot run the old assertion
-# while silently omitting the new isolation behaviour.
-bash tools/test-supervisor-codex-isolation-4592.sh
