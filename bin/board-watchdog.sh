@@ -193,8 +193,11 @@ fi
 # by then, or a healthy board will reset us first).
 if [ "$FAILS" -ge "$MAX_FAILS" ]; then
   if [ ! -f "$ALERT" ]; then
+    # #4466: busy reclaims count toward MAX_FAILS too, and a board that holds the port without answering
+    # is not "exiting", so the log says which of the two it was.
+    if [ "$STATUS_RC" -eq 4 ]; then _why="board holds the port and does not answer"; else _why="board keeps exiting"; fi
     printf 'crash-loop: %s restarts did not hold; auto-restart paused for %ss\n' "$FAILS" "$COOLDOWN" > "$ALERT" 2>/dev/null || true
-    log "crash-loop after $FAILS restarts; pausing auto-restart for ${COOLDOWN}s (board keeps exiting)"
+    log "crash-loop after $FAILS restarts; pausing auto-restart for ${COOLDOWN}s ($_why)"
   fi
   [ "$((NOW - LAST_KICK))" -lt "$COOLDOWN" ] && exit 0
   FAILS=0                                  # cooldown elapsed: try one more burst

@@ -332,6 +332,23 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - DUPLICATE (CONVENTION): plan file name (rounds 13, 14, 20). DUPLICATE (NIT): timing-window flake risk
   (the test header, round 17's first-request clock).
 
+- 6g on 75216ed7f: GREEN.
+
+## Review round 27 (opus): 1 NEW WARNING + 3 NEW NITs fixed, 1 deferred; loop continues
+- FIXED (W): `healthy()` re-probed at once after a busy reading that came back FAST (a reset or empty reply,
+  an older board's 5xx page), so an overloaded board was hit in a tight loop for the whole busy window.
+  Measured on the old code: 176 requests in a 3 s window to a stub that cuts each one. Each busy reading now
+  waits out the rest of its probe's budget. Arm `fastcut` (a handful, not hundreds), red on the old code.
+- FIXED (NIT): an agent's start of a down board the PERSON stopped on purpose (`board.stopped`) went ahead,
+  clearing the marker and turning the watchdog back on. The guard now refuses it and keeps the marker; a
+  person and --force callers are unaffected. Arm with a person control, red on the old code.
+- FIXED (NIT): the watchdog's crash-loop log says "board holds the port and does not answer" when the
+  failing restarts were busy reclaims, not "board keeps exiting".
+- FIXED (NIT): stale plan lines (arm count, status).
+- DEFERRED: `say_not_up` still tells an agent "Start it with: kosmos start" on a DOWN board. One agent start
+  per cooldown on a down board is the designed recovery (no person may be awake), pinned by the "stopped
+  board: start advice AT ONCE" arm; the guard, not the sentence, stops the loop.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -361,7 +378,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   and the real server's route.
 
 ## Tests
-- `cli.busy-health-4466.test.js` (28 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
+- `cli.busy-health-4466.test.js` (37 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
   `healthy()` verbatim as the CONTROL (says "not running" to the same slow board); stopped = "not
   running" at once; never answers = busy, exit 4, no start advice; stranger; older board fallback;
   agent refusal; 10 rapid agent restarts of a down board go ahead once, a person 10 times, `--force`
@@ -378,5 +395,5 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 ## Status
 - [x] server route, CLI, watchdog, supervisor, Windows CLI, tests, red checks
 - [x] full suite (green at every iteration's commit)
-- [x] challenge loop convergence (iteration 19)
-- [ ] PR, merge
+- [x] challenge loop: converged at 19, again at 25 after the main merge; PR #4539 opened; rounds 26-27 from its CI and later blind passes
+- [ ] PR #4539 merged (squash with the clean message), verified on main

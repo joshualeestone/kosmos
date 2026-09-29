@@ -91,6 +91,8 @@ const server = http.createServer((req, res) => {
   if (health === 'msgcut' && req.method === 'POST' && req.url.startsWith('/api/msg')) { req.socket.destroy(); return; }
   // Answers its health check, then cuts each data read (a board too busy to finish the request).
   if (health === 'datacut' && ['/api/connections/held', '/api/community/read', '/api/roles'].some((r) => req.url.startsWith(r))) { req.socket.destroy(); return; }
+  // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them.
+  if (health === 'fastcut') { require('node:fs').appendFileSync(firstFile + '.n', '.'); req.socket.destroy(); return; }
   // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
   if (health === 'emptyroles' && req.url.startsWith('/api/roles')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(''); return; }
   if (health === 'oldslow' && req.method === 'GET' && !req.url.startsWith('/api/health')) return;
@@ -352,6 +354,32 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   const agent = await bash(`source "${CLI}"; _stop_advice 4242`, baseEnv(port, { KOSMOS_AGENT_SESSION: 'grok-agent' }));
   assert.match(agent.stdout, /Tell the person who runs this computer/);
   assert.doesNotMatch(agent.stdout, /kill/);
+});
+
+test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', () => withBoard('fastcut', async (port, firstFile) => {
+  const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3' }));
+  assert.equal(out.code, 4, out.stdout + out.stderr);
+  const n = fs.existsSync(firstFile + '.n') ? fs.readFileSync(firstFile + '.n', 'utf8').length : 0;
+  assert.ok(n >= 1, 'the stub must have been asked at least once (else the arm measures nothing)');
+  // Probes wait out their budget (2 s, then what is left): a handful of requests in 3 s, not hundreds.
+  assert.ok(n <= 8, `a 3 s busy window sent ${n} requests to a board that cut each one at once`);
+}));
+
+test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', async () => {
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    fs.writeFileSync(path.join(home, 'board.stopped'), '');
+    const agent = await bash(`source "${CLI}"; ( agent_board_guard start ) && echo went`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.doesNotMatch(agent.stdout, /went/, agent.stdout + agent.stderr);
+    assert.match(agent.stdout, /stopped on purpose by the person who runs this computer/);
+    assert.ok(fs.existsSync(path.join(home, 'board.stopped')), 'the person\'s stop marker is kept');
+    const restart = await bash(`source "${CLI}"; ( agent_board_guard restart ) && echo went`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.doesNotMatch(restart.stdout, /went/);
+    // CONTROL: a person is never held by it.
+    const person = await bash(`source "${CLI}"; ( agent_board_guard start ) && echo went`, baseEnv(port, { KOSMOS_HOME: home }));
+    assert.match(person.stdout, /went/);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test('#4466 an EMPTY answer to agent roles is not "is it running?" (the board did answer)', () => withBoard('emptyroles', async (port) => {

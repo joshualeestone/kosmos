@@ -383,13 +383,25 @@ healthy() {
   fi
   local _limit _start="$SECONDS" _t=2 _left _said=""
   _limit="$(_busy_wait)"
+  local _ps _w
   while :; do
+    _ps="$SECONDS"
     _health_probe "$_t"
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     if [ "$HEALTH_STATE" != busy ]; then return 1; fi
     _left=$(( _limit - (SECONDS - _start) ))
     if [ "$_left" -le 0 ]; then return 1; fi
     if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
+    # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
+    # in a tight loop for the whole busy window.
+    _w=$(( _t - (SECONDS - _ps) ))
+    if [ "$_w" -gt "$_left" ]; then _w="$_left"; fi
+    if [ "$_w" -gt 0 ]; then
+      sleep "$_w"
+      _left=$(( _limit - (SECONDS - _start) ))
+      if [ "$_left" -le 0 ]; then return 1; fi
+    fi
     _t=$(( _t * 2 ))
     if [ "$_t" -gt "$BUSY_PROBE_MAX_S" ]; then _t="$BUSY_PROBE_MAX_S"; fi
     if [ "$_t" -gt "$_left" ]; then _t="$_left"; fi
@@ -806,6 +818,13 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   if [ "$_verb" = stop ]; then
     say "Kosmos is not running here, so there is nothing for an agent to stop. If something looks wrong, tell the person who runs this computer."
     exit 0
+  fi
+  # A person stopped it on purpose (the deliberate-stop marker): an agent's start would clear the marker and
+  # switch the watchdog back on, overriding that person. Only a person, or an internal caller with --force,
+  # starts it again.
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
+    exit 1
   fi
   _now="$(date +%s)"
   _cool="${KOSMOS_AGENT_RESTART_COOLDOWN:-$AGENT_RESTART_COOLDOWN_S}"
