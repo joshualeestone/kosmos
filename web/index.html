@@ -46445,6 +46445,8 @@ document.getElementById('orgchart-usenames').addEventListener('change', (e) => {
 document.getElementById('orgchart-preview').addEventListener('click', () => {
   if (ORGCHART_CREATING) return;
   ORGCHART_FILE_PEOPLE = null;   // a preview from the box is the box's, not the last file's
+  document.getElementById('orgchart-consent').hidden = true;   // and a picture still asking to be read is moved past
+  ORGCHART_FILE_PENDING = null;
   const rows = parseOrgchart(
     document.getElementById('orgchart-text').value,
     document.getElementById('orgchart-usenames').checked,
@@ -46553,16 +46555,37 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      and how the OPERATOR raises it -- shown verbatim, not reworded. */
   const created = Array.isArray(result.created) ? result.created : [];
   const refused = Array.isArray(result.refused) ? result.refused : [];
-  /* #4559: someone whose manager was NOT created would report to an agent that does not exist. Put them
-     under the person instead (an empty reportsTo is "reports to you", the org chart's top) and say so. */
-  const madeNames = new Set(created.map((c) => c && c.name).filter(Boolean));
-  const orphans = members.filter((m) => m.reportsTo && madeNames.has(m.name) && !madeNames.has(m.reportsTo));
-  for (const m of orphans) {
+  /* #4559: team create makes members in the order sent, and a refused one keeps its requested name, so walking
+     the members in order pairs each requested name with the name it was created under (create may canonicalise
+     it). Then each created member's reportsTo is checked against that: a manager created under another name is
+     re-pointed there, and one NOT created leaves its reports under the person (an empty reportsTo is "reports to
+     you", the org chart's top) rather than under an agent that does not exist. */
+  const refusedNames = new Set(refused.map((r) => r && r.name).filter(Boolean));
+  const asCreated = new Map();
+  let ci = 0;
+  for (const m of members) {
+    if (refusedNames.has(m.name)) continue;
+    const c = created[ci++];
+    if (c && c.name) asCreated.set(m.name, c.name);
+  }
+  const fixes = [];
+  for (const m of members) {
+    if (!m.reportsTo || !asCreated.has(m.name)) continue;
+    const want = asCreated.get(m.reportsTo) || '';
+    if (want !== m.reportsTo) fixes.push({ name: asCreated.get(m.name), to: want });
+  }
+  const orphans = [];
+  const unfixed = [];
+  for (const f of fixes) {
+    let ok = false;
     try {
-      await fetch('/api/agent/' + encodeURIComponent(m.name) + '/profile', {
-        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reportsTo: '' }),
+      const res = await fetch('/api/agent/' + encodeURIComponent(f.name) + '/profile', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reportsTo: f.to }),
       });
-    } catch { /* the line below still says what happened */ }
+      ok = res.ok;
+    } catch { ok = false; }
+    if (!ok) unfixed.push(f.name);
+    else if (!f.to) orphans.push(f.name);
   }
   if (gen !== ORGCHART_GEN) return;
   if (created.length && !refused.length) {
@@ -46575,10 +46598,12 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   } else {
     countEl.textContent = result.because || 'No agents were created.';
   }
-  if (orphans.length) {
+  if (orphans.length || unfixed.length) {
     msg.hidden = false;
-    msg.textContent = orphans.length + (orphans.length === 1 ? ' agent now reports' : ' agents now report')
-      + ' to you, because their manager was not created.';
+    msg.textContent = (orphans.length ? orphans.length + (orphans.length === 1 ? ' agent now reports' : ' agents now report')
+      + ' to you, because their manager was not created.' : '')
+      + (unfixed.length ? (orphans.length ? ' ' : '') + 'We could not update who ' + unfixed.join(', ')
+        + (unfixed.length === 1 ? ' reports' : ' report') + ' to; change it on ' + (unfixed.length === 1 ? 'its' : 'their') + ' page.' : '');
   }
   listEl.innerHTML =
     created.map((c) => '<li>' + esc(c.shownAs || c.name) + ' <span class="dhint">created</span></li>').join('')

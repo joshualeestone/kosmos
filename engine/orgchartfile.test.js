@@ -44,7 +44,7 @@ test('lines that need a look say why: a missing manager, a shared name, a self-r
   assert.match(why[3], /reporting loop/);
   assert.match(why[4], /reporting loop/);
   assert.match(why[5], /another row is also called Sam Park/);
-  assert.match(why[7], /two people are called Sam Park/);
+  assert.match(why[7], /two people have Sam Park in the file/);
   assert.equal(r.rows[7].reportsTo, null, 'an ambiguous manager is not guessed');
   assert.equal(why[0], '', 'CONTROL: a clean row carries no mark');
 });
@@ -151,4 +151,46 @@ test('the model\'s answer is untrusted: wrong shapes are refused, fields are cle
 test('only pictures and PDFs are sent to the model; the rest are not', () => {
   for (const n of ['a.png', 'a.JPG', 'a.jpeg', 'a.webp', 'a.gif', 'a.pdf']) assert.equal(o.forModel(n), true, n);
   for (const n of ['a.csv', 'a.xlsx', 'a.pptx', 'a.svg', 'a.html', 'png', '']) assert.equal(o.forModel(n), false, n);
+});
+
+test('two rows sharing an id (Manager ID column) mark the report, not resolve to the last one', () => {
+  const r = csv('Employee ID,Name,Title,Manager ID\nE1,Avery Quill,CEO,\nE1,Bo Linden,VP,\nE2,Cy Marsh,Eng,E1\n');
+  assert.equal(r.rows[2].reportsTo, null);
+  assert.match(r.rows[2].why, /two people have E1 in the file/);
+});
+
+test('a manager cell is capped plain text before it reaches a Check this line', () => {
+  const r = csv('Name,Title,Manager\nAvery Quill,CEO,' + 'Z'.repeat(5000) + '\n');
+  assert.ok(r.rows[0].why.length < o.MAX_PERSON + 80, 'the reason carried the whole cell: ' + r.rows[0].why.length);
+});
+
+test('a sheet of row openers with no closers is read in linear time, not rescanned per opener', () => {
+  const opens = '<row r="1">'.repeat(200000);   // about 2 MB, well under the part cap
+  const buf = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', '<worksheet><sheetData>' + opens]]);
+  const t0 = process.hrtime.bigint();
+  const r = o.readLocal('slow.xlsx', buf);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.equal(r.rows.length, 0);
+  assert.ok(ms < 2000, `reading took ${Math.round(ms)}ms`);
+});
+
+test('the real runner survives a claude that exits without reading the file (EPIPE must not crash the board)', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-orgchart-epipe-'));
+  const fake = path.join(dir, 'claude');
+  fs.writeFileSync(fake, '#!/bin/sh\nexit 3\n', { mode: 0o755 });   // never reads stdin
+  const was = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = fake;
+  o.setModelRunner(null);   // the real runner
+  try {
+    const big = Buffer.alloc(4 * 1024 * 1024, 7);   // far more than a pipe buffer, so the write outlives the child
+    const r = await o.readWithModel('chart.png', big);
+    assert.equal(r.rows.length, 0);
+    assert.ok(r.problems.length > 0, 'a failed read says so');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; else process.env.AGENT_WORKFORCE_CLAUDE_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
