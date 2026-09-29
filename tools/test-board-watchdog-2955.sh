@@ -209,7 +209,7 @@ run_wd "$H"; rc=$?; [ "$rc" = 0 ] && ok "missing CLI: silent no-op" || bad "miss
 
 # ---- the CLI's marker wiring, against the REAL install/kosmos --------------
 # The CLI refuses start/stop when an agent invokes it (#4466, agent_board_guard via _invoked_by_agent), and these
-# cases test the person's path. Run from an agent's pane (every gated run on the fleet), the agent identity would
+# cases test the person's path. Run from a pane with an agent identity (a gated run by an agent), that identity would
 # be inherited and cmd_start/cmd_stop refused before touching the marker, so it is cleared here, as CI has none.
 unset KOSMOS_AGENT_SESSION KOSMOS_AGENT_TOKEN TMUX_PANE
 CLI="$PWD/install/kosmos"
@@ -234,6 +234,7 @@ H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.stopped"
 KOSMOS_AGENT_SESSION=test-4466 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" start >/dev/null 2>&1; rc=$?
 [ "$rc" = 1 ] && [ -f "$H/board.stopped" ] && ok "an agent's start is refused and keeps the person's deliberate-stop marker" || bad "an agent's start was not refused (exit $rc) or cleared the marker"
 rm -rf "$H"
+# The marker check is what this arm rests on: without the guard, cmd_stop's not-running branch exits 0 as well.
 H="$(mktemp -d)"; mkdir -p "$H/logs"
 KOSMOS_AGENT_SESSION=test-4466 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" stop >/dev/null 2>&1; rc=$?
 [ "$rc" = 0 ] && [ ! -f "$H/board.stopped" ] && ok "an agent's stop of a board that is not running writes no marker" || bad "an agent's stop wrote the marker (exit $rc)"

@@ -16,5 +16,5 @@ Done means: from an agent pane, main fails the two marker cases and this branch 
 _invoked_by_agent forced false, both new guard cases fail (measured, see the commit message).
 
 Weakest part: unsetting TMUX_PANE covers the pane-marker arm by removing the pane, not by testing it; the new cases
-exercise the guard through KOSMOS_AGENT_SESSION only. The pane arm stays covered by cli.busy-health-4466.test.js
-(not re-measured here).
+exercise the guard through KOSMOS_AGENT_SESSION only. The pane arm stays covered by cli.busy-health-4466.test.js:534
+(a claimed pane is an agent with no variables, with an unclaimed control), and the token arm at :523.
