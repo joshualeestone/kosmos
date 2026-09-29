@@ -112,6 +112,22 @@ test('ZIP BOMB: an honest but oversized declared size is refused before inflatin
   assert.match(o.readLocal('big.xlsx', buf).problems[0], /too large to read here/);
 });
 
+test('a damaged zip (directory pointing past the end) says it is damaged, not a raw offset error', () => {
+  const good = zip([['xl/workbook.xml', WB], ['xl/_rels/workbook.xml.rels', RELS], ['xl/worksheets/sheet1.xml', SHEET([['Name', 'Title'], ['A', 'CEO']])]]);
+  const bad = Buffer.from(good);
+  bad.writeUInt32LE(0x7fffffff, bad.length - 22 + 16);   // the central directory offset, now past the end
+  const r = o.readLocal('bad.xlsx', bad);
+  assert.equal(r.rows.length, 0);
+  assert.match(r.problems[0], /damaged or not a real \.xlsx/);
+  assert.ok(!/offset|out of range/i.test(r.problems[0]), r.problems[0]);
+});
+
+test('a kind this reader does not take is flagged, not signalled by a magic string', () => {
+  const r = o.readLocal('notes.docx', Buffer.from('x'));
+  assert.equal(r.unsupported, true);
+  assert.deepEqual(r.problems, []);
+});
+
 test('a file that is not a zip, or has no workbook, says so', () => {
   assert.match(o.readLocal('x.xlsx', Buffer.from('not a zip at all')).problems[0], /not a spreadsheet we can open/);
   assert.match(o.readLocal('x.xlsx', zip([['hello.txt', 'hi']])).problems[0], /not an Excel workbook/);
@@ -122,6 +138,9 @@ test('the model is asked with every tool off, the file inline, and a JSON schema
   const i = args.indexOf('--tools');
   assert.ok(i >= 0 && args[i + 1] === '', 'every tool is switched off');
   assert.ok(args.includes('--strict-mcp-config'), 'no MCP server from the account is loaded');
+  assert.ok(args.includes('--no-session-persistence'), 'the run keeps no transcript (it would hold real names)');
+  const si = args.indexOf('--setting-sources');
+  assert.ok(si >= 0 && args[si + 1] === '', 'none of the person\'s own settings (hooks, CLAUDE.md) load');
   assert.ok(args.includes('--json-schema'));
   const line = JSON.parse(o.requestLine('chart.jpg', Buffer.from([1, 2, 3])));
   assert.deepEqual(line.message.content[0].source, { type: 'base64', media_type: 'image/jpeg', data: 'AQID' });

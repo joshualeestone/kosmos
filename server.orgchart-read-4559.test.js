@@ -114,6 +114,12 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   assert.equal(sent.length, 0, 'the file went to the model before the person said yes');
 });
 
+test('#4559: the consent question needs no file: an empty body is answered with the provider', async () => {
+  orgchartfile.setModelAvailable(() => true);
+  const r = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });
+  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)' });
+});
+
 test('#4559: with consent but not from the screen (the board token alone), the file is refused, not sent', async () => {
   const sent = [];
   orgchartfile.setModelAvailable(() => true);
