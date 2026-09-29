@@ -494,6 +494,7 @@ test('#4588: quotaResetMs is null for anything that is not the quota with a rese
   assert.equal(bridge.quotaResetMs('Something else. Resets in 5m.'), null);
   assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in soon'), null);
   assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in 0s'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED Resets in 500ms'), null, 'the m of ms is not minutes (review 1)');
   assert.equal(bridge.quotaResetMs(undefined), null);
 });
 

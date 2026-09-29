@@ -6299,13 +6299,18 @@ function saidWords(reported, nowMs) {
 }
 
 /* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
-   ended) whose `until` is the reset as an ISO time; nothing else writes an automatic idle with an until. Returns the
-   reset in epoch ms while it is still ahead of nowMs, else null. An agent's own `kosmos report idle --until Friday` is
-   not automatic and is not a time, so it never reads as a pause. */
-function quotaPauseUntil(reported, nowMs) {
+   ended) whose `until` is the reset as an ISO time. quotaResetOf returns that reset in epoch ms for any such report,
+   quotaPauseUntil only while it is still ahead of nowMs. An agent's own `kosmos report idle --until Friday` is not
+   automatic and is not a time, so it never reads as a pause; the Windows CLI's `--auto --until <time>` could write
+   one by hand, and would read the same. */
+function quotaResetOf(reported) {
   if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
   const at = typeof reported.until === 'string' ? Date.parse(reported.until) : NaN;
-  if (!Number.isFinite(at)) return null;
+  return Number.isFinite(at) ? at : null;
+}
+function quotaPauseUntil(reported, nowMs) {
+  const at = quotaResetOf(reported);
+  if (at === null) return null;
   return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
 }
 
@@ -6501,10 +6506,15 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   /* #4588: paused on the account's shared Google quota until its reset (see quotaPauseUntil). The existing
      rate_limited state, which the board already shows as Paused; the resume sweep (engine/agyquota.js) types a
      carry-on line into the agent after the reset, and its next automatic working clears this. */
-  const quotaAt = quotaPauseUntil(reported, nowMs);
+  /* Kosmos's own sentences, never the report's text (Google's raw error, and a relative "Resets in" that goes stale,
+     #215): the detail header quotes `because`. */
+  const quotaAt = quotaResetOf(reported);
   if (quotaAt !== null) {
     const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: said('paused on its Google quota') + ' Resets at ' + hhmm + '.', evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
+    if (quotaPauseUntil(reported, nowMs) !== null) {
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
+    }
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota reset at " + hhmm, reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the
@@ -7602,7 +7612,8 @@ function snapshot() {
       quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
-      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null. */
+      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null.
+         Pane cards only: panelessCard carries neither this nor a runner, and an agy agent always has a pane. */
       quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
@@ -7981,7 +7992,7 @@ module.exports = {
   setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, quotaPauseUntil, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, quotaPauseUntil, quotaResetOf, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

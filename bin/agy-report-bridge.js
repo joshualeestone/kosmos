@@ -156,7 +156,8 @@ function readStdin() {
 function quotaResetMs(error) {
   const e = typeof error === 'string' ? error : '';
   if (!/RESOURCE_EXHAUSTED/.test(e)) return null;
-  const m = /Resets in\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i.exec(e);
+  // `m(?!s)`: the minutes of "Resets in 5m", never the m of a "500ms" (review 1).
+  const m = /Resets in\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?/i.exec(e);
   if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined)) return null;
   const ms = ((Number(m[1]) || 0) * 3600 + (Number(m[2]) || 0) * 60 + (Number(m[3]) || 0)) * 1000;
   return ms > 0 ? ms : null;
@@ -195,8 +196,9 @@ function reportFor(eventName, payload, nowMs) {
       const now = Number.isFinite(nowMs) ? nowMs : Date.now();
       return {
         state,
-        text: "Paused: this Google account's shared Antigravity quota ran out. Kosmos resumes this agent by itself when it resets. "
-          + 'Google said: ' + payload.error.trim(),
+        /* Google's own words are kept for whoever reads the record; the board says its own sentence instead
+           (status.js quotaPauseUntil's branch), and promises nothing about a resume that may be switched off. */
+        text: "Paused: this Google account's shared Antigravity quota ran out. Google said: " + payload.error.trim(),
         until: new Date(now + wait).toISOString(),
       };
     }

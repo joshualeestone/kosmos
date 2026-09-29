@@ -32,6 +32,8 @@ test('#4588: plan waits until the reset plus grace, then nudges, once per reset'
   assert.equal(q.plan(paused(), undefined, AT + q.GRACE_MS).act, 'nudge');
   assert.equal(q.plan(paused(), { until: RESET, nudgedAt: AT }, AT + 3600e3).act, 'none', 'already resumed for this reset');
   assert.equal(q.plan(paused(), { until: RESET, tries: q.MAX_TRIES }, AT + 3600e3).act, 'none', 'out of tries');
+  assert.equal(q.plan(paused(), undefined, AT + q.MAX_AGE_MS + 1).act, 'none', 'a reset over six hours old is left alone: the book does not survive a board restart');
+  assert.equal(q.plan(paused(), undefined, AT + q.MAX_AGE_MS).act, 'nudge', 'CONTROL: at the edge it still resumes');
   // CONTROLS: not a quota pause at all.
   assert.equal(q.plan({ found: true, state: 'idle', by: 'agent', until: RESET }, undefined, AT + 3600e3).act, 'none');
   assert.equal(q.plan({ found: true, state: 'working', by: 'auto', until: '' }, undefined, AT + 3600e3).act, 'none');

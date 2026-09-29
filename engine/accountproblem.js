@@ -73,6 +73,15 @@ function accountProblemOf(card) {
       + ' Google Gemini (Google subscription) instead. It picks up again on the next message after that.';
     return { kind: 'usage', provider: 'Gemini', notify: true, text: head + todo, summary: head + todo };
   }
+  /* #4588: an Antigravity agent paused on its Google account's shared quota, read from Google's own error through agy's
+     hook (status.js quotaPauseUntil), so it is firm. Every agy agent on this computer is signed in to that one account,
+     so they share it. Said without "add credits": this is a subscription's allowance. */
+  if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
+    const hhmm = new Date(Date.parse(card.quotaUntil)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const text = `${who} has used up its Google account's Antigravity quota, which every Antigravity agent on this computer`
+      + ` shares, so it has stopped. The quota resets at ${hhmm}.`;
+    return { kind: 'usage', provider, notify: true, text, summary: text };
+  }
   if (card.state === 'rate_limited') {
     /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
        at the start of a row (engine/status.js CODEX_LIMIT_MARKERS), so it is a firm reading. Every

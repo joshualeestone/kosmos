@@ -8,13 +8,18 @@ const nodePath = require('node:path');
 const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
-const reasonOf = (a) => new Function('a', `${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a);`)(a);
+const reasonOf = (a, opts) => new Function('a', 'opts', `${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
 
-test('#4588: a quota-paused card names the time Kosmos resumes it', () => {
+test('#4588: a quota-paused card names when the quota resets (the grid path), and the detail path quotes no raw API text', () => {
   const until = '2026-09-28T22:11:54.000Z';
-  const want = 'Usage limit reached. Kosmos resumes it at '
-    + new Date(Date.parse(until)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-  assert.equal(reasonOf({ state: 'rate_limited', stateConfidence: 'structured', quotaUntil: until }), want);
+  const hhmm = new Date(Date.parse(until)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // The shape a real card has: reported, with the engine's own sentence as its because (status.js).
+  const card = { state: 'rate_limited', stateConfidence: 'structured', stateReported: true, quotaUntil: until,
+    because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm };
+  assert.equal(reasonOf(card, { noQuote: true }), 'Usage limit reached. The Google quota resets at ' + hhmm + '.');
+  const detail = reasonOf(card);
+  assert.match(detail, /resets at/);
+  assert.doesNotMatch(detail, /RESOURCE_EXHAUSTED|Resets in|Kosmos resumes/);
 });
 
 test('#4588: CONTROLS: no quotaUntil, or an unreadable one, keeps the existing wording', () => {

@@ -25,13 +25,15 @@ test('#4588: while paused the card reads rate_limited (Paused) with the reset in
   const r = status.reconcileReport(quota(), UNKNOWN, NOW);
   assert.equal(r.state, status.STATE.RATE_LIMITED);
   assert.equal(r.quotaUntil, RESET);
-  assert.match(r.because, /shared Antigravity quota/);
-  assert.match(r.because, /Resets at /);
+  assert.match(r.because, /shared Antigravity quota ran out; it resets at /);
+  assert.doesNotMatch(r.because, /RESOURCE_EXHAUSTED|Resets in|Google said/, "Kosmos's own sentence, never the raw report text (#215)");
   assert.equal(r.reported, true);
 });
 
 test('#4588: after the reset the same report reads as the ordinary idle again (CONTROL)', () => {
-  const r = status.reconcileReport(quota(), UNKNOWN, Date.parse(RESET) + 60 * 1000);
+  const r = status.reconcileReport(quota({ because: "Paused: ... Google said: API error: RESOURCE_EXHAUSTED ... Resets in 24m54s." }), UNKNOWN, Date.parse(RESET) + 60 * 1000);
   assert.equal(r.state, status.STATE.IDLE);
   assert.equal(r.quotaUntil, undefined);
+  assert.match(r.because, /quota reset at /, 'after the reset it says so, not "Paused"');
+  assert.doesNotMatch(r.because, /Paused|RESOURCE_EXHAUSTED/);
 });

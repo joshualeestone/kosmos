@@ -21,7 +21,12 @@
  */
 
 const GRACE_MS = 30 * 1000;
-const STAGGER_MS = 60 * 1000;
+/* A little under the server's 60 s tick, so jitter between ticks cannot turn one minute's spacing into two (review 1). */
+const STAGGER_MS = 55 * 1000;
+/* A reset older than this is left alone: the book lives in memory, so without it every board restart would type the
+   carry-on line again into an agent whose last report is still an old quota stop (review 1). Google's allowance
+   refreshes every five hours. */
+const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MAX_TRIES = 3;
 const NUDGE_TEXT = 'The Google quota for this account has reset. Please carry on with what you were doing.';
 const LAST = '__lastNudgeAt';
@@ -43,6 +48,7 @@ function plan(report, entry, now) {
     if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
   }
   if (now < at + GRACE_MS) return { act: 'wait', because: 'its quota resets at ' + new Date(at).toISOString() };
+  if (now > at + MAX_AGE_MS) return { act: 'none', because: 'its quota reset more than six hours ago; left alone' };
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
@@ -106,4 +112,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_TRIES, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };
