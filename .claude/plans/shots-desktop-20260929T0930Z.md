@@ -35,7 +35,18 @@ SANCTIONED WAY TO TAKE SCREENSHOTS FOR A PR"), and it has phone sizes only.
 ## Review round 2 (opus), fixed
 - A skipped screen is recorded: `report.md` lists every phone-only skip, `report.json` carries them as entries with
   `skipped: "phone-only screen"`, and the summary counts them.
-- A run that takes no shot at all (every screen skipped, or no screen matched --screens) now fails with exit 2,
-  through the existing top-level FAIL line, so the reason-grep count is unchanged.
+- A run that takes no shot at all (every requested screen phone-only at the sizes asked for) now fails with exit 2,
+  through the existing top-level FAIL line, so the reason-grep count is unchanged. (An unknown --screens name was
+  already refused by parseArgs.)
 - `audited` is true only once the phone audits actually ran; a phone row whose screen errored reads `n/a`.
 - Header, README and this plan's wording brought into line with the desktop size.
+
+## Review round 3 (sonnet), fixed
+- report.json entries are one shape: skipped entries carry every field a shot row has, and shot rows carry
+  `skipped: null`.
+- The zero-shot refusal is decided before Playwright loads or a board starts, so it is unit-tested:
+  tools.mobile-shots-desktop.test.js (the refusal, plus a control where a planned shot gets past the check and stops
+  at loading Playwright, which the test hides). With the check disabled, the refusal test fails.
+- The console line and report.md agree: both say n/a where the phone audits did not run.
+- My first version of the refusal also claimed "no screen matched --screens"; that cannot happen (parseArgs refuses
+  an unknown screen first), so the claim and its test case are gone.

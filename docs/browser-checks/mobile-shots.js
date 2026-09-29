@@ -62,7 +62,7 @@ const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
-/* The four phone sizes from the #718 plan, plus the App Store size. `dpr` is the
+/* The four phone sizes from the #718 plan, the App Store size, and a desktop size. `dpr` is the
    device's pixel ratio; by default shots are saved at CSS pixels so files stay
    small and every size compares one to one (--scale device for store images). */
 const SIZES = {
@@ -661,12 +661,16 @@ async function fitOf(page) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
+  const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
+  /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
+     any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
   const { chromium, webkit } = require('playwright');
   const engines = { chromium, webkit };
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
-  const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
 
   const board = await startBoard();
   const rows = [];
@@ -683,7 +687,8 @@ async function run() {
           for (const theme of args.themes) {
             for (const sc of screens) {
               if (s.desktop && sc.phoneOnly) {
-                skipped.push({ screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, skipped: 'phone-only screen' });
+                // The same shape as a shot row, so report.json stays one kind of entry.
+                skipped.push({ file: '', screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
                 console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
                 continue;
               }
@@ -764,9 +769,9 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited });
+              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
-                + (s.desktop ? '  phone audits: n/a at desktop'
+                + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
               await ctx.close();
             }
@@ -792,7 +797,7 @@ async function run() {
   }
 
   const md = ['# Mobile screenshots', '',
-    `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.`, '',
+    `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
     `Skipped (phone-only screens at the desktop size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
@@ -801,8 +806,6 @@ async function run() {
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');
   console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors, ${skipped.length} skipped -> ${out}`);
-  /* Nothing attempted is not a pass: every screen skipped at these sizes, or no screen matched --screens. */
-  if (!rows.length) throw new Error('no shot was taken: every requested screen was skipped at these sizes, or no screen matched --screens');
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
