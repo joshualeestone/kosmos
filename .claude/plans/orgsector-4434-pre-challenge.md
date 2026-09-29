@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgsector-4434
-diff_hash: fc370c457f5280c545157788b942a4d48f873a21965057bda6ced77a53d380fb
+diff_hash: 4092d5ca1f6fc4a10345d7594ca360d32059a4c2d2437226e819eb9ad220901d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T03:29:14Z
-iterations: 12
+timestamp: 2026-09-29T07:55:11Z
+iterations: 20
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 12
-**Converged:** Yes. Iteration 10 had no BLOCKER, WARNING or CONVENTION; its NIT edits were re-reviewed (11, opus, 4 WARNINGs, fixed) and iteration 12 converged again.
-**Total findings:** 57 (5 BLOCKERs, 24 WARNINGs, 1 CONVENTION, about 27 NITs; the NIT count for iterations 3 and 7 is from my notes)
-**Fixed:** 28 of the 30 BLOCKER/WARNING/CONVENTION findings | **Deferred (decisions, stated in the PR):** 2 | **Asked (awaiting user):** 0 (the chart-growth trade-off is stated for Josh in the PR, not blocking)
+**Iterations:** 20
+**Converged:** Yes. Iteration 20 (sonnet) found no BLOCKER, WARNING or CONVENTION at bc339ded3. Iterations 10 and 12 had also found none, but code changed after each: a CI failure (render-org-drag) after 12, and review findings in 13 to 19.
+**Total findings:** 7 BLOCKERs, 39 WARNINGs, 2 CONVENTIONs (48, one ledger row each), and about 45 NITs (the NIT count is from my notes).
+**Fixed:** 45 of the 48 BLOCKER/WARNING/CONVENTION findings | **Deferred (decisions, stated in the PR and the plan):** 3 (chart growth twice; a width change whose canvas size is pinned can still move faces by the 48px padding, inside the stated resize exception) | **Asked (awaiting user):** 0
 
-**Final validation:** `validation_log_run_or_skip` PASSED at f8bf3b4ee (hash fc370c457f52, the same diff as this proof): 11488 tests, 11323 pass, 0 fail, 0 cancelled, 165 skipped; subdir audit passed. Browser checks at f8bf3b4ee, behind heavy-gate: render-org-sectors-4434 GREEN (animated and reduced motion, 0 crossings, came to rest), render-org-reduced-motion GREEN (30 flat agents, 0 overlapping pairs, 51px). Merged with origin/main (80 commits ahead, no conflicts) in a scratch worktree, every org-touching test file passed (419/419).
+**Final validation:** `validation_log_run_or_skip` PASSED at bc339ded3 (hash 4092d5ca1f6f, the same diff as this record), run alone behind `heavy-gate --twice --quiet-box` from 07:41:12Z: 11490 tests, 11325 pass, 0 fail, 0 cancelled, 165 skipped; subdir audit passed; the browser-check surface gate exits 0. Browser checks behind heavy-gate at eea0e17bf (same layout and motion code; later commits changed a check, comments and tests): render-org-sectors-4434, render-org-reduced-motion, render-org-drag, render-org-rings-2576, render-orgchart-phone-718 and render-swarm-ui-3564 all green; the failed-poll arm at c0a2b9021: 0.0px, and 330px FAIL with the guard removed.
 
 **Self-generated counts below are by my judgement of which earlier fix a finding traced to, not by the blame lookup.**
 
@@ -123,6 +123,74 @@ converged: true
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0
 - [NIT] after a plain width change a squeezed tree's carried positions land a hair off the placement, so it glides for about one frame instead of being painted still
+(CI's browser-checks then failed render-org-drag on 93f966760: it measured 400ms after release. Fixed in 1c2e1cdbd; it now measures while the node is held.)
+
+#### Iteration 13
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 1
+- [WARNING] a tree turning flat snapped (138 to 1051px) --> FIXED (eab6ebd49, a flat glide; replaced in iteration 15)
+- [WARNING] a same-width canvas size change shifted every face sideways in one paint --> FIXED (eab6ebd49, arithmetic; replaced by a measurement in iteration 15)
+- [NIT] x4 (stale PR/plan wording; reduced motion after a drag release still animates, as on main) --> plan updated
+
+#### Iteration 14
+**Reviewer model:** sonnet
+**New findings:** 1 BLOCKER, 1 WARNING, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 1
+- [BLOCKER] the review record and the PR's full-suite line described f8bf3b4ee, three commits back --> FIXED (this record and the PR body are regenerated at the final head)
+- [WARNING] the wide-chart case of the same-width shift was reasoned, not measured --> FIXED (iteration 15 measures the canvas; on-screen check below)
+- [NIT] x2 (stale counts; one pin, not two) --> fixed in the PR body and plan
+
+#### Iteration 15
+**Reviewer model:** opus
+**New findings:** 1 BLOCKER, 5 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 6 (all from iteration 13's fix)
+- [BLOCKER] a repaint during the flat glide brought back overlapping faces at rest (0px apart) --> FIXED (5eecd3409: the flat glide removed; a tree turning flat is a one-step re-layout, the second stated exception)
+- [WARNING] a press during any glide snapped faces to the box edge (up to ~1180px) --> FIXED (5eecd3409, the soft clamp for trees)
+- [WARNING] the same-width shift missed the scrolling box's 48px padding and the browser's clamped scroll --> FIXED (5eecd3409, paintOrg measures the canvas rect before and after)
+- [WARNING] the flat glide's reduced-motion branch was untested --> FIXED (removed with the glide)
+- [WARNING] a test's last assertion could not see the physics handover --> FIXED (removed with the glide)
+- [WARNING] a drag during the flat glide left the fleet half-converted --> FIXED (removed with the glide)
+- [NIT] x2 (the plan contradicted itself; growth for mostly-flat fleets) --> plan updated
+
+#### Iteration 16
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 0 NITs
+**Self-generated:** 0
+- [WARNING] the plan described the arithmetic model the code no longer used --> FIXED (93902e966)
+- [WARNING] the plan had no it15 history and did not describe the soft clamp --> FIXED (93902e966)
+- [WARNING] a width change whose canvas size the squeeze floor pins can still move faces by the 48px padding --> DEFERRED: inside the stated resize exception, and main does it too
+- [CONVENTION] the plan's counts were stale (31/78, really 32/79) --> FIXED (93902e966)
+
+#### Iteration 17
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 2
+- [WARNING] after a failed poll or an empty board the carry read the emptied map and a recovering tree slid ~250px --> FIXED (eea0e17bf, the carry needs a drawn canvas)
+- [NIT] the soft clamp capped each axis, so a corner body moved 56.6px --> FIXED (eea0e17bf, the whole move is capped)
+- [NIT] focus restore after a repaint can scroll the chart after the carry is measured --> left as main's code (#718), noted in the plan
+
+#### Iteration 18
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 1 NIT
+**Self-generated:** 1
+- [WARNING] the drawn-canvas guard had only a source-text pin --> FIXED (c0a2b9021: render-org-sectors-4434 fails one status poll and samples every face each frame; 0.0px on the branch, 330px with the guard removed)
+- [NIT] the crossing test lives in three places --> decided: independent oracles, noted in the plan
+
+#### Iteration 19
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 1
+- [WARNING] the plan's note on lines passing near faces understated when (from about 25 first-ring agents) --> FIXED (bc339ded3)
+- [WARNING] orgPlace's flat-fleet comment claimed its lines cannot cross; an outer line can lie through an inner face, as on main --> FIXED (bc339ded3, comment corrected; follow-up #4502)
+- [NIT] a soft-clamp fixture outside on y only --> FIXED (bc339ded3)
+- [NIT] x4 (the failed-poll arm's wording, the README row, the trailers' commit, the dead default tree) --> the first two fixed, the last two noted
+
+#### Iteration 20
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
+**Self-generated:** 0
+- [NIT] orgPlanarRepair's shared-end branch uses an absolute tolerance where its sibling scales with length; no failing case at any realistic size (a residual of ~1e-8 at the largest trees, against 1e-6)
 **Converged**: no new actionable findings.
 
 ### Final Ledger
@@ -159,6 +227,24 @@ converged: true
 | 28 | 11 | WARNING | web/index.html orgLiveStart | SELF | reduced-motion placement untested | FIXED | f8bf3b4ee |
 | 29 | 11 | WARNING | web/index.html orgLiveSettle | SELF | dead repair; tests misdescribed | FIXED | f8bf3b4ee |
 | 30 | 11 | WARNING | web/index.html release | SELF | paused glide stalled | FIXED | f8bf3b4ee |
+| 31 | 13 | WARNING | web/index.html paintOrg | SELF | a tree turning flat snapped | FIXED | eab6ebd49, then 5eecd3409 |
+| 32 | 13 | WARNING | web/index.html paintOrg | SELF | same-width size change shifted faces | FIXED | eab6ebd49, then 5eecd3409 |
+| 33 | 14 | BLOCKER | review record / PR body | SELF | evidence described f8bf3b4ee | FIXED | regenerated at the final head |
+| 34 | 14 | WARNING | web/index.html paintOrg | BRANCH | wide-chart shift reasoned, not measured | FIXED | 5eecd3409 |
+| 35 | 15 | BLOCKER | web/index.html orgLiveStart | SELF | mid-glide repaint left faces overlapping | FIXED | 5eecd3409 |
+| 36 | 15 | WARNING | web/index.html orgStep | SELF | a press snapped faces to the box edge | FIXED | 5eecd3409 |
+| 37 | 15 | WARNING | web/index.html paintOrg | SELF | padding and clamped scroll missed | FIXED | 5eecd3409 |
+| 38 | 15 | WARNING | web/index.html orgLiveStart | SELF | flat glide reduced motion untested | FIXED | 5eecd3409 (removed) |
+| 39 | 15 | WARNING | web.org-sectors-4434.test.js | SELF | handover assertion could not fail | FIXED | 5eecd3409 (removed) |
+| 40 | 15 | WARNING | web/index.html release | SELF | drag mid flat glide half-converted | FIXED | 5eecd3409 (removed) |
+| 41 | 16 | WARNING | plan | SELF | described the old arithmetic | FIXED | 93902e966 |
+| 42 | 16 | WARNING | plan | SELF | missing it15 history and soft clamp | FIXED | 93902e966 |
+| 43 | 16 | WARNING | web/index.html paintOrg | BRANCH | pinned-size width change, 48px padding | DEFERRED | resize exception; main does it too |
+| 44 | 16 | CONVENTION | plan | SELF | stale counts | FIXED | 93902e966 |
+| 45 | 17 | WARNING | web/index.html paintOrg | SELF | carry after a failed poll | FIXED | eea0e17bf |
+| 46 | 18 | WARNING | web.org-sectors-4434.test.js | SELF | guard only text-pinned | FIXED | c0a2b9021 (browser arm) |
+| 47 | 19 | WARNING | plan | SELF | lines-near-faces note understated | FIXED | bc339ded3 |
+| 48 | 19 | WARNING | web/index.html orgPlace | SELF | flat comment false | FIXED | bc339ded3 |
 
 Also found by me between iterations (not a reviewer): a squeezed tree replayed the same crossing and snap on every repaint (40 of 1200 cases); fixed in 5c3505024 and later subsumed by the at-placement rule.
 
