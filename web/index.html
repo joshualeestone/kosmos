@@ -2252,6 +2252,10 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .sortctl select:hover { color: var(--label); border-color: var(--label-2); }
 .sortctl select:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 .sortctl-i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+/* #4662: iOS zooms into a field under 16px and does not zoom back (the same reason as the project page's one
+   field rule, #718), and the Agents board's Sort was 13px: tapping it left the board zoomed and panning sideways.
+   A touchscreen only; the line height is held so the control keeps its box. */
+@media (hover: none) { #agent-sort { font-size: 16px; line-height: 1.2; } }
 .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .stat { display: flex; align-items: center; gap: 9px;
         border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);

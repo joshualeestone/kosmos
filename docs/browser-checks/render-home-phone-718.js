@@ -138,6 +138,11 @@ function emptySpot(page, sel) {
             const bh = await btn.evaluate((b) => Math.round(b.getBoundingClientRect().height * 10) / 10);
             chk(bh >= 44, `${tag} "Set them to start at login" is at least 44px tall`, `${bh}px`);
           }
+          // #4662: iOS zooms into a focused field under 16px and does not zoom back; the Sort dropdown was 13px.
+          const sort = await page.evaluate(() => { const e = document.getElementById('agent-sort'); if (!e) return null;
+            const r = e.getBoundingClientRect(); return { px: parseFloat(getComputedStyle(e).fontSize), h: Math.round(r.height) }; });
+          chk(!!sort && sort.px >= 16, `${tag} #4662: the Sort dropdown is at least 16px, so focusing it does not zoom an iPhone`, JSON.stringify(sort));
+          chk(!!sort && sort.h <= 40, `${tag} #4662: the Sort dropdown keeps its compact box`, JSON.stringify(sort));
           for (const [layout, sel, what] of [['grid', '#grid .acard[data-agent="ada"]', 'card'], ['list', '#alist .lrow[data-agent="ada"]', 'row']]) {
             await home(page, URL, layout);
             const pageW = await page.evaluate(() => document.documentElement.scrollWidth);
@@ -172,6 +177,8 @@ function emptySpot(page, sel) {
             await t.evaluate((n) => n.remove());
           }
           chk(bh !== null && bh === bare, `${tag} "Set them to start at login" keeps its desktop height`, `${bh}px drawn, ${bare}px with no min-height`);
+          const dsort = await page.evaluate(() => { const e = document.getElementById('agent-sort'); return e ? parseFloat(getComputedStyle(e).fontSize) : null; });
+          chk(dsort !== null && dsort < 16, `${tag} CONTROL: the Sort dropdown keeps its desktop size (the touchscreen rule does not reach it)`, String(dsort));
           await ctx.close();
         }
       } finally {
