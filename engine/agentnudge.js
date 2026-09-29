@@ -159,7 +159,7 @@ function sweepOnce(o) {
         if (mayHaveReached) sent.push(now);
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because, task: p.part.n });
         // Logged when it may have reached the pane, on the first try, and when given up on (firstreply-nudge's rule).
-      if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because + ' (task #' + p.part.n + ')' });
+        if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because + ' (task #' + p.part.n + ')' });
       } catch (err) {
         results.push({ session, name: display, act: 'error', because: String((err && err.message) || err) });
       }

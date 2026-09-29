@@ -415,3 +415,56 @@ test('a stall that closed while the nudge was off still frees its agent, so the 
     assert.equal(book.has(k), false, 'the closed stall kept its entry while the nudge was off');
   } finally { w.restore(); }
 });
+
+test('a delivery that may have reached the pane (UNCONFIRMED) is never typed again in the same stall', () => {
+  const w = world([{ name: 'unconf' }]);
+  try {
+    taskOn(w, w.key.unconf, 'a task');
+    const book = new Map();
+    const hb = stalled(w.cards);
+    let total = 0;
+    for (let i = 0; i < nudge.MAX_TRIES + 2; i += 1) total += pass(w, { book, hb, state: DELIVERY.UNCONFIRMED }).calls.length;
+    assert.equal(total, 1, 'an UNCONFIRMED nudge was typed again');
+  } finally { w.restore(); }
+});
+
+test('a delivery that throws is retried like COULD_NOT, capped at MAX_TRIES, and the pass goes on to the next agent', () => {
+  const w = world([{ name: 'throwsa' }, { name: 'throwsb' }]);
+  try {
+    for (const k of Object.values(w.key)) taskOn(w, k, 'a task');
+    const book = new Map();
+    const hb = stalled(w.cards);
+    const tries = { [w.key.throwsa]: 0, [w.key.throwsb]: 0 };
+    for (let i = 0; i < nudge.MAX_TRIES + 2; i += 1) {
+      nudge.sweepOnce({
+        toAsk: hb.toAsk, next: hb.next, roster: w.cards, projects: projects.readAll(), book, sent: [],
+        now: Date.now() + INTERVAL + 1000, intervalMs: INTERVAL, limit: { on: false },
+        deliver: (session) => { tries[session] += 1; if (session === w.key.throwsa) throw new Error('pane gone'); return { state: DELIVERY.PLACED }; },
+        DELIVERY,
+      });
+    }
+    assert.equal(tries[w.key.throwsa], nudge.MAX_TRIES, 'a throwing delivery was not capped at MAX_TRIES');
+    assert.equal(tries[w.key.throwsb], 1, 'the other agent was not nudged exactly once despite the throw');
+  } finally { w.restore(); }
+});
+
+test('back off when the agent reports it is waiting (blocked): not nudged while blocked, nudged at its next idle stall', () => {
+  const w = world([{ name: 'waiting' }]);
+  try {
+    const k = w.key.waiting;
+    taskOn(w, k, 'a task');
+    const book = new Map();
+    const first = pass(w, { book });
+    assert.equal(first.calls.length, 1, 'fixture: the first stall is nudged');
+    // It reports blocked: the Prompter closes the stall, so it is not asked and the book lets it go.
+    const blockedCards = w.cards.map((c) => (c.sessionName === k ? { ...c, state: 'blocked' } : c));
+    const blocked = heartbeat.step(first.hb.next, blockedCards, true);
+    assert.equal(blocked.toAsk.some((x) => x.session === k), false, 'fixture: the Prompter must not ask about a blocked agent');
+    assert.equal(pass({ ...w, cards: blockedCards }, { book, hb: blocked }).calls.length, 0, 'nudged while blocked');
+    assert.equal(book.has(k), false, 'the book kept the stall the agent closed by reporting blocked');
+    // Back to idle: a new stall opens after the Prompter's persistent-stall wait, and it is nudged once.
+    let hb = blocked;
+    for (let i = 0; i < heartbeat.STARTUP_STALL_TICKS; i += 1) hb = heartbeat.step(hb.next, w.cards, true);
+    assert.equal(pass(w, { book, hb }).calls.length, 1, 'the next idle stall after blocked was not nudged');
+  } finally { w.restore(); }
+});

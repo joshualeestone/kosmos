@@ -116,3 +116,12 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
   builds an agent card or a roster row by hand": web.prompter-nudges-3508.test.js hand-built LAST as
   [{ sessionName: 'amara-singh' }]. Fixed: the click test takes its LAST from test-support/fleet (a real card) in a
   sandboxed data root. fixture-discipline 20 pass, the web test 11. Loop resumes with one more blind round (6j rule).
+### Iteration 7 (opus), after the final-validation fix
+- WARNING fixed: tests for a delivery that may have reached the pane (UNCONFIRMED: never typed again; narrowing it to
+  PLACED now reds a test) and for a delivery that throws (retried like COULD_NOT, capped, the pass goes on).
+- WARNING fixed: the card's "back off when the agent says it is waiting" now has a test: blocked closes the stall,
+  no nudge while blocked, one nudge at the next idle stall.
+- WARNING duplicate: the restart re-nudge (named limit); for the PR body, with the release-frequency note.
+- NIT fixed: the hint no longer says "each one" (signed-out agents are listed, never messaged): "It can remind the
+  ones with tasks to pick their work back up"; the test pins it. A mis-indented line fixed.
+- NITs declined: held nudges not in results; the lazy requires; the pre-change control stays a one-time measurement.
