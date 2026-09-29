@@ -200,8 +200,9 @@ test('#1674: --help and -h on every verb and subcommand print that verb\'s usage
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.claude', 'test-support']);
 /* #4478: other test files run BESIDE this one and make throwaway files in the tree (server.test.js's
    `.probe-freshness-<pid>/x.js`, #4408), so a folder or file listed here can be gone by the time it is
-   read. Gone is skipped: a file that no longer exists teaches nobody a verb. Only ENOENT; anything
-   else (a permission error, a read of the wrong thing) still fails the test. */
+   read. Gone is skipped: a file that no longer exists teaches nobody a verb (a symlink whose target is
+   missing reads as gone too, for the same reason). Only ENOENT; anything else (a permission error, an
+   EISDIR from reading a folder as a file) still fails the test. */
 const gone = (e) => Boolean(e && e.code === 'ENOENT');
 function listIfThere(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (gone(e)) return []; throw e; }
@@ -237,6 +238,17 @@ function taught(text, where, opts) {
   return found;
 }
 
+/* What every listed file teaches. The whole-tree test and the #4478 race test both go through THIS loop,
+   so the race test covers the scan's own read, not only the helpers (review round 1). */
+function taughtIn(files, root) {
+  const uses = [];
+  for (const f of files) {
+    const text = readIfThere(f);
+    if (text !== null) uses.push(...taught(text, path.relative(root, f)));
+  }
+  return uses;
+}
+
 const REQUIRED = macSubcommandRequired(MAC_CLI);
 function problemsWith(use) {
   if (!WIN_VERBS.includes(use.verb)) {
@@ -252,10 +264,7 @@ function problemsWith(use) {
 
 test('every kosmos verb and subcommand named anywhere in the tree is one the Windows command has (or a person-only board verb)', () => {
   const uses = [];
-  for (const f of sourceFiles(REPO, [])) {
-    const text = readIfThere(f);
-    if (text !== null) uses.push(...taught(text, path.relative(REPO, f)));
-  }
+  uses.push(...taughtIn(sourceFiles(REPO, []), REPO));
   assert.ok(uses.some((u) => u.verb === 'task' && u.word === 'message'), 'the scan did not see server.js\'s task notification; it is not reading what it claims to');
   assert.ok(uses.some((u) => u.verb === 'task' && u.word === 'add' && u.where.includes('projects.js')), 'the scan did not see the `${cliShown} task add` line');
   assert.deepEqual(uses.map(problemsWith).filter(Boolean), []);
@@ -269,6 +278,11 @@ test('#4478: a folder or file removed between the listing and the read is skippe
   assert.deepEqual(listed.map((f) => path.relative(tmp, f)), [path.join('sub', 'x.js')], 'CONTROL: the file is listed while it exists');
   fs.rmSync(path.join(tmp, 'sub'), { recursive: true, force: true });   // what server.test.js does beside this file
   assert.equal(readIfThere(listed[0]), null, 'a file gone before its read must be skipped, not throw');
+  /* Through the scan's own loop: a vanished file among real ones is skipped and the real ones are still read. */
+  const kept = path.join(tmp, 'kept.js');
+  fs.writeFileSync(kept, '// kosmos msg\n');
+  const uses = taughtIn([listed[0], kept], tmp);
+  assert.deepEqual(uses.map((u) => u.where + ':' + u.verb), ['kept.js:msg'], 'the scan loop did not skip the vanished file, or did not read the one that exists');
   assert.deepEqual(sourceFiles(path.join(tmp, 'sub'), []), [], 'a folder gone before its walk must be skipped, not throw');
   /* Not every error is "gone": reading a folder as a file is EISDIR, and that still fails. */
   assert.throws(() => readIfThere(tmp), (e) => e.code === 'EISDIR');

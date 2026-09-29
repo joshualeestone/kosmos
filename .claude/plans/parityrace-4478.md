@@ -20,3 +20,10 @@ That skipping a vanished file can never hide a real teaching. It can only be ski
 ## Tests
 - tools.windows-kosmos-cli-verbs-parity.test.js: 11 tests pass (was 10).
 - Mutants, each red: no guard on the folder walk; no guard on the read; every error counted as gone.
+
+## Review round 1 (sonnet, blind): 0 BLOCKERs, 1 WARNING, 3 NITs
+- **WARNING** The race test called the helpers directly, so the scan loop's own read was untested: putting fs.readFileSync back in the loop would stay green. Fixed: the loop is `taughtIn(files, root)`, used by both the whole-tree test and the race test, which passes a vanished file beside a real one. Mutant (a plain read back in the loop): red.
+- **NIT** A dangling symlink reads as gone and is skipped. Said in the comment (harmless: it teaches nothing).
+- **NIT** EISDIR/ENOTDIR from a path replaced by another type are not skipped. KEPT deliberately: only "gone" is skipped.
+- **NIT** "a read of the wrong thing" was vague. It now names EISDIR.
+- Confirmed: `e.isDirectory()` reads the listing's d_type and makes no new call, so the walk has no third vanish point. The coverage asserts still prove the scan reads real content.
